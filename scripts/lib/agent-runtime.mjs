@@ -10,7 +10,7 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { existsSync } from 'node:fs';
-import { resolve as resolvePath, join } from 'node:path';
+import { resolve as resolvePath, join, delimiter } from 'node:path';
 
 /** Default binary name. Override via env `AGY_BIN`. */
 export const DEFAULT_AGY_BIN = 'agy';
@@ -22,24 +22,44 @@ const AUTH_LINE_PATTERNS = [
 ];
 const AUTH_URL_PATTERN = /(https?:\/\/accounts\.google\.com\/o\/oauth2\/auth\S+)/;
 
+/** Candidate executable names to try in each PATH/home dir, by platform. */
+function candidateNames(platform) {
+  return platform === 'win32' ? ['agy.exe', 'agy.cmd', DEFAULT_AGY_BIN] : [DEFAULT_AGY_BIN];
+}
+
 /**
  * Resolve the `agy` binary path.
  *
- * Order: `$AGY_BIN` → first `agy` on `PATH` → `~/.local/bin/agy`.
+ * Order: `$AGY_BIN` → first `agy` on `PATH` → `~/.local/bin/agy` → bare
+ * `agy` (left for the shell / PATH lookup at spawn time).
+ *
+ * On win32, `PATH`/`Path` is split on `path.delimiter` (`;`, not POSIX `:`)
+ * and each directory is probed for `agy.exe`, `agy.cmd`, then bare `agy`
+ * (covers native installs, npm shims, and MSYS-style installs). The home
+ * fallback checks `HOME` then `USERPROFILE`, since `HOME` is frequently
+ * unset in native Windows shells.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {string} [platform] - defaults to `process.platform`; injectable for tests.
  */
-export function resolveAgyBin(env = process.env) {
+export function resolveAgyBin(env = process.env, platform = process.platform) {
   if (env.AGY_BIN && existsSync(env.AGY_BIN)) return env.AGY_BIN;
 
+  const names = candidateNames(platform);
   const PATH = env.PATH || env.Path || '';
-  for (const dir of PATH.split(':').filter(Boolean)) {
-    const candidate = join(dir, DEFAULT_AGY_BIN);
-    if (existsSync(candidate)) return candidate;
+  for (const dir of PATH.split(delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
   }
 
-  const home = env.HOME;
+  const home = env.HOME || env.USERPROFILE;
   if (home) {
-    const candidate = join(home, '.local', 'bin', DEFAULT_AGY_BIN);
-    if (existsSync(candidate)) return candidate;
+    for (const name of names) {
+      const candidate = join(home, '.local', 'bin', name);
+      if (existsSync(candidate)) return candidate;
+    }
   }
 
   return DEFAULT_AGY_BIN;
@@ -78,6 +98,10 @@ export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000 } = {})
  *   - `continue` — `agy --continue --print <prompt>`
  *   - `conversation` — `agy --conversation <id> --print <prompt>`
  *
+ * `model`, if given, pushes `--model <id>` before `--print`. `extraArgs`, if
+ * given, is appended (in order) after `--model` and before `--print`. Both
+ * are optional and non-breaking — omitting them reproduces prior behavior.
+ *
  * Returns `{ status, stdout, stderr, exitCode, oauthUrl? }`. `status` is one
  * of `completed`, `failed`, `auth_required`, `cancelled`, `timeout`.
  */
@@ -87,6 +111,8 @@ export async function runAgyPrint({
   conversationId,
   cwd = process.cwd(),
   addDirs = [],
+  model,
+  extraArgs = [],
   timeoutMs = 0,
   bin = resolveAgyBin(),
   env = process.env,
@@ -104,6 +130,8 @@ export async function runAgyPrint({
     args.push('--conversation', conversationId);
   }
   for (const dir of addDirs) args.push('--add-dir', dir);
+  if (model) args.push('--model', model);
+  args.push(...extraArgs);
   args.push('--print', prompt);
 
   const child = spawn(bin, args, {
@@ -178,6 +206,8 @@ export function spawnAgyDetached({
   conversationId,
   cwd = process.cwd(),
   addDirs = [],
+  model,
+  extraArgs = [],
   bin = resolveAgyBin(),
   env = process.env,
   stdout = 'pipe',
@@ -190,6 +220,8 @@ export function spawnAgyDetached({
     args.push('--conversation', conversationId);
   }
   for (const dir of addDirs) args.push('--add-dir', dir);
+  if (model) args.push('--model', model);
+  args.push(...extraArgs);
   args.push('--print', prompt);
 
   return spawn(bin, args, {
