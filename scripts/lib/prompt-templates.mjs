@@ -74,6 +74,45 @@ export function buildReviewPrompt(contextEnvelope) {
 }
 
 /**
+ * Build the vision prompt for `/antigravity:vision`.
+ *
+ * agy `--print` has no native image ingestion path (see vision-server.mjs
+ * header). The only proven channel is an MCP tool call whose result carries
+ * an image content block, so this prompt explicitly instructs the model to
+ * call the `view_image` MCP tool for every listed path before answering.
+ *
+ * @param {{ imagePaths: string[], userPrompt: string }} args
+ * @returns {string}
+ */
+export function buildVisionPrompt({ imagePaths, userPrompt }) {
+  const lines = [];
+  lines.push("You have an MCP tool named `view_image` that loads an image file from disk");
+  lines.push("and returns it as real visual image content you can see.");
+  lines.push("");
+  lines.push(`Call \`view_image\` once for EACH of the following ${imagePaths.length} image path(s), in order:`);
+  for (const p of imagePaths) {
+    lines.push(`- ${p}`);
+  }
+  lines.push("");
+  lines.push("After you have called the tool for every path above and can see the returned images,");
+  lines.push("answer the following question with concrete visual observations only — describe what");
+  lines.push("you actually see (layout, elements, colors, text, anything unusual). Do not guess or");
+  lines.push("infer content you have not seen.");
+  lines.push("");
+  lines.push("## Question");
+  lines.push(userPrompt);
+  lines.push("");
+  lines.push("## Contract");
+  lines.push(
+    "If any `view_image` call returns no actual visual content, errors, or the tool is unavailable, " +
+      "do NOT guess or answer from the file path/name alone. Instead reply with EXACTLY one line, " +
+      "no other text:",
+  );
+  lines.push("VISION-UNAVAILABLE: <one-line reason>");
+  return lines.join("\n");
+}
+
+/**
  * Build the rescue prompt — passes the user prompt through verbatim with a
  * lightweight system preamble. agy already has its own system prompt; we add
  * just enough to set the tone.

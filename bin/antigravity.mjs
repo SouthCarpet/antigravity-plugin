@@ -13,16 +13,17 @@ const SCRIPT_ROOT = process.env.ANTIGRAVITY_SCRIPT_ROOT
   : resolve(ROOT, 'scripts', 'commands');
 
 const INSTALL_URL = 'https://antigravity.google/download';
-const KNOWN = ['setup', 'review', 'rescue', 'task', 'status', 'result', 'cancel'];
+const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel'];
 // Commands that shell out to `agy`. status/result/cancel only read disk state.
-const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task']);
+const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
 const COMMAND_HELP = {
   setup:
     'antigravity-plugin setup — one-time OAuth wizard.\n\n' +
-    'Usage: antigravity-plugin setup\n\n' +
+    'Usage: antigravity-plugin setup [--skip-vision]\n\n' +
     'Runs `agy --print` once so the OAuth URL surfaces. Idempotent.\n' +
+    'Also registers the vision MCP server + permissions (skip with --skip-vision).\n' +
     'Exits non-zero if `agy` is not on PATH.',
   review:
     'antigravity-plugin review — review uncommitted changes or a branch diff.\n\n' +
@@ -56,6 +57,16 @@ const COMMAND_HELP = {
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
     '  --json                  emit JSON\n' +
     '  --cwd <path>            override working directory',
+  vision:
+    'antigravity-plugin vision — ask agy to look at one or more images.\n\n' +
+    'Usage: antigravity-plugin vision <image-path> [<image-path>...] [flags]\n\n' +
+    'Flags:\n' +
+    '  --prompt <text>         question to ask about the image(s)\n' +
+    '  --model <id>            agy model id (default gemini-3.6-flash-high)\n' +
+    '  --json                  emit JSON instead of markdown\n' +
+    '  --cwd <path>            override working directory\n\n' +
+    'Foreground only — no --background/--wait. Requires `setup` to have\n' +
+    'registered the vision MCP server (skip with `setup --skip-vision`).',
   status:
     'antigravity-plugin status — list active/recent jobs or inspect one.\n\n' +
     'Usage: antigravity-plugin status [<job-id>] [flags]\n\n' +
@@ -215,6 +226,7 @@ function printHelp(stream = process.stdout) {
     '  review     Review uncommitted changes (--base <ref> for a branch diff)',
     '  rescue     Hand a task off to agy (investigate, fix, refactor, ...)',
     '  task       Free-form prompt with state tracking',
+    '  vision     Ask agy to look at one or more images',
     '  status     List active/recent delegation jobs',
     '  result     Fetch the result of a finished job',
     '  cancel     Cancel a running job',
