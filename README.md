@@ -101,6 +101,12 @@ if you don't want it). If the MCP channel isn't available for any reason, agy
 is instructed to reply with `VISION-UNAVAILABLE: <reason>` rather than guess
 from the file name — treat that line as a health signal, not a real answer.
 
+> **Known issue:** invoking the command with a SINGLE argument whose path
+> contains a **space** (e.g. `/antigravity:vision "C:\Program Files\shot.png"`
+> with nothing else) still mis-parses the path. Workaround until fixed: add
+> any second token (`--prompt "..."` or a second image), or use a space-free
+> path. Space-free single paths and all multi-argument invocations work.
+
 ## Documentation
 
 - [Installation](./docs/INSTALL.md) — per-host setup recipes
