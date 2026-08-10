@@ -25,6 +25,7 @@ All verbs map to `scripts/commands/<verb>.mjs` and are byte-equivalent across Cl
 | `review` | Reviews the current git diff (or `--base <ref>`). Background-by-default; returns a job id. |
 | `rescue` | Delegates an investigation or fix to agy — e.g. `$antigravity rescue why are the tests failing`. Returns a job id. |
 | `task`   | Generic long-running delegation. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--wait`, `--foreground`, `--json`. |
+| `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
 | `status` | Shows a compact table of current and recent jobs (id, kind, phase, health, last progress). Surfaces any pending OAuth URL prominently. |
 | `result` | Prints the final output of a completed job by id. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
@@ -39,12 +40,15 @@ agy 1.0.x is **OAuth-only** — there is no API-key path yet (tracked upstream a
 
 If a background worker hits the auth prompt (e.g. a fresh machine), it captures the OAuth URL and surfaces it on `$antigravity status <job-id>` so you can still complete auth from a non-interactive session.
 
+`setup` also registers the **vision MCP server + permissions** `$antigravity vision` needs — `agy --print` has no native image ingestion path, so image questions only get real visual answers once `setup` has written `~/.gemini/config/mcp_config.json` (`mcpServers.vision`) and `~/.gemini/antigravity-cli/settings.json` (`permissions.allow` including `read_file(*)`, `view_image(*)`, `mcp(*)`). Pass `setup --skip-vision` to opt out.
+
 ## Example prompts
 
 ```
 $antigravity review --base main
 $antigravity rescue investigate why the integration tests started failing after PR #42
 $antigravity task --continue draft a migration plan from Sequelize to Drizzle
+$antigravity vision ./screenshot.png --prompt "does this chart render the values 3, 5, 8?"
 $antigravity status
 $antigravity result 0193e2c9-...
 ```

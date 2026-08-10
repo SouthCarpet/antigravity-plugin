@@ -69,7 +69,7 @@ under the `plugins[]` array, pointing `source.path` at your local clone:
 ```
 
 Restart Codex; the plugin is available under `$antigravity`. Verbs:
-`setup`, `review`, `rescue`, `task`, `status`, `result`, `cancel`.
+`setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`.
 
 ## agy itself
 

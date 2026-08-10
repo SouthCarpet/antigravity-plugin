@@ -9,7 +9,7 @@ for free / personal users.
 
 ## Status
 
-> **Pre-release (v0.1.0).** Active development. Expect breaking changes until
+> **Pre-release (v0.2.0).** Active development. Expect breaking changes until
 > v1.0.0. See [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## What it does
@@ -18,6 +18,8 @@ Spawns `agy --print` (or `--continue` / `--conversation <id>`) from inside your
 preferred AI host so you can:
 
 - Get a code review of your uncommitted changes or a branch diff.
+- Ask agy to look at an image (screenshot, chart, diagram) via a local MCP
+  vision channel — see [Vision](#vision) below.
 - Delegate a fix, investigation, or refactor without leaving your current host.
 - Run multiple delegations in parallel with background job tracking.
 
@@ -52,6 +54,43 @@ claude plugin install antigravity@sakibsadmanshajib
 /antigravity:review
 /antigravity:rescue investigate why the tests started failing
 ```
+
+## Vision
+
+`agy --print` (headless print mode) has **no native image ingestion path**: its
+`read_file` tool feeds file bytes to the model as text, `@file` prompt syntax
+does not create image parts, there is no CLI attachment flag, and the internal
+send-message call goes out with `media=0`. Ask it to "look at" a screenshot
+and it will politely tell you it cannot see images.
+
+The one channel that DOES deliver real pixels in `--print` mode is an MCP
+tool call whose result contains an MCP image content block
+(`{ type: "image", data: <base64>, mimeType }`). `/antigravity:setup`
+registers a small local MCP server (`scripts/mcp/vision-server.mjs`) that
+exposes a `view_image` tool for exactly this, and `/antigravity:vision`
+builds a prompt that instructs agy to call that tool for each image you give
+it before answering.
+
+```bash
+# one-time (also runs your normal OAuth setup)
+/antigravity:setup
+
+# describe a screenshot
+/antigravity:vision ./screenshot.png
+
+# ask a specific question
+/antigravity:vision ./chart.png --prompt "does this chart render the values 3, 5, 8?"
+
+# compare two images
+/antigravity:vision before.png after.png --prompt "what changed between these two?"
+```
+
+Supported formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, up to 10 MB each.
+`/antigravity:vision` is foreground-only (no `--background`) and requires
+`/antigravity:setup` to have run at least once (skip with `setup --skip-vision`
+if you don't want it). If the MCP channel isn't available for any reason, agy
+is instructed to reply with `VISION-UNAVAILABLE: <reason>` rather than guess
+from the file name — treat that line as a health signal, not a real answer.
 
 ## Documentation
 
