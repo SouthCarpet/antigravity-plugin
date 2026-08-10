@@ -1,11 +1,11 @@
 {
   "name": "antigravity",
   "version": "0.2.0",
-  "description": "Delegate tasks and code reviews to Google Antigravity CLI (agy) from Claude Code, Codex CLI, or any ACP-free host.",
+  "description": "Delegate tasks, code reviews and image analysis (Gemini vision via bundled MCP image server) to Google Antigravity CLI (agy) from Claude Code, Codex CLI, or any ACP-free host. Maintained fork of sakibsadmanshajib/antigravity-plugin.",
   "author": {
-    "name": "Sakib Sadman Shajib",
-    "url": "https://github.com/sakibsadmanshajib"
+    "name": "Sakib Sadman Shajib (original author); fork maintained by SouthCarpet",
+    "url": "https://github.com/SouthCarpet/antigravity-plugin"
   },
   "license": "MIT",
-  "homepage": "https://github.com/sakibsadmanshajib/antigravity-plugin"
+  "homepage": "https://github.com/SouthCarpet/antigravity-plugin"
 }

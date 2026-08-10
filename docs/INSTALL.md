@@ -18,8 +18,8 @@ that matches your workflow.
 ## Claude Code
 
 ```bash
-claude plugin marketplace add sakibsadmanshajib/antigravity-plugin
-claude plugin install antigravity@sakibsadmanshajib
+claude plugin marketplace add SouthCarpet/antigravity-plugin
+claude plugin install antigravity@antigravity
 # inside Claude Code:
 /antigravity:setup
 ```
@@ -37,7 +37,7 @@ plugins are registered through a marketplace descriptor at either
 ### Option A — `codex plugin marketplace add` (recommended)
 
 ```bash
-git clone https://github.com/sakibsadmanshajib/antigravity-plugin.git ~/code/antigravity-plugin
+git clone https://github.com/SouthCarpet/antigravity-plugin.git ~/code/antigravity-plugin
 codex plugin marketplace add ~/code/antigravity-plugin
 # the local marketplace is the repo's .agents/plugins/marketplace.json
 codex plugin marketplace list                    # confirm it shows up
@@ -75,7 +75,7 @@ Restart Codex; the plugin is available under `$antigravity`. Verbs:
 
 ```bash
 # either install from the marketplace
-agy plugin install antigravity@sakibsadmanshajib
+agy plugin install antigravity@antigravity
 
 # or, if you already have it as a Claude Code plugin, import it
 agy plugin import claude
@@ -121,6 +121,6 @@ calls reuse the cached token. The plugin's `/antigravity:setup` (or
 ### `agy plugin install` syntax
 
 `agy plugin install <name>@<marketplace>` — same as Claude Code. Use the
-marketplace short name (`sakibsadmanshajib`) once the marketplace has been
+marketplace short name (`antigravity`) once the marketplace has been
 registered, or `agy plugin import claude` to pull from your local Claude Code
 install.

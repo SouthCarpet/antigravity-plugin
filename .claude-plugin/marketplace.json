@@ -1,19 +1,19 @@
 {
   "name": "antigravity",
   "owner": {
-    "name": "Sakib Sadman Shajib"
+    "name": "SouthCarpet"
   },
   "metadata": {
-    "description": "Antigravity plugins to use in Claude Code for delegation and code review via agy.",
-    "version": "0.1.0"
+    "description": "Antigravity plugin for Claude Code: delegation, code review and Gemini vision (image analysis) via agy. Maintained fork of sakibsadmanshajib/antigravity-plugin.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "antigravity",
-      "description": "Use Google Antigravity (agy) from Claude Code to review code or delegate tasks.",
-      "version": "0.1.0",
+      "description": "Use Google Antigravity (agy) from Claude Code to review code, delegate tasks, and analyze images (screenshots, charts) with Gemini vision.",
+      "version": "0.2.0",
       "author": {
-        "name": "Sakib Sadman Shajib"
+        "name": "Sakib Sadman Shajib (original author); fork maintained by SouthCarpet"
       },
       "source": "."
     }

@@ -3,6 +3,15 @@
 Multi-host plugin for delegating tasks and code reviews to
 [Google Antigravity CLI (`agy`)](https://antigravity.google).
 
+> **This is a maintained fork** of
+> [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin)
+> (credit to the original author for the plugin architecture). The fork is
+> currently **functional against Antigravity CLI 1.1.x — including image
+> analysis**: it adds a working vision channel (`/antigravity:vision`, MCP
+> image server), headless permission setup for agy's auto-deny print mode,
+> and Windows binary-resolution fixes. See [`CHANGELOG.md`](./CHANGELOG.md)
+> for the full delta.
+
 Replaces [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc),
 which is archived because Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
 for free / personal users.
@@ -27,10 +36,10 @@ preferred AI host so you can:
 
 | Host             | Install command                                                    |
 |------------------|--------------------------------------------------------------------|
-| Claude Code      | `claude plugin install antigravity@sakibsadmanshajib`              |
+| Claude Code      | `claude plugin marketplace add SouthCarpet/antigravity-plugin` then `claude plugin install antigravity@antigravity` |
 | Codex CLI        | `codex plugin marketplace add <path-to-clone>` then `$antigravity setup` (see [docs/INSTALL.md](./docs/INSTALL.md)) |
-| Antigravity (agy)| `agy plugin install antigravity@sakibsadmanshajib`                 |
-| Standalone       | `npx antigravity-plugin <command>`                                 |
+| Antigravity (agy)| `agy plugin install` from a local clone of this fork               |
+| Standalone       | `npx antigravity-plugin <command>` (upstream npm name; from this fork prefer `node bin/antigravity.mjs <command>`) |
 
 ## Requirements
 
@@ -41,11 +50,11 @@ preferred AI host so you can:
 ## Quick start (Claude Code)
 
 ```bash
-# 1. add the marketplace
-claude plugin marketplace add sakibsadmanshajib/antigravity-plugin
+# 1. add the marketplace (this fork)
+claude plugin marketplace add SouthCarpet/antigravity-plugin
 
 # 2. install
-claude plugin install antigravity@sakibsadmanshajib
+claude plugin install antigravity@antigravity
 
 # 3. one-time auth
 /antigravity:setup

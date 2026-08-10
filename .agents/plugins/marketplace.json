@@ -4,8 +4,8 @@
     "displayName": "Antigravity"
   },
   "metadata": {
-    "description": "Multi-host plugin for delegating tasks and code reviews to Google Antigravity CLI (agy). Drop-in replacement for the deprecated gemini-cli plugin surface.",
-    "version": "0.1.0"
+    "description": "Multi-host plugin for delegating tasks, code reviews and Gemini vision (image analysis) to Google Antigravity CLI (agy). Maintained fork of sakibsadmanshajib/antigravity-plugin.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
@@ -21,9 +21,9 @@
       "category": "Productivity",
       "interface": {
         "displayName": "Antigravity (agy)",
-        "shortDescription": "Hand off code review, debugging, and long-running tasks to Google Antigravity CLI (agy).",
-        "developerName": "Sakib Sadman Shajib",
-        "websiteURL": "https://github.com/sakibsadmanshajib/antigravity-plugin"
+        "shortDescription": "Hand off code review, debugging, long-running tasks and image analysis to Google Antigravity CLI (agy).",
+        "developerName": "Sakib Sadman Shajib (original author); fork maintained by SouthCarpet",
+        "websiteURL": "https://github.com/SouthCarpet/antigravity-plugin"
       }
     }
   ]

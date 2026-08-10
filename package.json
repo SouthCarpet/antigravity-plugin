@@ -16,11 +16,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sakibsadmanshajib/antigravity-plugin.git"
+    "url": "https://github.com/SouthCarpet/antigravity-plugin.git"
   },
-  "homepage": "https://github.com/sakibsadmanshajib/antigravity-plugin#readme",
+  "homepage": "https://github.com/SouthCarpet/antigravity-plugin#readme",
   "bugs": {
-    "url": "https://github.com/sakibsadmanshajib/antigravity-plugin/issues"
+    "url": "https://github.com/SouthCarpet/antigravity-plugin/issues"
   },
   "keywords": [
     "antigravity",

@@ -235,7 +235,7 @@ function printHelp(stream = process.stdout) {
     'Env: AGY_BIN, ANTIGRAVITY_SCRIPT_ROOT (testing only)',
     '',
     `Install agy: ${INSTALL_URL}`,
-    'Docs:        https://github.com/sakibsadmanshajib/antigravity-plugin',
+    'Docs:        https://github.com/SouthCarpet/antigravity-plugin',
     '',
   ].join('\n'));
 }

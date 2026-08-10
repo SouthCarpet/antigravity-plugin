@@ -66,7 +66,7 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
   - Claude Code (`.claude-plugin/plugin.json` + `marketplace.json`).
   - Codex CLI (`.codex-plugin/plugin.json`).
   - agy itself (`plugin.json` at root — importable via `agy plugin import claude`
-    or installable via `agy plugin install antigravity@sakibsadmanshajib`).
+    or installable via `agy plugin install antigravity@antigravity`).
   - Standalone CLI (`npx antigravity-plugin`).
 - `/antigravity:setup` interactive auth wizard; background workers also surface
   the OAuth URL via `/antigravity:status` for re-auth flows.
@@ -83,6 +83,6 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/sakibsadmanshajib/antigravity-plugin/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/sakibsadmanshajib/antigravity-plugin/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/sakibsadmanshajib/antigravity-plugin/releases/tag/v0.1.0
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.1.0
