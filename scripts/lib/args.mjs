@@ -132,8 +132,11 @@ export function parseCommandInput(argv, schema = {}) {
       return [];
     }
 
+    // A lone token with no whitespace cannot need splitting — passing it
+    // through splitRawArgumentString would eat backslashes as escapes and
+    // corrupt Windows paths (e.g. `vision C:\shots\a.png`).
     const hasRawOptionBoundary = /\s/.test(arg) && /(^|\s)--\S/.test(arg);
-    if (argv.length === 1 || hasRawOptionBoundary) {
+    if ((argv.length === 1 && /\s/.test(arg)) || hasRawOptionBoundary) {
       return splitRawArgumentString(arg);
     }
 

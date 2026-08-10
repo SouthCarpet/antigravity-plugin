@@ -5,15 +5,11 @@
  * imported, following the pattern in tests/job-helpers.test.mjs) so no real
  * `agy` binary is ever spawned.
  *
- * Note: argv arrays with a lone element are run through
- * args.parseCommandInput's raw-string-splitting heuristic (it exists for
- * Claude Code's single-blob $ARGUMENTS), which treats backslashes as escape
- * characters. On Windows, calling `run([imagePath])` with only ONE argv
- * element and a backslash-heavy absolute path would corrupt the path before
- * vision.mjs ever sees it — so tests that need a bare image path pair it
- * with a second argv element to stay on the multi-token parse path, which
- * also matches how the command is realistically invoked (image path(s) plus
- * flags).
+ * Note: args.parseCommandInput splits a LONE argv element through the
+ * raw-string heuristic (for Claude Code's single-blob $ARGUMENTS) only when
+ * it contains whitespace; a lone whitespace-free token — e.g. a bare Windows
+ * image path — passes through intact. Regression coverage for that lives in
+ * tests/args-lone-element.test.mjs.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
