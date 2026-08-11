@@ -102,8 +102,18 @@ export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000 } = {})
  * given, is appended (in order) after `--model` and before `--print`. Both
  * are optional and non-breaking — omitting them reproduces prior behavior.
  *
- * Returns `{ status, stdout, stderr, exitCode, oauthUrl? }`. `status` is one
- * of `completed`, `failed`, `auth_required`, `cancelled`, `timeout`.
+ * `outputFormat: 'json'` pushes `--output-format json` before `--print` and,
+ * on a completed run, parses stdout as an agy json envelope
+ * (`{ conversation_id, status, response, duration_seconds, num_turns,
+ * usage }`): `stdout` becomes `envelope.response`, and the result gains
+ * `usage`, `durationSeconds`, `agyConversationId`, and `rawStdout` (the raw
+ * envelope text). A parse failure or missing `outputFormat` reproduces the
+ * plain-text shape byte-for-byte, with `usage` left `null`/absent — nothing
+ * is guessed.
+ *
+ * Returns `{ status, stdout, stderr, exitCode, oauthUrl? }` (plus the json
+ * envelope keys above when applicable). `status` is one of `completed`,
+ * `failed`, `auth_required`, `cancelled`, `timeout`.
  */
 export async function runAgyPrint({
   prompt,
@@ -112,6 +122,7 @@ export async function runAgyPrint({
   cwd = process.cwd(),
   addDirs = [],
   model,
+  outputFormat,
   extraArgs = [],
   timeoutMs = 0,
   bin = resolveAgyBin(),
@@ -131,6 +142,7 @@ export async function runAgyPrint({
   }
   for (const dir of addDirs) args.push('--add-dir', dir);
   if (model) args.push('--model', model);
+  if (outputFormat === 'json') args.push('--output-format', 'json');
   args.push(...extraArgs);
   args.push('--print', prompt);
 
@@ -192,7 +204,28 @@ export async function runAgyPrint({
 
   if (!status) status = exitCode === 0 ? 'completed' : 'failed';
 
-  return { status, stdout, stderr, exitCode, oauthUrl };
+  const base = { status, stderr, exitCode, oauthUrl };
+  if (outputFormat === 'json' && status === 'completed') {
+    // agy 1.1.x json envelope: { conversation_id, status, response,
+    // duration_seconds, num_turns, usage:{...} } — probed 2026-08-11.
+    // Parse failure (older agy, torn output) degrades to plain text:
+    // usage stays null, nothing is guessed.
+    try {
+      const env2 = JSON.parse(stdout);
+      if (env2 && typeof env2.response === 'string') {
+        return {
+          ...base,
+          stdout: env2.response,
+          rawStdout: stdout,
+          usage: env2.usage ?? null,
+          durationSeconds: env2.duration_seconds ?? null,
+          agyConversationId: env2.conversation_id ?? null,
+        };
+      }
+    } catch { /* fall through to plain-text shape */ }
+    return { ...base, stdout, usage: null };
+  }
+  return { ...base, stdout };
 }
 
 /**
