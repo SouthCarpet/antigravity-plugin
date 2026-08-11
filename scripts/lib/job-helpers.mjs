@@ -142,6 +142,7 @@ export async function runForegroundJob({
   conversationId,
   addDirs = [],
   model,
+  outputFormat,
   extraArgs = [],
   cwd,
   request = null,
@@ -175,6 +176,7 @@ export async function runForegroundJob({
       conversationId,
       addDirs,
       model,
+      outputFormat,
       extraArgs,
       cwd: cwd ?? workspaceRoot,
       onStdout,
@@ -212,6 +214,8 @@ export async function runForegroundJob({
       status: result.status,
       exitCode: result.exitCode,
       oauthUrl: result.oauthUrl ?? null,
+      usage: result.usage ?? null,
+      durationSeconds: result.durationSeconds ?? null,
     },
   });
   appendJobLog(

@@ -73,6 +73,7 @@ export async function run(argv = [], ctx = {}) {
     prompt,
     mode: "print",
     model,
+    outputFormat: "json",
     cwd: workspaceRoot,
     request: { imagePaths, model, userPrompt },
     onStdout: (chunk) => process.stderr.write(chunk),
@@ -92,7 +93,23 @@ export async function run(argv = [], ctx = {}) {
     return result.status === "cancelled" ? 2 : 1;
   }
 
-  const payload = { imagePaths, model, vision: result.stdout };
+  const usage = result.usage ?? null;
+  if (usage && typeof usage.total_tokens === "number") {
+    // Measured by agy itself (json envelope). The ledger rule requires
+    // recording measured totals — this trailer is what the orchestrator reads.
+    process.stderr.write(
+      `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
+        `out=${usage.output_tokens ?? "?"}\n`,
+    );
+  }
+
+  const payload = {
+    imagePaths,
+    model,
+    vision: result.stdout,
+    usage,
+    durationSeconds: result.durationSeconds ?? null,
+  };
   outputCommandResult(payload, result.stdout, Boolean(options.json));
   return 0;
 }
