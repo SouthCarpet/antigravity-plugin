@@ -1,6 +1,6 @@
 {
   "name": "antigravity",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Delegate tasks, code reviews and image analysis (Gemini vision via bundled MCP image server) to Google Antigravity CLI (agy) from Claude Code, Codex CLI, or any ACP-free host. Maintained fork of sakibsadmanshajib/antigravity-plugin.",
   "author": {
     "name": "Sakib Sadman Shajib (original author); fork maintained by SouthCarpet",
