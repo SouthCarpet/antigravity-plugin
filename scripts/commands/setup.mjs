@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { parseCommandInput } from '../lib/args.mjs';
 import { resolveAgyBin, probeAgy } from '../lib/agent-runtime.mjs';
 import { ensureVisionConfig } from '../lib/vision-config.mjs';
+import { runIfMain } from '../lib/cli-entry.mjs';
 
 export async function run(argv = [], ctx = {}) {
   const { options } = parseCommandInput(argv, {
@@ -65,3 +66,5 @@ export async function run(argv = [], ctx = {}) {
 }
 
 export default run;
+
+runIfMain(import.meta.url, run);

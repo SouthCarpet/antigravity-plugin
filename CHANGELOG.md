@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **fix: command modules now execute when invoked directly** (all Claude
+  Code `/antigravity:*` verbs were silently exiting 0). Every
+  `commands/*.md` surface runs `node ".../scripts/commands/<verb>.mjs"
+  $ARGUMENTS` directly, but the 8 command modules only exported `run()` —
+  nothing called it on direct execution, so `node vision.mjs foo.png` (and
+  every other verb) loaded the module and exited 0 with zero output. Added
+  `scripts/lib/cli-entry.mjs` (`runIfMain`), which calls `run()` and exits
+  with its code when the module is the process entrypoint, and is a no-op
+  when merely `import()`ed (as `bin/antigravity.mjs` does). Applied to
+  `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
+  `cancel`.
+
 ## [0.2.0] — 2026-08-10
 
 `agy --print` (headless print mode) has no native image ingestion path — its

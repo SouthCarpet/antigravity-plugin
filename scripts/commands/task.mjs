@@ -19,6 +19,7 @@ import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
 import { outputCommandResult } from "../lib/render.mjs";
+import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
   const { options, positionals } = parseCommandInput(argv, {
@@ -122,3 +123,5 @@ function truncate(s, n) {
 }
 
 export default run;
+
+runIfMain(import.meta.url, run);

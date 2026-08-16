@@ -9,6 +9,7 @@ import { resolveCancelableJob } from "../lib/job-control.mjs";
 import { appendJobLog } from "../lib/state.mjs";
 import { outputCommandResult, renderCancelReport } from "../lib/render.mjs";
 import { patchJob } from "../lib/job-helpers.mjs";
+import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
   const { options, positionals } = parseCommandInput(argv, {
@@ -64,3 +65,5 @@ export async function run(argv = [], ctx = {}) {
 }
 
 export default run;
+
+runIfMain(import.meta.url, run);

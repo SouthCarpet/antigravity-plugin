@@ -17,6 +17,7 @@ import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
 import { outputCommandResult } from "../lib/render.mjs";
+import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
   const { options } = parseCommandInput(argv, {
@@ -114,3 +115,5 @@ export async function run(argv = [], ctx = {}) {
 }
 
 export default run;
+
+runIfMain(import.meta.url, run);

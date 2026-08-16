@@ -18,6 +18,7 @@ import {
   renderStatusSnapshot,
   renderSingleJobStatus,
 } from "../lib/render.mjs";
+import { runIfMain } from "../lib/cli-entry.mjs";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
@@ -99,3 +100,5 @@ function sleep(ms) {
 }
 
 export default run;
+
+runIfMain(import.meta.url, run);

@@ -11,6 +11,7 @@ import { parseCommandInput } from "../lib/args.mjs";
 import { resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile } from "../lib/state.mjs";
 import { outputCommandResult, renderResultOutput } from "../lib/render.mjs";
+import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
   const { options, positionals } = parseCommandInput(argv, {
@@ -53,3 +54,5 @@ export async function run(argv = [], ctx = {}) {
 }
 
 export default run;
+
+runIfMain(import.meta.url, run);

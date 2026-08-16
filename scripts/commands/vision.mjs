@@ -29,6 +29,7 @@ import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob } from "../lib/job-helpers.mjs";
 import { outputCommandResult } from "../lib/render.mjs";
+import { runIfMain } from "../lib/cli-entry.mjs";
 
 const DEFAULT_MODEL = "gemini-3.6-flash-high";
 const DEFAULT_PROMPT =
@@ -115,3 +116,5 @@ export async function run(argv = [], ctx = {}) {
 }
 
 export default run;
+
+runIfMain(import.meta.url, run);
