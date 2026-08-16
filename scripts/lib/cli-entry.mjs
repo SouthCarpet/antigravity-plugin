@@ -23,9 +23,11 @@ import { resolve } from "node:path";
  * (`node <file>`), i.e. `process.argv[1]`.
  *
  * Both sides are normalized through fileURLToPath + path.resolve so that
- * Windows path quirks — forward vs backslashes, drive-letter case, 8.3
- * short names, symlink targets — don't cause a false negative. On win32 the
- * comparison is case-insensitive (NTFS paths are, for this purpose).
+ * forward vs backslashes and drive-letter case don't cause a false negative.
+ * On win32 the comparison is case-insensitive (NTFS paths are, for this
+ * purpose). Not covered: 8.3 short names and symlinked entrypoints —
+ * path.resolve does not dereference those; realpath would, at the cost of a
+ * filesystem call on every import.
  *
  * @param {string} importMetaUrl
  * @returns {boolean}
