@@ -18,7 +18,7 @@ for free / personal users.
 
 ## Status
 
-> **Pre-release (v0.2.0).** Active development. Expect breaking changes until
+> **Pre-release (v0.2.1).** Active development. Expect breaking changes until
 > v1.0.0. See [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## What it does
