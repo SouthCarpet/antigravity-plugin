@@ -117,13 +117,17 @@ describe('runAgyPrint', () => {
   });
 
   it('captures stdout + stderr and reports completed', async () => {
-    // Script ignores args; emits both streams; exits 0.
-    const bin = writeStub('agy-ok', 'echo hello-out; echo hello-err 1>&2; exit 0');
+    // Script ignores args; emits a stream-json result line + stderr text; exits 0.
+    const bin = writeStub(
+      'agy-ok',
+      'echo \'{"event":"result","result":{"status":"SUCCESS","response":"hello-out","conversation_id":"c1"}}\'; echo hello-err 1>&2; exit 0',
+    );
     const out = await runAgyPrint({ prompt: 'go', bin });
     assert.equal(out.status, 'completed');
     assert.match(out.stdout, /hello-out/);
     assert.match(out.stderr, /hello-err/);
     assert.equal(out.exitCode, 0);
+    assert.equal(out.agyConversationId, 'c1');
   });
 
   it('flags auth_required when the OAuth URL is in stdout', async () => {
@@ -182,11 +186,17 @@ describe('runAgyPrint', () => {
   });
 
   it('appends --continue / --conversation / --add-dir flags', async () => {
-    // The stub prints its argv to stdout so we can inspect it.
+    // The stub prints its argv to stdout so we can inspect it. No result
+    // event is emitted, so runAgyPrint falls back to the raw argv-echo text
+    // as `stdout` (sawResult stays false) — exactly what these assertions read.
     const bin = writeStub('agy-args', 'for a in "$@"; do echo arg=$a; done; sleep 0.05');
 
     const cont = await runAgyPrint({ prompt: 'p1', mode: 'continue', bin });
     assert.match(cont.stdout, /arg=--continue/);
+    assert.match(cont.stdout, /arg=--input-format/);
+    assert.match(cont.stdout, /arg=stream-json/);
+    assert.match(cont.stdout, /arg=--print/);
+    assert.doesNotMatch(cont.stdout, /arg=p1$/m);
 
     const conv = await runAgyPrint({
       prompt: 'p2',
@@ -199,6 +209,7 @@ describe('runAgyPrint', () => {
     assert.match(conv.stdout, /arg=thr_42/);
     assert.match(conv.stdout, /arg=--add-dir/);
     assert.match(conv.stdout, /arg=\/extra/);
+    assert.doesNotMatch(conv.stdout, /arg=p2$/m);
   });
 });
 

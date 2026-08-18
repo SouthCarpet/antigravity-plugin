@@ -26,14 +26,20 @@ function makeFakeChild() {
   child.stderr = new EventEmitter();
   child.stderr.setEncoding = () => {};
   child.kill = () => {};
+  // stream-json transport: runAgyPrint/spawnAgyDetached always write the
+  // prompt to stdin — a fake child without one throws immediately.
+  child.stdin = new EventEmitter();
+  child.stdin.written = '';
+  child.stdin.write = (chunk) => { child.stdin.written += chunk; return true; };
+  child.stdin.end = () => {};
   return child;
 }
 
 mock.module('node:child_process', {
   namedExports: {
     spawn: (bin, args, opts) => {
-      spawnCalls.push({ bin, args, opts });
       const child = makeFakeChild();
+      spawnCalls.push({ bin, args, opts, child });
       setImmediate(() => child.emit('exit', 0));
       return child;
     },
@@ -136,6 +142,12 @@ describe('runAgyPrint — model + extraArgs spawn-arg placement', () => {
     assert.equal(args[modelIdx + 1], 'gemini-3.6-flash-high');
     assert.ok(addDirIdx < modelIdx, '--add-dir should precede --model');
     assert.ok(modelIdx < printIdx, '--model should precede --print');
+    assert.deepEqual(
+      args.slice(-6),
+      ['--input-format', 'stream-json', '--output-format', 'stream-json', '--print', ''],
+      'always ends with the stream-json tail',
+    );
+    assert.equal(args.includes('p'), false, 'the prompt never lands in argv');
   });
 
   it('omits --model entirely when not given (non-breaking default)', async () => {

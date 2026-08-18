@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **fix: the prompt now travels to `agy` over stdin (stream-json), not
+  argv** — `runAgyPrint`/`spawnAgyDetached` used to pass the whole prompt as
+  one `--print <prompt>` argv element. On Windows, `CreateProcess` caps a
+  spawned command line at ~32K chars and fails outright above that (Win32
+  error 206, surfaced to Node as `ENAMETOOLONG`); long review/rescue/task
+  briefs routinely cross it. Every invocation now runs `agy ... --print ""`
+  and writes one NDJSON line (`{"type":"user","message":{...}}`) to stdin,
+  removing the limit.
+
+### Changed
+
+- `agy` always runs with `--input-format stream-json --output-format
+  stream-json` now; the old `outputFormat: 'json'` parameter on
+  `runAgyPrint` is still accepted for backward compat but is a no-op — it no
+  longer changes the spawned args or gates parsing.
+- `usage`, `durationSeconds`, and `agyConversationId` are now always
+  populated on a completed `runAgyPrint` run (previously only when
+  `outputFormat: 'json'` was passed), parsed from the stream's `result`
+  event via the new exported `parseAgyStream` helper.
+- `runAgyPrint` no longer reports `completed` on a bare `exitCode === 0`: it
+  now requires a `result` event with `status: "SUCCESS"` in the NDJSON
+  stream. Exiting 0 without a `result` event, or with a non-`SUCCESS`
+  result status, is `failed` with a diagnostic line in `stderr` — never a
+  silent success.
+
 ## [0.2.1] — 2026-08-16
 
 ### Fixed

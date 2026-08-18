@@ -20,7 +20,11 @@ const AUTH_LINE_PATTERNS = [
   /^Authentication required\.?\s*Please visit the URL to log in/i,
   /^Waiting for authentication/i,
 ];
-const AUTH_URL_PATTERN = /(https?:\/\/accounts\.google\.com\/o\/oauth2\/auth\S+)/;
+// Excludes `"` and `\` (not just whitespace) so a URL embedded in a
+// stream-json string field — e.g. inside `result.response` — doesn't swallow
+// the JSON that follows its closing quote; plain --print text never had
+// those chars adjacent to begin with, so this is non-breaking there too.
+const AUTH_URL_PATTERN = /(https?:\/\/accounts\.google\.com\/o\/oauth2\/auth[^\s"\\]+)/;
 
 /** Candidate executable names to try in each PATH/home dir, by platform. */
 function candidateNames(platform) {
@@ -91,29 +95,111 @@ export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000 } = {})
 }
 
 /**
- * Run `agy --print <prompt>` (or a continuation variant) and capture stdout.
+ * Build the single NDJSON line agy expects on stdin in stream-json mode.
+ */
+function buildStreamJsonLine(prompt) {
+  return JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+  });
+}
+
+/**
+ * Parse an agy `--output-format stream-json` NDJSON stdout blob (one or
+ * more `\n`-terminated JSON lines — `init`, `step_update`, `result`) and
+ * extract the fields carried by its `result` event:
+ * `{ conversation_id, status, response, duration_seconds, usage }` (probed
+ * live on agy 1.1.14, 2026-08-18).
+ *
+ * Lines that fail to parse (a chunk boundary split a line; the process was
+ * killed mid-write) are skipped, never thrown. If more than one `result`
+ * event appears, the last one wins. When no `result` event is found,
+ * `sawResult` is `false` and every other field stays `null` — nothing is
+ * guessed from `step_update`/`init` events.
+ *
+ * @param {string} text - full accumulated stdout (or any concatenation of
+ *   chunks — reassembly across chunk boundaries falls out of `\n`-splitting
+ *   the joined string, so callers never need to pre-align chunks).
+ * @returns {{ response: string|null, usage: object|null, durationSeconds: number|null,
+ *   conversationId: string|null, resultStatus: string|null, sawResult: boolean }}
+ */
+export function parseAgyStream(text) {
+  const out = {
+    response: null,
+    usage: null,
+    durationSeconds: null,
+    conversationId: null,
+    resultStatus: null,
+    sawResult: false,
+  };
+  if (typeof text !== 'string' || !text.length) return out;
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue; // torn/partial line — stream noise, not a caller-facing error
+    }
+    if (event?.event !== 'result' || !event.result) continue;
+    const r = event.result;
+    out.response = typeof r.response === 'string' ? r.response : out.response;
+    out.usage = r.usage ?? out.usage;
+    out.durationSeconds = r.duration_seconds ?? out.durationSeconds;
+    out.conversationId = r.conversation_id ?? out.conversationId;
+    out.resultStatus = r.status ?? out.resultStatus;
+    out.sawResult = true;
+  }
+  return out;
+}
+
+/**
+ * Run `agy` (or a continuation variant) over its stream-json transport and
+ * capture the final response.
+ *
+ * The prompt travels over stdin, never argv: Windows' `CreateProcess` caps
+ * a spawned command line at ~32K chars and fails outright above that
+ * (Win32 error 206 / Node `ENAMETOOLONG`), and review/rescue/task briefs
+ * routinely exceed it. Every invocation instead runs:
+ *   `agy [--continue|--conversation <id>] [--add-dir ...]* [--model <id>]
+ *        [...extraArgs] --input-format stream-json --output-format
+ *        stream-json --print ""`
+ * (`--print ""` is required — bare `--print` errors "flag needs an
+ * argument", and a non-empty value would be sent as a second prompt) with
+ * exactly one NDJSON line written to stdin, then `stdin.end()`:
+ *   `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}`
  *
  * `mode`:
- *   - `print` (default) — `agy --print <prompt>`
- *   - `continue` — `agy --continue --print <prompt>`
- *   - `conversation` — `agy --conversation <id> --print <prompt>`
+ *   - `print` (default) — no continuation flag
+ *   - `continue` — prepends `--continue`
+ *   - `conversation` — prepends `--conversation <id>`
  *
- * `model`, if given, pushes `--model <id>` before `--print`. `extraArgs`, if
- * given, is appended (in order) after `--model` and before `--print`. Both
- * are optional and non-breaking — omitting them reproduces prior behavior.
+ * `model`, if given, pushes `--model <id>`. `extraArgs`, if given, is
+ * appended (in order) after `--model`. Both land before the always-on
+ * `--input-format`/`--output-format`/`--print` tail.
  *
- * `outputFormat: 'json'` pushes `--output-format json` before `--print` and,
- * on a completed run, parses stdout as an agy json envelope
- * (`{ conversation_id, status, response, duration_seconds, num_turns,
- * usage }`): `stdout` becomes `envelope.response`, and the result gains
- * `usage`, `durationSeconds`, `agyConversationId`, and `rawStdout` (the raw
- * envelope text). A parse failure or missing `outputFormat` reproduces the
- * plain-text shape byte-for-byte, with `usage` left `null`/absent — nothing
- * is guessed.
+ * `outputFormat` is accepted for backward compat but is now a no-op — agy
+ * always runs in stream-json mode, which carries the same envelope fields
+ * regardless of what (if anything) this is set to.
  *
- * Returns `{ status, stdout, stderr, exitCode, oauthUrl? }` (plus the json
- * envelope keys above when applicable). `status` is one of `completed`,
- * `failed`, `auth_required`, `cancelled`, `timeout`.
+ * stdout is agy's NDJSON event stream (`init`, `step_update`, `result`);
+ * raw chunks still reach `onStdout` as before (progress mirroring — e.g.
+ * vision.mjs echoes them to stderr). The `result` event (parsed via
+ * `parseAgyStream`) drives the return contract: `stdout` becomes
+ * `result.response`, and `usage`, `durationSeconds`, `agyConversationId`,
+ * `rawStdout` (the full raw NDJSON text) are ALWAYS populated on exit — not
+ * gated behind `outputFormat` any more.
+ *
+ * Returns `{ status, stdout, stderr, exitCode, oauthUrl, usage,
+ * durationSeconds, agyConversationId, rawStdout }`. `status` is one of
+ * `completed`, `failed`, `auth_required`, `cancelled`, `timeout`.
+ * `exitCode === 0` with no `result` event is `failed`, never a silent
+ * success — stderr gains a diagnostic line explaining why. A `result` event
+ * whose `status` isn't `SUCCESS` is also `failed`, with that status string
+ * folded into stderr. Auth prompts are detected both in the raw stdout text
+ * (as before) and in `result.response` — they can arrive either way.
  */
 export async function runAgyPrint({
   prompt,
@@ -142,20 +228,27 @@ export async function runAgyPrint({
   }
   for (const dir of addDirs) args.push('--add-dir', dir);
   if (model) args.push('--model', model);
-  if (outputFormat === 'json') args.push('--output-format', 'json');
   args.push(...extraArgs);
-  args.push('--print', prompt);
+  args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
 
   const child = spawn(bin, args, {
     cwd,
     env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
 
   let stdout = '';
   let stderr = '';
   let oauthUrl;
   let status;
+
+  child.stdin.on('error', (e) => {
+    // EPIPE if agy exits before we finish writing the prompt line — record
+    // it, never let it surface as an unhandled 'error' event.
+    stderr += `\nstdin error: ${e.message}`;
+  });
+  child.stdin.write(buildStreamJsonLine(prompt) + '\n');
+  child.stdin.end();
 
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
@@ -202,36 +295,55 @@ export async function runAgyPrint({
 
   if (timer) clearTimeout(timer);
 
-  if (!status) status = exitCode === 0 ? 'completed' : 'failed';
+  const parsed = parseAgyStream(stdout);
 
-  const base = { status, stderr, exitCode, oauthUrl };
-  if (outputFormat === 'json' && status === 'completed') {
-    // agy 1.1.x json envelope: { conversation_id, status, response,
-    // duration_seconds, num_turns, usage:{...} } — probed 2026-08-11.
-    // Parse failure (older agy, torn output) degrades to plain text:
-    // usage stays null, nothing is guessed.
-    try {
-      const env2 = JSON.parse(stdout);
-      if (env2 && typeof env2.response === 'string') {
-        return {
-          ...base,
-          stdout: env2.response,
-          rawStdout: stdout,
-          usage: env2.usage ?? null,
-          durationSeconds: env2.duration_seconds ?? null,
-          agyConversationId: env2.conversation_id ?? null,
-        };
-      }
-    } catch { /* fall through to plain-text shape */ }
-    return { ...base, stdout, usage: null };
+  // Auth prompts may arrive as raw stdout text (checked per-chunk above) OR
+  // folded into the result event's response field — check both.
+  if (!status && typeof parsed.response === 'string') {
+    const m = parsed.response.match(AUTH_URL_PATTERN);
+    if (m) {
+      oauthUrl = oauthUrl ?? m[1];
+      status = 'auth_required';
+    } else if (AUTH_LINE_PATTERNS.some((p) => p.test(parsed.response))) {
+      status = 'auth_required';
+    }
   }
-  return { ...base, stdout };
+
+  if (!status) {
+    if (exitCode !== 0) {
+      status = 'failed';
+    } else if (!parsed.sawResult) {
+      status = 'failed';
+      stderr += '\nagent-runtime: agy exited 0 without a result event (stream truncated?)';
+    } else if (parsed.resultStatus !== 'SUCCESS') {
+      status = 'failed';
+      stderr += `\nagent-runtime: agy result status was "${parsed.resultStatus ?? 'unknown'}", not SUCCESS`;
+    } else {
+      status = 'completed';
+    }
+  }
+
+  return {
+    status,
+    stderr,
+    exitCode,
+    oauthUrl,
+    stdout: parsed.sawResult && typeof parsed.response === 'string' ? parsed.response : stdout,
+    rawStdout: stdout,
+    usage: parsed.usage ?? null,
+    durationSeconds: parsed.durationSeconds ?? null,
+    agyConversationId: parsed.conversationId ?? null,
+  };
 }
 
 /**
  * Tiny helper for callers that want to fire-and-forget into the background.
  * Returns the child handle without awaiting, so the caller is responsible
  * for capturing exit + stdout in a separate file (see job-control.mjs).
+ *
+ * Same stream-json transport as `runAgyPrint` (see its doc comment above):
+ * the prompt travels as a single NDJSON line on stdin, so `stdin` is always
+ * `'pipe'` even though the caller never reads anything back from it.
  */
 export function spawnAgyDetached({
   prompt,
@@ -255,12 +367,21 @@ export function spawnAgyDetached({
   for (const dir of addDirs) args.push('--add-dir', dir);
   if (model) args.push('--model', model);
   args.push(...extraArgs);
-  args.push('--print', prompt);
+  args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
 
-  return spawn(bin, args, {
+  const child = spawn(bin, args, {
     cwd,
     env,
     detached: true,
-    stdio: ['ignore', stdout, stderr],
+    stdio: ['pipe', stdout, stderr],
   });
+
+  // Fire-and-forget: nobody awaits this child, so an EPIPE on stdin (agy
+  // dying before we finish writing the prompt line) must not throw an
+  // unhandled 'error' event.
+  child.stdin.on('error', () => {});
+  child.stdin.write(buildStreamJsonLine(prompt) + '\n');
+  child.stdin.end();
+
+  return child;
 }
