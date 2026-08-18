@@ -2,12 +2,16 @@
  * job-helpers — shared helpers for command modules.
  *
  * Provides job id minting, foreground/background tracking glue, and stdout
- * persistence around `runAgyPrint` / `spawnAgyDetached`. agy 1.0.1 only
- * exposes a final-response stdout — no streaming, no tool events — so the
- * helpers here intentionally avoid any event-bus or phase machinery.
+ * persistence around `runAgyPrint` / `spawnAgyDetached`. The prompt travels
+ * to `agy` over stdin as a single stream-json line, not argv (see
+ * agent-runtime.mjs); the response streams back as NDJSON events, and
+ * readable text arrives incrementally via `step_update.text_delta` events
+ * (surfaced here through the `onText` callback) rather than as one final
+ * blob.
  */
 
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 import { runAgyPrint, spawnAgyDetached, resolveAgyBin } from "./agent-runtime.mjs";
 import {
@@ -149,6 +153,7 @@ export async function runForegroundJob({
   env = process.env,
   onStdout,
   onStderr,
+  onText,
 } = {}) {
   const job = await createTrackedJob({
     workspaceRoot,
@@ -181,6 +186,7 @@ export async function runForegroundJob({
       cwd: cwd ?? workspaceRoot,
       onStdout,
       onStderr,
+      onText,
     });
   } catch (err) {
     const completedAt = new Date().toISOString();
@@ -227,6 +233,22 @@ export async function runForegroundJob({
 }
 
 /**
+ * Resolve the absolute OS filesystem path to the background worker script
+ * (scripts/commands/_worker.mjs), for spawning via `node <path> <jobId>`.
+ *
+ * Uses `fileURLToPath`, NOT `URL.pathname` — on Windows, `.pathname` yields
+ * a POSIX-shaped path (`/A:/projects-vault/...`) that does not exist on
+ * disk. `spawn` would then launch `node` against a nonexistent file; Node
+ * exits `MODULE_NOT_FOUND`, but with `stdio: ['ignore','ignore','ignore']`
+ * (see `startBackgroundJob` below) that failure was invisible — the job
+ * never left `queued`, and `waitForJob`/`task --wait` hung until timeout
+ * (or forever with `timeoutMs: 0`).
+ */
+export function resolveWorkerPath() {
+  return fileURLToPath(new URL("../commands/_worker.mjs", import.meta.url));
+}
+
+/**
  * Fire-and-forget a background worker that will run the prompt with the
  * given mode. Returns the queued job index entry.
  *
@@ -261,7 +283,7 @@ export async function startBackgroundJob({
     env,
   });
 
-  const workerPath = new URL("../commands/_worker.mjs", import.meta.url).pathname;
+  const workerPath = resolveWorkerPath();
   const { spawn } = await import("node:child_process");
   const child = spawn(process.execPath, [workerPath, job.id], {
     cwd: workspaceRoot,

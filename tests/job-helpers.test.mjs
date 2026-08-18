@@ -52,8 +52,10 @@ mock.module('node:child_process', {
 
 // Now the mocked modules are installed in the loader's cache; importing
 // job-helpers below will pick them up.
-const { runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId } =
-  await import('../scripts/lib/job-helpers.mjs');
+const {
+  runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId,
+  resolveWorkerPath,
+} = await import('../scripts/lib/job-helpers.mjs');
 const { readJobFile, listJobs } = await import('../scripts/lib/state.mjs');
 
 let workspaceRoot;
@@ -230,5 +232,19 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     assert.equal(a.length, 12);
     assert.equal(currentSessionId({ [SESSION_ID_ENV]: 'sess' }), 'sess');
     assert.equal(currentSessionId({}), null);
+  });
+});
+
+describe('resolveWorkerPath', () => {
+  it('resolves to an absolute OS path that exists on disk (fileURLToPath, not URL.pathname)', () => {
+    // Regression: `new URL(...).pathname` on Windows yields a POSIX-shaped
+    // path (`/A:/projects-vault/...`) that fs.existsSync reports as false —
+    // the worker would die MODULE_NOT_FOUND under stdio:'ignore', silently
+    // stuck `queued` forever. This assertion is red on Windows against the
+    // old `.pathname`-based implementation.
+    const p = resolveWorkerPath();
+    assert.equal(path.isAbsolute(p), true);
+    assert.equal(fs.existsSync(p), true);
+    assert.equal(path.basename(p), '_worker.mjs');
   });
 });

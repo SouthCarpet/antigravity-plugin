@@ -77,7 +77,7 @@ export async function run(argv = [], ctx = {}) {
     outputFormat: "json",
     cwd: workspaceRoot,
     request: { imagePaths, model, userPrompt },
-    onStdout: (chunk) => process.stderr.write(chunk),
+    onText: (delta) => process.stderr.write(delta),
   });
 
   if (result.status === "auth_required") {

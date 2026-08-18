@@ -105,6 +105,36 @@ function buildStreamJsonLine(prompt) {
 }
 
 /**
+ * Stateful NDJSON line splitter for incremental parsing as `data` chunks
+ * arrive: feed it a raw chunk via `.push(chunk)`, get back the array of
+ * complete JSON-parsed events it completed (a chunk boundary splitting a
+ * line is reassembled across calls — the partial tail is buffered until a
+ * later push supplies the rest). Parse failures on a completed line are
+ * dropped silently (stream noise), never thrown.
+ */
+function createNdjsonLineFeeder() {
+  let buffer = '';
+  return {
+    push(chunk) {
+      buffer += chunk;
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? ''; // last element: partial unless the chunk ended in '\n'
+      const events = [];
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        try {
+          events.push(JSON.parse(line));
+        } catch {
+          // torn line — stream noise, not a caller-facing error
+        }
+      }
+      return events;
+    },
+  };
+}
+
+/**
  * Parse an agy `--output-format stream-json` NDJSON stdout blob (one or
  * more `\n`-terminated JSON lines — `init`, `step_update`, `result`) and
  * extract the fields carried by its `result` event:
@@ -185,12 +215,19 @@ export function parseAgyStream(text) {
  * regardless of what (if anything) this is set to.
  *
  * stdout is agy's NDJSON event stream (`init`, `step_update`, `result`);
- * raw chunks still reach `onStdout` as before (progress mirroring — e.g.
- * vision.mjs echoes them to stderr). The `result` event (parsed via
- * `parseAgyStream`) drives the return contract: `stdout` becomes
- * `result.response`, and `usage`, `durationSeconds`, `agyConversationId`,
- * `rawStdout` (the full raw NDJSON text) are ALWAYS populated on exit — not
- * gated behind `outputFormat` any more.
+ * raw chunks still reach `onStdout` as before (unparsed — callers that want
+ * readable text, not JSON, should use `onText` instead; see below). The
+ * `result` event (parsed via `parseAgyStream`) drives the return contract:
+ * `stdout` becomes `result.response`, and `usage`, `durationSeconds`,
+ * `agyConversationId`, `rawStdout` (the full raw NDJSON text) are ALWAYS
+ * populated on exit — not gated behind `outputFormat` any more.
+ *
+ * `onText(delta)`, if given, fires once per `step_update` event whose
+ * `step_update.text_delta` is a non-empty string — i.e. the readable model
+ * text as it streams in, with the `init`/`step_update` JSON envelope
+ * stripped off. Parsed incrementally as chunks arrive (a JSON line split
+ * across two `data` chunks is reassembled before being handed to
+ * `onText`), independent of `onStdout`'s raw pass-through.
  *
  * Returns `{ status, stdout, stderr, exitCode, oauthUrl, usage,
  * durationSeconds, agyConversationId, rawStdout }`. `status` is one of
@@ -215,6 +252,7 @@ export async function runAgyPrint({
   env = process.env,
   onStdout,
   onStderr,
+  onText,
   signal,
 } = {}) {
   if (typeof prompt !== 'string' || !prompt.length) {
@@ -250,6 +288,8 @@ export async function runAgyPrint({
   child.stdin.write(buildStreamJsonLine(prompt) + '\n');
   child.stdin.end();
 
+  const lineFeeder = onText ? createNdjsonLineFeeder() : null;
+
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.stdout.on('data', (chunk) => {
@@ -261,6 +301,12 @@ export async function runAgyPrint({
         status ??= 'auth_required';
       } else if (AUTH_LINE_PATTERNS.some((p) => p.test(chunk))) {
         status ??= 'auth_required';
+      }
+    }
+    if (lineFeeder) {
+      for (const event of lineFeeder.push(chunk)) {
+        const delta = event?.event === 'step_update' ? event.step_update?.text_delta : undefined;
+        if (typeof delta === 'string' && delta.length) onText(delta);
       }
     }
     onStdout?.(chunk);

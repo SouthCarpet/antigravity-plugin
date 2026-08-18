@@ -6,8 +6,11 @@
  *   node scripts/commands/_worker.mjs <jobId>
  *
  * Reads the job file for <jobId> from the resolved workspace state, runs
- * `agy --print` per the persisted request, and updates the job record on
- * completion. Captures stdout to the per-job log file.
+ * `agy` per the persisted request (prompt travels over stdin as a
+ * stream-json line, not argv — see agent-runtime.mjs), and updates the job
+ * record on completion. Appends readable model text to the per-job log
+ * file as it streams in, via runAgyPrint's `onText` callback (fired per
+ * `step_update.text_delta`) — not the raw NDJSON event stream.
  */
 
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
@@ -52,9 +55,9 @@ async function main() {
   const logPath = resolveJobLogFile(workspaceRoot, jobId);
   const fs = await import("node:fs");
 
-  const onStdout = (chunk) => {
+  const onText = (delta) => {
     try {
-      fs.appendFileSync(logPath, chunk, { encoding: "utf8", mode: 0o600 });
+      fs.appendFileSync(logPath, delta, { encoding: "utf8", mode: 0o600 });
     } catch {
       // best-effort log capture
     }
@@ -68,7 +71,7 @@ async function main() {
       conversationId: request.conversationId,
       addDirs: request.addDirs ?? [],
       cwd: request.cwd ?? workspaceRoot,
-      onStdout,
+      onText,
     });
   } catch (err) {
     appendJobLog(workspaceRoot, jobId, `[worker] error: ${err?.message ?? err}`);

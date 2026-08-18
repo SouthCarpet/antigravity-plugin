@@ -223,6 +223,85 @@ describe('runAgyPrint — stdin stream-json transport', () => {
   });
 });
 
+// ───────────────────────────── runAgyPrint — onText ─────────────────────────────
+
+function stepUpdateLine(textDelta, overrides = {}) {
+  return JSON.stringify({
+    event: 'step_update',
+    step_update: {
+      conversation_id: 'c-abc', step_index: 0, state: 'IN_PROGRESS',
+      step_type: 'agent_response', text_delta: textDelta,
+      ...overrides,
+    },
+  });
+}
+
+describe('runAgyPrint — onText (step_update.text_delta) callback', () => {
+  it('receives exactly the text_delta strings from a recorded stream, and nothing for init/result lines', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [
+      INIT_LINE + '\n',
+      stepUpdateLine('Hello, ') + '\n',
+      stepUpdateLine('world!') + '\n',
+      resultLine() + '\n',
+    ];
+    nextExitCode = 0;
+    const seen = [];
+    await runAgyPrint({ prompt: 'p', bin: 'agy', onText: (delta) => seen.push(delta) });
+    assert.deepEqual(seen, ['Hello, ', 'world!']);
+  });
+
+  it('reassembles a step_update line split across two chunks before firing onText', async () => {
+    spawnCalls.length = 0;
+    const full = stepUpdateLine('reassembled text');
+    const splitPoint = Math.floor(full.length / 2);
+    nextEvents = [full.slice(0, splitPoint), full.slice(splitPoint) + '\n'];
+    nextExitCode = 0;
+    const seen = [];
+    await runAgyPrint({ prompt: 'p', bin: 'agy', onText: (delta) => seen.push(delta) });
+    assert.deepEqual(seen, ['reassembled text']);
+  });
+
+  it('skips step_update events with an empty or missing text_delta', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [
+      stepUpdateLine('') + '\n',
+      JSON.stringify({
+        event: 'step_update',
+        step_update: { conversation_id: 'c-abc', step_index: 0, state: 'DONE', step_type: 'checkpoint' },
+      }) + '\n',
+      stepUpdateLine('kept') + '\n',
+    ];
+    nextExitCode = 0;
+    const seen = [];
+    await runAgyPrint({ prompt: 'p', bin: 'agy', onText: (delta) => seen.push(delta) });
+    assert.deepEqual(seen, ['kept']);
+  });
+
+  it('raw onStdout pass-through is unaffected by onText (both fire from the same stream)', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [stepUpdateLine('x') + '\n', resultLine() + '\n'];
+    nextExitCode = 0;
+    const seenText = [];
+    const seenRaw = [];
+    await runAgyPrint({
+      prompt: 'p', bin: 'agy',
+      onText: (delta) => seenText.push(delta),
+      onStdout: (chunk) => seenRaw.push(chunk),
+    });
+    assert.deepEqual(seenText, ['x']);
+    assert.equal(seenRaw.join(''), nextEvents.join(''));
+  });
+
+  it('is a no-op (never invoked, no crash) when omitted', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [stepUpdateLine('ignored') + '\n', resultLine() + '\n'];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+  });
+});
+
 describe('spawnAgyDetached — stdin stream-json transport', () => {
   it('spawns with stdio [pipe, pipe, pipe] and writes the NDJSON prompt to stdin', () => {
     spawnCalls.length = 0;

@@ -128,6 +128,20 @@ describe('/antigravity:vision', () => {
     assert.match(runtime.calls[0].prompt, /VISION-UNAVAILABLE/);
   });
 
+  it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
+    runtime.calls = [];
+    runtime.next = { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };
+    const cap = captureStdio();
+    try {
+      await run([imagePath, '--prompt', 'x'], { cwd: tmpDir });
+      assert.equal(typeof runtime.calls[0].onText, 'function');
+      runtime.calls[0].onText('a piece of readable text');
+    } finally {
+      cap.restore();
+    }
+    assert.match(cap.err.join(''), /a piece of readable text/);
+  });
+
   it('uses the default description prompt when --prompt is omitted', async () => {
     runtime.calls = [];
     runtime.next = { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };

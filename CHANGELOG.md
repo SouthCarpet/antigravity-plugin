@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   briefs routinely cross it. Every invocation now runs `agy ... --print ""`
   and writes one NDJSON line (`{"type":"user","message":{...}}`) to stdin,
   removing the limit.
+- **fix: background jobs (`task --background`, `/antigravity:status`,
+  `/antigravity:result`) no longer hang `queued` forever on Windows** —
+  `startBackgroundJob` resolved the worker script path with
+  `new URL(...).pathname`, which yields a POSIX-shaped path
+  (`/A:/projects-vault/...`) that does not exist on disk. The spawned
+  worker died `MODULE_NOT_FOUND` immediately, invisibly (stdio was
+  `ignore`), and the job never left `queued` — `task --wait` hung until its
+  timeout, or forever with none set. Now uses `fileURLToPath`, exported as
+  `resolveWorkerPath()`.
+- **fix: background job logs and `/antigravity:vision` progress no longer
+  show raw NDJSON** — since the stdin transport fix above, `onStdout`
+  delivers the raw event stream (including a ~1.2 KB `init` event) instead
+  of plain text. Added `onText(delta)` to `runAgyPrint`, firing once per
+  `step_update.text_delta`; the background worker's per-job log and
+  `/antigravity:vision`'s stderr mirror now use it instead of raw
+  `onStdout` chunks.
 
 ### Changed
 
