@@ -12,7 +12,7 @@
  * with carefully constructed jobs persisted on disk.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,6 +28,27 @@ import {
 } from '../scripts/lib/state.mjs';
 
 const ORIGINAL_ENV = { ...process.env };
+
+// Mocked once, at module top level, before rescue/review/task (or their
+// shared job-helpers.mjs dependency) are ever imported below — mocks
+// registered after a module has already been loaded do not retroactively
+// apply (see the module doc comment above). The onText-mirroring tests near
+// the bottom of this file rely on this.
+const agyRuntime = {
+  next: { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' },
+  calls: [],
+};
+mock.module('../scripts/lib/agent-runtime.mjs', {
+  namedExports: {
+    runAgyPrint: async (opts) => {
+      agyRuntime.calls.push(opts);
+      return { ...agyRuntime.next };
+    },
+    spawnAgyDetached: () => ({ pid: 1 }),
+    resolveAgyBin: () => 'agy',
+    DEFAULT_AGY_BIN: 'agy',
+  },
+});
 
 function makeTempCwd() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-test-'));
@@ -287,6 +308,40 @@ describe('/antigravity:review', () => {
     assert.equal(exit, 0);
     assert.match(cap.out.join(''), /no changes to review/i);
   });
+
+  it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async (t) => {
+    const { execSync } = await import('node:child_process');
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'test',
+      GIT_AUTHOR_EMAIL: 't@example.com',
+      GIT_COMMITTER_NAME: 'test',
+      GIT_COMMITTER_EMAIL: 't@example.com',
+    };
+    try {
+      execSync('git init -q', { cwd: tempDir, stdio: 'ignore' });
+      execSync('git commit --allow-empty -q -m init', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    } catch {
+      t.skip('git not available');
+      return;
+    }
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'changed\n');
+    execSync('git add a.txt', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    execSync('git commit -q -m change', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'changed again\n');
+
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    try {
+      await run([], { cwd: tempDir });
+      assert.equal(typeof agyRuntime.calls[0].onText, 'function');
+      agyRuntime.calls[0].onText('a piece of readable text');
+    } finally {
+      cap.restore();
+    }
+    assert.match(cap.err.join(''), /a piece of readable text/);
+  });
 });
 
 // ───────────────────────────── rescue + task argv parsing ─────────────────────────────
@@ -328,6 +383,20 @@ describe('/antigravity:rescue argv parsing', () => {
     // happy path through rescue.run prior to this exit.
     assert.match(errText, /no task text/);
   });
+
+  it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    try {
+      await run(['do the thing'], { cwd: tempDir });
+      assert.equal(typeof agyRuntime.calls[0].onText, 'function');
+      agyRuntime.calls[0].onText('a piece of readable text');
+    } finally {
+      cap.restore();
+    }
+    assert.match(cap.err.join(''), /a piece of readable text/);
+  });
 });
 
 describe('/antigravity:task argv parsing', () => {
@@ -342,6 +411,20 @@ describe('/antigravity:task argv parsing', () => {
     }
     assert.equal(exit, 1);
     assert.match(cap.err.join(''), /no task text/);
+  });
+
+  it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    try {
+      await run(['do the thing', '--foreground'], { cwd: tempDir });
+      assert.equal(typeof agyRuntime.calls[0].onText, 'function');
+      agyRuntime.calls[0].onText('a piece of readable text');
+    } finally {
+      cap.restore();
+    }
+    assert.match(cap.err.join(''), /a piece of readable text/);
   });
 });
 

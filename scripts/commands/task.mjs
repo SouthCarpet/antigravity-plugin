@@ -65,7 +65,7 @@ export async function run(argv = [], ctx = {}) {
       addDirs,
       cwd: workspaceRoot,
       request: { mode, addDirs },
-      onStdout: (chunk) => process.stderr.write(chunk),
+      onText: (delta) => process.stderr.write(delta),
     });
 
     if (result.status === "auth_required") {

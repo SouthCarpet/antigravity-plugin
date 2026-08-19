@@ -89,7 +89,7 @@ export async function run(argv = [], ctx = {}) {
     conversationId,
     cwd: workspaceRoot,
     request: { scope: envelope.scope, base: base ?? null, mode },
-    onStdout: (chunk) => process.stderr.write(chunk),
+    onText: (delta) => process.stderr.write(delta),
   });
 
   if (result.status === "auth_required") {
