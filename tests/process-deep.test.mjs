@@ -19,9 +19,15 @@ import {
 
 const TMPROOT = os.tmpdir();
 
+// A binary that exists on PATH in EVERY environment this suite runs in:
+// `sh` is absent from a plain PowerShell PATH on Windows, so these tests
+// must not assume it (they passed or failed depending on which shell ran
+// them — the exact environment-dependence issue #3 was about).
+const SHELL_BIN = process.platform === 'win32' ? 'cmd' : 'sh';
+
 describe('binaryAvailable', () => {
-  it('returns true for an executable that exists on PATH (sh)', () => {
-    assert.equal(binaryAvailable('sh'), true);
+  it(`returns true for an executable that exists on PATH (${SHELL_BIN})`, () => {
+    assert.equal(binaryAvailable(SHELL_BIN), true);
   });
 
   it('returns false for a binary that does not exist', () => {
@@ -39,9 +45,10 @@ describe('terminateProcessTree', () => {
   });
 
   it('SIGTERMs a real child process group', async () => {
-    // Launch a detached child running `sleep`. detached:true puts it in its
-    // own process group so process.kill(-pid, SIGTERM) hits the group.
-    const child = spawn('sh', ['-c', 'sleep 10'], { detached: true, stdio: 'ignore' });
+    // Launch a detached long-lived child. node itself is the one binary
+    // guaranteed present (we are running under it) and spawns identically
+    // on every platform — no shell needed.
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], { detached: true, stdio: 'ignore' });
     try {
       assert.ok(child.pid, 'child should have a pid');
       terminateProcessTree(child.pid);
@@ -65,7 +72,7 @@ describe('terminateProcessTree', () => {
 
 describe('spawnDetached', () => {
   it('spawns with stdio=ignore and unrefs when no log file is provided', () => {
-    const child = spawnDetached('sh', ['-c', 'exit 0']);
+    const child = spawnDetached(process.execPath, ['-e', 'process.exit(0)']);
     assert.ok(child.pid);
     // Wait for exit so the test does not leave a zombie.
     return new Promise((resolve) => child.on('exit', () => resolve()));

@@ -36,7 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot execute and which does not exist as a path on this machine. Added
   a shared, platform-aware fake-binary factory
   (`tests/helpers/fake-agy.mjs`) and moved every affected test onto it and
-  onto `os.tmpdir()`. First fully green run of the suite on native Windows.
+  onto `os.tmpdir()`. Follow-up in the same release: the last three
+  `sh`-dependent tests in `process-deep.test.mjs` now use `cmd`/`node`, so
+  the suite is green regardless of whether Git-Bash `sh` is on `PATH`.
+  First fully green run of the suite on native Windows.
 
 ## [0.2.2] — 2026-08-19
 
