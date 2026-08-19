@@ -22,7 +22,7 @@ for free / personal users.
 
 ## Status
 
-> **Pre-release (v0.2.3).** Active development. Expect breaking changes until
+> **Pre-release (v0.2.4).** Active development. Expect breaking changes until
 > v1.0.0. See [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Release notes
@@ -33,6 +33,7 @@ the complete history is in [`CHANGELOG.md`](./CHANGELOG.md).
 
 | Version | Date | Highlights |
 |---|---|---|
+| [v0.2.4](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.4) | 2026-08-19 | stdin envelope updated for agy 1.1.15 (`event: user`) - agy calls broken after the agy upgrade work again |
 | [v0.2.3](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.3) | 2026-08-19 | All four tracked known issues fixed (space-bearing Windows paths, `rescue`/`review`/`task` progress mirrors, background-job usage persistence, POSIX-only tests); first fully green test suite on Windows |
 | [v0.2.2](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.2) | 2026-08-19 | Prompt travels over **stdin (stream-json)** — no more ~32 K Windows argv crash on long briefs; background jobs un-broken on Windows (`fileURLToPath` worker path); readable progress via `onText`; token usage always captured |
 | [v0.2.1](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.1) | 2026-08-16 | All `/antigravity:*` verbs actually execute when invoked from Claude Code (main-guard `runIfMain`; they used to exit 0 silently) |

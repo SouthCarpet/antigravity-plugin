@@ -160,8 +160,10 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     const written = child.stdin.written.trim();
     assert.equal(written.split('\n').length, 1, 'exactly one NDJSON line');
     const parsed = JSON.parse(written);
+    // agy 1.1.15 contract: top-level discriminator is `event`, not `type` —
+    // the type-shape is rejected with 'missing the "event" field'.
     assert.deepEqual(parsed, {
-      type: 'user',
+      event: 'user',
       message: { role: 'user', content: [{ type: 'text', text: prompt }] },
     });
   });

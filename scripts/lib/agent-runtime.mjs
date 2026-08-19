@@ -96,10 +96,16 @@ export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000 } = {})
 
 /**
  * Build the single NDJSON line agy expects on stdin in stream-json mode.
+ *
+ * agy 1.1.15 requires an `{"event":"user", ...}` envelope; the earlier
+ * `{"type":"user", ...}` shape (accepted by 1.1.14) is now rejected with
+ * 'stream input message is missing the "event" field'. Probed live
+ * 2026-08-19: type-shape ERROR, event-shape SUCCESS. The inner content
+ * part keeps `type: 'text'` — only the top-level discriminator changed.
  */
 function buildStreamJsonLine(prompt) {
   return JSON.stringify({
-    type: 'user',
+    event: 'user',
     message: { role: 'user', content: [{ type: 'text', text: prompt }] },
   });
 }
@@ -199,7 +205,7 @@ export function parseAgyStream(text) {
  * (`--print ""` is required — bare `--print` errors "flag needs an
  * argument", and a non-empty value would be sent as a second prompt) with
  * exactly one NDJSON line written to stdin, then `stdin.end()`:
- *   `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}`
+ *   `{"event":"user","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}`
  *
  * `mode`:
  *   - `print` (default) — no continuation flag
