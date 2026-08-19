@@ -63,6 +63,13 @@ export function parseArgs(argv, schema = {}) {
  * Split a raw CLI argument string (as passed by Claude Code's $ARGUMENTS) into
  * an argv-style array, respecting single and double quotes.
  *
+ * Backslash is ALWAYS a literal character — there is no escape mechanism, so
+ * Windows paths such as `C:\Program Files\shot.png` survive intact whether or
+ * not they're quoted. Quotes toggle a "currently quoted" state as usual; to
+ * include a literal quote character inside an argument, wrap the argument in
+ * the OTHER quote type (e.g. `'say "hi"'` yields the single token `say "hi"`,
+ * and `"it's fine"` yields `it's fine`).
+ *
  * @param {string} raw
  * @returns {string[]}
  */
@@ -76,20 +83,8 @@ export function splitRawArgumentString(raw) {
   let current = "";
   let inSingle = false;
   let inDouble = false;
-  let escaped = false;
 
   for (const ch of raw) {
-    if (escaped) {
-      current += ch;
-      escaped = false;
-      continue;
-    }
-
-    if (ch === "\\") {
-      escaped = true;
-      continue;
-    }
-
     if (ch === "'" && !inDouble) {
       inSingle = !inSingle;
       continue;
@@ -132,9 +127,9 @@ export function parseCommandInput(argv, schema = {}) {
       return [];
     }
 
-    // A lone token with no whitespace cannot need splitting — passing it
-    // through splitRawArgumentString would eat backslashes as escapes and
-    // corrupt Windows paths (e.g. `vision C:\shots\a.png`).
+    // A lone token with no whitespace has nothing to split (no quotes, no
+    // spaces to tokenize) — skip splitRawArgumentString entirely rather than
+    // walking it character by character for no reason.
     const hasRawOptionBoundary = /\s/.test(arg) && /(^|\s)--\S/.test(arg);
     if ((argv.length === 1 && /\s/.test(arg)) || hasRawOptionBoundary) {
       return splitRawArgumentString(arg);

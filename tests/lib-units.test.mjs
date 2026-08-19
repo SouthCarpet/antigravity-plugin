@@ -86,8 +86,11 @@ describe('args.splitRawArgumentString', () => {
     assert.deepEqual(splitRawArgumentString("'x y' z"), ['x y', 'z']);
   });
 
-  it('supports backslash escape inside the string', () => {
-    assert.deepEqual(splitRawArgumentString('a\\ b c'), ['a b', 'c']);
+  it('treats backslash as a literal character (no escape mechanism)', () => {
+    assert.deepEqual(splitRawArgumentString('a\\ b c'), ['a\\', 'b', 'c']);
+    assert.deepEqual(splitRawArgumentString('"C:\\Program Files\\shot.png"'), [
+      'C:\\Program Files\\shot.png',
+    ]);
   });
 
   it('handles trailing token and consecutive spaces', () => {

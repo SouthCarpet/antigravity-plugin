@@ -43,4 +43,22 @@ describe("parseCommandInput lone-element handling", () => {
     assert.deepEqual(positionals, ["C:\\a\\b.png"]);
     assert.equal(options.json, true);
   });
+
+  it("keeps a quoted space-bearing Windows path byte-intact as one positional", () => {
+    const { options, positionals } = parseCommandInput(
+      ['"C:\\Program Files\\shot.png"'],
+      { valueOptions: ["prompt"], booleanOptions: ["json"] },
+    );
+    assert.deepEqual(positionals, ["C:\\Program Files\\shot.png"]);
+    assert.deepEqual(options, {});
+  });
+
+  it("keeps a quoted space-bearing Windows path intact alongside a following flag", () => {
+    const { options, positionals } = parseCommandInput(
+      ['"C:\\Program Files\\a.png" --prompt "two words"'],
+      { valueOptions: ["prompt"], booleanOptions: ["json"] },
+    );
+    assert.deepEqual(positionals, ["C:\\Program Files\\a.png"]);
+    assert.equal(options.prompt, "two words");
+  });
 });
