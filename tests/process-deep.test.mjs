@@ -17,7 +17,7 @@ import {
   spawnDetached,
 } from '../scripts/lib/process.mjs';
 
-const TMPROOT = '/tmp';
+const TMPROOT = os.tmpdir();
 
 describe('binaryAvailable', () => {
   it('returns true for an executable that exists on PATH (sh)', () => {
@@ -74,8 +74,16 @@ describe('spawnDetached', () => {
   it('redirects stderr to a log file when logFile is provided', async () => {
     const dir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-spawn-'));
     const log = path.join(dir, 'out.log');
+    // spawnDetached inherits its stderr fd straight into the child (no
+    // shell involved) — that works for a genuine native executable, but
+    // Git-for-Windows' `sh.exe` re-execs through its own MSYS runtime and
+    // the inherited fd does not survive that hop, so on win32 this uses
+    // cmd.exe (a real, directly-spawnable PE binary) instead of sh.
+    const [command, args] = process.platform === 'win32'
+      ? ['cmd.exe', ['/c', 'echo line-to-stderr 1>&2']]
+      : ['sh', ['-c', 'echo line-to-stderr 1>&2; exit 0']];
     try {
-      const child = spawnDetached('sh', ['-c', 'echo line-to-stderr 1>&2; exit 0'], { logFile: log });
+      const child = spawnDetached(command, args, { logFile: log });
       assert.ok(child.pid);
       await new Promise((resolve) => child.on('exit', () => resolve()));
       const body = fs.readFileSync(log, 'utf8');
