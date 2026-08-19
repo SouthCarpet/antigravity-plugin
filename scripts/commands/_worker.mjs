@@ -116,6 +116,9 @@ async function main() {
       status: result.status,
       exitCode: result.exitCode,
       oauthUrl: oauth,
+      usage: result.usage ?? null,
+      durationSeconds: result.durationSeconds ?? null,
+      agyConversationId: result.agyConversationId ?? null,
     },
   });
   appendJobLog(workspaceRoot, jobId, `[worker] ${status} exit=${result.exitCode}`);

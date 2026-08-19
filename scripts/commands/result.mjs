@@ -33,6 +33,17 @@ export async function run(argv = [], ctx = {}) {
   }
 
   const stored = readJobFile(workspaceRoot, job.id);
+
+  const usage = stored?.result?.usage ?? null;
+  if (usage && typeof usage.total_tokens === "number") {
+    // Measured by agy itself (json envelope). The ledger rule requires
+    // recording measured totals — this trailer is what the orchestrator reads.
+    process.stderr.write(
+      `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
+        `out=${usage.output_tokens ?? "?"}\n`,
+    );
+  }
+
   const rendered = renderResultOutput(workspaceRoot, job, stored);
   const payload = {
     jobId: job.id,

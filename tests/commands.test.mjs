@@ -220,6 +220,69 @@ describe('/antigravity:result', () => {
     }
     assert.equal(exit, 2);
   });
+
+  it('prints a usage trailer on stderr when the stored job carries measured usage', async () => {
+    const id = 'job' + randomBytes(3).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id,
+      kind: 'task',
+      status: 'completed',
+      phase: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, {
+      id,
+      status: 'completed',
+      result: {
+        rawOutput: 'hello',
+        usage: { total_tokens: 42, input_tokens: 10, output_tokens: 32 },
+        durationSeconds: 3.5,
+        agyConversationId: 'conv-123',
+      },
+    });
+
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    try {
+      await run([id], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.match(cap.err.join(''), /usage: total=42 in=10 out=32/);
+  });
+
+  it('prints no usage trailer when the stored job has no usage', async () => {
+    const id = 'job' + randomBytes(3).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id,
+      kind: 'task',
+      status: 'completed',
+      phase: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, {
+      id,
+      status: 'completed',
+      result: { rawOutput: 'hello', usage: null },
+    });
+
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    try {
+      await run([id], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.doesNotMatch(cap.err.join(''), /usage: total=/);
+  });
 });
 
 // ───────────────────────────── cancel ─────────────────────────────
