@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-08-19
+
+### Fixed
+
+- **fix: `$ARGUMENTS` blobs mangled space-bearing Windows paths** (#4) —
+  `splitRawArgumentString`'s backslash-escape grammar dropped the backslash
+  in front of every character (`\P` → `P`), corrupting a lone quoted blob
+  like `"C:\Program Files\shot.png"`. Backslash is now always a literal
+  character — there is no escape mechanism. Quotes still toggle as before;
+  a literal quote inside an argument is written using the other quote type.
+- **fix: `rescue`/`review`/`task` foreground progress mirrors printed raw
+  NDJSON** (#1) — the three verbs still passed `onStdout` (the raw event
+  stream) to their stderr progress mirror instead of `onText` (readable
+  deltas), unlike `vision`, which already used it. All three now use
+  `onText`, matching `vision`.
+- **fix: background jobs never persisted measured `usage` /
+  `durationSeconds` / `agyConversationId`** (#2) — the background worker's
+  completion patch wrote `rawOutput`/`stderr`/`status`/`exitCode`/`oauthUrl`
+  but dropped the measured fields `runAgyPrint` already returns.
+  `/antigravity:result` now also prints a `usage: total=<N> in=<in>
+  out=<out>` trailer to stderr when the stored job carries measured usage
+  — the same machine-read line `vision` already prints, now for background
+  jobs too.
+- **fix: 13 tests failed on native Windows / Node 25** (#3) —
+  `agent-runtime-deep.test.mjs` and `process-deep.test.mjs` spawned
+  `#!/bin/sh` stub files (some under a literal `/tmp`), which Windows
+  cannot execute and which does not exist as a path on this machine. Added
+  a shared, platform-aware fake-binary factory
+  (`tests/helpers/fake-agy.mjs`) and moved every affected test onto it and
+  onto `os.tmpdir()`. First fully green run of the suite on native Windows.
+
 ## [0.2.2] — 2026-08-19
 
 ### Fixed
@@ -144,7 +175,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v0.1.0...v0.2.0

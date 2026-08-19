@@ -22,7 +22,7 @@ for free / personal users.
 
 ## Status
 
-> **Pre-release (v0.2.2).** Active development. Expect breaking changes until
+> **Pre-release (v0.2.3).** Active development. Expect breaking changes until
 > v1.0.0. See [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Release notes
@@ -33,6 +33,7 @@ the complete history is in [`CHANGELOG.md`](./CHANGELOG.md).
 
 | Version | Date | Highlights |
 |---|---|---|
+| [v0.2.3](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.3) | 2026-08-19 | All four tracked known issues fixed (space-bearing Windows paths, `rescue`/`review`/`task` progress mirrors, background-job usage persistence, POSIX-only tests); first fully green test suite on Windows |
 | [v0.2.2](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.2) | 2026-08-19 | Prompt travels over **stdin (stream-json)** — no more ~32 K Windows argv crash on long briefs; background jobs un-broken on Windows (`fileURLToPath` worker path); readable progress via `onText`; token usage always captured |
 | [v0.2.1](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.1) | 2026-08-16 | All `/antigravity:*` verbs actually execute when invoked from Claude Code (main-guard `runIfMain`; they used to exit 0 silently) |
 | [v0.2.0](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.0) | 2026-08-10 | **Vision channel** for headless agy (`/antigravity:vision`, bundled MCP `view_image` server, permission auto-setup); Windows binary-resolution fixes |
@@ -117,21 +118,10 @@ if you don't want it). If the MCP channel isn't available for any reason, agy
 is instructed to reply with `VISION-UNAVAILABLE: <reason>` rather than guess
 from the file name — treat that line as a health signal, not a real answer.
 
-> **Known issue:** a SINGLE argument whose path contains a space is
-> mis-parsed — see [Known issues](#known-issues) below.
-
 ## Known issues
 
-Tracked with the
-[`known issue` label](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22);
-each has details and a workaround.
-
-| # | Issue | Workaround |
-|---|---|---|
-| [#4](https://github.com/SouthCarpet/antigravity-plugin/issues/4) | A **single** argument whose path contains a **space** is split and backslash-mangled (`/antigravity:vision "C:\Program Files\shot.png"`) | Add any second token (`--prompt "..."`, a second image) or use a space-free path |
-| [#1](https://github.com/SouthCarpet/antigravity-plugin/issues/1) | `rescue`/`review`/`task` foreground **progress** mirror prints raw NDJSON events (final output is clean; `vision` already fixed) | Ignore the progress stream or use `--background` + `result` |
-| [#2](https://github.com/SouthCarpet/antigravity-plugin/issues/2) | Background jobs don't persist measured **token usage** into the job record | Run foreground when you need the `usage:` trailer |
-| [#3](https://github.com/SouthCarpet/antigravity-plugin/issues/3) | 13 upstream tests assume POSIX (`/tmp`, `#!/bin/sh`) and fail on native Windows — no green full-suite gate there | Judge changes by the failing-name set staying identical (documented in releases) |
+**No open known issues as of v0.2.3.** Anything new lands under the
+[`known issue` label](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22).
 
 ## Documentation
 
