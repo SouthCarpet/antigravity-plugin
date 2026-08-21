@@ -163,6 +163,7 @@ $antigravity status
 agy plugin install /path/to/antigravity-plugin
 #   from a clean clone: agy copies the whole working tree, including .git
 #   and tests/, and does not honour package.json files.
+#   Re-run this after every upgrade — agy keeps its own copy.
 
 agy plugin list
 #   expect: antigravity appears (agents, commands)
@@ -174,9 +175,26 @@ npx @southcarpet/antigravity-plugin status
 npx @southcarpet/antigravity-plugin review
 ```
 
+Interactive TUI (cannot be checked headlessly). In a **fresh** `agy` TUI
+session, in this repository, type:
+
+```text
+/antigravity:review
+```
+
+Approve the `node` run if prompted. A pass is plugin output for **this**
+repo (a review of the current diff, `no changes to review`, or a plugin
+error such as not authenticated) plus a new job record under the workspace
+state root. A fail is a plausible review with no job record — especially
+one prefaced like "The review has already run. Output as returned:" whose
+findings are about some other tree. If node cannot run, a pass is the
+exact error plus `npx @southcarpet/antigravity-plugin review`, not a
+model-authored review.
+
 - [ ] `agy plugin install <path-to-clone>` succeeds
 - [ ] `agy plugin list` shows `antigravity`
 - [ ] standalone CLI reaches the same runtime on that machine
+- [ ] TUI `/antigravity:review` runs the plugin (job record created) or fails loud
 
 ## Reporting
 

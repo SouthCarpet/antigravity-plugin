@@ -71,7 +71,7 @@ preferred AI host so you can:
 |------------------|--------------------------------------------------------------------|
 | Claude Code      | `claude plugin marketplace add SouthCarpet/antigravity-plugin` then `claude plugin install antigravity@antigravity` |
 | Codex CLI        | `codex plugin marketplace add <path-to-clone>` then `codex plugin add antigravity@antigravity` (see [docs/INSTALL.md](./docs/INSTALL.md)) |
-| Antigravity (agy)| `agy plugin install <path-to-clone>` from a clean clone; verbs via the standalone CLI |
+| Antigravity (agy)| `agy plugin install <path-to-clone>` from a clean clone. In an interactive TUI, `/antigravity:<verb>` runs the copied runtime. Re-run install after upgrading — agy keeps its own copy. If that invocation cannot run, use the standalone CLI |
 | Standalone       | `npx @southcarpet/antigravity-plugin <command>` |
 
 ## Requirements

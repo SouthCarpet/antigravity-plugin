@@ -9,7 +9,8 @@
  *      plus `plugin.json`, `SKILL.md`, `package.json`, `bin/antigravity.mjs`).
  *      Hosts look these up by location; adding a file to one of those trees
  *      automatically tightens this gate.
- *   2. Every `commands/*.md` — Claude Code slash-command discovery. Dropping
+ *   2. Every `commands/*.md` — Claude Code and agy TUI slash-command
+ *      discovery. Dropping
  *      `commands/vision.md` from `files` is the failure the old representative
  *      list missed.
  *   3. Every `scripts/commands/*.mjs` — the modules those markdown files

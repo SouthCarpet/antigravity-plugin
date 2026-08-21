@@ -9,7 +9,7 @@ the contract was frozen. A behavior is public only when this document or the
 
 | Surface | Supported in 1.x |
 |---|---|
-| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; verbs via the standalone CLI), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
+| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux and Windows. Both run the full CI suite. macOS and other Node platforms are best-effort, not part of the compatibility promise. |
 | Node.js | `>=22.3.0` |
 | Google Antigravity CLI | `agy` 1.1.15 and 1.1.17. Other versions may work, but are not in the tested or promised matrix. |
@@ -34,11 +34,19 @@ succeeding is not a promise that an unlisted agy version is compatible.
 
 agy is a real host for discovery and lifecycle: `agy plugin install <path-to-clone>`,
 `list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no
-`plugin run` subcommand. After install, the eight verbs run through the
-standalone CLI. Host installers and host-owned invocation wrappers can evolve
-independently. The promise is that the four surfaces above reach the same eight
-runtime verbs and accept the documented arguments when the host can load this
-plugin.
+`plugin run` subcommand. After install, the eight verbs are reachable from an
+interactive agy TUI as `/antigravity:<verb>` (command markdown converted to
+skills) and from the standalone CLI. The TUI wrappers locate the copied runtime
+in Node: `CLAUDE_PLUGIN_ROOT` when that is set and non-empty, otherwise
+`<homedir>/.gemini/config/plugins/antigravity`. They do not shell-expand
+`CLAUDE_PLUGIN_ROOT`. If that invocation cannot run or does not succeed, they
+instruct the reading model to print the error and stop rather than perform the
+task itself; `npx @southcarpet/antigravity-plugin <verb>` is the fallback that
+always works. agy stores its own copy of the tree, so an upgrade takes effect
+in the TUI only after `agy plugin install <path-to-clone>` is re-run. Host
+installers and host-owned invocation wrappers can evolve independently. The
+promise is that the four surfaces above reach the same eight runtime verbs and
+accept the documented arguments when the host can load this plugin.
 
 ## Public command surface
 
@@ -177,7 +185,7 @@ These variables have direct semantics in the shipped code:
 | `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing; direct command-module invocation can fall back to normal discovery. |
 | `PATH` / `Path` | Searched for `agy`; Windows accepts its conventional `Path` casing when `PATH` is absent. |
 | `HOME` / `USERPROFILE` | Used, in that order, for the fallback `<home>/.local/bin/agy` search. Node's platform home directory also determines the `~/.gemini` paths used by vision setup. |
-| `CLAUDE_PLUGIN_ROOT` | Supplied by Claude Code and used by the shipped slash-command wrappers to locate `scripts/commands/*.mjs`. |
+| `CLAUDE_PLUGIN_ROOT` | Supplied by Claude Code and used by the shipped slash-command wrappers to locate `scripts/commands/*.mjs`. When unset or empty, the wrappers resolve the plugin root in Node as `path.join(os.homedir(), '.gemini', 'config', 'plugins', 'antigravity')` — the tree `agy plugin install` copies to. That fallback is not a shell `${VAR:-fallback}` expansion. |
 | `CLAUDE_PLUGIN_DATA` | First-priority host state root; state lives below `<value>/state`. |
 | `CODEX_PLUGIN_DATA` | Second-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |
 | `AGY_PLUGIN_DATA` | Third-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |

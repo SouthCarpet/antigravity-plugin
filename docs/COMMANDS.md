@@ -11,7 +11,8 @@ All hosts route to the same `scripts/commands/<verb>.mjs` implementation:
 ```text
 /antigravity:<verb> ...                              # Claude Code
 $antigravity <verb> ...                              # Codex CLI
-npx @southcarpet/antigravity-plugin <verb> ...       # standalone, including agy-native installs
+/antigravity:<verb> ...                              # agy interactive TUI (copied plugin tree)
+npx @southcarpet/antigravity-plugin <verb> ...       # standalone; also the agy fallback that always works
 node bin/antigravity.mjs <verb> ...                  # standalone from a checkout
 ```
 

@@ -79,12 +79,21 @@ Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
 ## agy itself
 
 agy 1.1.15 and 1.1.17 can install, list, validate, enable, and disable this
-plugin. They have no `plugin run` subcommand. After install, run the eight
-verbs with the standalone CLI.
+plugin. They have no `plugin run` subcommand. After install, the eight verbs
+are reachable two ways:
+
+- Interactive TUI: `/antigravity:<verb>` (agy converts `commands/*.md` to
+  skills). The wrapper locates the copied runtime with Node — it does not
+  depend on `CLAUDE_PLUGIN_ROOT`. If that run cannot start, the skill tells
+  the model to print the error and stop, not to do the task itself.
+- Standalone CLI: `npx @southcarpet/antigravity-plugin <verb>`. This is the
+  fallback that always works.
 
 Install from a **clean clone**. `agy plugin install <path>` copies the entire
-working tree into `~/.gemini/config/plugins/`, including `.git`, `.github`,
-and `tests/`. It does not honour `package.json` `files`.
+working tree into `~/.gemini/config/plugins/antigravity/`, including `.git`,
+`.github`, and `tests/`. It does not honour `package.json` `files`. agy keeps
+that copy; **re-run `agy plugin install <path-to-clone>` after every upgrade**
+or the TUI will keep serving the old wrappers.
 
 ```bash
 git clone https://github.com/SouthCarpet/antigravity-plugin.git
@@ -92,6 +101,10 @@ agy plugin install ./antigravity-plugin
 agy plugin list                  # expect: antigravity, with agents and commands
 agy plugin validate ./antigravity-plugin
 # validate reports: commands: 8 processed (converted to skills)
+
+# TUI, after install (approve the node run if prompted):
+#   /antigravity:setup
+#   /antigravity:review
 
 npx @southcarpet/antigravity-plugin setup
 npx @southcarpet/antigravity-plugin review
@@ -154,4 +167,6 @@ this for you.
 
 The form that works is `agy plugin install <path-to-clone>`. The
 `<name>@<marketplace>` form and `agy plugin import claude` fail on the tested
-agy versions (see above). There is no `agy plugin run`.
+agy versions (see above). There is no `agy plugin run`. After a plugin
+upgrade, re-run `agy plugin install <path-to-clone>` so the TUI copy matches
+the clone; otherwise `/antigravity:<verb>` keeps the previous wrappers.

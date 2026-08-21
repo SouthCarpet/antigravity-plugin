@@ -34,8 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `agy plugin install <path-to-clone>` from a clean clone (agy copies the
   whole tree and ignores `package.json` `files`). Codex needs
   `codex plugin add antigravity@antigravity` after registering the
-  marketplace. agy has no `plugin run`; verbs go through the standalone
-  CLI. Tested agy versions are 1.1.15 and 1.1.17.
+  marketplace. agy has no `plugin run`. After install, TUI
+  `/antigravity:<verb>` locates the copied runtime; the standalone CLI is
+  the fallback that always works. Tested agy versions are 1.1.15 and 1.1.17.
 
 ### Removed
 
@@ -45,6 +46,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **agy TUI `/antigravity:<verb>` no longer looks succeeded when the plugin
+  did not run** — `commands/*.md` located the runtime via
+  `${CLAUDE_PLUGIN_ROOT}`, which agy does not set, so the path collapsed to
+  `/scripts/commands/<verb>.mjs` and the model did the task itself. Wrappers
+  now resolve the plugin root in Node (`CLAUDE_PLUGIN_ROOT` when set,
+  otherwise the `agy plugin install` copy at
+  `~/.gemini/config/plugins/antigravity`) and tell the reading model to
+  print the error and stop if that run cannot start. The standalone CLI is
+  the fallback that always works. Re-run `agy plugin install <path>` after
+  upgrading; agy keeps its own copy.
 - **Windows lock acquisition no longer aborts on `EPERM`/`EACCES`/`EBUSY`**
   — those codes are contention, so two concurrent job operations wait
   instead of failing.

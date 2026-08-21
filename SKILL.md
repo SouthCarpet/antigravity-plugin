@@ -17,7 +17,7 @@ Skip `$antigravity` for trivial one-line edits or anything that requires interac
 
 ## Verbs
 
-All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), and standalone (`npx @southcarpet/antigravity-plugin <verb>`, or `node bin/antigravity.mjs <verb>` from a clone). agy can install and validate this plugin; it has no `plugin run` subcommand, so the eight verbs run through the standalone CLI. Host wrappers differ in shape; the verb set and flag contract do not.
+All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy TUI (`/antigravity:<verb>` after `agy plugin install`), and standalone (`npx @southcarpet/antigravity-plugin <verb>`, or `node bin/antigravity.mjs <verb>` from a clone). agy has no `plugin run` subcommand. TUI wrappers locate the copied tree with Node (`CLAUDE_PLUGIN_ROOT` when set, otherwise `~/.gemini/config/plugins/antigravity`). If that run cannot start, they must report the error and stop — they must not do the task themselves. The standalone CLI is the fallback that always works. Host wrappers differ in shape; the verb set and flag contract do not.
 
 | Verb     | What it does |
 |----------|--------------|

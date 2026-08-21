@@ -5,8 +5,11 @@
  * two different ways:
  *   1. bin/antigravity.mjs dynamically `import()`s it and calls `run()`
  *      itself — that path already worked.
- *   2. commands/<verb>.md (the Claude Code command surfaces) invoke it
- *      DIRECTLY: `node ".../scripts/commands/<verb>.mjs" $ARGUMENTS`.
+ *   2. commands/<verb>.md (Claude Code and agy TUI wrappers) locate this
+ *      plugin with a `node -e` snippet, then spawn
+ *      `node ".../scripts/commands/<verb>.mjs"` with the user's arguments.
+ *      Claude Code still supplies CLAUDE_PLUGIN_ROOT; agy does not, so the
+ *      snippet falls back to the agy install copy.
  * Before this guard, path 2 only ever imported the module — `run` was
  * exported but never called — so `node vision.mjs foo.png` exited 0 with
  * zero output. A success-shaped silent failure. `runIfMain` makes a module
