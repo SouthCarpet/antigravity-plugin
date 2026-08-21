@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`check-pack` scans template interpolations and authorizes computed imports per call** — `${import(...)}` is executable code, not string content, and a second computed `import()` in `bin/antigravity.mjs` is no longer covered by the one legitimate command-module load.
 - **agy TUI `/antigravity:<verb>` no longer looks succeeded when the plugin
   did not run** — `commands/*.md` located the runtime via
   `${CLAUDE_PLUGIN_ROOT}`, which agy does not set, so the path collapsed to

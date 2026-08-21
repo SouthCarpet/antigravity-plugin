@@ -26,9 +26,10 @@
  * does not evaluate computed specifiers (`import(pathToFileURL(modPath).href)`,
  * `import(parts.join(""))`, and so on). Guessing those is how a pack gate
  * starts lying, so a computed `import()` in a walked module fails the gate
- * unless a maintainer has named its target in NAMED_COMPUTED_IMPORTS and
- * that target is already required by an explicit rule above — not by the
- * walk itself.
+ * unless a maintainer has named that specific call in NAMED_COMPUTED_IMPORTS
+ * (file + specifier text) and the named prefix is already required by an
+ * explicit rule above — not by the walk itself. One named call in a file
+ * does not authorize a second.
  *
  * A reader can re-run the derivation: if a command markdown, verb module,
  * MCP server, or imported library file exists on disk, it is required in
@@ -36,7 +37,7 @@
  * gone.
  */
 import { spawnSync } from 'node:child_process';
-import { dirname, join, relative, normalize } from 'node:path';
+import { dirname, join, relative, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 
@@ -81,12 +82,20 @@ function add(required, path, why) {
  * silence a hole — the named prefix must already be in the required set
  * from a glob or other explicit rule.
  *
+ * Each entry authorizes one occurrence: same file, specifier text matching
+ * `specifier`, and a required path with `requiredPrefix`. A second computed
+ * import in that file — even with the same specifier — needs its own entry.
+ *
  * `bin/antigravity.mjs` loads `scripts/commands/<verb>.mjs` via
  * `await import(pathToFileURL(modPath).href)`. The `scripts/commands/*.mjs`
  * glob already requires every target.
  */
 const NAMED_COMPUTED_IMPORTS = [
-  { file: 'bin/antigravity.mjs', requiredPrefix: 'scripts/commands/' },
+  {
+    file: 'bin/antigravity.mjs',
+    specifier: /^pathToFileURL\s*\(\s*modPath\s*\)\s*\.\s*href$/,
+    requiredPrefix: 'scripts/commands/',
+  },
 ];
 
 function lineNumberAt(src, index) {
@@ -100,48 +109,109 @@ function lineNumberAt(src, index) {
 /**
  * Replace comments and string contents with spaces (newlines kept) so
  * `import()` in a comment or string is not treated as a computed specifier.
+ * Template-literal interpolations `${...}` are executable code and are
+ * scanned, not masked; they nest (templates inside interpolations, braces
+ * inside interpolations). Length-preserving so indices map back.
  */
 function maskCommentsAndStrings(src) {
+  return maskCode(src, 0, src.length, false).out;
+}
+
+function maskCode(src, start, end, stopOnBrace) {
   let out = '';
-  let i = 0;
-  while (i < src.length) {
+  let i = start;
+  let braceDepth = 0;
+  while (i < end) {
     if (src.startsWith('/*', i)) {
-      const end = src.indexOf('*/', i + 2);
-      const close = end === -1 ? src.length : end + 2;
+      const blockEnd = src.indexOf('*/', i + 2);
+      const close = blockEnd === -1 ? end : Math.min(end, blockEnd + 2);
       out += src.slice(i, close).replace(/[^\n]/g, ' ');
       i = close;
       continue;
     }
     if (src.startsWith('//', i)) {
-      const end = src.indexOf('\n', i);
-      const close = end === -1 ? src.length : end;
+      const nl = src.indexOf('\n', i);
+      const close = nl === -1 || nl > end ? end : nl;
       out += ' '.repeat(close - i);
       i = close;
       continue;
     }
     const q = src[i];
-    if (q === '"' || q === "'" || q === '`') {
-      out += q;
-      i += 1;
-      while (i < src.length && src[i] !== q) {
-        if (src[i] === '\\' && i + 1 < src.length) {
-          out += '  ';
-          i += 2;
-          continue;
-        }
-        out += src[i] === '\n' ? '\n' : ' ';
-        i += 1;
-      }
-      if (i < src.length) {
-        out += src[i];
-        i += 1;
-      }
+    if (q === '"' || q === "'") {
+      const masked = maskQuoted(src, i, end, q);
+      out += masked.out;
+      i = masked.i;
       continue;
+    }
+    if (q === '`') {
+      const masked = maskTemplate(src, i, end);
+      out += masked.out;
+      i = masked.i;
+      continue;
+    }
+    if (stopOnBrace) {
+      if (src[i] === '{') {
+        braceDepth += 1;
+      } else if (src[i] === '}') {
+        if (braceDepth === 0) return { out, i };
+        braceDepth -= 1;
+      }
     }
     out += src[i];
     i += 1;
   }
-  return out;
+  return { out, i };
+}
+
+function maskQuoted(src, i, end, q) {
+  let out = q;
+  i += 1;
+  while (i < end && src[i] !== q) {
+    if (src[i] === '\\' && i + 1 < end) {
+      out += '  ';
+      i += 2;
+      continue;
+    }
+    out += src[i] === '\n' ? '\n' : ' ';
+    i += 1;
+  }
+  if (i < end) {
+    out += src[i];
+    i += 1;
+  }
+  return { out, i };
+}
+
+function maskTemplate(src, i, end) {
+  let out = '`';
+  i += 1;
+  while (i < end) {
+    if (src[i] === '\\' && i + 1 < end) {
+      out += '  ';
+      i += 2;
+      continue;
+    }
+    if (src[i] === '`') {
+      out += '`';
+      i += 1;
+      return { out, i };
+    }
+    if (src[i] === '$' && i + 1 < end && src[i + 1] === '{') {
+      out += '${';
+      i += 2;
+      const inner = maskCode(src, i, end, true);
+      out += inner.out;
+      i = inner.i;
+      if (i < end && src[i] === '}') {
+        out += '}';
+        i += 1;
+      }
+      continue;
+    }
+    out += src[i] === '\n' ? '\n' : ' ';
+    i += 1;
+  }
+  return { out, i };
 }
 
 /**
@@ -166,21 +236,64 @@ function consumeStringLiteral(s, i) {
   return i + 1;
 }
 
+function firstImportArgument(src, code, openParenIndex) {
+  let depth = 0;
+  const start = openParenIndex + 1;
+  for (let i = openParenIndex; i < code.length; i++) {
+    if (code[i] === '(') {
+      depth += 1;
+      continue;
+    }
+    if (code[i] === ')') {
+      depth -= 1;
+      if (depth === 0) return src.slice(start, i).trim();
+    }
+  }
+  return src.slice(start).trim();
+}
+
 function findComputedDynamicImports(rel, src) {
   const hits = [];
   const code = maskCommentsAndStrings(src);
   const re = /\bimport\s*\(/g;
   let m;
   while ((m = re.exec(code))) {
-    let i = skipSpace(code, m.index + m[0].length);
+    const openParen = m.index + m[0].length - 1;
+    let i = skipSpace(code, openParen + 1);
     const afterString = consumeStringLiteral(code, i);
     if (afterString !== -1) {
       i = skipSpace(code, afterString);
       if (code[i] === ')' || code[i] === ',') continue;
     }
-    hits.push({ file: rel, line: lineNumberAt(src, m.index) });
+    hits.push({
+      file: rel,
+      line: lineNumberAt(src, m.index),
+      specifier: firstImportArgument(src, code, openParen),
+    });
   }
   return hits;
+}
+
+/**
+ * Each NAMED_COMPUTED_IMPORTS entry matches at most one hit. A second
+ * computed import in an already-named file stays unnamed so it fails
+ * closed with its own file:line.
+ */
+function unnamedComputedImports(hits, requiredPaths, named = NAMED_COMPUTED_IMPORTS) {
+  const remaining = named.map((entry) => ({ ...entry, used: false }));
+  const unnamed = [];
+  for (const hit of hits) {
+    const idx = remaining.findIndex(
+      (entry) =>
+        !entry.used &&
+        entry.file === hit.file &&
+        entry.specifier.test(hit.specifier) &&
+        requiredPaths.some((relPath) => relPath.startsWith(entry.requiredPrefix)),
+    );
+    if (idx === -1) unnamed.push(hit);
+    else remaining[idx].used = true;
+  }
+  return unnamed;
 }
 
 /**
@@ -268,81 +381,98 @@ function deriveRequired() {
   return { required, computedImports };
 }
 
-const { required, computedImports } = deriveRequired();
-
-const npm =
-  process.platform === 'win32'
-    ? spawnSync('cmd.exe', ['/c', 'npm pack --dry-run --json'], {
-        cwd: root,
-        encoding: 'utf8',
-      })
-    : spawnSync('npm', ['pack', '--dry-run', '--json'], {
-        cwd: root,
-        encoding: 'utf8',
-      });
-
-if (npm.status !== 0) {
-  console.error('npm pack --dry-run --json failed');
-  if (npm.stderr) process.stderr.write(npm.stderr);
-  if (npm.stdout) process.stdout.write(npm.stdout);
-  process.exit(npm.status === null ? 1 : npm.status);
-}
-
-let parsed;
-try {
-  parsed = JSON.parse(npm.stdout);
-} catch (err) {
-  console.error(`could not parse npm pack JSON: ${err.message}`);
-  process.stderr.write(npm.stdout);
-  process.exit(1);
-}
-
-const pack = Array.isArray(parsed) ? parsed[0] : parsed;
-const files = new Set((pack.files ?? []).map((entry) => entry.path.replace(/\\/g, '/')));
-
-console.log(`npm pack would produce ${pack.filename} (${files.size} files)`);
-console.log(
-  `derived ${required.size} required entries from host discovery, commands/*.md, ` +
-    `scripts/commands/*.mjs, scripts/mcp/*.mjs, and the import graph`,
-);
-
-const missingRequired = [];
-for (const [path, why] of required) {
-  if (!files.has(path)) missingRequired.push({ path, why });
-}
-
-const unnamedComputed = [];
-for (const hit of computedImports) {
-  const named = NAMED_COMPUTED_IMPORTS.find((entry) => entry.file === hit.file);
-  if (!named) {
-    unnamedComputed.push(hit);
-    continue;
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  let modulePath;
+  let entryPath;
+  try {
+    modulePath = resolve(fileURLToPath(import.meta.url));
+    entryPath = resolve(entry);
+  } catch {
+    return false;
   }
-  const covered = [...required.keys()].some((path) => path.startsWith(named.requiredPrefix));
-  if (!covered) {
-    unnamedComputed.push(hit);
+  if (process.platform === 'win32') {
+    return modulePath.toLowerCase() === entryPath.toLowerCase();
   }
+  return modulePath === entryPath;
 }
 
-if (missingRequired.length > 0) {
-  console.error('missing required pack entries:');
-  for (const item of missingRequired) {
-    console.error(`  ${item.path} — ${item.why}`);
+export {
+  NAMED_COMPUTED_IMPORTS,
+  findComputedDynamicImports,
+  maskCommentsAndStrings,
+  unnamedComputedImports,
+};
+
+function runCli() {
+  const { required, computedImports } = deriveRequired();
+
+  const npm =
+    process.platform === 'win32'
+      ? spawnSync('cmd.exe', ['/c', 'npm pack --dry-run --json'], {
+          cwd: root,
+          encoding: 'utf8',
+        })
+      : spawnSync('npm', ['pack', '--dry-run', '--json'], {
+          cwd: root,
+          encoding: 'utf8',
+        });
+
+  if (npm.status !== 0) {
+    console.error('npm pack --dry-run --json failed');
+    if (npm.stderr) process.stderr.write(npm.stderr);
+    if (npm.stdout) process.stdout.write(npm.stdout);
+    process.exit(npm.status === null ? 1 : npm.status);
   }
-}
 
-if (unnamedComputed.length > 0) {
-  console.error('computed dynamic import (specifier is not a literal); name the target:');
-  for (const hit of unnamedComputed) {
-    console.error(
-      `  ${hit.file}:${hit.line} — a maintainer must name the target ` +
-        `(or it must already be required by an explicit rule)`,
-    );
+  let parsed;
+  try {
+    parsed = JSON.parse(npm.stdout);
+  } catch (err) {
+    console.error(`could not parse npm pack JSON: ${err.message}`);
+    process.stderr.write(npm.stdout);
+    process.exit(1);
   }
+
+  const pack = Array.isArray(parsed) ? parsed[0] : parsed;
+  const files = new Set((pack.files ?? []).map((entry) => entry.path.replace(/\\/g, '/')));
+
+  console.log(`npm pack would produce ${pack.filename} (${files.size} files)`);
+  console.log(
+    `derived ${required.size} required entries from host discovery, commands/*.md, ` +
+      `scripts/commands/*.mjs, scripts/mcp/*.mjs, and the import graph`,
+  );
+
+  const missingRequired = [];
+  for (const [relPath, why] of required) {
+    if (!files.has(relPath)) missingRequired.push({ path: relPath, why });
+  }
+
+  const unnamedComputed = unnamedComputedImports(computedImports, [...required.keys()]);
+
+  if (missingRequired.length > 0) {
+    console.error('missing required pack entries:');
+    for (const item of missingRequired) {
+      console.error(`  ${item.path} — ${item.why}`);
+    }
+  }
+
+  if (unnamedComputed.length > 0) {
+    console.error('computed dynamic import (specifier is not a literal); name the target:');
+    for (const hit of unnamedComputed) {
+      console.error(
+        `  ${hit.file}:${hit.line} — a maintainer must name the target ` +
+          `(or it must already be required by an explicit rule)`,
+      );
+    }
+  }
+
+  if (missingRequired.length > 0 || unnamedComputed.length > 0) {
+    process.exit(1);
+  }
+
+  console.log('ok: required pack entries for Claude Code, Codex CLI, agy, and standalone are present');
 }
 
-if (missingRequired.length > 0 || unnamedComputed.length > 0) {
-  process.exit(1);
-}
-
-console.log('ok: required pack entries for Claude Code, Codex CLI, agy, and standalone are present');
+if (isMainModule()) runCli();
