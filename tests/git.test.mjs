@@ -12,10 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 
-// Force a real /tmp; the sandbox TMPDIR points inside a git repo, which
-// confounds tests that need an absolutely-not-a-git-repo location.
-const TMPROOT = '/tmp';
-
+import { portableTmpRoot, assertNotGitWorkTree } from './helpers/tmp.mjs';
 import {
   ensureGitRepository,
   getCurrentBranch,
@@ -30,6 +27,12 @@ import {
   buildBranchComparison,
   collectReviewContext,
 } from '../scripts/lib/git.mjs';
+
+// Temp root outside any git work tree. A sandbox TMPDIR may point inside
+// a git repo, which confounds tests that need an absolutely-not-a-git-repo
+// location.
+const TMPROOT = portableTmpRoot();
+assertNotGitWorkTree(TMPROOT);
 
 const GIT_ENV = {
   ...process.env,
@@ -82,6 +85,7 @@ describe('git.ensureGitRepository / getCurrentBranch / getHeadSha', () => {
   it('getCurrentBranch returns null for a non-repo cwd', () => {
     const tmp = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-nogit-'));
     try {
+      assertNotGitWorkTree(tmp);
       assert.equal(getCurrentBranch(tmp), null);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

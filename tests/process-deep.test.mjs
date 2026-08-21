@@ -19,6 +19,34 @@ import {
 
 const TMPROOT = os.tmpdir();
 
+function pidExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Poll until `pid` is gone from the OS, or `timeoutMs` elapses. */
+function waitUntilPidGone(pid, timeoutMs) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const tick = () => {
+      if (!pidExists(pid)) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+
 // A binary that exists on PATH in EVERY environment this suite runs in:
 // `sh` is absent from a plain PowerShell PATH on Windows, so these tests
 // must not assume it (they passed or failed depending on which shell ran
@@ -51,13 +79,16 @@ describe('terminateProcessTree', () => {
     const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], { detached: true, stdio: 'ignore' });
     try {
       assert.ok(child.pid, 'child should have a pid');
-      terminateProcessTree(child.pid);
-      // Wait a bit for the SIGTERM to take effect, then assert exit.
-      const exited = await new Promise((resolve) => {
-        child.on('exit', () => resolve(true));
-        setTimeout(() => resolve(false), 1500);
+      // Attach before kill so a fast taskkill cannot outrun the listener.
+      const exitSeen = new Promise((resolve) => {
+        child.once('exit', () => resolve(true));
       });
-      assert.equal(exited, true, 'child should have exited after SIGTERM');
+      terminateProcessTree(child.pid);
+      const gone = await Promise.race([
+        exitSeen,
+        waitUntilPidGone(child.pid, 5000),
+      ]);
+      assert.equal(gone, true, 'child should have exited after SIGTERM');
     } finally {
       try { process.kill(child.pid, 'SIGKILL'); } catch {}
     }

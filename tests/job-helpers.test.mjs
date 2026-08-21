@@ -17,9 +17,10 @@ import { mock } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { portableTmpRoot } from './helpers/tmp.mjs';
 import { SESSION_ID_ENV } from '../scripts/lib/job-control.mjs';
 
-const TMPROOT = '/tmp';
+const TMPROOT = portableTmpRoot();
 
 /** Mutable state that the mocks read on each invocation. */
 const runtime = {

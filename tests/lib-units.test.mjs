@@ -11,9 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Force a real /tmp; the sandbox TMPDIR may be inside a git repo.
-const TMPROOT = '/tmp';
-
+import { portableTmpRoot, assertNotGitWorkTree } from './helpers/tmp.mjs';
 import { parseArgs, splitRawArgumentString, parseCommandInput } from '../scripts/lib/args.mjs';
 import { readJsonFile, isProbablyText, readFileSafe } from '../scripts/lib/fs.mjs';
 import { runCommand, runCommandChecked, formatCommandFailure } from '../scripts/lib/process.mjs';
@@ -47,6 +45,12 @@ import {
 } from '../scripts/lib/state.mjs';
 import { buildPluginInfo, getPluginInfo, _resetCache } from '../scripts/lib/plugin-info.mjs';
 import { resolveWorkspaceRoot } from '../scripts/lib/workspace.mjs';
+
+// Temp root outside any git work tree. A sandbox TMPDIR may point inside
+// a git repo, which confounds tests that need an absolutely-not-a-git-repo
+// location.
+const TMPROOT = portableTmpRoot();
+assertNotGitWorkTree(TMPROOT);
 
 // ───────────────────────────── args ─────────────────────────────
 

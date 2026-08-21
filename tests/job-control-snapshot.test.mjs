@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
+import { portableTmpRoot } from './helpers/tmp.mjs';
 import {
   upsertJob,
   writeJobFile,
@@ -32,7 +33,7 @@ import {
   POSSIBLY_STALLED_AFTER_MS,
 } from '../scripts/lib/job-control.mjs';
 
-const TMPROOT = '/tmp';
+const TMPROOT = portableTmpRoot();
 
 let workCwd;
 let dataDir;
