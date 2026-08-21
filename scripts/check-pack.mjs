@@ -20,6 +20,15 @@
  *   5. The static import graph of (3), (4), and `bin/antigravity.mjs`, plus
  *      relative `.mjs` string literals in those files (`new URL("…")`).
  *
+ * The walk follows static `from`/`import` specifiers, literal
+ * `import("…")` / `import('…')`, and relative `.mjs` string literals. It
+ * does not evaluate computed specifiers (`import(pathToFileURL(modPath).href)`,
+ * `import(parts.join(""))`, and so on). Guessing those is how a pack gate
+ * starts lying, so a computed `import()` in a walked module fails the gate
+ * unless a maintainer has named its target in NAMED_COMPUTED_IMPORTS and
+ * that target is already required by an explicit rule above — not by the
+ * walk itself.
+ *
  * A reader can re-run the derivation: if a command markdown, verb module,
  * MCP server, or imported library file exists on disk, it is required in
  * the tarball. Prefix wildcards ("at least one file under commands/") are
@@ -65,9 +74,119 @@ function add(required, path, why) {
 }
 
 /**
+ * Computed `import()` calls whose targets are already required by an
+ * explicit rule. The walk cannot resolve these specifiers; naming them
+ * here is the honest alternative to guessing. Do not add an entry to
+ * silence a hole — the named prefix must already be in the required set
+ * from a glob or other explicit rule.
+ *
+ * `bin/antigravity.mjs` loads `scripts/commands/<verb>.mjs` via
+ * `await import(pathToFileURL(modPath).href)`. The `scripts/commands/*.mjs`
+ * glob already requires every target.
+ */
+const NAMED_COMPUTED_IMPORTS = [
+  { file: 'bin/antigravity.mjs', requiredPrefix: 'scripts/commands/' },
+];
+
+function lineNumberAt(src, index) {
+  let line = 1;
+  for (let i = 0; i < index; i++) {
+    if (src[i] === '\n') line += 1;
+  }
+  return line;
+}
+
+/**
+ * Replace comments and string contents with spaces (newlines kept) so
+ * `import()` in a comment or string is not treated as a computed specifier.
+ */
+function maskCommentsAndStrings(src) {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    if (src.startsWith('/*', i)) {
+      const end = src.indexOf('*/', i + 2);
+      const close = end === -1 ? src.length : end + 2;
+      out += src.slice(i, close).replace(/[^\n]/g, ' ');
+      i = close;
+      continue;
+    }
+    if (src.startsWith('//', i)) {
+      const end = src.indexOf('\n', i);
+      const close = end === -1 ? src.length : end;
+      out += ' '.repeat(close - i);
+      i = close;
+      continue;
+    }
+    const q = src[i];
+    if (q === '"' || q === "'" || q === '`') {
+      out += q;
+      i += 1;
+      while (i < src.length && src[i] !== q) {
+        if (src[i] === '\\' && i + 1 < src.length) {
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        out += src[i] === '\n' ? '\n' : ' ';
+        i += 1;
+      }
+      if (i < src.length) {
+        out += src[i];
+        i += 1;
+      }
+      continue;
+    }
+    out += src[i];
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * `import(` whose first argument is not a string literal. Template
+ * literals, concatenation, and other expressions all count. Does not
+ * evaluate the specifier. Comments and strings are masked first.
+ */
+function skipSpace(s, i) {
+  while (i < s.length && /[ \t\r\n]/.test(s[i])) i += 1;
+  return i;
+}
+
+function consumeStringLiteral(s, i) {
+  const q = s[i];
+  if (q !== "'" && q !== '"') return -1;
+  i += 1;
+  while (i < s.length && s[i] !== q) {
+    if (s[i] === '\\') i += 1;
+    i += 1;
+  }
+  if (i >= s.length) return -1;
+  return i + 1;
+}
+
+function findComputedDynamicImports(rel, src) {
+  const hits = [];
+  const code = maskCommentsAndStrings(src);
+  const re = /\bimport\s*\(/g;
+  let m;
+  while ((m = re.exec(code))) {
+    let i = skipSpace(code, m.index + m[0].length);
+    const afterString = consumeStringLiteral(code, i);
+    if (afterString !== -1) {
+      i = skipSpace(code, afterString);
+      if (code[i] === ')' || code[i] === ',') continue;
+    }
+    hits.push({ file: rel, line: lineNumberAt(src, m.index) });
+  }
+  return hits;
+}
+
+/**
  * Follow relative ESM specifiers and relative `.mjs` string literals.
  * `node:` / package imports are ignored; paths that resolve outside the
- * package root are ignored.
+ * package root are ignored. Computed `import()` specifiers are collected,
+ * not resolved.
  */
 function walkImportGraph(entryRels) {
   const FROM_RE = /\b(?:from|import)\s*['"](\.\.?\/[^'"]+)['"]/g;
@@ -76,6 +195,7 @@ function walkImportGraph(entryRels) {
 
   const seen = new Set();
   const reachable = [];
+  const computedImports = [];
   const queue = [...entryRels];
 
   while (queue.length > 0) {
@@ -87,6 +207,7 @@ function walkImportGraph(entryRels) {
     const abs = join(root, rel);
     if (!existsSync(abs)) continue;
     const src = readFileSync(abs, 'utf8');
+    computedImports.push(...findComputedDynamicImports(rel, src));
     const specs = [];
     for (const re of [FROM_RE, IMPORT_CALL_RE, MJS_REL_RE]) {
       re.lastIndex = 0;
@@ -102,7 +223,7 @@ function walkImportGraph(entryRels) {
       if (!seen.has(resolved)) queue.push(resolved);
     }
   }
-  return reachable;
+  return { reachable, computedImports };
 }
 
 function deriveRequired() {
@@ -138,14 +259,15 @@ function deriveRequired() {
   }
 
   const graphEntries = ['bin/antigravity.mjs', ...commandModules, ...mcpModules];
-  for (const rel of walkImportGraph(graphEntries)) {
+  const { reachable, computedImports } = walkImportGraph(graphEntries);
+  for (const rel of reachable) {
     add(required, rel, 'reachable from bin/antigravity.mjs, a command module, or an MCP server');
   }
 
-  return required;
+  return { required, computedImports };
 }
 
-const required = deriveRequired();
+const { required, computedImports } = deriveRequired();
 
 const npm =
   process.platform === 'win32'
@@ -188,11 +310,37 @@ for (const [path, why] of required) {
   if (!files.has(path)) missingRequired.push({ path, why });
 }
 
+const unnamedComputed = [];
+for (const hit of computedImports) {
+  const named = NAMED_COMPUTED_IMPORTS.find((entry) => entry.file === hit.file);
+  if (!named) {
+    unnamedComputed.push(hit);
+    continue;
+  }
+  const covered = [...required.keys()].some((path) => path.startsWith(named.requiredPrefix));
+  if (!covered) {
+    unnamedComputed.push(hit);
+  }
+}
+
 if (missingRequired.length > 0) {
   console.error('missing required pack entries:');
   for (const item of missingRequired) {
     console.error(`  ${item.path} — ${item.why}`);
   }
+}
+
+if (unnamedComputed.length > 0) {
+  console.error('computed dynamic import (specifier is not a literal); name the target:');
+  for (const hit of unnamedComputed) {
+    console.error(
+      `  ${hit.file}:${hit.line} — a maintainer must name the target ` +
+        `(or it must already be required by an explicit rule)`,
+    );
+  }
+}
+
+if (missingRequired.length > 0 || unnamedComputed.length > 0) {
   process.exit(1);
 }
 
