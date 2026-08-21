@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `review`/`rescue` were documented as background-by-default while the
   runtime is foreground unless `--background` is passed. All four hosts
   now enumerate the same verb set; docs match the code.
+- **fix: `metadata.commands` broke `claude plugin validate --strict`** —
+  marketplace descriptors are catalogs, not verb lists. Claude Code
+  rejects the unknown field. The inventory test now derives from the
+  `SKILL.md` verb table instead.
 
 ## [0.2.4] — 2026-08-19
 

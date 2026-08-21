@@ -5,17 +5,7 @@
   },
   "metadata": {
     "description": "Antigravity plugin for Claude Code: delegation, code review and Gemini vision (image analysis) via agy. Maintained fork of sakibsadmanshajib/antigravity-plugin.",
-    "version": "0.2.4",
-    "commands": [
-      "setup",
-      "review",
-      "rescue",
-      "task",
-      "vision",
-      "status",
-      "result",
-      "cancel"
-    ]
+    "version": "0.2.4"
   },
   "plugins": [
     {
