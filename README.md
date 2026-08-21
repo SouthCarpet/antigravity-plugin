@@ -25,6 +25,21 @@ for free / personal users.
 > **Pre-release (v0.2.4).** Active development. Expect breaking changes until
 > v1.0.0. See [`CHANGELOG.md`](./CHANGELOG.md).
 
+## CI
+
+Every pull request targeting `main`, and every push to `main`, runs on
+**Ubuntu and Windows** against **Node 18.18.x** (the `engines` floor) and
+**Node 24** (current Active LTS). The job:
+
+1. Runs the full test suite (`node --test --experimental-test-module-mocks tests/*.test.mjs`).
+2. Checks that the seven host version scalars agree (`node scripts/check-manifests.mjs`).
+3. Dry-runs `npm pack` and asserts the tarball still contains what Claude Code, agy, and the standalone CLI need (`node scripts/check-pack.mjs`).
+
+There is no `npm ci` step: this package has no dependencies and no lockfile.
+`claude plugin validate` is not run in CI (the Claude Code CLI is not a clean
+unattended install). `check-pack` reports — but does not fail on — the known
+`files` allowlist gap (`SKILL.md`, `.agents/`).
+
 ## Release notes
 
 Full notes per release live on the

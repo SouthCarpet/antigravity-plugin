@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        # engines.node is >=18.18.0 — pin the declared floor and current Active LTS.
+        node: ['18.18.x', '24']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          # No lockfile, no dependencies — do not let setup-node hunt for a cache key.
+          package-manager-cache: false
+
+      # Zero runtime dependencies and no package-lock.json. `npm ci` refuses to
+      # run without a lockfile; `npm install` would write a lockfile of an empty
+      # tree into the runner workspace. Tests and gates run with stock Node/npm.
+      - name: Install
+        run: |
+          echo "skip npm install: no dependencies and no lockfile"
+
+      # Quote-free glob so bash expands tests/*.test.mjs to real paths.
+      # Node 18.18's test runner does not expand globs itself (that landed in
+      # Node 21); quoting the pattern would make the 18.18.x cell look for a
+      # literal file named tests/*.test.mjs. GitHub-hosted windows-latest
+      # includes Git Bash, so this form is identical on both OSes.
+      - name: Test
+        shell: bash
+        run: node --test --experimental-test-module-mocks tests/*.test.mjs
+
+      - name: Manifest version parity
+        run: node scripts/check-manifests.mjs
+
+      - name: Package contents
+        run: |
+          npm pack --dry-run
+          node scripts/check-pack.mjs
+
+      # claude plugin validate . --strict is not run here.
+      # @anthropic-ai/claude-code is on npm and `plugin validate` is documented
+      # as local, but installing the full Claude Code CLI (native binary, first-run
+      # setup, Windows .cmd shim) into every matrix cell is not a clean CI
+      # dependency. No standalone plugin-validator is published. Do not fake it.
