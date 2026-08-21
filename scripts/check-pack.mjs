@@ -1,34 +1,151 @@
 #!/usr/bin/env node
 /**
  * Assert `npm pack` would ship what the four advertised hosts need.
+ *
+ * The required set is derived from the tree, not sampled:
+ *
+ *   1. Host discovery files — every file currently sitting at a well-known
+ *      host path (`.claude-plugin/`, `.codex-plugin/`, `.agents/`, `agents/`,
+ *      plus `plugin.json`, `SKILL.md`, `package.json`, `bin/antigravity.mjs`).
+ *      Hosts look these up by location; adding a file to one of those trees
+ *      automatically tightens this gate.
+ *   2. Every `commands/*.md` — Claude Code slash-command discovery. Dropping
+ *      `commands/vision.md` from `files` is the failure the old representative
+ *      list missed.
+ *   3. Every `scripts/commands/*.mjs` — the modules those markdown files
+ *      invoke, including `_worker.mjs` (spawned by job-helpers, not a user
+ *      verb).
+ *   4. Every `scripts/mcp/*.mjs` — MCP servers the plugin registers by path
+ *      (`vision-config` resolves `vision-server.mjs` at runtime).
+ *   5. The static import graph of (3), (4), and `bin/antigravity.mjs`, plus
+ *      relative `.mjs` string literals in those files (`new URL("…")`).
+ *
+ * A reader can re-run the derivation: if a command markdown, verb module,
+ * MCP server, or imported library file exists on disk, it is required in
+ * the tarball. Prefix wildcards ("at least one file under commands/") are
+ * gone.
  */
 import { spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const required = [
-  { path: 'package.json', why: 'standalone package identity' },
-  { path: 'plugin.json', why: 'agy / root manifest' },
-  { path: 'bin/antigravity.mjs', why: 'standalone CLI' },
-  { path: '.claude-plugin/plugin.json', why: 'Claude Code plugin manifest' },
-  { path: '.claude-plugin/marketplace.json', why: 'Claude Code marketplace' },
-  { path: '.codex-plugin/plugin.json', why: 'Codex CLI plugin manifest' },
-  { path: 'SKILL.md', why: 'Codex skill-discovery entry' },
-  { path: '.agents/plugins/marketplace.json', why: 'Codex marketplace descriptor' },
-  { path: 'agents/openai.yaml', why: 'Codex $antigravity interface' },
-  { path: 'commands/rescue.md', why: 'Claude Code slash commands' },
-  { path: 'scripts/commands/rescue.mjs', why: 'shared verb runtime' },
-  { path: 'scripts/lib/agent-runtime.mjs', why: 'shared library' },
-  { path: 'scripts/mcp/vision-server.mjs', why: 'vision MCP server' },
-];
+function toPosix(p) {
+  return p.replace(/\\/g, '/');
+}
 
-const prefixes = [
-  { prefix: 'commands/', why: 'host command markdown' },
-  { prefix: 'scripts/commands/', why: 'verb implementations' },
-  { prefix: 'scripts/lib/', why: 'shared runtime' },
-];
+function listFiles(relDir, predicate) {
+  const absDir = join(root, relDir);
+  if (!existsSync(absDir)) return [];
+  const out = [];
+  const stack = [relDir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    const abs = join(root, current);
+    for (const name of readdirSync(abs)) {
+      const rel = toPosix(join(current, name));
+      const st = statSync(join(root, rel));
+      if (st.isDirectory()) {
+        stack.push(rel);
+        continue;
+      }
+      if (!st.isFile()) continue;
+      if (predicate && !predicate(name, rel)) continue;
+      out.push(rel);
+    }
+  }
+  return out.sort();
+}
+
+function add(required, path, why) {
+  const rel = toPosix(path);
+  if (!required.has(rel)) required.set(rel, why);
+}
+
+/**
+ * Follow relative ESM specifiers and relative `.mjs` string literals.
+ * `node:` / package imports are ignored; paths that resolve outside the
+ * package root are ignored.
+ */
+function walkImportGraph(entryRels) {
+  const FROM_RE = /\b(?:from|import)\s*['"](\.\.?\/[^'"]+)['"]/g;
+  const IMPORT_CALL_RE = /\bimport\s*\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g;
+  const MJS_REL_RE = /['"](\.\.?\/[^'"\n]+\.mjs)['"]/g;
+
+  const seen = new Set();
+  const reachable = [];
+  const queue = [...entryRels];
+
+  while (queue.length > 0) {
+    const rel = toPosix(queue.pop());
+    if (seen.has(rel)) continue;
+    seen.add(rel);
+    reachable.push(rel);
+    if (!rel.endsWith('.mjs')) continue;
+    const abs = join(root, rel);
+    if (!existsSync(abs)) continue;
+    const src = readFileSync(abs, 'utf8');
+    const specs = [];
+    for (const re of [FROM_RE, IMPORT_CALL_RE, MJS_REL_RE]) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(src))) specs.push(m[1]);
+    }
+    for (const spec of specs) {
+      let resolved = toPosix(relative(root, normalize(join(root, dirname(rel), spec))));
+      if (resolved.startsWith('../') || resolved === '..') continue;
+      if (!resolved.endsWith('.mjs') && !resolved.endsWith('.json')) {
+        if (existsSync(join(root, `${resolved}.mjs`))) resolved = `${resolved}.mjs`;
+      }
+      if (!seen.has(resolved)) queue.push(resolved);
+    }
+  }
+  return reachable;
+}
+
+function deriveRequired() {
+  const required = new Map();
+
+  add(required, 'package.json', 'standalone package identity');
+  add(required, 'plugin.json', 'agy / root manifest');
+  add(required, 'bin/antigravity.mjs', 'standalone CLI');
+  add(required, 'SKILL.md', 'Codex skill-discovery entry');
+
+  const discoveryTrees = [
+    ['.claude-plugin', 'Claude Code host discovery (.claude-plugin/)'],
+    ['.codex-plugin', 'Codex CLI host discovery (.codex-plugin/)'],
+    ['.agents', 'Codex marketplace descriptor (.agents/)'],
+    ['agents', 'Codex $antigravity interface (agents/)'],
+  ];
+  for (const [dir, why] of discoveryTrees) {
+    for (const rel of listFiles(dir)) add(required, rel, why);
+  }
+
+  for (const rel of listFiles('commands', (name) => name.endsWith('.md'))) {
+    add(required, rel, 'Claude Code slash command (commands/*.md)');
+  }
+
+  const commandModules = listFiles('scripts/commands', (name) => name.endsWith('.mjs'));
+  for (const rel of commandModules) {
+    add(required, rel, 'verb module (scripts/commands/*.mjs)');
+  }
+
+  const mcpModules = listFiles('scripts/mcp', (name) => name.endsWith('.mjs'));
+  for (const rel of mcpModules) {
+    add(required, rel, 'MCP server (scripts/mcp/*.mjs)');
+  }
+
+  const graphEntries = ['bin/antigravity.mjs', ...commandModules, ...mcpModules];
+  for (const rel of walkImportGraph(graphEntries)) {
+    add(required, rel, 'reachable from bin/antigravity.mjs, a command module, or an MCP server');
+  }
+
+  return required;
+}
+
+const required = deriveRequired();
 
 const npm =
   process.platform === 'win32'
@@ -61,18 +178,14 @@ const pack = Array.isArray(parsed) ? parsed[0] : parsed;
 const files = new Set((pack.files ?? []).map((entry) => entry.path.replace(/\\/g, '/')));
 
 console.log(`npm pack would produce ${pack.filename} (${files.size} files)`);
+console.log(
+  `derived ${required.size} required entries from host discovery, commands/*.md, ` +
+    `scripts/commands/*.mjs, scripts/mcp/*.mjs, and the import graph`,
+);
 
 const missingRequired = [];
-for (const item of required) {
-  if (!files.has(item.path)) {
-    missingRequired.push(item);
-  }
-}
-for (const item of prefixes) {
-  const hit = [...files].some(
-    (p) => p === item.prefix.slice(0, -1) || p.startsWith(item.prefix),
-  );
-  if (!hit) missingRequired.push({ path: `${item.prefix}*`, why: item.why });
+for (const [path, why] of required) {
+  if (!files.has(path)) missingRequired.push({ path, why });
 }
 
 if (missingRequired.length > 0) {
@@ -80,9 +193,6 @@ if (missingRequired.length > 0) {
   for (const item of missingRequired) {
     console.error(`  ${item.path} — ${item.why}`);
   }
-}
-
-if (missingRequired.length > 0) {
   process.exit(1);
 }
 
