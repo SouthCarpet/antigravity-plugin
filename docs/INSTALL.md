@@ -84,16 +84,19 @@ agy plugin import claude
 
 ## Standalone (any shell)
 
-This package is not currently published to npm. The unscoped
-`antigravity-plugin` registry name returns `E404`, so do not use it with
-`npx`; run the standalone dispatcher from a clone of this fork:
+```bash
+npx @southcarpet/antigravity-plugin setup
+npx @southcarpet/antigravity-plugin review
+npx @southcarpet/antigravity-plugin rescue 'investigate why the tests started failing'
+npx @southcarpet/antigravity-plugin status
+```
+
+From a clone of this repository you can also run the dispatcher directly:
 
 ```bash
 git clone https://github.com/SouthCarpet/antigravity-plugin.git
 cd antigravity-plugin
 node bin/antigravity.mjs review
-node bin/antigravity.mjs rescue 'investigate why the tests started failing'
-node bin/antigravity.mjs status
 ```
 
 ## Verifying
@@ -123,7 +126,7 @@ curl -fsSL https://antigravity.google/cli/install.sh | bash
 That's the OAuth flow. Open the URL printed on stdout in your browser, paste
 the resulting code back in the terminal, and the prompt continues. Subsequent
 calls reuse the cached token. The plugin's `/antigravity:setup` (or
-`$antigravity setup` / `node bin/antigravity.mjs setup` from a clone) wraps
+`$antigravity setup` / `npx @southcarpet/antigravity-plugin setup`) wraps
 this for you.
 
 ### `agy plugin install` syntax

@@ -1,4 +1,4 @@
-# antigravity-plugin
+# @southcarpet/antigravity-plugin
 
 [![Latest release](https://img.shields.io/github/v/release/SouthCarpet/antigravity-plugin?label=release)](https://github.com/SouthCarpet/antigravity-plugin/releases)
 [![Known issues](https://img.shields.io/github/issues/SouthCarpet/antigravity-plugin/known%20issue?label=known%20issues&color=D93F0B)](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22)
@@ -37,7 +37,8 @@ This is the job that must be green:
 
 1. Runs the full test suite (`node --test --experimental-test-module-mocks tests/*.test.mjs`).
 2. Checks that the seven host version scalars agree (`node scripts/check-manifests.mjs`).
-3. Dry-runs `npm pack` and asserts the tarball still contains what Claude Code, Codex CLI, agy, and the standalone CLI need (`node scripts/check-pack.mjs`).
+3. Checks CHANGELOG headings and the README Status version (`node scripts/bump-version.mjs --check`).
+4. Dry-runs `npm pack` and asserts the tarball still contains what Claude Code, Codex CLI, agy, and the standalone CLI need (`node scripts/check-pack.mjs`).
 
 There is no `npm ci` step: this package has no dependencies and no lockfile.
 `claude plugin validate` is not run in CI (the Claude Code CLI is not a clean
@@ -49,15 +50,9 @@ drops out of the tarball.
 
 Full notes per release live on the
 [**Releases page**](https://github.com/SouthCarpet/antigravity-plugin/releases);
-the complete history is in [`CHANGELOG.md`](./CHANGELOG.md).
-
-| Version | Date | Highlights |
-|---|---|---|
-| [v0.2.4](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.4) | 2026-08-19 | stdin envelope updated for agy 1.1.15 (`event: user`) - agy calls broken after the agy upgrade work again |
-| [v0.2.3](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.3) | 2026-08-19 | All four tracked known issues fixed (space-bearing Windows paths, `rescue`/`review`/`task` progress mirrors, background-job usage persistence, POSIX-only tests); first fully green test suite on Windows |
-| [v0.2.2](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.2) | 2026-08-19 | Prompt travels over **stdin (stream-json)** — no more ~32 K Windows argv crash on long briefs; background jobs un-broken on Windows (`fileURLToPath` worker path); readable progress via `onText`; token usage always captured |
-| [v0.2.1](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.1) | 2026-08-16 | All `/antigravity:*` verbs actually execute when invoked from Claude Code (main-guard `runIfMain`; they used to exit 0 silently) |
-| [v0.2.0](https://github.com/SouthCarpet/antigravity-plugin/releases/tag/v0.2.0) | 2026-08-10 | **Vision channel** for headless agy (`/antigravity:vision`, bundled MCP `view_image` server, permission auto-setup); Windows binary-resolution fixes |
+the complete history is in [`CHANGELOG.md`](./CHANGELOG.md). The Status
+blockquote above is the only version string in this README; `bump-version`
+updates it and `--check` fails if it drifts.
 
 ## What it does
 
@@ -77,7 +72,7 @@ preferred AI host so you can:
 | Claude Code      | `claude plugin marketplace add SouthCarpet/antigravity-plugin` then `claude plugin install antigravity@antigravity` |
 | Codex CLI        | `codex plugin marketplace add <path-to-clone>` then `$antigravity setup` (see [docs/INSTALL.md](./docs/INSTALL.md)) |
 | Antigravity (agy)| `agy plugin install` from a local clone of this fork               |
-| Standalone       | Clone this fork, then run `node bin/antigravity.mjs <command>`; this package is not currently published to npm |
+| Standalone       | `npx @southcarpet/antigravity-plugin <command>` |
 
 ## Requirements
 
@@ -156,6 +151,46 @@ isn't available for any reason, agy
 is instructed to reply with `VISION-UNAVAILABLE: <reason>` rather than guess
 from the file name — treat that line as a health signal, not a real answer.
 
+## Permissions and privacy
+
+`setup` changes **user-level** files under `~/.gemini`, not the current
+repo. After a successful OAuth probe it registers a local MCP server
+(`mcpServers.vision`) and one persistent allow rule,
+`mcp(vision/view_image)`. That rule is user-wide: later `agy --print`
+sessions may attempt the tool. Each `vision` run still passes only the
+image paths you named; the server denies every other path and denies all
+access when no per-invocation allowlist is present.
+
+Undo vision configuration without touching OAuth or job state:
+
+```bash
+# host-native
+/antigravity:setup --remove-vision
+$antigravity setup --remove-vision
+
+# standalone
+npx @southcarpet/antigravity-plugin setup --remove-vision
+```
+
+What each verb sends:
+
+| Verb | What leaves this machine |
+|---|---|
+| `setup` | Google OAuth via `agy` (the plugin itself only writes `~/.gemini`) |
+| `review` | The collected git diff / untracked snippets and the review prompt, through `agy` to Google |
+| `rescue` / `task` | Your prompt, through `agy` to Google. agy may also read workspace files (and `--add-dir` roots) with its own tools |
+| `vision` | Your prompt plus the bytes of the named images (via the local MCP server, then `agy`) |
+| `status` / `result` / `cancel` | Nothing. These only read or signal local job state |
+
+Treat a delegated verb like pasting that content into a Google product.
+Secrets in diffs, prompts, or screenshots will be sent. Delegation also
+**costs tokens** on the Google / agy side — images especially. Measured
+usage, when agy reports it, is the stderr line
+`usage: total=<N> in=<N> out=<N>`.
+
+Threat boundaries and how to report a vulnerability:
+[`SECURITY.md`](./SECURITY.md).
+
 ## Known issues
 
 All four issues tracked before v0.2.3 are fixed in v0.2.3. Open ones live
@@ -171,6 +206,8 @@ under the
 - [Installation](./docs/INSTALL.md) — per-host setup recipes
 - [1.x compatibility contract](./docs/COMPATIBILITY.md) — supported matrix, outputs, state, and versioning promises
 - [Commands reference](./docs/COMMANDS.md) — all eight verbs, flags, defaults, and exit behavior
+- [Security](./SECURITY.md) — reporting channel, scope, and what leaves the machine
+- [Release smoke checklist](./docs/SMOKE.md) — four-host pre-release pass
 - [Spike findings](./docs/SPIKE-findings.md) — why we dropped ACP
 
 ## License

@@ -4,8 +4,8 @@
  *
  * Detector: scripts/check-manifests.mjs (fails on drift).
  * This script is the writer, plus CHANGELOG heading/compare-link
- * agreement and a read-only git-tag report. It never creates, moves,
- * or deletes tags.
+ * agreement, the README Status blockquote version, and a read-only
+ * git-tag report. It never creates, moves, or deletes tags.
  *
  * Seven scalars (six files; marketplace.json carries two):
  *   package.json                               .version
@@ -117,7 +117,7 @@ function usage() {
     '  node scripts/bump-version.mjs --check [x.y.z]',
     '',
     'Options:',
-    '  --check, --dry-run  Verify version, CHANGELOG, and tag agreement; write nothing.',
+    '  --check, --dry-run  Verify version, CHANGELOG, README Status, and tag agreement; write nothing.',
     '  --root <dir>        Operate on a different tree (tests). Default: this repo.',
     '  --help, -h          Print this help.',
     '',
@@ -249,6 +249,33 @@ function changelogHeadingRe(version) {
   return new RegExp(`^## \\[${escapeRe(version)}\\](?:\\s+[—-].*)?\\s*$`, 'm');
 }
 
+/** README Status blockquote: `> **Pre-release (vX.Y.Z).**` */
+const README_STATUS_RE = /^> \*\*Pre-release \(v([^)]+)\)\.\*\*/m;
+
+function readmeStatusErrors(root, version) {
+  let text;
+  try {
+    text = readBuf(root, 'README.md').toString('utf8');
+  } catch (err) {
+    return [`README.md: unreadable (${err.message})`];
+  }
+  const match = text.match(README_STATUS_RE);
+  if (!match) {
+    return ['README.md: missing Status blockquote **Pre-release (vX.Y.Z).**'];
+  }
+  if (match[1] !== version) {
+    return [`README.md Status: v${match[1]} (expected v${version})`];
+  }
+  return [];
+}
+
+function applyReadmeStatus(text, version) {
+  if (!README_STATUS_RE.test(text)) {
+    throw new Error('README.md: missing Status blockquote **Pre-release (vX.Y.Z).**');
+  }
+  return text.replace(README_STATUS_RE, `> **Pre-release (v${version}).**`);
+}
+
 function changelogErrors(root, version) {
   const errors = [];
   let text;
@@ -321,6 +348,7 @@ function checkAgreement(root, expectedVersion) {
   }
   errors.push(...pluginCopyErrors(root));
   errors.push(...changelogErrors(root, expectedVersion));
+  errors.push(...readmeStatusErrors(root, expectedVersion));
   return { errors, values };
 }
 
@@ -412,6 +440,8 @@ function prepareWrites(root, version, previousVersion) {
   const changelogText = readBuf(root, 'CHANGELOG.md').toString('utf8');
   const nextChangelog = applyChangelog(changelogText, version, previousVersion, utcDate());
   planned.push({ rel: 'CHANGELOG.md', contents: nextChangelog });
+  const readmeText = readBuf(root, 'README.md').toString('utf8');
+  planned.push({ rel: 'README.md', contents: applyReadmeStatus(readmeText, version) });
 
   const uniqueFiles = [...new Set(SCALARS.map((s) => s.file))];
   /** @type {Map<string, any>} */
@@ -477,6 +507,7 @@ function printCheck(root, expectedVersion) {
   }
   console.log(`ok: ${PLUGIN_COPIES.join(', ')} are byte-identical`);
   console.log(`ok: CHANGELOG.md has ## [${expectedVersion}] and matching compare links`);
+  console.log(`ok: README.md Status is Pre-release (v${expectedVersion})`);
   console.log(tagLine);
 }
 

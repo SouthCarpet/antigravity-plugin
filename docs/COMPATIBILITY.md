@@ -9,14 +9,15 @@ the contract was frozen. A behavior is public only when this document or the
 
 | Surface | Supported in 1.x |
 |---|---|
-| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (`agy plugin run antigravity <verb>`), and the standalone CLI (`antigravity-plugin <verb>` or `node bin/antigravity.mjs <verb>`) |
+| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (`agy plugin run antigravity <verb>`), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux and Windows. Both run the full CI suite. macOS and other Node platforms are best-effort, not part of the compatibility promise. |
 | Node.js | `>=22.3.0` |
 | Google Antigravity CLI | `agy` 1.1.15. Other versions may work, but are not in the tested or promised matrix. |
 
-The standalone package-binary spelling above names the CLI interface, not a
-current npm distribution. This fork is not published to npm; today the
-supported distributed path is a clone running
+The standalone package-binary spelling (`antigravity-plugin`) is the CLI
+interface name after install. The published npm package is
+`@southcarpet/antigravity-plugin`. The supported distributed path is
+`npx @southcarpet/antigravity-plugin <verb>`; a clone may still run
 `node bin/antigravity.mjs <verb>`.
 
 The Node floor is 22.3.0 because Node 18 and 20 are EOL as of this contract,

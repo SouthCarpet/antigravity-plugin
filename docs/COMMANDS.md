@@ -9,15 +9,15 @@ The broader versioning, output, environment, and state promises are in the
 All hosts route to the same `scripts/commands/<verb>.mjs` implementation:
 
 ```text
-/antigravity:<verb> ...                 # Claude Code
-$antigravity <verb> ...                 # Codex CLI
-agy plugin run antigravity <verb> ...   # agy-native
-antigravity-plugin <verb> ...           # standalone package binary
-node bin/antigravity.mjs <verb> ...     # standalone from a checkout
+/antigravity:<verb> ...                              # Claude Code
+$antigravity <verb> ...                              # Codex CLI
+agy plugin run antigravity <verb> ...                # agy-native
+npx @southcarpet/antigravity-plugin <verb> ...       # standalone package
+node bin/antigravity.mjs <verb> ...                  # standalone from a checkout
 ```
 
-The package-binary spelling is the stable CLI interface name, but this fork
-is not currently published to npm. Use the checkout form today.
+`npx @southcarpet/antigravity-plugin <verb>` is the supported standalone
+invocation. After install the binary name remains `antigravity-plugin`.
 
 Documented value flags require a following token. `--` ends flag parsing.
 Repeating a scalar value flag uses its last value; repeating `--add-dir`

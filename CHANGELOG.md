@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **npm package is `@southcarpet/antigravity-plugin`** — standalone
+  invocation is `npx @southcarpet/antigravity-plugin <command>`. The
+  installed binary name remains `antigravity-plugin`.
+
+### Added
+
+- **`SECURITY.md` and a README permissions/privacy section** — private
+  GitHub vulnerability reporting, in-scope threat boundaries, what `setup`
+  writes, how to undo it, and what each verb sends off-machine.
+- **`bump-version` README Status gate** — `--check` fails if the Status
+  blockquote version drifts from `package.json`; a bump rewrites it. The
+  per-version README table was removed so release history lives only in
+  this file.
+
 ### Fixed
 
 - **fix: host surfaces advertised different verbs** — Claude Code had no

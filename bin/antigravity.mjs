@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// antigravity-plugin — standalone CLI: `npx antigravity-plugin <command>`.
+// antigravity-plugin — standalone CLI: `npx @southcarpet/antigravity-plugin <command>`.
 // Dispatches to scripts/commands/<name>.mjs so behaviour is identical to
 // the Claude Code and Codex CLI hosts.
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -219,9 +219,9 @@ function printHelp(stream = process.stdout) {
     `antigravity-plugin v${readVersion()} — delegate to Google Antigravity (agy)`,
     '',
     'Usage:',
-    '  antigravity-plugin <command> [args]',
-    '  antigravity-plugin help <command>      detailed help for a command',
-    '  antigravity-plugin --version           print version and exit',
+    '  npx @southcarpet/antigravity-plugin <command> [args]',
+    '  npx @southcarpet/antigravity-plugin help <command>      detailed help for a command',
+    '  npx @southcarpet/antigravity-plugin --version           print version and exit',
     '',
     'Commands:',
     '  setup      One-time interactive OAuth wizard',

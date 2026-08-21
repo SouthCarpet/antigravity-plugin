@@ -1,5 +1,5 @@
 {
-  "name": "antigravity-plugin",
+  "name": "@southcarpet/antigravity-plugin",
   "version": "0.2.4",
   "description": "Multi-host plugin for delegating tasks and code reviews to Google Antigravity CLI (agy). Works inside Claude Code, Codex CLI, agy itself, and as a standalone CLI.",
   "type": "module",
@@ -24,6 +24,9 @@
   "bugs": {
     "url": "https://github.com/SouthCarpet/antigravity-plugin/issues"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "antigravity",
     "antigravity-cli",
@@ -34,7 +37,12 @@
     "codex-cli",
     "code-review",
     "ai-delegation",
-    "gemini-replacement"
+    "gemini-replacement",
+    "vision",
+    "mcp",
+    "mcp-server",
+    "gemini",
+    "image-analysis"
   ],
   "files": [
     "bin",
@@ -47,6 +55,7 @@
     "SKILL.md",
     "plugin.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "SECURITY.md"
   ]
 }

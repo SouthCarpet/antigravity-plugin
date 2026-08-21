@@ -25,6 +25,7 @@ const COPY_FILES = [
   path.join('.claude-plugin', 'marketplace.json'),
   path.join('.agents', 'plugins', 'marketplace.json'),
   'CHANGELOG.md',
+  'README.md',
 ];
 
 const SCALAR_READERS = [
@@ -105,6 +106,25 @@ function desyncPackageJson(root, version) {
   fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
+function desyncReadmeStatus(root, version) {
+  const readmePath = path.join(root, 'README.md');
+  const text = fs.readFileSync(readmePath, 'utf8');
+  const next = text.replace(
+    /^> \*\*Pre-release \(v[^)]+\)\.\*\*/m,
+    `> **Pre-release (v${version}).**`,
+  );
+  if (next === text) {
+    throw new Error('README.md Status blockquote not found in test fixture');
+  }
+  fs.writeFileSync(readmePath, next);
+}
+
+function readmeStatusVersion(root) {
+  const text = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const match = text.match(/^> \*\*Pre-release \(v([^)]+)\)\.\*\*/m);
+  return match ? match[1] : null;
+}
+
 let tmpRoot;
 
 before(() => {
@@ -120,7 +140,7 @@ after(() => {
 });
 
 describe('bump-version --check on a coherent tree', () => {
-  it('passes when the seven scalars, plugin.json copies, and CHANGELOG agree', () => {
+  it('passes when the seven scalars, plugin.json copies, CHANGELOG, and README Status agree', () => {
     const root = makeTree();
     const current = readJson(root, 'package.json').version;
     const result = runBump(root, ['--check']);
@@ -128,6 +148,7 @@ describe('bump-version --check on a coherent tree', () => {
     assert.match(result.stdout, new RegExp(`ok: 7 version scalars agree on ${current}`));
     assert.match(result.stdout, /plugin\.json, \.claude-plugin\/plugin\.json, \.codex-plugin\/plugin\.json are byte-identical/);
     assert.match(result.stdout, new RegExp(`CHANGELOG\\.md has ## \\[${current}\\]`));
+    assert.match(result.stdout, new RegExp(`README\\.md Status is Pre-release \\(v${current}\\)`));
     assert.match(result.stdout, /not a git repository; not checking tags/);
   });
 });
@@ -143,6 +164,17 @@ describe('bump-version --check on a desynced tree', () => {
     assert.match(output, /plugin\.json version: 0\.2\.4 \(expected 9\.9\.9\)/);
     assert.match(output, /\.claude-plugin\/marketplace\.json metadata\.version: 0\.2\.4 \(expected 9\.9\.9\)/);
     assert.match(output, /CHANGELOG\.md: missing heading ## \[9\.9\.9\]/);
+    assert.match(output, /README\.md Status: v0\.2\.4 \(expected v9\.9\.9\)/);
+  });
+
+  it('fails when only the README Status version drifts', () => {
+    const root = makeTree();
+    desyncReadmeStatus(root, '9.9.9');
+    const result = runBump(root, ['--check']);
+    assert.notEqual(result.status, 0);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.match(output, /version check failed:/);
+    assert.match(output, /README\.md Status: v9\.9\.9 \(expected v0\.2\.4\)/);
   });
 
   it('passes after an explicit bump repairs the desync', () => {
@@ -159,6 +191,8 @@ describe('bump-version --check on a desynced tree', () => {
     const green = runBump(root, ['--check']);
     assert.equal(green.status, 0, green.stderr);
     assert.match(green.stdout, /ok: 7 version scalars agree on 9\.9\.9/);
+    assert.match(green.stdout, /README\.md Status is Pre-release \(v9\.9\.9\)/);
+    assert.equal(readmeStatusVersion(root), '9.9.9');
   });
 });
 
@@ -176,6 +210,7 @@ describe('bump-version increments and explicit targets', () => {
       assert.equal(result.status, 0, `${arg}: ${result.stderr}`);
       assertSevenAgree(root, expected);
       assertPluginCopiesIdentical(root);
+      assert.equal(readmeStatusVersion(root), expected);
       const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
       assert.match(changelog, new RegExp(`^## \\[${expected}\\] — \\d{4}-\\d{2}-\\d{2}`, 'm'));
       assert.match(
