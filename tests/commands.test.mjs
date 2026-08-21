@@ -87,6 +87,20 @@ function captureStdio() {
   };
 }
 
+function parseEnvelope(chunks, expected) {
+  const payload = JSON.parse(chunks.join(''));
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.command, expected.command);
+  assert.equal(payload.status, expected.status);
+  if (Object.hasOwn(expected, 'jobId')) assert.equal(payload.jobId, expected.jobId);
+  else assert.ok(payload.jobId === null || typeof payload.jobId === 'string');
+  if (Object.hasOwn(expected, 'answer')) assert.equal(payload.answer, expected.answer);
+  else assert.ok(payload.answer === null || typeof payload.answer === 'string');
+  assert.equal(typeof payload.details, 'object');
+  assert.equal(Array.isArray(payload.details), false);
+  return payload;
+}
+
 let tempDir;
 beforeEach(() => {
   tempDir = makeTempCwd();
@@ -104,6 +118,20 @@ afterEach(() => {
 // ───────────────────────────── status ─────────────────────────────
 
 describe('/antigravity:status', () => {
+  it('--json wraps the all-jobs snapshot in the stable envelope', async () => {
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'status', status: 'ok' });
+    assert.deepEqual(payload.details.running, []);
+  });
+
   it('renders an empty snapshot when no jobs exist', async () => {
     const { run } = await import('../scripts/commands/status.mjs');
     const cap = captureStdio();
@@ -232,6 +260,42 @@ describe('/antigravity:result', () => {
     }
     assert.equal(exit, 0);
     assert.match(cap.out.join(''), /hello world from agy/);
+  });
+
+  it('--json wraps a completed result and its opaque answer', async () => {
+    const id = 'job' + randomBytes(3).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id,
+      kind: 'task',
+      status: 'completed',
+      phase: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, {
+      id,
+      status: 'completed',
+      result: { rawOutput: 'opaque result text' },
+    });
+
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([id, '--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    parseEnvelope(cap.out, {
+      command: 'result',
+      status: 'completed',
+      jobId: id,
+      answer: 'opaque result text\n',
+    });
   });
 
   it('returns 2 for cancelled jobs', async () => {
@@ -375,11 +439,75 @@ describe('/antigravity:cancel', () => {
     assert.match(cap.out.join(''), /Antigravity Cancel/);
     assert.match(cap.out.join(''), new RegExp(`Cancelled ${id}`));
   });
+
+  it('--json wraps a successful cancellation', async () => {
+    const id = 'runningjsonjob';
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id,
+      kind: 'task',
+      status: 'running',
+      phase: 'running',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      pid: 2 ** 22,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      startedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, { id, status: 'running', pid: 2 ** 22 });
+
+    const { run } = await import('../scripts/commands/cancel.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([id, '--json'], {
+        cwd: tempDir,
+        terminateProcessTree: async (pid) => ({
+          outcome: 'not_found', killed: true, pid, status: 128,
+          attempts: [], message: `Process ${pid} is not running.`,
+        }),
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    parseEnvelope(cap.out, { command: 'cancel', status: 'cancelled', jobId: id });
+  });
 });
 
 // ───────────────────────────── review ─────────────────────────────
 
 describe('/antigravity:review', () => {
+  it('--json emits an envelope when there are no changes', async (t) => {
+    const { execSync } = await import('node:child_process');
+    try {
+      execSync('git init -q', { cwd: tempDir, stdio: 'ignore' });
+      execSync('git commit --allow-empty -q -m init', { cwd: tempDir, stdio: 'ignore', env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'test',
+        GIT_AUTHOR_EMAIL: 't@example.com',
+        GIT_COMMITTER_NAME: 'test',
+        GIT_COMMITTER_EMAIL: 't@example.com',
+      } });
+    } catch {
+      t.skip('git not available');
+      return;
+    }
+
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'review', status: 'no_changes' });
+    assert.equal(typeof payload.details.scope, 'string');
+  });
+
   it('returns 0 with "no changes" when collectReviewContext finds nothing', async (t) => {
     // Patch collectReviewContext via a module mock: create a fake git env by
     // pointing cwd at tempDir which is not a git repo, then short-circuit by
@@ -438,22 +566,48 @@ describe('/antigravity:review', () => {
     fs.writeFileSync(path.join(tempDir, 'a.txt'), 'changed again\n');
 
     agyRuntime.calls = [];
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'review answer', stderr: '' };
     const { run } = await import('../scripts/commands/review.mjs');
     const cap = captureStdio();
     try {
-      await run([], { cwd: tempDir });
+      await run(['--json'], { cwd: tempDir });
       assert.equal(typeof agyRuntime.calls[0].onText, 'function');
       agyRuntime.calls[0].onText('a piece of readable text');
     } finally {
       cap.restore();
     }
     assert.match(cap.err.join(''), /a piece of readable text/);
+    const payload = parseEnvelope(cap.out, {
+      command: 'review',
+      status: 'completed',
+      answer: 'review answer',
+    });
+    assert.equal(typeof payload.jobId, 'string');
   });
 });
 
 // ───────────────────────────── rescue + task argv parsing ─────────────────────────────
 
 describe('/antigravity:rescue argv parsing', () => {
+  it('--json wraps the foreground model answer', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, {
+      command: 'rescue',
+      status: 'completed',
+      answer: 'rescue answer',
+    });
+    assert.equal(typeof payload.jobId, 'string');
+  });
+
   it('rejects empty prompt without --conversation', async () => {
     const { run } = await import('../scripts/commands/rescue.mjs');
     const cap = captureStdio();
@@ -507,6 +661,50 @@ describe('/antigravity:rescue argv parsing', () => {
 });
 
 describe('/antigravity:task argv parsing', () => {
+  it('--json wraps the foreground model answer', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--foreground', '--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, {
+      command: 'task',
+      status: 'completed',
+      answer: 'task answer',
+    });
+    assert.equal(typeof payload.jobId, 'string');
+  });
+
+  it('--wait --json emits one queued envelope and never appends raw model text', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--wait', '--json'], {
+        cwd: tempDir,
+        startBackgroundJob: async () => ({ job: { id: 'job-wait-json' } }),
+        waitForJob: async () => ({
+          status: 'completed',
+          result: { rawOutput: 'this must not be appended' },
+        }),
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    parseEnvelope(cap.out, {
+      command: 'task',
+      status: 'queued',
+      jobId: 'job-wait-json',
+    });
+    assert.doesNotMatch(cap.out.join(''), /this must not be appended/);
+  });
+
   it('rejects empty prompt without --conversation', async () => {
     const { run } = await import('../scripts/commands/task.mjs');
     const cap = captureStdio();

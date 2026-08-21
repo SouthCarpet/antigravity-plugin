@@ -28,7 +28,7 @@ import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob } from "../lib/job-helpers.mjs";
-import { outputCommandResult } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { encodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
 
@@ -74,7 +74,7 @@ export async function run(argv = [], ctx = {}) {
     [VISION_ALLOWLIST_ENV]: encodeVisionAllowlist(imagePaths),
   };
 
-  const { result } = await runForegroundJob({
+  const { job, result } = await runForegroundJob({
     workspaceRoot,
     kind: "vision",
     title,
@@ -112,13 +112,17 @@ export async function run(argv = [], ctx = {}) {
     );
   }
 
-  const payload = {
+  const payload = createJsonEnvelope("vision", {
+    status: "completed",
+    jobId: job.id,
+    answer: result.stdout,
     imagePaths,
     model,
-    vision: result.stdout,
-    usage,
-    durationSeconds: result.durationSeconds ?? null,
-  };
+    details: {
+      usage,
+      durationSeconds: result.durationSeconds ?? null,
+    },
+  });
   outputCommandResult(payload, result.stdout, Boolean(options.json));
   return 0;
 }

@@ -14,6 +14,7 @@ import {
   buildSingleJobSnapshot,
 } from "../lib/job-control.mjs";
 import {
+  createJsonEnvelope,
   outputCommandResult,
   renderStatusSnapshot,
   renderSingleJobStatus,
@@ -47,30 +48,38 @@ export async function run(argv = [], ctx = {}) {
         const finished = await waitForSingleJob(cwd, reference, options, builders.single);
         const rendered = renderSingleJobStatus(finished);
         maybeAnnotateOAuth(finished.job);
-        outputCommandResult(finished, rendered, json);
+        outputCommandResult(statusEnvelope(finished), rendered, json);
         return 0;
       }
       const rendered = renderSingleJobStatus(snapshot);
       maybeAnnotateOAuth(snapshot.job);
-      outputCommandResult(snapshot, rendered, json);
+      outputCommandResult(statusEnvelope(snapshot), rendered, json);
       return 0;
     }
 
     if (options.wait) {
       const final = await waitForAllActive(cwd, options, builders.all);
       const rendered = renderStatusSnapshot(final);
-      outputCommandResult(final, rendered, json);
+      outputCommandResult(statusEnvelope(final), rendered, json);
       return 0;
     }
 
     const snapshot = builders.all(cwd, { env: process.env });
     const rendered = renderStatusSnapshot(snapshot);
-    outputCommandResult(snapshot, rendered, json);
+    outputCommandResult(statusEnvelope(snapshot), rendered, json);
     return 0;
   } catch (err) {
     process.stderr.write(`antigravity:status — ${friendlyStateError(err)}\n`);
     return 1;
   }
+}
+
+function statusEnvelope(snapshot) {
+  return createJsonEnvelope("status", {
+    status: snapshot.job?.status ?? "ok",
+    jobId: snapshot.job?.id ?? null,
+    details: snapshot,
+  });
 }
 
 async function waitForSingleJob(cwd, reference, options, buildSingle) {

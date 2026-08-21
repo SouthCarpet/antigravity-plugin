@@ -188,7 +188,7 @@ describe('/antigravity:vision', () => {
     assert.match(cap.err.join(''), /https:\/\/example\/oauth/);
   });
 
-  it('--json emits a structured payload with imagePaths/model/vision', async () => {
+  it('--json emits the stable envelope with imagePaths/model and an opaque answer', async () => {
     runtime.next = { status: 'completed', exitCode: 0, stdout: 'described.', stderr: '' };
     const cap = captureStdio();
     let exit;
@@ -199,9 +199,14 @@ describe('/antigravity:vision', () => {
     }
     assert.equal(exit, 0);
     const payload = JSON.parse(cap.out.join(''));
-    assert.equal(payload.vision, 'described.');
+    assert.equal(payload.schemaVersion, 1);
+    assert.equal(payload.command, 'vision');
+    assert.equal(payload.status, 'completed');
+    assert.equal(typeof payload.jobId, 'string');
+    assert.equal(payload.answer, 'described.');
     assert.equal(payload.model, 'gemini-3.6-flash-high');
     assert.deepEqual(payload.imagePaths, [imagePath]);
+    assert.equal(typeof payload.details, 'object');
   });
 
   it('passes the VISION-UNAVAILABLE sentinel through verbatim', async () => {

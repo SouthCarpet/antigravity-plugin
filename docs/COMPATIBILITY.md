@@ -99,29 +99,40 @@ stable.
 
 ### `--json`
 
-`--json` is public on every verb except `setup`. When a command reaches its
-structured output path, stdout contains a pretty-printed JSON object followed
-by a newline. A successful background launch of `review`, `rescue`, or `task`
-stably includes a string `jobId` and `status: "queued"`.
+`--json` is public on every verb except `setup`. It is a contract for a stable
+outer envelope, not a promise that model answers are structured. When a command
+reaches a normal output path with `--json`, its entire stdout stream is exactly
+one pretty-printed JSON object followed by a newline. The object has these
+fields in envelope version 1:
 
-The complete field sets, nested job/state objects, optional fields, and the
-model-generated contents of fields such as `review`, `rescue`, `task`, and
-`vision` are explicitly **unstable in 1.x** until command-specific schemas are
-published. Consumers must tolerate additive fields and should not treat the
-current review text as a structured review schema. A later 1.x release may
-tighten the review payload with a documented schema without violating this
-contract.
+| Field | 1.x contract |
+|---|---|
+| `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
+| `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, or `cancel`, matching the invoked verb. |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. |
+| `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
+| `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. |
+| `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 1.x; consumers must tolerate additions, removals, and changes within it. |
 
-Two current edge cases are also explicitly unstable rather than promised:
+Consumers must tolerate additive top-level fields. `vision` additionally
+promises top-level `model` (string) and `imagePaths` (an array of absolute path
+strings), because these are resolved invocation inputs rather than model
+output. No other command-specific top-level field is promised.
 
-- `review --json` with no tracked diff prints the plain-text no-changes line.
-- background-default `task --wait --json` first prints the queued JSON object
-  and may append raw completed output, so the complete stdout stream is not one
-  JSON document.
+When `--wait` is combined with a background dispatch, `review`, `rescue`, and
+`task` deliberately retain the dispatch envelope with `status: "queued"` and
+its `jobId`, then report the final outcome by exit status. In particular,
+background-default `task --wait --json` never appends completed model text to
+stdout; callers fetch that text with `result <jobId> --json`. Likewise,
+`review --json` with no tracked diff emits an envelope with
+`status: "no_changes"`, `jobId: null`, and `answer: null`. These make both
+previously exceptional stdout streams valid single JSON documents.
 
-Errors that occur before structured output generally produce stderr and no
-JSON body. The mere presence of `--json` is not an error-envelope guarantee.
-These exceptions may be normalized in a 1.x release; do not depend on them.
+Errors that occur before a normal output path still produce diagnostics on
+stderr and no stdout body. `--json` is not a JSON error-envelope guarantee.
+Therefore the precise stream promise is: if `--json` writes any stdout, that
+stdout is exactly one version-1 envelope and contains no text before or after
+it.
 
 ### Usage trailer
 

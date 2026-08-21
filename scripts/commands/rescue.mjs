@@ -18,7 +18,7 @@ import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
-import { outputCommandResult } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
@@ -80,11 +80,13 @@ export async function run(argv = [], ctx = {}) {
       cwd: workspaceRoot,
       request: { mode, addDirs },
     });
-    const payload = {
-      jobId: job.id,
+    const payload = createJsonEnvelope("rescue", {
       status: "queued",
-      message: `Background rescue started. Run /antigravity:status ${job.id} to check progress.`,
-    };
+      jobId: job.id,
+      details: {
+        message: `Background rescue started. Run /antigravity:status ${job.id} to check progress.`,
+      },
+    });
     outputCommandResult(
       payload,
       `Background rescue started: ${job.id}\nRun /antigravity:status ${job.id} to check progress.\n`,
@@ -97,7 +99,7 @@ export async function run(argv = [], ctx = {}) {
     return 0;
   }
 
-  const { result } = await runForegroundJob({
+  const { job, result } = await runForegroundJob({
     workspaceRoot,
     kind: "rescue",
     title,
@@ -123,7 +125,15 @@ export async function run(argv = [], ctx = {}) {
     return result.status === "cancelled" ? 2 : 1;
   }
 
-  outputCommandResult({ rescue: result.stdout }, result.stdout, Boolean(options.json));
+  outputCommandResult(
+    createJsonEnvelope("rescue", {
+      status: "completed",
+      jobId: job.id,
+      answer: result.stdout,
+    }),
+    result.stdout,
+    Boolean(options.json),
+  );
   return 0;
 }
 

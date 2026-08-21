@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  renderReviewResult,
+  createJsonEnvelope,
   renderStatusSnapshot,
   renderSingleJobStatus,
   renderResultOutput,
@@ -19,44 +19,30 @@ import {
   outputCommandResult,
 } from '../scripts/lib/render.mjs';
 
-describe('renderReviewResult', () => {
-  it('renders an approve verdict with no findings or steps', () => {
-    const out = renderReviewResult({
-      verdict: 'approve',
-      summary: 'looks fine',
-      findings: [],
-      next_steps: [],
+describe('createJsonEnvelope', () => {
+  it('builds the stable versioned outer shape', () => {
+    assert.deepEqual(createJsonEnvelope('task', {
+      status: 'completed',
+      jobId: 'job-1',
+      answer: 'free-form model text',
+      details: { durationSeconds: 2 },
+    }), {
+      schemaVersion: 1,
+      command: 'task',
+      status: 'completed',
+      jobId: 'job-1',
+      answer: 'free-form model text',
+      details: { durationSeconds: 2 },
     });
-    assert.match(out, /APPROVED/);
-    assert.match(out, /Verdict.*approve/);
-    assert.match(out, /Summary.*looks fine/);
-    assert.doesNotMatch(out, /## Next Steps/);
   });
 
-  it('renders changes-requested with findings and steps', () => {
-    const out = renderReviewResult({
-      verdict: 'changes_requested',
-      summary: 'fix me',
-      findings: [
-        {
-          severity: 'critical',
-          title: 'Bad',
-          body: 'why',
-          file: 'a.js',
-          line_start: 1,
-          line_end: 5,
-          confidence: 0.9,
-          recommendation: 'do x',
-        },
-      ],
-      next_steps: ['rerun tests'],
-    });
-    assert.match(out, /NEEDS ATTENTION/);
-    assert.match(out, /Bad/);
-    assert.match(out, /a\.js/);
-    assert.match(out, /do x/);
-    assert.match(out, /## Next Steps/);
-    assert.match(out, /rerun tests/);
+  it('rejects invalid stable field types', () => {
+    assert.throws(() => createJsonEnvelope('task', { status: 'ok', jobId: 1 }), /jobId/);
+    assert.throws(() => createJsonEnvelope('task', { status: 'ok', answer: {} }), /answer/);
+    assert.throws(() => createJsonEnvelope('task', { status: 'ok', details: [] }), /details/);
+    assert.throws(() => createJsonEnvelope('task', {
+      status: 'ok', schemaVersion: 2,
+    }), /reserved/);
   });
 });
 

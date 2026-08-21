@@ -135,8 +135,8 @@ describe('/antigravity:vision — usage propagation', () => {
     }
     assert.equal(exit, 0);
     const payload = JSON.parse(cap.out.join(''));
-    assert.equal(payload.usage.total_tokens, 18379);
-    assert.equal(payload.durationSeconds, 1.73);
+    assert.equal(payload.details.usage.total_tokens, 18379);
+    assert.equal(payload.details.durationSeconds, 1.73);
   });
 
   it('parse-fallback (usage null): succeeds, payload.usage is null, no trailer', async () => {
@@ -155,6 +155,6 @@ describe('/antigravity:vision — usage propagation', () => {
     assert.equal(exit, 0);
     assert.doesNotMatch(cap.err.join(''), /usage: total=/);
     const payload = JSON.parse(cap.out.join(''));
-    assert.equal(payload.usage, null);
+    assert.equal(payload.details.usage, null);
   });
 });

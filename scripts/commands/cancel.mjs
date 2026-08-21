@@ -8,7 +8,7 @@
 import { readCommandInput } from "../lib/args.mjs";
 import { resolveCancelableJob } from "../lib/job-control.mjs";
 import { appendJobLog, recoverStateLock } from "../lib/state.mjs";
-import { outputCommandResult, renderCancelReport } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult, renderCancelReport } from "../lib/render.mjs";
 import { patchJob } from "../lib/job-helpers.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { terminateProcessTree } from "../lib/process.mjs";
@@ -104,7 +104,11 @@ export async function run(argv = [], ctx = {}) {
       return reportStateContention(job.id, json, err, message, output);
     }
     output(
-      { jobId: job.id, status: "cancel_failed", killed: false, termination, message },
+      createJsonEnvelope("cancel", {
+        jobId: job.id,
+        status: "cancel_failed",
+        details: { killed: false, termination, message },
+      }),
       ["# Antigravity Cancel", "", `Could not cancel ${job.id}.`, "", message,
         `- Status: ${updated.status}`, `- Phase: ${updated.phase}`].join("\n") + "\n",
       json,
@@ -134,16 +138,18 @@ export async function run(argv = [], ctx = {}) {
 
   const rendered = renderCancelReport(updated);
   output(
-    {
+    createJsonEnvelope("cancel", {
       jobId: job.id,
       status: "cancelled",
-      pid: Number(job.workerPid ?? job.pid),
-      workerPid: Number(job.workerPid ?? job.pid) || null,
-      agyPid: Number(job.agyPid) || null,
-      killed: termination.some((result) => result.outcome === "killed"),
-      stopped: true,
-      termination,
-    },
+      details: {
+        pid: Number(job.workerPid ?? job.pid),
+        workerPid: Number(job.workerPid ?? job.pid) || null,
+        agyPid: Number(job.agyPid) || null,
+        killed: termination.some((result) => result.outcome === "killed"),
+        stopped: true,
+        termination,
+      },
+    }),
     rendered,
     json,
   );
@@ -156,7 +162,11 @@ function reportStateContention(jobId, json, error, prefix, output, stopped = fal
     : `Could not update job state: ${error?.message ?? error}`;
   const message = `${prefix} ${detail}`;
   output(
-    { jobId, status: "state_busy", killed: stopped, stopped, message },
+    createJsonEnvelope("cancel", {
+      jobId,
+      status: "state_busy",
+      details: { killed: stopped, stopped, message },
+    }),
     `# Antigravity Cancel\n\n${message}\n`,
     json,
   );

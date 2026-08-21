@@ -2,58 +2,54 @@
  * Output rendering — formats reviews, status, results, and reports as markdown.
  */
 
+export const JSON_ENVELOPE_VERSION = 1;
+
 /**
- * Render a structured review result (from adversarial review) as markdown.
+ * Build the stable outer envelope used by every command that supports
+ * --json. Command-specific fields belong in `details`; model output belongs
+ * in the deliberately opaque `answer` string.
  *
- * @param {{ verdict: string, summary: string, findings: Array<{ severity: string, title: string, body: string, file: string, line_start: number, line_end: number, confidence: number, recommendation: string }>, next_steps: string[] }} review
- * @returns {string}
+ * @param {string} command
+ * @param {{ status: string, jobId?: string|null, answer?: string|null,
+ *   details?: object, [key: string]: any }} fields
+ * @returns {object}
  */
-export function renderReviewResult(review) {
-  const lines = [];
-  const icon = review.verdict === "approve" ? "APPROVED" : "NEEDS ATTENTION";
-  lines.push(`# Antigravity Adversarial Review: ${icon}`);
-  lines.push("");
-  lines.push(`**Verdict:** ${review.verdict}`);
-  lines.push(`**Summary:** ${review.summary}`);
-
-  if (review.findings.length === 0) {
-    lines.push("");
-    lines.push("No material findings.");
-  } else {
-    lines.push("");
-    lines.push(`## Findings (${review.findings.length})`);
-    lines.push("");
-
-    // Sort by severity: critical > high > medium > low.
-    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-    const sorted = [...review.findings].sort(
-      (a, b) => (severityOrder[a.severity] ?? 4) - (severityOrder[b.severity] ?? 4)
-    );
-
-    for (const finding of sorted) {
-      const conf = Math.round(finding.confidence * 100);
-      lines.push(`### [${finding.severity.toUpperCase()}] ${finding.title} (${conf}% confidence)`);
-      lines.push("");
-      lines.push(`**File:** \`${finding.file}\` lines ${finding.line_start}-${finding.line_end}`);
-      lines.push("");
-      lines.push(finding.body);
-      if (finding.recommendation) {
-        lines.push("");
-        lines.push(`**Recommendation:** ${finding.recommendation}`);
-      }
-      lines.push("");
-    }
+export function createJsonEnvelope(command, fields = {}) {
+  const {
+    status,
+    jobId = null,
+    answer = null,
+    details = {},
+    ...stableCommandFields
+  } = fields;
+  if (typeof command !== "string" || command.length === 0) {
+    throw new TypeError("JSON envelope command must be a non-empty string");
   }
-
-  if (review.next_steps.length > 0) {
-    lines.push("## Next Steps");
-    lines.push("");
-    for (const step of review.next_steps) {
-      lines.push(`- ${step}`);
-    }
+  if (typeof status !== "string" || status.length === 0) {
+    throw new TypeError("JSON envelope status must be a non-empty string");
   }
-
-  return `${lines.join("\n").trimEnd()}\n`;
+  if (jobId !== null && typeof jobId !== "string") {
+    throw new TypeError("JSON envelope jobId must be a string or null");
+  }
+  if (answer !== null && typeof answer !== "string") {
+    throw new TypeError("JSON envelope answer must be a string or null");
+  }
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    throw new TypeError("JSON envelope details must be an object");
+  }
+  if (Object.hasOwn(stableCommandFields, "schemaVersion") ||
+      Object.hasOwn(stableCommandFields, "command")) {
+    throw new TypeError("JSON envelope reserved fields cannot be overridden");
+  }
+  return {
+    schemaVersion: JSON_ENVELOPE_VERSION,
+    command,
+    status,
+    jobId,
+    answer,
+    ...stableCommandFields,
+    details,
+  };
 }
 
 /**

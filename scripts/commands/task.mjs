@@ -19,7 +19,7 @@ import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
-import { outputCommandResult } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
@@ -59,7 +59,7 @@ export async function run(argv = [], ctx = {}) {
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
   if (options.foreground) {
-    const { result } = await runForegroundJob({
+    const { job, result } = await runForegroundJob({
       workspaceRoot,
       kind: "task",
       title,
@@ -84,12 +84,22 @@ export async function run(argv = [], ctx = {}) {
       if (result.stderr) process.stderr.write(result.stderr);
       return result.status === "cancelled" ? 2 : 1;
     }
-    outputCommandResult({ task: result.stdout }, result.stdout, Boolean(options.json));
+    outputCommandResult(
+      createJsonEnvelope("task", {
+        status: "completed",
+        jobId: job.id,
+        answer: result.stdout,
+      }),
+      result.stdout,
+      Boolean(options.json),
+    );
     return 0;
   }
 
   // Background path (default).
-  const { job } = await startBackgroundJob({
+  const start = ctx.startBackgroundJob ?? startBackgroundJob;
+  const wait = ctx.waitForJob ?? waitForJob;
+  const { job } = await start({
     workspaceRoot,
     kind: "task",
     title,
@@ -100,11 +110,13 @@ export async function run(argv = [], ctx = {}) {
     cwd: workspaceRoot,
     request: { mode, addDirs },
   });
-  const payload = {
-    jobId: job.id,
+  const payload = createJsonEnvelope("task", {
     status: "queued",
-    message: `Background task started. Run /antigravity:status ${job.id} to check progress.`,
-  };
+    jobId: job.id,
+    details: {
+      message: `Background task started. Run /antigravity:status ${job.id} to check progress.`,
+    },
+  });
   outputCommandResult(
     payload,
     `Background task started: ${job.id}\nRun /antigravity:status ${job.id} to check progress.\n`,
@@ -112,9 +124,9 @@ export async function run(argv = [], ctx = {}) {
   );
 
   if (options.wait) {
-    const final = await waitForJob(workspaceRoot, job.id);
+    const final = await wait(workspaceRoot, job.id);
     if (!final) return 1;
-    if (final.status === "completed" && final.result?.rawOutput) {
+    if (!options.json && final.status === "completed" && final.result?.rawOutput) {
       process.stdout.write(final.result.rawOutput);
     }
     return final.status === "completed" ? 0 : final.status === "cancelled" ? 2 : 1;

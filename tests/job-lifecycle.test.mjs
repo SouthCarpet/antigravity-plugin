@@ -209,8 +209,8 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
 
       assert.equal(exitCode, 1);
       assert.equal(reported.status, "state_busy");
-      assert.match(reported.message, /retry shortly/i);
-      assert.doesNotMatch(reported.message, /FileLockTimeoutError|\n\s+at /);
+      assert.match(reported.details.message, /retry shortly/i);
+      assert.doesNotMatch(reported.details.message, /FileLockTimeoutError|\n\s+at /);
     } finally {
       if (originalClaudeData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
       else process.env.CLAUDE_PLUGIN_DATA = originalClaudeData;

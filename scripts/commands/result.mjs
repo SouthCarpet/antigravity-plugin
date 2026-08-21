@@ -10,7 +10,7 @@
 import { readCommandInput } from "../lib/args.mjs";
 import { resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile } from "../lib/state.mjs";
-import { outputCommandResult, renderResultOutput } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult, renderResultOutput } from "../lib/render.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
@@ -60,13 +60,15 @@ export async function run(argv = [], ctx = {}) {
   }
 
   const rendered = renderResultOutput(workspaceRoot, job, stored);
-  const payload = {
-    jobId: job.id,
+  const payload = createJsonEnvelope("result", {
     status: job.status,
-    conversationId: stored?.conversationId ?? job.conversationId ?? null,
-    result: stored?.result ?? null,
-    rendered,
-  };
+    jobId: job.id,
+    answer: rendered,
+    details: {
+      conversationId: stored?.conversationId ?? job.conversationId ?? null,
+      result: stored?.result ?? null,
+    },
+  });
   outputCommandResult(payload, rendered, json);
 
   switch (job.status) {

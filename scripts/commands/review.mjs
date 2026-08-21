@@ -16,7 +16,7 @@ import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
-import { outputCommandResult } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
@@ -44,7 +44,14 @@ export async function run(argv = [], ctx = {}) {
   }
 
   if (!envelope.context.diff || envelope.context.diff.trim() === "") {
-    process.stdout.write("antigravity:review — no changes to review.\n");
+    outputCommandResult(
+      createJsonEnvelope("review", {
+        status: "no_changes",
+        details: { scope: envelope.scope },
+      }),
+      "antigravity:review — no changes to review.\n",
+      Boolean(options.json),
+    );
     return 0;
   }
 
@@ -68,11 +75,13 @@ export async function run(argv = [], ctx = {}) {
       cwd: workspaceRoot,
       request: { scope: envelope.scope, base: base ?? null, mode },
     });
-    const payload = {
-      jobId: job.id,
+    const payload = createJsonEnvelope("review", {
       status: "queued",
-      message: `Background review started. Run /antigravity:status ${job.id} to check progress.`,
-    };
+      jobId: job.id,
+      details: {
+        message: `Background review started. Run /antigravity:status ${job.id} to check progress.`,
+      },
+    });
     outputCommandResult(
       payload,
       `Background review started: ${job.id}\nRun /antigravity:status ${job.id} to check progress.\n`,
@@ -85,7 +94,7 @@ export async function run(argv = [], ctx = {}) {
     return 0;
   }
 
-  const { result } = await runForegroundJob({
+  const { job, result } = await runForegroundJob({
     workspaceRoot,
     kind: "review",
     title,
@@ -111,10 +120,12 @@ export async function run(argv = [], ctx = {}) {
     return result.status === "cancelled" ? 2 : 1;
   }
 
-  const payload = {
-    scope: envelope.scope,
-    review: result.stdout,
-  };
+  const payload = createJsonEnvelope("review", {
+    status: "completed",
+    jobId: job.id,
+    answer: result.stdout,
+    details: { scope: envelope.scope },
+  });
   outputCommandResult(payload, result.stdout, Boolean(options.json));
   return 0;
 }
