@@ -23,7 +23,7 @@ bash scripts/smoke.sh
 
 Expected: every section emits `OK` and the final exit code is `0`.
 
-## Host 1 — standalone (`npx`)
+## Host 1 — standalone (local clone)
 
 Run from any directory that is a git repo with at least one tracked change.
 

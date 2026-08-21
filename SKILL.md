@@ -17,7 +17,7 @@ Skip `$antigravity` for trivial one-line edits or anything that requires interac
 
 ## Verbs
 
-All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy native (`agy plugin run antigravity <verb>`), and standalone (`npx antigravity-plugin <verb>`). Host wrappers differ in shape; the verb set and flag contract do not.
+All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy native (`agy plugin run antigravity <verb>`), and standalone from a clone (`node bin/antigravity.mjs <verb>`). Host wrappers differ in shape; the verb set and flag contract do not.
 
 | Verb     | What it does |
 |----------|--------------|

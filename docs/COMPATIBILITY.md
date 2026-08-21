@@ -14,6 +14,11 @@ the contract was frozen. A behavior is public only when this document or the
 | Node.js | `>=22.3.0` |
 | Google Antigravity CLI | `agy` 1.1.15. Other versions may work, but are not in the tested or promised matrix. |
 
+The standalone package-binary spelling above names the CLI interface, not a
+current npm distribution. This fork is not published to npm; today the
+supported distributed path is a clone running
+`node bin/antigravity.mjs <verb>`.
+
 The Node floor is 22.3.0 because Node 18 and 20 are EOL as of this contract,
 and 22.3.0 is the first Node 22 release on which this repository's full test
 suite can run (`mock.module()` and `--experimental-test-module-mocks`). The

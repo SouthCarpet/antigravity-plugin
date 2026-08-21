@@ -37,12 +37,13 @@ This is the job that must be green:
 
 1. Runs the full test suite (`node --test --experimental-test-module-mocks tests/*.test.mjs`).
 2. Checks that the seven host version scalars agree (`node scripts/check-manifests.mjs`).
-3. Dry-runs `npm pack` and asserts the tarball still contains what Claude Code, agy, and the standalone CLI need (`node scripts/check-pack.mjs`).
+3. Dry-runs `npm pack` and asserts the tarball still contains what Claude Code, Codex CLI, agy, and the standalone CLI need (`node scripts/check-pack.mjs`).
 
 There is no `npm ci` step: this package has no dependencies and no lockfile.
 `claude plugin validate` is not run in CI (the Claude Code CLI is not a clean
-unattended install). `check-pack` reports — but does not fail on — the known
-`files` allowlist gap (`SKILL.md`, `.agents/`).
+unattended install). `check-pack` fails if any required host file, including
+the Codex discovery files `SKILL.md` and `.agents/plugins/marketplace.json`,
+drops out of the tarball.
 
 ## Release notes
 
@@ -76,7 +77,7 @@ preferred AI host so you can:
 | Claude Code      | `claude plugin marketplace add SouthCarpet/antigravity-plugin` then `claude plugin install antigravity@antigravity` |
 | Codex CLI        | `codex plugin marketplace add <path-to-clone>` then `$antigravity setup` (see [docs/INSTALL.md](./docs/INSTALL.md)) |
 | Antigravity (agy)| `agy plugin install` from a local clone of this fork               |
-| Standalone       | `npx antigravity-plugin <command>` (upstream npm name; from this fork prefer `node bin/antigravity.mjs <command>`) |
+| Standalone       | Clone this fork, then run `node bin/antigravity.mjs <command>`; this package is not currently published to npm |
 
 ## Requirements
 

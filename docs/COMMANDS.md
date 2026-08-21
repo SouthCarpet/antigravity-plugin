@@ -16,6 +16,9 @@ antigravity-plugin <verb> ...           # standalone package binary
 node bin/antigravity.mjs <verb> ...     # standalone from a checkout
 ```
 
+The package-binary spelling is the stable CLI interface name, but this fork
+is not currently published to npm. Use the checkout form today.
+
 Documented value flags require a following token. `--` ends flag parsing.
 Repeating a scalar value flag uses its last value; repeating `--add-dir`
 preserves all values. Unknown flags and undocumented extra positionals may be

@@ -96,7 +96,7 @@ ACP client + broker from `gemini-plugin-cc`) is **dead**.
 **New shape:**
 
 ```
-Host (Claude Code | Codex CLI | agy | npx)
+Host (Claude Code | Codex CLI | agy | standalone CLI)
         │
         ▼
   command (e.g. /antigravity:review)

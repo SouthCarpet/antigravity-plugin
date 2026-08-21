@@ -5,8 +5,9 @@
 # the default reasoning prompt should be when the user types `$antigravity`.
 #
 # All host surfaces (Claude Code slash commands, Codex `$antigravity`, agy
-# native plugin commands, and the standalone `npx antigravity-plugin <verb>`
-# CLI) shell out to the SAME per-verb runtime modules under
+# native plugin commands, and the standalone
+# `node bin/antigravity.mjs <verb>` CLI from a clone) shell out to the SAME
+# per-verb runtime modules under
 # `scripts/commands/<verb>.mjs`. The verbs listed below are the public
 # contract — keep them in sync with `commands/` and `scripts/commands/`.
 
