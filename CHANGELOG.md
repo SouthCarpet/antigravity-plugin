@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **npm package is `@southcarpet/antigravity-plugin`** — standalone
   invocation is `npx @southcarpet/antigravity-plugin <command>`. The
   installed binary name remains `antigravity-plugin`.
+- **`LICENSE` names the fork maintainer** — a second copyright line for
+  SouthCarpet sits under the original author's. README notes that
+  Antigravity, Gemini, Claude Code, and Codex are their owners' marks.
+- **`SECURITY.md` only claims what this repo can see** — the plugin
+  spawns `agy` and passes it prompts, context, and image bytes; what agy
+  or Google does after that is out of this file's reach.
+- **Dropped the `gemini-replacement` keyword** — it read as a Gemini
+  substitute. This package replaced `gemini-plugin-cc`.
 
 ### Added
 
@@ -25,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`bump-version` no longer half-bumps on a failed write** — payloads
+  are staged next to their targets first; temps are deleted if staging
+  fails. Renames onto the live files are the remaining non-atomic
+  window (Windows cannot atomically replace).
 - **fix: host surfaces advertised different verbs** — Claude Code had no
   `commands/setup.md`, Codex's `agents/openai.yaml` omitted `vision`, and
   `review`/`rescue` were documented as background-by-default while the

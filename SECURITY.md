@@ -74,8 +74,9 @@ Successful `setup` without `--skip-vision` writes under `~/.gemini`:
 That permission is **user-wide**. Any later `agy --print` session can
 *attempt* the `vision/view_image` tool. The bundled server still denies
 every path unless that process was given this invocation's allowlist
-(see below). `setup` does not upload files. It does trigger agy's
-interactive Google OAuth probe; agy stores its own refresh token.
+(see below). `setup` does not upload files. It does spawn agy so the user
+can complete Google's OAuth in that CLI. This plugin does not write OAuth
+tokens; whatever agy stores afterwards is agy's own behaviour.
 
 Undo with `setup --remove-vision`. Removal is limited to plugin-owned
 vision entries described in the
@@ -95,28 +96,29 @@ absolute paths named on that command, then starts agy. The MCP server:
 
 Users should not set `ANTIGRAVITY_VISION_ALLOWED_PATHS` globally.
 
-### What leaves the machine, and when
+### What this plugin passes to agy, and when
 
-This plugin does not talk to Google itself. Delegated verbs spawn `agy`,
-which sends the prompt (and, for vision, image bytes returned by the local
-MCP server) to Google.
+This plugin does not talk to Google itself. Delegated verbs spawn `agy` and
+pass it prompts, collected context, and (for vision) image bytes the local
+MCP server read. What agy transmits, stores, or bills after that spawn is
+agy's and Google's behaviour, not this plugin's.
 
-| Verb | Leaves this machine | Stays local |
+| Verb | Passed to agy | Stays local to this plugin |
 |---|---|---|
-| `setup` | OAuth in the browser / agy credential flow | `~/.gemini` vision config, ownership receipt |
+| `setup` | The OAuth probe process (browser / agy credential flow) | `~/.gemini` vision config, ownership receipt |
 | `review` | Git metadata, the review prompt, and the collected diff / untracked snippets | Plugin job state under the host data directory (or the temp fallback) |
 | `rescue` / `task` | The user prompt; agy may also read workspace files with its own tools, including `--add-dir` extra roots | Plugin job state |
 | `vision` | The text prompt and the image bytes of allowlisted files (base64 MCP image content via agy) | The image files themselves; MCP reads them only for that invocation |
 | `status` / `result` / `cancel` | Nothing via this plugin | Job JSON/logs; `cancel` only signals local processes |
 
-Assume anything you hand to `review`, `rescue`, `task`, or `vision` can
-reach Google. Secrets in a diff, an untracked file, a prompt, or a
-screenshot are secrets you chose to send.
+Assume anything you hand to `review`, `rescue`, `task`, or `vision` is
+visible to agy. Secrets in a diff, an untracked file, a prompt, or a
+screenshot are secrets you chose to give that process.
 
-Token use is billed/quota'd on the Google / agy side. Images are large.
-Successful `vision` and `result` (when usage was stored) print
-`usage: total=<N> in=<N> out=<N>` on stderr; this plugin does not estimate
-missing counts.
+This plugin does not bill or estimate cost. Images are large. Successful
+`vision` and `result` (when usage was stored) print
+`usage: total=<N> in=<N> out=<N>` on stderr from whatever agy reported;
+this plugin does not estimate missing counts.
 
 ## Threat boundaries this plugin does **not** close
 

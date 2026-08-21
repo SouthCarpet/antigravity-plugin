@@ -212,4 +212,7 @@ under the
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+MIT — see [`LICENSE`](./LICENSE). Antigravity and Gemini are Google's,
+Claude Code is Anthropic's, and Codex is OpenAI's. This project uses those
+names to describe the tools it plugs into; it is not affiliated with or
+endorsed by them.
