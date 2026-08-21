@@ -98,6 +98,9 @@ function tryAcquire(lockPath, staleLockMs) {
   try {
     fs.mkdirSync(lockPath);
   } catch (err) {
+    // Windows can briefly deny mkdir while another process is creating or
+    // deleting the lock directory. Treat that as contention, not staleness.
+    if (err?.code === "EPERM" || err?.code === "EACCES" || err?.code === "EBUSY") return null;
     if (err?.code !== "EEXIST") throw err;
     try {
       if (staleLockCanBeReaped(lockPath, staleLockMs)) reapStaleLock(lockPath);
