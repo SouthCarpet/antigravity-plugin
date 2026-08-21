@@ -537,6 +537,64 @@ describe('/antigravity:review', () => {
     assert.match(cap.out.join(''), /no changes to review/i);
   });
 
+  it('reviews an untracked-only working tree instead of reporting no changes', async () => {
+    initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'brand-new.txt'), 'never committed\n');
+
+    agyRuntime.calls = [];
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'review of new file', stderr: '' };
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 0);
+    assert.doesNotMatch(cap.out.join(''), /no changes to review/i);
+    const payload = parseEnvelope(cap.out, {
+      command: 'review',
+      status: 'completed',
+      answer: 'review of new file',
+    });
+    assert.equal(payload.details.scope, 'working-tree');
+    assert.equal(typeof payload.jobId, 'string');
+    assert.ok(agyRuntime.calls.length >= 1, 'expected runAgyPrint to be invoked');
+    assert.match(agyRuntime.calls[0].prompt, /brand-new\.txt/);
+  });
+
+  it('reviews a tracked-only working tree (no untracked files)', async () => {
+    const gitEnv = initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'original\n');
+    execSync('git add a.txt', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    execSync('git commit -q -m add', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'edited\n');
+
+    agyRuntime.calls = [];
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'review of tracked edit', stderr: '' };
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, {
+      command: 'review',
+      status: 'completed',
+      answer: 'review of tracked edit',
+    });
+    assert.equal(payload.details.scope, 'working-tree');
+    assert.equal(typeof payload.jobId, 'string');
+    assert.ok(agyRuntime.calls.length >= 1, 'expected runAgyPrint to be invoked');
+    assert.match(agyRuntime.calls[0].prompt, /a\.txt/);
+  });
+
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
     const gitEnv = initEmptyGitRepo(tempDir);
     fs.writeFileSync(path.join(tempDir, 'a.txt'), 'changed\n');

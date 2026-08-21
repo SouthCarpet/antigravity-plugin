@@ -43,7 +43,7 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
 
-  if (!envelope.context.diff || envelope.context.diff.trim() === "") {
+  if (!hasReviewableContent(envelope.context)) {
     outputCommandResult(
       createJsonEnvelope("review", {
         status: "no_changes",
@@ -128,6 +128,19 @@ export async function run(argv = [], ctx = {}) {
   });
   outputCommandResult(payload, result.stdout, Boolean(options.json));
   return 0;
+}
+
+/**
+ * True when the collected context has a non-empty tracked diff or any
+ * untracked snippets. Untracked-only trees produce no `git diff` — they
+ * arrive in `context.untrackedContents` — and are still reviewable.
+ *
+ * @param {{ diff?: string, untrackedContents?: unknown[] } | null | undefined} context
+ */
+function hasReviewableContent(context) {
+  if (!context) return false;
+  if (typeof context.diff === "string" && context.diff.trim() !== "") return true;
+  return Array.isArray(context.untrackedContents) && context.untrackedContents.length > 0;
 }
 
 export default run;
