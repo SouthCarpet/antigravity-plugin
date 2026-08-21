@@ -8,7 +8,9 @@
   },
   "scripts": {
     "test": "node --test --experimental-test-module-mocks tests/*.test.mjs",
-    "test:coverage": "node --test --experimental-test-module-mocks --experimental-test-coverage tests/*.test.mjs"
+    "test:coverage": "node --test --experimental-test-module-mocks --experimental-test-coverage tests/*.test.mjs",
+    "bump-version": "node scripts/bump-version.mjs",
+    "check:version": "node scripts/bump-version.mjs --check"
   },
   "engines": {
     "node": ">=22.3.0"

@@ -53,6 +53,12 @@ jobs:
       - name: Manifest version parity
         run: node scripts/check-manifests.mjs
 
+      # Same job shape (stock Node, no extra checkout flags). --check reports
+      # git-tag presence but does not fail on a missing tag: tagging is the
+      # maintainer's act, and this checkout does not fetch tags.
+      - name: Version changelog agreement
+        run: node scripts/bump-version.mjs --check
+
       - name: Package contents
         run: |
           npm pack --dry-run
