@@ -17,6 +17,8 @@ const state = {
   spawnExitCode: 0,
   ensureVisionCalls: [],
   ensureVisionSummary: ['mcp_config.json: already configured', 'settings.json: already configured'],
+  removeVisionCalls: [],
+  removeVisionResult: { ok: true, summary: ['removed'] },
 };
 
 mock.module('../scripts/lib/agent-runtime.mjs', {
@@ -32,6 +34,11 @@ mock.module('../scripts/lib/vision-config.mjs', {
       state.ensureVisionCalls.push(opts);
       return { summary: state.ensureVisionSummary };
     },
+    removeVisionConfig: (opts) => {
+      state.removeVisionCalls.push(opts);
+      return state.removeVisionResult;
+    },
+    VISION_PERMISSION: 'mcp(vision/view_image)',
   },
 });
 
@@ -74,6 +81,8 @@ beforeEach(() => {
   state.probe = { ok: true, version: '1.1.11' };
   state.spawnExitCode = 0;
   state.ensureVisionCalls = [];
+  state.removeVisionCalls = [];
+  state.removeVisionResult = { ok: true, summary: ['removed'] };
 });
 
 describe('/antigravity:setup — vision config wiring', () => {
@@ -130,5 +139,23 @@ describe('/antigravity:setup — vision config wiring', () => {
     const text = cap.out.join('');
     assert.match(text, /mcp_config\.json: already configured/);
     assert.match(text, /settings\.json: already configured/);
+    assert.match(text, /user-wide headless allow rule: mcp\(vision\/view_image\)/);
+    assert.match(text, /only the image paths named in that invocation/);
+    assert.match(text, /setup --remove-vision/);
+  });
+
+  it('--remove-vision uninstalls without probing or spawning agy', async () => {
+    state.probe = { ok: false, reason: 'not-installed' };
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--remove-vision'], {});
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(state.removeVisionCalls.length, 1);
+    assert.equal(state.ensureVisionCalls.length, 0);
+    assert.match(cap.out.join(''), /Only the MCP entry and permission recorded as plugin-owned/);
   });
 });

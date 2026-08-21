@@ -184,6 +184,7 @@ export async function runForegroundJob({
       outputFormat,
       extraArgs,
       cwd: cwd ?? workspaceRoot,
+      env,
       onStdout,
       onStderr,
       onText,

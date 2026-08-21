@@ -21,9 +21,10 @@ const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 const COMMAND_HELP = {
   setup:
     'antigravity-plugin setup — one-time OAuth wizard.\n\n' +
-    'Usage: antigravity-plugin setup [--skip-vision]\n\n' +
+    'Usage: antigravity-plugin setup [--skip-vision|--remove-vision]\n\n' +
     'Runs `agy --print` once so the OAuth URL surfaces. Idempotent.\n' +
-    'Also registers the vision MCP server + permissions (skip with --skip-vision).\n' +
+    'Also registers the vision MCP server + one exact permission (skip with --skip-vision).\n' +
+    '--remove-vision removes only persistent entries this plugin added.\n' +
     'Exits non-zero if `agy` is not on PATH.',
   review:
     'antigravity-plugin review — review uncommitted changes or a branch diff.\n\n' +
@@ -121,7 +122,8 @@ if (rest.includes('--help') || rest.includes('-h')) {
 }
 
 // Friendly preflight: AGY_BIN set but missing → install URL + exit 127.
-if (AGY_REQUIRED.has(arg0) && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
+const removingVision = arg0 === 'setup' && rest.includes('--remove-vision');
+if (AGY_REQUIRED.has(arg0) && !removingVision && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
   process.stderr.write(
     `antigravity-plugin: \`agy\` not found at AGY_BIN=${process.env.AGY_BIN}.\n` +
     `Install Google Antigravity CLI from ${INSTALL_URL} or unset AGY_BIN.\n`,

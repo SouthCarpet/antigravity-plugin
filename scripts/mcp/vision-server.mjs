@@ -12,6 +12,12 @@
  * single `view_image` tool that reads an image file off disk and returns it
  * that way — verified live against agy 1.1.11 / gemini-3.6-flash-high.
  *
+ * Access is capability-scoped, not prompt-scoped. The parent vision command
+ * passes the exact user-named absolute paths in a per-process environment
+ * value. This server denies all access when that value is absent or invalid,
+ * rejects every path not in it, and rejects symlink/junction resolution so a
+ * permitted-looking name cannot resolve to a different file.
+ *
  * Protocol handling below mirrors the probe script that proved this out; do
  * not change the JSON-RPC shapes without re-verifying against a live agy run.
  */
@@ -19,6 +25,8 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
+
+import { decodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
 
 /** Supported image extensions → MIME type. */
 const MIME = {
@@ -64,8 +72,33 @@ function errorContent(message) {
  * @param {string} [cwd]
  * @returns {{ content: Array<any>, isError?: boolean }}
  */
-export function loadImageResult(rawPath, cwd = process.cwd()) {
+export function loadImageResult(
+  rawPath,
+  cwd = process.cwd(),
+  allowedPaths = decodeVisionAllowlist(process.env[VISION_ALLOWLIST_ENV]),
+) {
   const p = path.resolve(cwd, String(rawPath ?? ""));
+  const compare = (value) => {
+    const normalized = path.normalize(path.resolve(value));
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const allowed = new Set(allowedPaths.map((allowedPath) => compare(path.resolve(cwd, allowedPath))));
+  if (!allowed.has(compare(p))) {
+    return errorContent("ERROR: path is not authorized for this vision invocation");
+  }
+
+  let realPath;
+  try {
+    realPath = fs.realpathSync.native(p);
+  } catch {
+    return errorContent(`ERROR: file not found: ${p}`);
+  }
+  // Compare after realpath: a symlink/junction may look allowed lexically but
+  // resolve elsewhere. Requiring equality rejects that escape before reading.
+  if (compare(realPath) !== compare(p)) {
+    return errorContent("ERROR: authorized path resolves through a symlink or junction; refusing access");
+  }
+
   const ext = path.extname(p).toLowerCase();
   const mimeType = MIME[ext];
   if (!mimeType) {
@@ -76,7 +109,7 @@ export function loadImageResult(rawPath, cwd = process.cwd()) {
 
   let stat;
   try {
-    stat = fs.statSync(p);
+    stat = fs.statSync(realPath);
   } catch {
     return errorContent(`ERROR: file not found: ${p}`);
   }
@@ -88,7 +121,7 @@ export function loadImageResult(rawPath, cwd = process.cwd()) {
   }
 
   try {
-    const data = fs.readFileSync(p).toString("base64");
+    const data = fs.readFileSync(realPath).toString("base64");
     return {
       content: [
         { type: "text", text: `Image loaded from ${p} (${mimeType}).` },
@@ -103,6 +136,7 @@ export function loadImageResult(rawPath, cwd = process.cwd()) {
 /* c8 ignore start — stdio wiring exercised via child-process tests, not unit coverage. */
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
+  const allowedPaths = decodeVisionAllowlist(process.env[VISION_ALLOWLIST_ENV]);
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
   rl.on("line", (line) => {
     line = line.trim();
@@ -131,7 +165,7 @@ if (isMain) {
         replyError(id, -32602, `unknown tool: ${params?.name}`);
         return;
       }
-      reply(id, loadImageResult(params?.arguments?.path));
+      reply(id, loadImageResult(params?.arguments?.path, process.cwd(), allowedPaths));
     } else if (id !== undefined) {
       replyError(id, -32601, `method not found: ${method}`);
     }

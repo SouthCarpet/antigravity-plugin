@@ -124,11 +124,17 @@ tool call whose result contains an MCP image content block
 registers a small local MCP server (`scripts/mcp/vision-server.mjs`) that
 exposes a `view_image` tool for exactly this, and `/antigravity:vision`
 builds a prompt that instructs agy to call that tool for each image you give
-it before answering.
+it before answering. Setup persists only the exact headless permission
+`mcp(vision/view_image)`. Each invocation separately passes an allowlist of
+the user-named image paths; the server denies every other path and denies all
+access when no invocation allowlist is present.
 
 ```bash
 # one-time (also runs your normal OAuth setup)
 /antigravity:setup
+
+# remove only the persistent MCP entry and permission setup added
+/antigravity:setup --remove-vision
 
 # describe a screenshot
 /antigravity:vision ./screenshot.png
@@ -143,7 +149,8 @@ it before answering.
 Supported formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, up to 10 MB each.
 `/antigravity:vision` is foreground-only (no `--background`) and requires
 `/antigravity:setup` to have run at least once (skip with `setup --skip-vision`
-if you don't want it). If the MCP channel isn't available for any reason, agy
+if you don't want it; undo with `setup --remove-vision`). If the MCP channel
+isn't available for any reason, agy
 is instructed to reply with `VISION-UNAVAILABLE: <reason>` rather than guess
 from the file name — treat that line as a health signal, not a real answer.
 

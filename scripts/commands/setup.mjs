@@ -7,20 +7,31 @@
  *
  * After that OAuth probe succeeds, also idempotently registers the vision
  * MCP server + permissions (scripts/lib/vision-config.mjs) so
- * `/antigravity:vision` works unattended. Pass `--skip-vision` to opt out.
+ * `/antigravity:vision` works unattended. Pass `--skip-vision` to opt out,
+ * or `--remove-vision` to remove only plugin-owned persistent entries.
  */
 import { spawn } from 'node:child_process';
 import { readCommandInput } from '../lib/args.mjs';
 import { resolveAgyBin, probeAgy } from '../lib/agent-runtime.mjs';
-import { ensureVisionConfig } from '../lib/vision-config.mjs';
+import { ensureVisionConfig, removeVisionConfig, VISION_PERMISSION } from '../lib/vision-config.mjs';
 import { runIfMain } from '../lib/cli-entry.mjs';
 
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    booleanOptions: ['skip-vision'],
+    booleanOptions: ['skip-vision', 'remove-vision'],
   }, 'setup');
   if (!parsed) return 1;
   const { options } = parsed;
+
+  if (options['remove-vision']) {
+    process.stdout.write(
+      'antigravity:setup — removing persistent vision configuration from ~/.gemini.\n' +
+      'Only the MCP entry and permission recorded as plugin-owned will be removed; unrelated settings are preserved.\n',
+    );
+    const result = removeVisionConfig();
+    for (const line of result.summary) process.stdout.write(`  - ${line}\n`);
+    return result.ok === false ? 1 : 0;
+  }
 
   const bin = resolveAgyBin();
   const probe = await probeAgy({ bin });
@@ -58,13 +69,21 @@ export async function run(argv = [], ctx = {}) {
     return 0;
   }
 
-  process.stdout.write('\nantigravity:setup — configuring vision (MCP server + permissions):\n');
-  const { summary } = ensureVisionConfig();
+  process.stdout.write(
+    '\nantigravity:setup — enabling persistent vision access under ~/.gemini:\n' +
+    `  - registers a user-wide MCP server named "vision" using this exact Node executable: ${process.execPath}\n` +
+    `  - adds one user-wide headless allow rule: ${VISION_PERMISSION}\n` +
+    '  - records plugin ownership so removal preserves pre-existing and unrelated settings\n' +
+    '  - each vision run still limits the server to only the image paths named in that invocation\n' +
+    'Undo these changes with: antigravity-plugin setup --remove-vision\n' +
+    'Applying configuration:\n',
+  );
+  const { summary, ok } = ensureVisionConfig();
   for (const line of summary) {
     process.stdout.write(`  - ${line}\n`);
   }
 
-  return 0;
+  return ok === false ? 1 : 0;
 }
 
 export default run;

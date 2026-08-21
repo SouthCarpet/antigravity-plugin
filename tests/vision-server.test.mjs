@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadImageResult } from '../scripts/mcp/vision-server.mjs';
+import { VISION_ALLOWLIST_ENV } from '../scripts/lib/vision-capability.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.resolve(__dirname, '..', 'scripts', 'mcp', 'vision-server.mjs');
@@ -25,22 +26,26 @@ const TINY_PNG_BASE64 =
 
 let tmpDir;
 let pngPath;
+const tmpDirs = [];
 
 before(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-'));
+  tmpDirs.push(tmpDir);
   pngPath = path.join(tmpDir, 'probe.png');
   fs.writeFileSync(pngPath, Buffer.from(TINY_PNG_BASE64, 'base64'));
 });
 
 after(() => {
-  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  for (const dir of tmpDirs) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
 });
 
 // ───────────────────────────── loadImageResult (pure) ─────────────────────────────
 
 describe('vision-server.loadImageResult', () => {
   it('returns an image content block for a valid PNG', () => {
-    const out = loadImageResult('probe.png', tmpDir);
+    const out = loadImageResult('probe.png', tmpDir, [pngPath]);
     assert.equal(out.isError, undefined);
     const imagePart = out.content.find((c) => c.type === 'image');
     assert.ok(imagePart, 'expected an image content block');
@@ -49,12 +54,64 @@ describe('vision-server.loadImageResult', () => {
   });
 
   it('resolves relative paths against the provided cwd', () => {
-    const out = loadImageResult('./probe.png', tmpDir);
+    const out = loadImageResult('./probe.png', tmpDir, [pngPath]);
     assert.equal(out.isError, undefined);
   });
 
+  it('blocks an absolute path outside the per-invocation allowlist', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-outside-'));
+    tmpDirs.push(outsideDir);
+    const outsidePath = path.join(outsideDir, 'secret.png');
+    fs.writeFileSync(outsidePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+
+    const out = loadImageResult(outsidePath, tmpDir, [pngPath]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /not authorized/);
+  });
+
+  it('blocks .. traversal even when it reaches an existing image', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-traversal-'));
+    tmpDirs.push(outsideDir);
+    const outsidePath = path.join(outsideDir, 'secret.png');
+    fs.writeFileSync(outsidePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    const traversal = path.relative(tmpDir, outsidePath);
+
+    const out = loadImageResult(traversal, tmpDir, [pngPath]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /not authorized/);
+  });
+
+  it('blocks Windows UNC and extended-length path forms before filesystem access', () => {
+    for (const candidate of ['\\\\server\\share\\secret.png', '\\\\?\\C:\\secret.png']) {
+      const out = loadImageResult(candidate, tmpDir, [pngPath]);
+      assert.equal(out.isError, true);
+      assert.match(out.content[0].text, /not authorized/);
+    }
+  });
+
+  it('blocks a permitted-looking path that resolves through a symlink or junction', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-symlink-'));
+    tmpDirs.push(outsideDir);
+    const outsidePath = path.join(outsideDir, 'secret.png');
+    fs.writeFileSync(outsidePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    const linkDir = path.join(tmpDir, 'permitted-looking');
+    fs.symlinkSync(outsideDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
+    const linkedPath = path.join(linkDir, 'secret.png');
+
+    const out = loadImageResult(linkedPath, tmpDir, [linkedPath]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /symlink|junction/);
+  });
+
+  it('denies all image access when the invocation capability is absent', () => {
+    const out = loadImageResult(pngPath, tmpDir, []);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /not authorized/);
+  });
+
   it('is a no-op error for a missing file', () => {
-    const out = loadImageResult('does-not-exist.png', tmpDir);
+    const missing = path.join(tmpDir, 'does-not-exist.png');
+    const out = loadImageResult(missing, tmpDir, [missing]);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /file not found/);
   });
@@ -62,7 +119,7 @@ describe('vision-server.loadImageResult', () => {
   it('is an error for an unsupported extension', () => {
     const txtPath = path.join(tmpDir, 'note.txt');
     fs.writeFileSync(txtPath, 'hello');
-    const out = loadImageResult('note.txt', tmpDir);
+    const out = loadImageResult(txtPath, tmpDir, [txtPath]);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /unsupported image extension/);
   });
@@ -70,7 +127,7 @@ describe('vision-server.loadImageResult', () => {
   it('is an error for a file over the 10MB cap', () => {
     const bigPath = path.join(tmpDir, 'big.png');
     fs.writeFileSync(bigPath, Buffer.alloc(10 * 1024 * 1024 + 1));
-    const out = loadImageResult('big.png', tmpDir);
+    const out = loadImageResult(bigPath, tmpDir, [bigPath]);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /too large/);
   });
@@ -78,8 +135,9 @@ describe('vision-server.loadImageResult', () => {
 
 // ───────────────────────────── real server round-trip ─────────────────────────────
 
-function startServer(cwd) {
-  const child = spawn(process.execPath, [SERVER], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+function startServer(cwd, allowedPaths = []) {
+  const env = { ...process.env, [VISION_ALLOWLIST_ENV]: JSON.stringify(allowedPaths) };
+  const child = spawn(process.execPath, [SERVER], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
   const rl = readline.createInterface({ input: child.stdout, terminal: false });
   const pending = new Map();
   let nextId = 1;
@@ -113,7 +171,7 @@ function startServer(cwd) {
 
 describe('vision-server (real MCP stdio process)', () => {
   it('initialize → tools/list → tools/call round-trips real image content', async () => {
-    const srv = startServer(tmpDir);
+    const srv = startServer(tmpDir, [pngPath]);
     try {
       const init = await srv.send('initialize', { protocolVersion: '2025-06-18' });
       assert.equal(init.result.serverInfo.name, 'vision-server');
@@ -133,8 +191,20 @@ describe('vision-server (real MCP stdio process)', () => {
     }
   });
 
-  it('missing file over the wire produces isError', async () => {
+  it('denies a real MCP call when no paths were authorized for the process', async () => {
     const srv = startServer(tmpDir);
+    try {
+      const call = await srv.send('tools/call', { name: 'view_image', arguments: { path: pngPath } });
+      assert.equal(call.result.isError, true);
+      assert.match(call.result.content[0].text, /not authorized/);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('missing file over the wire produces isError', async () => {
+    const missing = path.join(tmpDir, 'nope.png');
+    const srv = startServer(tmpDir, [missing]);
     try {
       const call = await srv.send('tools/call', { name: 'view_image', arguments: { path: 'nope.png' } });
       assert.equal(call.result.isError, true);
@@ -145,7 +215,8 @@ describe('vision-server (real MCP stdio process)', () => {
   });
 
   it('unsupported extension over the wire produces isError', async () => {
-    const srv = startServer(tmpDir);
+    const txtPath = path.join(tmpDir, 'note.txt');
+    const srv = startServer(tmpDir, [txtPath]);
     try {
       const call = await srv.send('tools/call', { name: 'view_image', arguments: { path: 'note.txt' } });
       assert.equal(call.result.isError, true);
@@ -156,7 +227,8 @@ describe('vision-server (real MCP stdio process)', () => {
   });
 
   it('oversize file over the wire produces isError', async () => {
-    const srv = startServer(tmpDir);
+    const bigPath = path.join(tmpDir, 'big.png');
+    const srv = startServer(tmpDir, [bigPath]);
     try {
       const call = await srv.send('tools/call', { name: 'view_image', arguments: { path: 'big.png' } });
       assert.equal(call.result.isError, true);

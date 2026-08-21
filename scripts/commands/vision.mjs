@@ -30,6 +30,7 @@ import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob } from "../lib/job-helpers.mjs";
 import { outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+import { encodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
 
 const DEFAULT_MODEL = "gemini-3.6-flash-high";
 const DEFAULT_PROMPT =
@@ -68,6 +69,10 @@ export async function run(argv = [], ctx = {}) {
   const model = options.model ? String(options.model) : DEFAULT_MODEL;
   const prompt = buildVisionPrompt({ imagePaths, userPrompt });
   const title = `vision: ${imagePaths.map((p) => basename(p)).join(", ")}`;
+  const env = {
+    ...process.env,
+    [VISION_ALLOWLIST_ENV]: encodeVisionAllowlist(imagePaths),
+  };
 
   const { result } = await runForegroundJob({
     workspaceRoot,
@@ -78,6 +83,7 @@ export async function run(argv = [], ctx = {}) {
     model,
     outputFormat: "json",
     cwd: workspaceRoot,
+    env,
     request: { imagePaths, model, userPrompt },
     onText: (delta) => process.stderr.write(delta),
   });

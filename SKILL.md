@@ -40,7 +40,7 @@ agy 1.0.x is **OAuth-only** — there is no API-key path yet (tracked upstream a
 
 If a background worker hits the auth prompt (e.g. a fresh machine), it captures the OAuth URL and surfaces it on `$antigravity status <job-id>` so you can still complete auth from a non-interactive session.
 
-`setup` also registers the **vision MCP server + permissions** `$antigravity vision` needs — `agy --print` has no native image ingestion path, so image questions only get real visual answers once `setup` has written `~/.gemini/config/mcp_config.json` (`mcpServers.vision`) and `~/.gemini/antigravity-cli/settings.json` (`permissions.allow` including `read_file(*)`, `view_image(*)`, `mcp(*)`). Pass `setup --skip-vision` to opt out.
+`setup` also registers the **vision MCP server + exact permission** `$antigravity vision` needs — `agy --print` has no native image ingestion path, so image questions only get real visual answers once `setup` has written `~/.gemini/config/mcp_config.json` (`mcpServers.vision`) and `~/.gemini/antigravity-cli/settings.json` (`permissions.allow` including only `mcp(vision/view_image)`). Each vision run confines the server to the user-named paths. Pass `setup --skip-vision` to opt out or `setup --remove-vision` to remove only plugin-owned entries.
 
 ## Example prompts
 

@@ -17,6 +17,7 @@ import { mock } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { VISION_ALLOWLIST_ENV } from '../scripts/lib/vision-capability.mjs';
 
 const TMPROOT = os.tmpdir();
 
@@ -126,6 +127,7 @@ describe('/antigravity:vision', () => {
     assert.match(runtime.calls[0].prompt, /view_image/);
     assert.match(runtime.calls[0].prompt, /what shape is this\?/);
     assert.match(runtime.calls[0].prompt, /VISION-UNAVAILABLE/);
+    assert.deepEqual(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]), [imagePath]);
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
@@ -229,5 +231,6 @@ describe('/antigravity:vision', () => {
     }
     assert.equal(exit, 0);
     assert.match(runtime.calls[0].prompt, /2 image/);
+    assert.deepEqual(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]), [imagePath, second]);
   });
 });
