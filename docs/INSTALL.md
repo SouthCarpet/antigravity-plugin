@@ -5,8 +5,9 @@ that matches your workflow.
 
 ## Prerequisites (all hosts)
 
-1. **Node.js ≥ 18.18.0** — `node --version`.
-2. **agy CLI v1.0.1+** — Google Antigravity CLI on `PATH`.
+1. **Node.js ≥ 22.3.0** — `node --version`.
+2. **agy CLI v1.1.15** — Google Antigravity CLI on `PATH`. Other versions
+   are outside the tested compatibility matrix.
    ```bash
    curl -fsSL https://antigravity.google/cli/install.sh | bash
    agy --version
@@ -93,8 +94,8 @@ npx antigravity-plugin status
 
 ```bash
 # host-agnostic check
-agy --version              # 1.0.1+
-node --version             # 18.18.0+
+agy --version              # 1.1.15
+node --version             # 22.3.0+
 which agy                  # /home/<user>/.local/bin/agy on Linux
 ```
 

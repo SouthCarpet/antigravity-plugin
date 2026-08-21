@@ -18,12 +18,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        # mock.module() and --experimental-test-module-mocks landed in
-        # Node 20.18.0 / 22.3.0 (nodejs.org docs: api/test.html#mockmodulespecifier-options
-        # and api/cli.html#--experimental-test-module-mocks). Floor THIS job there,
-        # not at engines.node (>=18.18.0). The runtime-floor job covers 18.18.
+        # mock.module() and --experimental-test-module-mocks landed in Node
+        # 22.3.0. This is also the package.json engines.node floor, so the full
+        # suite now exercises the oldest supported runtime instead of relying
+        # on a partial smoke job for an EOL Node line.
         # 24 is current Active LTS (nodejs/Release schedule, Krypton).
-        node: ['20.18.x', '24']
+        node: ['22.3.x', '24']
 
     steps:
       - name: Checkout
@@ -43,10 +43,8 @@ jobs:
         run: |
           echo "skip npm install: no dependencies and no lockfile"
 
-      # Quote-free glob so bash expands tests/*.test.mjs to real paths.
-      # Node 20.18's test runner does not expand globs itself (that landed in
-      # Node 21); quoting the pattern would make the 20.18.x cell look for a
-      # literal file named tests/*.test.mjs. GitHub-hosted windows-latest
+      # Keep the quote-free glob so Git Bash expands tests/*.test.mjs to real
+      # paths consistently on both runner OSes. GitHub-hosted windows-latest
       # includes Git Bash, so this form is identical on both OSes.
       - name: Test
         shell: bash
@@ -65,51 +63,3 @@ jobs:
       # as local, but installing the full Claude Code CLI (native binary, first-run
       # setup, Windows .cmd shim) into every matrix cell is not a clean CI
       # dependency. No standalone plugin-validator is published. Do not fake it.
-
-  runtime-floor:
-    name: Runtime floor Node ${{ matrix.node }} / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        # package.json engines.node is >=18.18.0. That is a RUNTIME claim.
-        # The full suite cannot test it: 13 mock.module() call sites need
-        # Node >=20.18. Smoke the shipped CLI and the disk-only gates instead.
-        node: ['18.18.x']
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node }}
-          package-manager-cache: false
-
-      - name: Install
-        run: |
-          echo "skip npm install: no dependencies and no lockfile"
-
-      # Do not run the test suite here. --experimental-test-module-mocks is
-      # unknown to Node 18.18 and would fail the cell before any test runs.
-      # --version / help / status exercise shipped code without agy or mocks.
-      # shell: bash so RUNNER_TEMP + mkdir -p behave the same on Windows.
-      - name: Runtime smoke
-        shell: bash
-        run: |
-          node bin/antigravity.mjs --version
-          node bin/antigravity.mjs help
-          tmpdir="${RUNNER_TEMP}/agy-runtime-floor"
-          mkdir -p "$tmpdir"
-          node bin/antigravity.mjs status --cwd "$tmpdir"
-
-      - name: Manifest version parity
-        run: node scripts/check-manifests.mjs
-
-      - name: Package contents
-        run: |
-          npm pack --dry-run
-          node scripts/check-pack.mjs

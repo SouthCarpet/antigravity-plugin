@@ -6,8 +6,8 @@ you go.
 
 ## Prerequisites (do once)
 
-- [ ] `node --version` → ≥ 18.18.0
-- [ ] `agy --version` → ≥ 1.0.1
+- [ ] `node --version` → ≥ 22.3.0
+- [ ] `agy --version` → 1.1.15
 - [ ] Logged into a Google account that can use `agy` (run `agy --print 'hi'`
       once outside the plugin to complete OAuth — token cache persists)
 - [ ] `gh auth status` → logged in as `SouthCarpet`

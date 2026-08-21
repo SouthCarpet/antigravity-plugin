@@ -27,26 +27,17 @@ for free / personal users.
 
 ## CI
 
-Every pull request targeting `main`, and every push to `main`, runs two jobs
-on **Ubuntu and Windows**.
+Every pull request targeting `main`, and every push to `main`, runs the full
+matrix on **Ubuntu and Windows**.
 
-**Full suite** — Node **20.18.x** (lowest release that supports `mock.module()`
-and `--experimental-test-module-mocks`) and Node **24** (current Active LTS).
+**Full suite** — Node **22.3.x** (the `engines.node` floor and the first Node
+22 release that supports `mock.module()` and
+`--experimental-test-module-mocks`) and Node **24** (current Active LTS).
 This is the job that must be green:
 
 1. Runs the full test suite (`node --test --experimental-test-module-mocks tests/*.test.mjs`).
 2. Checks that the seven host version scalars agree (`node scripts/check-manifests.mjs`).
 3. Dry-runs `npm pack` and asserts the tarball still contains what Claude Code, agy, and the standalone CLI need (`node scripts/check-pack.mjs`).
-
-**Runtime floor** — Node **18.18.x**, the `engines.node` floor. Does **not**
-run the test suite. Smokes the shipped CLI (`--version`, `help`, and `status`
-in a temp cwd — a disk-only verb that does not need `agy`) and the same
-manifest / pack gates.
-
-The full suite requires a newer Node than `engines` declares because the
-test tooling (`mock.module()`) is a Node 20.18+ API, while `engines` is a
-claim about the runtime. Those are different things; CI tests each with
-something that can actually test it.
 
 There is no `npm ci` step: this package has no dependencies and no lockfile.
 `claude plugin validate` is not run in CI (the Claude Code CLI is not a clean
@@ -89,8 +80,8 @@ preferred AI host so you can:
 
 ## Requirements
 
-- Node.js ≥ 18.18.0
-- `agy` v1.0.1+ on `PATH` ([install from antigravity.google](https://antigravity.google/download))
+- Node.js ≥ 22.3.0
+- `agy` v1.1.15 on `PATH` ([install from antigravity.google](https://antigravity.google/download)); other versions are not part of the tested compatibility matrix
 - A Google account for `agy` OAuth (run `agy --print 'hi'` once or `/antigravity:setup`)
 
 ### Job state location
@@ -172,13 +163,14 @@ under the
 
 | # | Issue | Workaround |
 |---|---|---|
-| [#5](https://github.com/SouthCarpet/antigravity-plugin/issues/5) | Latent: if `agy` resolves to a **`.cmd` shim** on Windows, spawning it fails with `EINVAL` on Node ≥ 20.12.2 (untraveled with a normal `agy.exe` install) | Point `AGY_BINARY` at the real `agy.exe` |
+| [#5](https://github.com/SouthCarpet/antigravity-plugin/issues/5) | Latent: if `agy` resolves to a **`.cmd` shim** on Windows, spawning it fails with `EINVAL` on Node ≥ 20.12.2 (untraveled with a normal `agy.exe` install) | Point `AGY_BIN` at the real `agy.exe` |
 
 ## Documentation
 
 - [Installation](./docs/INSTALL.md) — per-host setup recipes
+- [1.x compatibility contract](./docs/COMPATIBILITY.md) — supported matrix, outputs, state, and versioning promises
+- [Commands reference](./docs/COMMANDS.md) — all eight verbs, flags, defaults, and exit behavior
 - [Spike findings](./docs/SPIKE-findings.md) — why we dropped ACP
-- [Commands reference](./docs/COMMANDS.md) (coming soon)
 
 ## License
 
