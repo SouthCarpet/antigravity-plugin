@@ -4,7 +4,7 @@
  * Sends SIGTERM to the worker pid, marks the job cancelled in state.
  */
 
-import { parseCommandInput } from "../lib/args.mjs";
+import { readCommandInput } from "../lib/args.mjs";
 import { resolveCancelableJob } from "../lib/job-control.mjs";
 import { appendJobLog } from "../lib/state.mjs";
 import { outputCommandResult, renderCancelReport } from "../lib/render.mjs";
@@ -12,10 +12,12 @@ import { patchJob } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
-  const { options, positionals } = parseCommandInput(argv, {
+  const parsed = readCommandInput(argv, {
     valueOptions: ["cwd"],
     booleanOptions: ["json"],
-  });
+  }, "cancel");
+  if (!parsed) return 1;
+  const { options, positionals } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const reference = positionals[0] ?? null;

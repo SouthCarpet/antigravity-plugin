@@ -8,13 +8,14 @@
  * Flags:
  *   --wait                block until completion
  *   --foreground          run inline instead of forking a worker
+ *   --background          keep the default background path (conflicts with --foreground)
  *   --continue            resume the most recent agy conversation
  *   --conversation <id>   resume a specific conversation
  *   --add-dir <path>      additional workspace dir (repeatable)
  *   --json                emit JSON
  */
 
-import { parseCommandInput } from "../lib/args.mjs";
+import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
@@ -22,10 +23,17 @@ import { outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
-  const { options, positionals } = parseCommandInput(argv, {
+  const parsed = readCommandInput(argv, {
     valueOptions: ["conversation", "cwd", "add-dir"],
-    booleanOptions: ["wait", "foreground", "continue", "json"],
-  });
+    booleanOptions: ["wait", "foreground", "background", "continue", "json"],
+    repeatableOptions: ["add-dir"],
+    conflicts: [
+      ["foreground", "background"],
+      ["continue", "conversation"],
+    ],
+  }, "task");
+  if (!parsed) return 1;
+  const { options, positionals } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);
@@ -45,11 +53,7 @@ export async function run(argv = [], ctx = {}) {
     mode = "continue";
   }
 
-  const addDirs = Array.isArray(options["add-dir"])
-    ? options["add-dir"].map(String)
-    : options["add-dir"]
-    ? [String(options["add-dir"])]
-    : [];
+  const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
 
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;

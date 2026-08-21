@@ -4,20 +4,50 @@
  */
 
 /**
- * @typedef {{ options: Record<string, string | boolean>, positionals: string[] }} ParsedArgs
+ * @typedef {{
+ *   valueOptions?: string[],
+ *   booleanOptions?: string[],
+ *   repeatableOptions?: string[],
+ *   conflicts?: string[][],
+ * }} ArgSchema
+ *
+ * Repeatable-option contract:
+ *   An option listed in `repeatableOptions` always yields an array when
+ *   present, including a single occurrence (`['only']`, never `'only'`).
+ *   Absent repeatable options stay unset (`undefined`), not `[]`.
+ *   Scalar `valueOptions` keep last-wins string behaviour.
+ *
+ * @typedef {{ options: Record<string, string | boolean | string[]>, positionals: string[] }} ParsedArgs
  */
+
+export class ArgsError extends Error {
+  /**
+   * @param {string} message
+   */
+  constructor(message) {
+    super(message);
+    this.name = "ArgsError";
+  }
+}
 
 /**
  * Parse argv-style arguments into options and positionals.
  *
+ * Declared value options with no following argument (or whose next token
+ * is another `--flag`) throw {@link ArgsError} naming the flag. Pairs in
+ * `schema.conflicts` throw {@link ArgsError} naming both flags when both
+ * are present.
+ *
  * @param {string[]} argv
- * @param {{ valueOptions?: string[], booleanOptions?: string[] }} schema
+ * @param {ArgSchema} schema
  * @returns {ParsedArgs}
  */
 export function parseArgs(argv, schema = {}) {
   const valueSet = new Set(schema.valueOptions ?? []);
   const booleanSet = new Set(schema.booleanOptions ?? []);
-  /** @type {Record<string, string | boolean>} */
+  const repeatableSet = new Set(schema.repeatableOptions ?? []);
+  for (const key of repeatableSet) valueSet.add(key);
+  /** @type {Record<string, string | boolean | string[]>} */
   const options = {};
   /** @type {string[]} */
   const positionals = [];
@@ -35,8 +65,17 @@ export function parseArgs(argv, schema = {}) {
       const key = arg.slice(2);
 
       if (valueSet.has(key)) {
+        const next = argv[i + 1];
+        if (next === undefined || next.startsWith("--")) {
+          throw new ArgsError(`missing value for --${key}`);
+        }
         i += 1;
-        options[key] = argv[i] ?? "";
+        if (repeatableSet.has(key)) {
+          if (!Array.isArray(options[key])) options[key] = [];
+          options[key].push(next);
+        } else {
+          options[key] = next;
+        }
       } else if (booleanSet.has(key)) {
         options[key] = true;
       } else {
@@ -54,6 +93,13 @@ export function parseArgs(argv, schema = {}) {
     }
 
     i += 1;
+  }
+
+  for (const pair of schema.conflicts ?? []) {
+    const [a, b] = pair;
+    if (options[a] && options[b]) {
+      throw new ArgsError(`cannot combine --${a} and --${b}`);
+    }
   }
 
   return { options, positionals };
@@ -118,7 +164,7 @@ export function splitRawArgumentString(raw) {
  * and then parses it.
  *
  * @param {string[]} argv
- * @param {{ valueOptions?: string[], booleanOptions?: string[] }} schema
+ * @param {ArgSchema} schema
  * @returns {ParsedArgs}
  */
 export function parseCommandInput(argv, schema = {}) {
@@ -138,4 +184,27 @@ export function parseCommandInput(argv, schema = {}) {
     return [arg];
   });
   return parseArgs(normalizedArgv, schema);
+}
+
+/**
+ * Parse command argv. On {@link ArgsError}, write the message to stderr
+ * (prefixed with `antigravity:<command> — ` when `command` is set) and
+ * return null so the caller can `return 1`.
+ *
+ * @param {string[]} argv
+ * @param {ArgSchema} schema
+ * @param {string} [command]
+ * @returns {ParsedArgs | null}
+ */
+export function readCommandInput(argv, schema = {}, command = "") {
+  try {
+    return parseCommandInput(argv, schema);
+  } catch (err) {
+    if (err instanceof ArgsError) {
+      const prefix = command ? `antigravity:${command} — ` : "";
+      process.stderr.write(`${prefix}${err.message}\n`);
+      return null;
+    }
+    throw err;
+  }
 }

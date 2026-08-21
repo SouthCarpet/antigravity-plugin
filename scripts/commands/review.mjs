@@ -11,7 +11,7 @@
  *   --json            output JSON instead of markdown
  */
 
-import { parseCommandInput } from "../lib/args.mjs";
+import { readCommandInput } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
@@ -20,10 +20,15 @@ import { outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
-  const { options } = parseCommandInput(argv, {
+  const parsed = readCommandInput(argv, {
     valueOptions: ["base", "scope", "conversation", "cwd"],
     booleanOptions: ["background", "wait", "continue", "json"],
-  });
+    conflicts: [
+      ["continue", "conversation"],
+    ],
+  }, "review");
+  if (!parsed) return 1;
+  const { options } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);

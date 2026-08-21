@@ -8,7 +8,7 @@
  *   --json        emit JSON instead of markdown.
  */
 
-import { parseCommandInput } from "../lib/args.mjs";
+import { readCommandInput } from "../lib/args.mjs";
 import {
   buildStatusSnapshot,
   buildSingleJobSnapshot,
@@ -24,10 +24,12 @@ const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
 
 export async function run(argv = [], ctx = {}) {
-  const { options, positionals } = parseCommandInput(argv, {
+  const parsed = readCommandInput(argv, {
     valueOptions: ["timeout-ms", "cwd"],
     booleanOptions: ["wait", "json"],
-  });
+  }, "status");
+  if (!parsed) return 1;
+  const { options, positionals } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const reference = positionals[0] ?? null;

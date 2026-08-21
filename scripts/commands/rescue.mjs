@@ -14,7 +14,7 @@
  *   --json                emit JSON instead of markdown
  */
 
-import { parseCommandInput } from "../lib/args.mjs";
+import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
@@ -22,10 +22,20 @@ import { outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
-  const { options, positionals } = parseCommandInput(argv, {
+  const parsed = readCommandInput(argv, {
     valueOptions: ["conversation", "model", "cwd", "add-dir"],
     booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json"],
-  });
+    repeatableOptions: ["add-dir"],
+    conflicts: [
+      ["continue", "conversation"],
+      ["resume", "conversation"],
+      ["fresh", "resume"],
+      ["fresh", "continue"],
+      ["fresh", "conversation"],
+    ],
+  }, "rescue");
+  if (!parsed) return 1;
+  const { options, positionals } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);
@@ -53,11 +63,7 @@ export async function run(argv = [], ctx = {}) {
     mode = "continue";
   }
 
-  const addDirs = Array.isArray(options["add-dir"])
-    ? options["add-dir"].map(String)
-    : options["add-dir"]
-    ? [String(options["add-dir"])]
-    : [];
+  const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
 
   const prompt = buildRescuePrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;

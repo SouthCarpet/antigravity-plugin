@@ -39,7 +39,6 @@
     "scripts",
     "commands",
     "agents",
-    "hooks",
     ".claude-plugin",
     ".codex-plugin",
     "plugin.json",

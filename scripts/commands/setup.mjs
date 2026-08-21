@@ -10,15 +10,17 @@
  * `/antigravity:vision` works unattended. Pass `--skip-vision` to opt out.
  */
 import { spawn } from 'node:child_process';
-import { parseCommandInput } from '../lib/args.mjs';
+import { readCommandInput } from '../lib/args.mjs';
 import { resolveAgyBin, probeAgy } from '../lib/agent-runtime.mjs';
 import { ensureVisionConfig } from '../lib/vision-config.mjs';
 import { runIfMain } from '../lib/cli-entry.mjs';
 
 export async function run(argv = [], ctx = {}) {
-  const { options } = parseCommandInput(argv, {
+  const parsed = readCommandInput(argv, {
     booleanOptions: ['skip-vision'],
-  });
+  }, 'setup');
+  if (!parsed) return 1;
+  const { options } = parsed;
 
   const bin = resolveAgyBin();
   const probe = await probeAgy({ bin });

@@ -24,7 +24,7 @@
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 
-import { parseCommandInput } from "../lib/args.mjs";
+import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob } from "../lib/job-helpers.mjs";
@@ -36,10 +36,12 @@ const DEFAULT_PROMPT =
   "Describe this image in concrete, specific detail: layout, elements, colors, text, and anything unusual.";
 
 export async function run(argv = [], ctx = {}) {
-  const { options, positionals } = parseCommandInput(argv, {
+  const parsed = readCommandInput(argv, {
     valueOptions: ["prompt", "model", "cwd"],
     booleanOptions: ["json"],
-  });
+  }, "vision");
+  if (!parsed) return 1;
+  const { options, positionals } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);

@@ -72,9 +72,11 @@ describe('args.parseArgs', () => {
     assert.equal(explicit.options.next, true);
   });
 
-  it('value flag with no following arg gets empty string', () => {
-    const out = parseArgs(['--scope'], { valueOptions: ['scope'] });
-    assert.equal(out.options.scope, '');
+  it('rejects a value flag with no following arg, naming the flag', () => {
+    assert.throws(
+      () => parseArgs(['--scope'], { valueOptions: ['scope'] }),
+      /missing value for --scope/,
+    );
   });
 });
 
