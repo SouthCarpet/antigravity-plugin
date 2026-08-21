@@ -15,8 +15,8 @@ target.
 ## Prerequisites (do once)
 
 - [ ] `node --version` → ≥ 22.3.0
-- [ ] `agy --version` → 1.1.15 (the tested matrix; other versions are not
-      promised)
+- [ ] `agy --version` → 1.1.15 or 1.1.17 (the tested matrix; other versions
+      are not promised)
 - [ ] Logged into a Google account that can use `agy` (run `agy --print 'hi'`
       once outside the plugin if the token cache is empty)
 - [ ] No shell-rc overrides that would confuse host detection
@@ -136,6 +136,9 @@ Inside Claude Code:
 codex plugin marketplace add /path/to/antigravity-plugin
 codex plugin marketplace list
 #   expect: this marketplace appears
+codex plugin add antigravity@antigravity
+codex plugin list
+#   expect: antigravity installed, enabled
 ```
 
 Inside Codex CLI:
@@ -148,6 +151,7 @@ $antigravity status
 ```
 
 - [ ] Marketplace registers
+- [ ] `codex plugin add antigravity@antigravity` installs and enables the plugin
 - [ ] `$antigravity setup` succeeds
 - [ ] `$antigravity review` completes
 - [ ] `$antigravity vision` is reachable (same eight verbs as the other hosts)
@@ -156,20 +160,23 @@ $antigravity status
 ## Host 4 — agy native
 
 ```bash
-agy plugin install antigravity@antigravity
-#   OR (if Claude Code plugin already imported on this machine)
-agy plugin import claude
+agy plugin install /path/to/antigravity-plugin
+#   from a clean clone: agy copies the whole working tree, including .git
+#   and tests/, and does not honour package.json files.
 
 agy plugin list
-#   expect: antigravity appears
+#   expect: antigravity appears (agents, commands)
 
-agy plugin run antigravity status
-agy plugin run antigravity review
+agy plugin validate /path/to/antigravity-plugin
+#   expect: commands: 8 processed (converted to skills)
+
+npx @southcarpet/antigravity-plugin status
+npx @southcarpet/antigravity-plugin review
 ```
 
-- [ ] `agy plugin install` (or `agy plugin import claude`) succeeds
+- [ ] `agy plugin install <path-to-clone>` succeeds
 - [ ] `agy plugin list` shows `antigravity`
-- [ ] `agy plugin run antigravity <verb>` reaches the same runtime
+- [ ] standalone CLI reaches the same runtime on that machine
 
 ## Reporting
 

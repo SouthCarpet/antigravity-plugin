@@ -17,7 +17,7 @@ Skip `$antigravity` for trivial one-line edits or anything that requires interac
 
 ## Verbs
 
-All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy native (`agy plugin run antigravity <verb>`), and standalone (`npx @southcarpet/antigravity-plugin <verb>`, or `node bin/antigravity.mjs <verb>` from a clone). Host wrappers differ in shape; the verb set and flag contract do not.
+All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), and standalone (`npx @southcarpet/antigravity-plugin <verb>`, or `node bin/antigravity.mjs <verb>` from a clone). agy can install and validate this plugin; it has no `plugin run` subcommand, so the eight verbs run through the standalone CLI. Host wrappers differ in shape; the verb set and flag contract do not.
 
 | Verb     | What it does |
 |----------|--------------|
@@ -36,7 +36,7 @@ agy 1.0.x is **OAuth-only** — there is no API-key path yet (tracked upstream a
 
 1. Run `$antigravity setup` (or `/antigravity:setup` from Claude Code) once per machine / account.
 2. agy prints an OAuth URL — open it in a browser, complete the Google flow.
-3. agy persists the refresh token in its own credential store. Subsequent invocations of any verb run silently.
+3. After that probe succeeds, later invocations of any verb do not prompt again. This plugin does not write OAuth tokens; whatever agy stores afterwards is agy's own behaviour.
 
 If a background worker hits the auth prompt (e.g. a fresh machine), it captures the OAuth URL and surfaces it on `$antigravity status <job-id>` so you can still complete auth from a non-interactive session.
 

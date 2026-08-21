@@ -11,8 +11,7 @@ All hosts route to the same `scripts/commands/<verb>.mjs` implementation:
 ```text
 /antigravity:<verb> ...                              # Claude Code
 $antigravity <verb> ...                              # Codex CLI
-agy plugin run antigravity <verb> ...                # agy-native
-npx @southcarpet/antigravity-plugin <verb> ...       # standalone package
+npx @southcarpet/antigravity-plugin <verb> ...       # standalone, including agy-native installs
 node bin/antigravity.mjs <verb> ...                  # standalone from a checkout
 ```
 
@@ -90,11 +89,9 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   `result` to retrieve it. Without `--background`, review is foreground and
   `--wait` has no additional effect.
 
-An empty tracked diff prints `antigravity:review — no changes to review.` and
-returns 0 without calling agy. Because the current no-change gate tests the
-tracked diff, an untracked-only working tree also takes this path even though
-auto-scope detected the untracked files. This edge case may be corrected in a
-1.x release.
+An empty working tree (no tracked diff and no untracked files) prints
+`antigravity:review — no changes to review.` and returns 0 without calling
+agy. A working tree of only untracked files is reviewed.
 
 Exit status is 0 for a completed foreground review, a successfully queued
 background review, or no changes; 1 for validation, Git, authentication, agy,

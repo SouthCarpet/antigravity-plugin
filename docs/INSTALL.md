@@ -6,7 +6,8 @@ that matches your workflow.
 ## Prerequisites (all hosts)
 
 1. **Node.js ≥ 22.3.0** — `node --version`.
-2. **agy CLI v1.1.15** — Google Antigravity CLI on `PATH`. Other versions
+2. **agy CLI 1.1.15 or 1.1.17** — Google Antigravity CLI on `PATH`. Those
+   are the versions this plugin has been exercised against. Other versions
    are outside the tested compatibility matrix.
    ```bash
    curl -fsSL https://antigravity.google/cli/install.sh | bash
@@ -42,6 +43,7 @@ git clone https://github.com/SouthCarpet/antigravity-plugin.git ~/code/antigravi
 codex plugin marketplace add ~/code/antigravity-plugin
 # the local marketplace is the repo's .agents/plugins/marketplace.json
 codex plugin marketplace list                    # confirm it shows up
+codex plugin add antigravity@antigravity         # install; list will then show installed, enabled
 # restart Codex, then inside Codex CLI:
 $antigravity setup
 $antigravity review --base main
@@ -69,18 +71,37 @@ under the `plugins[]` array, pointing `source.path` at your local clone:
 }
 ```
 
-Restart Codex; the plugin is available under `$antigravity`. Verbs:
-`setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`.
+Then install it (`codex plugin add antigravity@personal` for the example
+name above) and restart Codex. The plugin is available under `$antigravity`.
+Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
+`cancel`.
 
 ## agy itself
 
-```bash
-# either install from the marketplace
-agy plugin install antigravity@antigravity
+agy 1.1.15 and 1.1.17 can install, list, validate, enable, and disable this
+plugin. They have no `plugin run` subcommand. After install, run the eight
+verbs with the standalone CLI.
 
-# or, if you already have it as a Claude Code plugin, import it
-agy plugin import claude
+Install from a **clean clone**. `agy plugin install <path>` copies the entire
+working tree into `~/.gemini/config/plugins/`, including `.git`, `.github`,
+and `tests/`. It does not honour `package.json` `files`.
+
+```bash
+git clone https://github.com/SouthCarpet/antigravity-plugin.git
+agy plugin install ./antigravity-plugin
+agy plugin list                  # expect: antigravity, with agents and commands
+agy plugin validate ./antigravity-plugin
+# validate reports: commands: 8 processed (converted to skills)
+
+npx @southcarpet/antigravity-plugin setup
+npx @southcarpet/antigravity-plugin review
+# or from the clone:
+node ./antigravity-plugin/bin/antigravity.mjs review
 ```
+
+`agy plugin install antigravity@antigravity` fails with `unknown marketplace:
+antigravity`. `agy plugin import claude` reports `No claude extensions found`
+even when Claude Code already has the plugin.
 
 ## Standalone (any shell)
 
@@ -103,7 +124,7 @@ node bin/antigravity.mjs review
 
 ```bash
 # host-agnostic check
-agy --version              # 1.1.15
+agy --version              # 1.1.15 or 1.1.17
 node --version             # 22.3.0+
 which agy                  # /home/<user>/.local/bin/agy on Linux
 ```
@@ -131,7 +152,6 @@ this for you.
 
 ### `agy plugin install` syntax
 
-`agy plugin install <name>@<marketplace>` — same as Claude Code. Use the
-marketplace short name (`antigravity`) once the marketplace has been
-registered, or `agy plugin import claude` to pull from your local Claude Code
-install.
+The form that works is `agy plugin install <path-to-clone>`. The
+`<name>@<marketplace>` form and `agy plugin import claude` fail on the tested
+agy versions (see above). There is no `agy plugin run`.

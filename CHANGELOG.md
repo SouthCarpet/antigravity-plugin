@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`SECURITY.md` and a README permissions/privacy section** — private
+  GitHub vulnerability reporting, in-scope threat boundaries, what `setup`
+  writes, how to undo it, and what each verb sends off-machine.
+- **`bump-version` README Status gate** — `--check` fails if the Status
+  blockquote version drifts from `package.json`; a bump rewrites it. The
+  per-version README table was removed so release history lives only in
+  this file.
+
 ### Changed
 
 - **npm package is `@southcarpet/antigravity-plugin`** — standalone
@@ -20,19 +30,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or Google does after that is out of this file's reach.
 - **Dropped the `gemini-replacement` keyword** — it read as a Gemini
   substitute. This package replaced `gemini-plugin-cc`.
+- **Install and invocation docs match the live hosts** — agy install is
+  `agy plugin install <path-to-clone>` from a clean clone (agy copies the
+  whole tree and ignores `package.json` `files`). Codex needs
+  `codex plugin add antigravity@antigravity` after registering the
+  marketplace. agy has no `plugin run`; verbs go through the standalone
+  CLI. Tested agy versions are 1.1.15 and 1.1.17.
 
-### Added
+### Removed
 
-- **`SECURITY.md` and a README permissions/privacy section** — private
-  GitHub vulnerability reporting, in-scope threat boundaries, what `setup`
-  writes, how to undo it, and what each verb sends off-machine.
-- **`bump-version` README Status gate** — `--check` fails if the Status
-  blockquote version drifts from `package.json`; a bump rewrites it. The
-  per-version README table was removed so release history lives only in
-  this file.
+- **Unused `host-detect` and `plugin-info` modules** — they were reached
+  only by tests and still shipped in the tarball. State-root selection
+  stays in `state.mjs`.
 
 ### Fixed
 
+- **Windows lock acquisition no longer aborts on `EPERM`/`EACCES`/`EBUSY`**
+  — those codes are contention, so two concurrent job operations wait
+  instead of failing.
+- **`review` accepts an untracked-only working tree** — only a genuinely
+  empty tree reports no changes.
+- **agy binary discovery prefers `agy.exe` across `PATH`** — a `.cmd` /
+  `.bat` shim is refused with an actionable message instead of failing
+  with `EINVAL`.
+- **`check-pack` requires every host file, not a sample** — dropping
+  `commands/vision.md` or a verb module fails the gate. A computed
+  `import()` that the walk cannot resolve also fails unless a maintainer
+  has named a target already covered by an explicit rule.
+- **Cancellation tests measure only cancellation** — plus coverage for
+  cancelling a queued worker that has no lock yet.
+- **CLI path-identity assertions run on every platform** — the suite no
+  longer skips them.
 - **`bump-version` no longer half-bumps on a failed write** — payloads
   are staged next to their targets first; temps are deleted if staging
   fails. Renames onto the live files are the remaining non-atomic

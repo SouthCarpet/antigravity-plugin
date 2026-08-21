@@ -22,8 +22,10 @@ policy:
 # Verbs exposed under the `$antigravity` shortcut. Each one runs the
 # corresponding `scripts/commands/<verb>.mjs` module via the per-host bridge,
 # so a Codex invocation of `$antigravity review --base main` resolves to the
-# same code path as Claude Code's `/antigravity:review --base main` and
-# agy's `agy plugin run antigravity review --base main`.
+# same code path as Claude Code's `/antigravity:review --base main` and the
+# standalone `npx @southcarpet/antigravity-plugin review --base main`
+# (agy-native installs use that standalone dispatcher; agy has no
+# `plugin run`).
 commands:
   - name: setup
     description: "One-time agy OAuth wizard (foreground). Idempotent. Also registers the vision MCP server; --skip-vision to opt out, --remove-vision to undo plugin-owned entries."

@@ -10,7 +10,7 @@ Multi-host plugin for delegating tasks and code reviews to
 > **This is a maintained fork** of
 > [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin)
 > (credit to the original author for the plugin architecture). The fork is
-> currently **functional against Antigravity CLI 1.1.x — including image
+> currently **functional against Antigravity CLI 1.1.15 and 1.1.17 — including image
 > analysis**: it adds a working vision channel (`/antigravity:vision`, MCP
 > image server), headless permission setup for agy's auto-deny print mode,
 > and Windows binary-resolution fixes. See [`CHANGELOG.md`](./CHANGELOG.md)
@@ -70,14 +70,14 @@ preferred AI host so you can:
 | Host             | Install command                                                    |
 |------------------|--------------------------------------------------------------------|
 | Claude Code      | `claude plugin marketplace add SouthCarpet/antigravity-plugin` then `claude plugin install antigravity@antigravity` |
-| Codex CLI        | `codex plugin marketplace add <path-to-clone>` then `$antigravity setup` (see [docs/INSTALL.md](./docs/INSTALL.md)) |
-| Antigravity (agy)| `agy plugin install` from a local clone of this fork               |
+| Codex CLI        | `codex plugin marketplace add <path-to-clone>` then `codex plugin add antigravity@antigravity` (see [docs/INSTALL.md](./docs/INSTALL.md)) |
+| Antigravity (agy)| `agy plugin install <path-to-clone>` from a clean clone; verbs via the standalone CLI |
 | Standalone       | `npx @southcarpet/antigravity-plugin <command>` |
 
 ## Requirements
 
 - Node.js ≥ 22.3.0
-- `agy` v1.1.15 on `PATH` ([install from antigravity.google](https://antigravity.google/download)); other versions are not part of the tested compatibility matrix
+- `agy` 1.1.15 or 1.1.17 on `PATH` ([install from antigravity.google](https://antigravity.google/download)); other versions are not part of the tested compatibility matrix
 - A Google account for `agy` OAuth (run `agy --print 'hi'` once or `/antigravity:setup`)
 
 ### Job state location

@@ -9,10 +9,10 @@ the contract was frozen. A behavior is public only when this document or the
 
 | Surface | Supported in 1.x |
 |---|---|
-| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (`agy plugin run antigravity <verb>`), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
+| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; verbs via the standalone CLI), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux and Windows. Both run the full CI suite. macOS and other Node platforms are best-effort, not part of the compatibility promise. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15. Other versions may work, but are not in the tested or promised matrix. |
+| Google Antigravity CLI | `agy` 1.1.15 and 1.1.17. Other versions may work, but are not in the tested or promised matrix. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -28,13 +28,17 @@ runtime has no npm dependencies.
 The agy version is intentionally narrow. Every delegated verb uses agy's
 stream-JSON input and output. agy 1.1.15 rejected the input envelope accepted
 by 1.1.14, breaking every delegated verb until this plugin changed its
-transport. `setup` probes and displays the installed version but does not
-enforce this matrix; that probe succeeding is not a promise that an unlisted
-agy version is compatible.
+transport. The same envelope was confirmed on 1.1.17. `setup` probes and
+displays the installed version but does not enforce this matrix; that probe
+succeeding is not a promise that an unlisted agy version is compatible.
 
-Host installers and host-owned invocation wrappers can evolve independently.
-The promise is that the four surfaces above invoke the same eight runtime
-verbs and accept the documented arguments when the host can load this plugin.
+agy is a real host for discovery and lifecycle: `agy plugin install <path-to-clone>`,
+`list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no
+`plugin run` subcommand. After install, the eight verbs run through the
+standalone CLI. Host installers and host-owned invocation wrappers can evolve
+independently. The promise is that the four surfaces above reach the same eight
+runtime verbs and accept the documented arguments when the host can load this
+plugin.
 
 ## Public command surface
 
@@ -125,9 +129,10 @@ When `--wait` is combined with a background dispatch, `review`, `rescue`, and
 its `jobId`, then report the final outcome by exit status. In particular,
 background-default `task --wait --json` never appends completed model text to
 stdout; callers fetch that text with `result <jobId> --json`. Likewise,
-`review --json` with no tracked diff emits an envelope with
-`status: "no_changes"`, `jobId: null`, and `answer: null`. These make both
-previously exceptional stdout streams valid single JSON documents.
+`review --json` with no reviewable content (empty tracked diff and no
+untracked snippets) emits an envelope with `status: "no_changes"`,
+`jobId: null`, and `answer: null`. These make both previously exceptional
+stdout streams valid single JSON documents.
 
 Errors that occur before a normal output path still produce diagnostics on
 stderr and no stdout body. `--json` is not a JSON error-envelope guarantee.
@@ -179,11 +184,9 @@ These variables have direct semantics in the shipped code:
 | `ANTIGRAVITY_PLUGIN_SESSION_ID` | Associates new jobs with a host session and filters no-argument status/result selection to that session. If absent, jobs are not session-filtered. |
 | `ANTIGRAVITY_VISION_ALLOWED_PATHS` | Internal per-process JSON array of absolute image paths. `vision` sets it for the MCP server. Missing or invalid data grants no image access. Users should not set it globally. |
 
-The host-detection helper also recognizes `CLAUDE_ENV_FILE`, `CODEX_HOME`,
-`CODEX_SESSION_ID`, `AGY_HOME`, and `AGY_SESSION_ID`, along with the data
-variables above. That helper is shipped but is not currently on the eight
-command handlers' execution path; these detection hints do not override the
-state-root priority.
+`CLAUDE_ENV_FILE`, `CODEX_HOME`, `CODEX_SESSION_ID`, `AGY_HOME`, and
+`AGY_SESSION_ID` are not used for state-root selection and do not override
+the priority above.
 
 `ANTIGRAVITY_SCRIPT_ROOT` redirects the standalone dispatcher to a different
 command-module directory. It exists for tests and is explicitly not a public
