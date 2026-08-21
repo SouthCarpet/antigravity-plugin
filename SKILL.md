@@ -17,7 +17,7 @@ Skip `$antigravity` for trivial one-line edits or anything that requires interac
 
 ## Verbs
 
-All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy TUI (`/antigravity:<verb>` after `agy plugin install`), and standalone (`npx @southcarpet/antigravity-plugin <verb>`, or `node bin/antigravity.mjs <verb>` from a clone). agy has no `plugin run` subcommand. TUI wrappers locate the copied tree with Node (`CLAUDE_PLUGIN_ROOT` when set, otherwise `~/.gemini/config/plugins/antigravity`). If that run cannot start, they must report the error and stop — they must not do the task themselves. The standalone CLI is the fallback that always works. Host wrappers differ in shape; the verb set and flag contract do not.
+All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy TUI (`/antigravity:<verb>` after `agy plugin install`), and standalone (`npx @southcarpet/antigravity-plugin <verb>`, or `node bin/antigravity.mjs <verb>` from a clone). agy has no `plugin run` subcommand. TUI wrappers locate the copied tree with Node (`CLAUDE_PLUGIN_ROOT` when set, otherwise `~/.gemini/config/plugins/antigravity`). If that run cannot start, they must report the error and stop — they must not do the task themselves. Anything presented as a verb's output that the runtime did not produce is a fabrication. The standalone CLI is the fallback that always works. Host wrappers differ in shape; the verb set and flag contract do not.
 
 | Verb     | What it does |
 |----------|--------------|
@@ -26,7 +26,7 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 | `rescue` | Delegates an investigation or fix to agy — e.g. `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. |
 | `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--json`. |
 | `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
-| `status` | Shows a compact table of current and recent jobs (id, kind, phase, health, last progress). Surfaces any pending OAuth URL prominently. |
+| `status` | Shows current and recent jobs for this repository. Surfaces any pending OAuth URL prominently. |
 | `result` | Prints the final output of a completed job by id. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
 

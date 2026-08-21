@@ -38,9 +38,9 @@ commands:
   - name: vision
     description: "Ask agy to look at one or more image files (--prompt, --model, --json). Foreground-only; requires setup to have registered the vision MCP server."
   - name: status
-    description: "Show a Markdown table of current and recent agy jobs, with health, last progress, and any pending OAuth URL."
+    description: "Show current and recent agy jobs, including any pending OAuth URL."
   - name: result
-    description: "Render the full output of a completed agy job by id."
+    description: "Print the stored final output of a completed agy job by id."
   - name: cancel
     description: "Send SIGTERM to a running agy worker by job id."
 

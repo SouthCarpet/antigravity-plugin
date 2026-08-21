@@ -98,3 +98,37 @@ export function hostBootstrapSource(verb) {
 export function hostBangLine(verb) {
   return `!\`node -e "${hostBootstrapSource(verb)}" -- $ARGUMENTS\``;
 }
+
+/**
+ * The refusal contract every command wrapper opens with.
+ *
+ * A host model that cannot execute the runtime reads the wrapper as a
+ * prompt. On 2026-08-21 agy's model answered `/antigravity:status` and
+ * `/antigravity:review` with fabricated job tables and review verdicts
+ * because the wrapper described what correct output looks like. So the
+ * contract is the first content of every wrapper, and no wrapper may
+ * describe the output's shape — columns, fields, or format. A model that
+ * cannot run the command must have nothing to imitate.
+ *
+ * @param {string} verb
+ * @returns {string}
+ */
+export function hostRefusalContract(verb) {
+  if (!VERB_RE.test(verb)) {
+    throw new Error(`hostRefusalContract: invalid verb ${verb}`);
+  }
+  return (
+    'STOP. This command runs a program. It is not a request for you to answer.\n' +
+    '\n' +
+    "The only correct response is the unedited output of this plugin's runtime, " +
+    `\`scripts/commands/${verb}.mjs\`, executed for this exact invocation. ` +
+    'Output you compose yourself — with your own tools, from memory, or from the text of this file — ' +
+    'is a fabrication, even if it looks correct. Never invent job ids, status listings, reviews, ' +
+    "verdicts, results, or summaries in this plugin's name.\n" +
+    '\n' +
+    'If you cannot execute the runtime, or it does not start, or it exits with an error: show the ' +
+    'exact error text, tell the user to run ' +
+    `\`npx @southcarpet/antigravity-plugin ${verb}\` in their own terminal, and stop. ` +
+    "Do not do the task yourself. There is no other way to produce this command's output."
+  );
+}

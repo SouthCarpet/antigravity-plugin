@@ -92,8 +92,9 @@ are reachable two ways:
 Install from a **clean clone**. `agy plugin install <path>` copies the entire
 working tree into `~/.gemini/config/plugins/antigravity/`, including `.git`,
 `.github`, and `tests/`. It does not honour `package.json` `files`. agy keeps
-that copy; **re-run `agy plugin install <path-to-clone>` after every upgrade**
-or the TUI will keep serving the old wrappers.
+that copy, and reinstalling over it merges instead of replacing. **To upgrade,
+run `agy plugin uninstall antigravity`, then `agy plugin install
+<path-to-clean-clone>`** — otherwise the TUI can keep serving stale files.
 
 ```bash
 git clone https://github.com/SouthCarpet/antigravity-plugin.git

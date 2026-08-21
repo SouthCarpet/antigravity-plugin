@@ -17,6 +17,7 @@ import {
   agyPluginInstallDir,
   hostBangLine,
   hostBootstrapSource,
+  hostRefusalContract,
   missingRuntimeMessage,
   resolvePluginRoot,
   resolveVerbScript,
@@ -44,12 +45,10 @@ function readCommand(verb) {
   return fs.readFileSync(path.join(COMMANDS_DIR, `${verb}.md`), 'utf8');
 }
 
-function expectedGuard(verb) {
-  return (
-    'If this command cannot be run or does not succeed, print the exact error and stop. ' +
-    'Do not do the task yourself. Do not present your own work as this plugin\'s output. ' +
-    `Run this instead: \`npx @southcarpet/antigravity-plugin ${verb}\``
-  );
+function bodyAfterFrontmatter(source) {
+  const match = source.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
+  if (!match) return source;
+  return source.slice(match[0].length).replace(/^\s+/, '');
 }
 
 function expectedLocator(verb) {
@@ -177,14 +176,14 @@ describe('host bootstrap source', () => {
 describe('commands/*.md wrappers', () => {
   const verbs = listVerbs();
 
-  it('every command file carries the anti-substitution guard and Node locator', () => {
+  it('every command file opens with the canonical refusal contract, before anything else', () => {
     assert.ok(verbs.length > 0, 'no command files');
     for (const verb of verbs) {
       const body = readCommand(verb);
       assert.equal(
-        body.includes(expectedGuard(verb)),
+        bodyAfterFrontmatter(body).startsWith(hostRefusalContract(verb)),
         true,
-        `${verb}.md is missing the anti-substitution guard`,
+        `${verb}.md does not open with the canonical refusal contract`,
       );
       assert.equal(
         body.includes(expectedLocator(verb)),
@@ -196,6 +195,25 @@ describe('commands/*.md wrappers', () => {
         false,
         `${verb}.md still shell-expands CLAUDE_PLUGIN_ROOT into the script path`,
       );
+    }
+  });
+
+  it('no command file hands the model an output shape to imitate', () => {
+    // The 2026-08-21 fabrication: agy's model forged a status table and a
+    // review because status.md enumerated the columns of a correct answer.
+    // Wrappers may say "show the output unchanged"; they must never
+    // describe what that output looks like.
+    const forbidden = [
+      /markdown table/i,
+      /render the command output/i,
+      /preserve the actionable fields/i,
+      /job id, kind, status, phase/i,
+    ];
+    for (const verb of verbs) {
+      const body = readCommand(verb);
+      for (const re of forbidden) {
+        assert.doesNotMatch(body, re, `${verb}.md reintroduces an output recipe: ${re}`);
+      }
     }
   });
 

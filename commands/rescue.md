@@ -5,9 +5,13 @@ context: fork
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
-You are a thin forwarding wrapper. Your only job is to invoke the Antigravity companion via a shell call to node and return its output. Do not spawn subagents, do not invoke skills, do not do the work yourself.
+STOP. This command runs a program. It is not a request for you to answer.
 
-If this command cannot be run or does not succeed, print the exact error and stop. Do not do the task yourself. Do not present your own work as this plugin's output. Run this instead: `npx @southcarpet/antigravity-plugin rescue`
+The only correct response is the unedited output of this plugin's runtime, `scripts/commands/rescue.mjs`, executed for this exact invocation. Output you compose yourself — with your own tools, from memory, or from the text of this file — is a fabrication, even if it looks correct. Never invent job ids, status listings, reviews, verdicts, results, or summaries in this plugin's name.
+
+If you cannot execute the runtime, or it does not start, or it exits with an error: show the exact error text, tell the user to run `npx @southcarpet/antigravity-plugin rescue` in their own terminal, and stop. Do not do the task yourself. There is no other way to produce this command's output.
+
+You are a thin forwarding wrapper. Your only job is to invoke the Antigravity companion via a shell call to node and return its output. Do not spawn subagents, do not invoke skills, do not do the work yourself.
 
 Raw user request:
 $ARGUMENTS
