@@ -138,13 +138,13 @@ function desyncPackageJson(root, version) {
   fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
+/** Same token the bump script pins: a line starting `> **vX.Y.Z.**`. */
+const README_STATUS_RE = /^> \*\*v([^*]+)\.\*\*/m;
+
 function desyncReadmeStatus(root, version) {
   const readmePath = path.join(root, 'README.md');
   const text = fs.readFileSync(readmePath, 'utf8');
-  const next = text.replace(
-    /^> \*\*Pre-release \(v[^)]+\)\.\*\*/m,
-    `> **Pre-release (v${version}).**`,
-  );
+  const next = text.replace(README_STATUS_RE, `> **v${version}.**`);
   if (next === text) {
     throw new Error('README.md Status blockquote not found in test fixture');
   }
@@ -153,7 +153,7 @@ function desyncReadmeStatus(root, version) {
 
 function readmeStatusVersion(root) {
   const text = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-  const match = text.match(/^> \*\*Pre-release \(v([^)]+)\)\.\*\*/m);
+  const match = text.match(README_STATUS_RE);
   return match ? match[1] : null;
 }
 
@@ -180,7 +180,7 @@ describe('bump-version --check on a coherent tree', () => {
     assert.match(result.stdout, new RegExp(`ok: 7 version scalars agree on ${current}`));
     assert.match(result.stdout, /plugin\.json, \.claude-plugin\/plugin\.json, \.codex-plugin\/plugin\.json are byte-identical/);
     assert.match(result.stdout, new RegExp(`CHANGELOG\\.md has ## \\[${current}\\]`));
-    assert.match(result.stdout, new RegExp(`README\\.md Status is Pre-release \\(v${current}\\)`));
+    assert.match(result.stdout, new RegExp(`README\\.md Status is v${current}`));
     assert.match(result.stdout, /not a git repository; not checking tags/);
   });
 });
@@ -223,8 +223,65 @@ describe('bump-version --check on a desynced tree', () => {
     const green = runBump(root, ['--check']);
     assert.equal(green.status, 0, green.stderr);
     assert.match(green.stdout, /ok: 7 version scalars agree on 9\.9\.9/);
-    assert.match(green.stdout, /README\.md Status is Pre-release \(v9\.9\.9\)/);
+    assert.match(green.stdout, /README\.md Status is v9\.9\.9/);
     assert.equal(readmeStatusVersion(root), '9.9.9');
+  });
+});
+
+describe('bump-version README Status token', () => {
+  it('fails --check when the Status line uses the old Pre-release shape', () => {
+    const root = makeTree();
+    const readmePath = path.join(root, 'README.md');
+    const text = fs.readFileSync(readmePath, 'utf8');
+    const next = text.replace(
+      README_STATUS_RE,
+      '> **Pre-release (v0.2.4).**',
+    );
+    assert.notEqual(next, text);
+    fs.writeFileSync(readmePath, next);
+
+    const result = runBump(root, ['--check']);
+    assert.notEqual(result.status, 0);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.match(output, /README\.md: missing Status blockquote \*\*vX\.Y\.Z\.\*\*/);
+  });
+
+  it('fails --check when the Status token is a different semver', () => {
+    const root = makeTree();
+    desyncReadmeStatus(root, '1.0.1');
+    const result = runBump(root, ['--check']);
+    assert.notEqual(result.status, 0);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.match(output, /README\.md Status: v1\.0\.1 \(expected v0\.2\.4\)/);
+  });
+
+  it('rewrites only the version token and leaves freeze wording intact', () => {
+    const cases = [
+      ['major', '1.0.0'],
+      ['1.0.1', '1.0.1'],
+      ['2.0.0', '2.0.0'],
+    ];
+    for (const [arg, expected] of cases) {
+      const root = makeTree();
+      const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+      assert.match(before, /^> \*\*v0\.2\.4\.\*\*/m);
+      assert.match(before, /frozen for 1\.x/);
+      assert.match(before, /docs\/COMPATIBILITY\.md/);
+
+      const result = runBump(root, [arg]);
+      assert.equal(result.status, 0, `${arg}: ${result.stderr}`);
+      const after = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+      assert.match(after, new RegExp(`^> \\*\\*v${expected.replace(/\./g, '\\.')}\\.\\*\\*`, 'm'));
+      assert.doesNotMatch(after, /Pre-release/);
+      assert.match(after, /frozen for 1\.x/);
+      assert.match(after, /docs\/COMPATIBILITY\.md/);
+      assert.match(after, /CHANGELOG\.md/);
+      assert.equal(readmeStatusVersion(root), expected);
+
+      const check = runBump(root, ['--check']);
+      assert.equal(check.status, 0, `${arg} --check: ${check.stderr}`);
+      assert.match(check.stdout, new RegExp(`README\\.md Status is v${expected.replace(/\./g, '\\.')}`));
+    }
   });
 });
 

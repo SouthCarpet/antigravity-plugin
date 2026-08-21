@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **README Status line states the 1.x freeze** — the blockquote no longer
+  calls the tree a pre-release or promises breaking changes until v1.0.0.
+  `bump-version` still pins the `vX.Y.Z` token against `package.json`;
+  `--check` fails on drift.
 - **Command wrappers no longer describe their own output** — on 2026-08-21
   agy's model answered `/antigravity:status` and `/antigravity:review` with
   fabricated job tables and review verdicts, using the wrappers' column

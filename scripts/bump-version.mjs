@@ -251,8 +251,12 @@ function changelogHeadingRe(version) {
   return new RegExp(`^## \\[${escapeRe(version)}\\](?:\\s+[—-].*)?\\s*$`, 'm');
 }
 
-/** README Status blockquote: `> **Pre-release (vX.Y.Z).**` */
-const README_STATUS_RE = /^> \*\*Pre-release \(v([^)]+)\)\.\*\*/m;
+/**
+ * README Status blockquote: a line starting `> **vX.Y.Z.**`.
+ * Captures the version so --check can pin it against package.json and a
+ * bump can rewrite only that token. Surrounding wording is not owned here.
+ */
+const README_STATUS_RE = /^> \*\*v([^*]+)\.\*\*/m;
 
 function readmeStatusErrors(root, version) {
   let text;
@@ -263,7 +267,7 @@ function readmeStatusErrors(root, version) {
   }
   const match = text.match(README_STATUS_RE);
   if (!match) {
-    return ['README.md: missing Status blockquote **Pre-release (vX.Y.Z).**'];
+    return ['README.md: missing Status blockquote **vX.Y.Z.**'];
   }
   if (match[1] !== version) {
     return [`README.md Status: v${match[1]} (expected v${version})`];
@@ -273,9 +277,9 @@ function readmeStatusErrors(root, version) {
 
 function applyReadmeStatus(text, version) {
   if (!README_STATUS_RE.test(text)) {
-    throw new Error('README.md: missing Status blockquote **Pre-release (vX.Y.Z).**');
+    throw new Error('README.md: missing Status blockquote **vX.Y.Z.**');
   }
-  return text.replace(README_STATUS_RE, `> **Pre-release (v${version}).**`);
+  return text.replace(README_STATUS_RE, `> **v${version}.**`);
 }
 
 function changelogErrors(root, version) {
@@ -570,7 +574,7 @@ function printCheck(root, expectedVersion) {
   }
   console.log(`ok: ${PLUGIN_COPIES.join(', ')} are byte-identical`);
   console.log(`ok: CHANGELOG.md has ## [${expectedVersion}] and matching compare links`);
-  console.log(`ok: README.md Status is Pre-release (v${expectedVersion})`);
+  console.log(`ok: README.md Status is v${expectedVersion}`);
   console.log(tagLine);
 }
 

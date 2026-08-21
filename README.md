@@ -22,8 +22,11 @@ for free / personal users.
 
 ## Status
 
-> **Pre-release (v0.2.4).** Active development. Expect breaking changes until
-> v1.0.0. See [`CHANGELOG.md`](./CHANGELOG.md).
+> **v0.2.4.** The eight verbs, their flags, exit codes, `--json` envelope,
+> state locations, and supported hosts are frozen for 1.x; breaking them
+> needs 2.0.0. That contract is in [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md).
+> This does not mean finished — it means the surface stops moving. See
+> [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## CI
 
