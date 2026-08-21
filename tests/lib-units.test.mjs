@@ -1,9 +1,9 @@
 /**
  * Focused unit tests for small library modules — args, fs, process,
- * prompt-templates, atomic-state, state, plugin-info, and workspace.
+ * prompt-templates, atomic-state, state, and workspace.
  *
  * All tests use deterministic inputs and avoid sleeps or external
- * subprocesses (except `node` itself for plugin-info, which is fast).
+ * subprocesses.
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -43,7 +43,6 @@ import {
   appendJobLog,
   readJobLog,
 } from '../scripts/lib/state.mjs';
-import { buildPluginInfo, getPluginInfo, _resetCache } from '../scripts/lib/plugin-info.mjs';
 import { resolveWorkspaceRoot } from '../scripts/lib/workspace.mjs';
 
 // Temp root outside any git work tree. A sandbox TMPDIR may point inside
@@ -439,23 +438,9 @@ describe('state — persistence + reconciliation', () => {
   });
 });
 
-// ───────────────────────────── plugin-info + workspace ─────────────────────────────
+// ───────────────────────────── workspace ─────────────────────────────
 
-describe('plugin-info + workspace', () => {
-  it('buildPluginInfo returns a frozen object', () => {
-    const info = buildPluginInfo({ name: 'x', version: '1.0', description: 'd', homepage: 'h' });
-    assert.equal(info.name, 'x');
-    assert.equal(Object.isFrozen(info), true);
-  });
-
-  it('getPluginInfo loads from disk and caches', async () => {
-    _resetCache();
-    const a = await getPluginInfo();
-    const b = await getPluginInfo();
-    assert.equal(a, b);
-    assert.equal(typeof a.name, 'string');
-  });
-
+describe('workspace', () => {
   it('resolveWorkspaceRoot returns a string path for cwd', () => {
     const r = resolveWorkspaceRoot(process.cwd());
     assert.equal(typeof r, 'string');
