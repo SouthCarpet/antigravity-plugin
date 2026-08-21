@@ -16,10 +16,12 @@
  *   .claude-plugin/marketplace.json            .plugins[0].version
  *   .agents/plugins/marketplace.json           .metadata.version
  */
-import { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import fs from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+
+const { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } = fs;
 
 const defaultRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -413,25 +415,109 @@ function applyChangelog(text, newVersion, previousVersion, date) {
   return updateCompareLinks(rebuilt, newVersion, previousVersion);
 }
 
-/**
- * Write via temp + rename. On Windows rename cannot replace, so fall back
- * to copy. If a later write fails, the caller lists what already landed.
- */
-function replaceFile(absPath, contents) {
-  const tmp = `${absPath}.${process.pid}.tmp`;
-  writeFileSync(tmp, contents);
+function stagingPath(absPath) {
+  return `${absPath}.${process.pid}.tmp`;
+}
+
+function unlinkIfExists(filePath) {
   try {
-    renameSync(tmp, absPath);
-  } catch {
-    try {
-      copyFileSync(tmp, absPath);
-      unlinkSync(tmp);
-    } catch (err) {
-      throw new Error(
-        `failed replacing ${absPath}: ${err.message} (temp file may remain at ${tmp})`,
-      );
-    }
+    unlinkSync(filePath);
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') throw err;
   }
+}
+
+/**
+ * Two-phase write of every planned file.
+ *
+ * Phase 1 (staging): write each payload to `<target>.<pid>.tmp` beside
+ * the target. If any staging write fails, delete temps already created
+ * and throw — the original files are byte-identical to how we found them.
+ *
+ * Phase 2 (commit): rename each temp onto its target. On Windows, rename
+ * cannot replace an existing file, so the fallback is copy + unlink.
+ *
+ * Residue: the commit loop is not a single filesystem transaction. If a
+ * later rename/copy fails, earlier targets already hold the new content.
+ * POSIX rename is atomic per file; the set of files is not, and Windows
+ * has no atomic replace. That window is narrow (every byte is already on
+ * disk from a successful staging phase) and retrying the same bump is
+ * the recovery. This script does not claim all-or-none past staging.
+ */
+function stageAll(root, planned) {
+  /** @type {{ rel: string, abs: string, tmp: string }[]} */
+  const staged = [];
+  try {
+    for (const { rel, contents } of planned) {
+      const abs = join(root, rel);
+      const tmp = stagingPath(abs);
+      try {
+        writeFileSync(tmp, contents);
+      } catch (err) {
+        try {
+          unlinkIfExists(tmp);
+        } catch {
+          // best-effort: still surface the write error
+        }
+        throw err;
+      }
+      const written = readFileSync(tmp);
+      const expected = Buffer.from(contents);
+      if (Buffer.compare(written, expected) !== 0) {
+        throw new Error(`staged content mismatch for ${rel}`);
+      }
+      staged.push({ rel, abs, tmp });
+    }
+  } catch (err) {
+    for (const { tmp } of staged) {
+      try {
+        unlinkIfExists(tmp);
+      } catch {
+        // best-effort cleanup; the original targets were not touched
+      }
+    }
+    throw new Error(
+      `${err.message}\n\n` +
+        `bump failed while staging replacement files. No target files were replaced.`,
+    );
+  }
+  return staged;
+}
+
+function commitStaged(staged) {
+  const committed = [];
+  try {
+    for (const { rel, abs, tmp } of staged) {
+      try {
+        renameSync(tmp, abs);
+      } catch {
+        try {
+          copyFileSync(tmp, abs);
+          unlinkIfExists(tmp);
+        } catch (err) {
+          throw new Error(
+            `failed replacing ${abs}: ${err.message} (temp file may remain at ${tmp})`,
+          );
+        }
+      }
+      committed.push(rel);
+    }
+  } catch (err) {
+    const remaining = staged.filter((s) => !committed.includes(s.rel));
+    throw new Error(
+      `${err.message}\n\n` +
+        `bump failed while committing staged files. Staging had succeeded; ` +
+        `this is the remaining non-atomic window (see writeAll).\n` +
+        `Already committed:\n  ${committed.length > 0 ? committed.join('\n  ') : '(none)'}\n` +
+        `Not committed:\n  ${remaining.length > 0 ? remaining.map((s) => s.rel).join('\n  ') : '(none)'}`,
+    );
+  }
+  return committed;
+}
+
+function writeAll(root, planned) {
+  const staged = stageAll(root, planned);
+  return commitStaged(staged);
 }
 
 function prepareWrites(root, version, previousVersion) {
@@ -464,29 +550,6 @@ function prepareWrites(root, version, previousVersion) {
   }
 
   return planned;
-}
-
-function writeAll(root, planned) {
-  const written = [];
-  const remaining = planned.map((p) => p.rel);
-  try {
-    for (const { rel, contents } of planned) {
-      replaceFile(join(root, rel), contents);
-      written.push(rel);
-      remaining.shift();
-    }
-  } catch (err) {
-    const writtenList = written.length > 0 ? written.join('\n  ') : '(none)';
-    const remainingList = remaining.length > 0 ? remaining.join('\n  ') : '(none)';
-    throw new Error(
-      `${err.message}\n\n` +
-        `bump failed while writing files. The tree may be half-bumped.\n` +
-        `Already replaced:\n  ${writtenList}\n` +
-        `Not replaced:\n  ${remainingList}\n` +
-        `Restore those files before retrying.`,
-    );
-  }
-  return written;
 }
 
 function printCheck(root, expectedVersion) {

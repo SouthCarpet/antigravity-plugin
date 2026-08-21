@@ -12,10 +12,13 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO_ROOT, 'scripts', 'bump-version.mjs');
+const FAIL_WRITE_PRELOAD = pathToFileURL(
+  path.join(REPO_ROOT, 'tests', 'helpers', 'fail-write-sync.mjs'),
+).href;
 
 const COPY_FILES = [
   'package.json',
@@ -63,11 +66,40 @@ function readJson(root, rel) {
   return JSON.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
-function runBump(root, args) {
-  return spawnSync(process.execPath, [SCRIPT, '--root', root, ...args], {
+function runBump(root, args, options = {}) {
+  const nodeArgs = [];
+  const env = { ...process.env };
+  if (options.failWrite) {
+    nodeArgs.push('--import', FAIL_WRITE_PRELOAD);
+    env.ANTIGRAVITY_TEST_FAIL_WRITE = options.failWrite;
+  }
+  return spawnSync(process.execPath, [...nodeArgs, SCRIPT, '--root', root, ...args], {
     encoding: 'utf8',
     cwd: REPO_ROOT,
+    env,
   });
+}
+
+function snapshotCopyFiles(root) {
+  /** @type {Map<string, Buffer>} */
+  const snap = new Map();
+  for (const rel of COPY_FILES) {
+    snap.set(rel, fs.readFileSync(path.join(root, rel)));
+  }
+  return snap;
+}
+
+function leftoverStagingTemps(root) {
+  const hits = [];
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(p);
+      else if (/\.\d+\.tmp$/.test(ent.name)) hits.push(path.relative(root, p));
+    }
+  };
+  walk(root);
+  return hits;
 }
 
 function makeTree() {
@@ -297,5 +329,31 @@ describe('bump-version git tag report', () => {
 
     const tags = spawnSync('git', ['tag', '--list'], { cwd: root, encoding: 'utf8' });
     assert.equal(tags.stdout.trim(), 'v0.2.4');
+  });
+});
+
+describe('bump-version write failure does not half-bump', () => {
+  it('leaves every versioned file byte-identical when a later staging write fails', () => {
+    const root = makeTree();
+    const before = snapshotCopyFiles(root);
+    const failWrite = path.join('.agents', 'plugins', 'marketplace.json');
+
+    const result = runBump(root, ['patch'], { failWrite });
+    assert.notEqual(result.status, 0, result.stdout);
+    const output = `${result.stderr}${result.stdout}`;
+    assert.match(output, /injected write failure/);
+    assert.match(output, /No target files were replaced/);
+
+    for (const [rel, buf] of before) {
+      const after = fs.readFileSync(path.join(root, rel));
+      assert.equal(Buffer.compare(after, buf), 0, `${rel} changed after a failed bump`);
+    }
+    assertSevenAgree(root, '0.2.4');
+    assert.equal(readmeStatusVersion(root), '0.2.4');
+    assert.deepEqual(leftoverStagingTemps(root), []);
+
+    const check = runBump(root, ['--check']);
+    assert.equal(check.status, 0, check.stderr);
+    assert.match(check.stdout, /ok: 7 version scalars agree on 0\.2\.4/);
   });
 });
