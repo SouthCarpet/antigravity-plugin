@@ -20,6 +20,8 @@ import { EventEmitter } from 'node:events';
 const spawnCalls = [];
 let nextEvents = [];
 let nextExitCode = 0;
+let autoExit = true;
+let exitOnSigkill = false;
 
 function makeFakeChild() {
   const child = new EventEmitter();
@@ -27,7 +29,12 @@ function makeFakeChild() {
   child.stdout.setEncoding = () => {};
   child.stderr = new EventEmitter();
   child.stderr.setEncoding = () => {};
-  child.kill = () => {};
+  child.killSignals = [];
+  child.kill = (signal) => {
+    child.killSignals.push(signal);
+    if (signal === 'SIGKILL' && exitOnSigkill) setImmediate(() => child.emit('exit', null));
+    return true;
+  };
   child.stdin = new EventEmitter();
   child.stdin.written = '';
   child.stdin.write = (chunk) => { child.stdin.written += chunk; return true; };
@@ -40,10 +47,12 @@ mock.module('node:child_process', {
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();
       spawnCalls.push({ bin, args, opts, child });
-      setImmediate(() => {
-        for (const chunk of nextEvents) child.stdout.emit('data', chunk);
-        child.emit('exit', nextExitCode);
-      });
+      if (autoExit) {
+        setImmediate(() => {
+          for (const chunk of nextEvents) child.stdout.emit('data', chunk);
+          child.emit('exit', nextExitCode);
+        });
+      }
       return child;
     },
   },
@@ -222,6 +231,25 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'auth_required');
     assert.equal(res.oauthUrl, authUrl);
+  });
+
+  it('bounds timeout and escalates when a child ignores SIGTERM', async () => {
+    spawnCalls.length = 0;
+    autoExit = false;
+    exitOnSigkill = true;
+    const started = Date.now();
+    try {
+      const res = await runAgyPrint({
+        prompt: 'p', bin: 'agy', timeoutMs: 10,
+        terminationGraceMs: 10, forceKillGraceMs: 20,
+      });
+      assert.equal(res.status, 'timeout');
+      assert.ok(Date.now() - started < 500, 'timeout escalation must be bounded');
+      assert.deepEqual(spawnCalls[0].child.killSignals, ['SIGTERM', 'SIGKILL']);
+    } finally {
+      autoExit = true;
+      exitOnSigkill = false;
+    }
   });
 });
 

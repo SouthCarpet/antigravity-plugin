@@ -11,6 +11,7 @@ import { readCommandInput } from "../lib/args.mjs";
 import { resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile } from "../lib/state.mjs";
 import { outputCommandResult, renderResultOutput } from "../lib/render.mjs";
+import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
@@ -28,13 +29,25 @@ export async function run(argv = [], ctx = {}) {
   let job;
   let workspaceRoot;
   try {
-    ({ workspaceRoot, job } = resolveResultJob(cwd, reference));
+    ({ workspaceRoot, job } = (ctx.resolveResultJob ?? resolveResultJob)(cwd, reference));
   } catch (err) {
-    process.stderr.write(`antigravity:result — ${err?.message ?? err}\n`);
+    const message = isFileLockTimeoutError(err)
+      ? "job state is busy with another update; try again shortly"
+      : err?.message ?? err;
+    process.stderr.write(`antigravity:result — ${message}\n`);
     return 1;
   }
 
-  const stored = readJobFile(workspaceRoot, job.id);
+  let stored;
+  try {
+    stored = (ctx.readJobFile ?? readJobFile)(workspaceRoot, job.id);
+  } catch (err) {
+    const message = isFileLockTimeoutError(err)
+      ? "job state is busy with another update; try again shortly"
+      : err?.message ?? err;
+    process.stderr.write(`antigravity:result — ${message}\n`);
+    return 1;
+  }
 
   const usage = stored?.result?.usage ?? null;
   if (usage && typeof usage.total_tokens === "number") {

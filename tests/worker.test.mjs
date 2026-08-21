@@ -38,7 +38,10 @@ const runtime = {
 
 mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
-    runAgyPrint: async () => ({ ...runtime.next }),
+    runAgyPrint: async (options) => {
+      await options.onSpawn?.({ pid: 7331 });
+      return { ...runtime.next };
+    },
     spawnAgyDetached: () => ({ pid: 1 }),
     resolveAgyBin: () => 'agy',
     DEFAULT_AGY_BIN: 'agy',
@@ -103,6 +106,8 @@ describe('_worker.mjs background job completion', () => {
 
     assert.ok(stored, 'job file should exist after worker completion');
     assert.equal(stored.status, 'completed');
+    assert.equal(stored.workerPid, process.pid);
+    assert.equal(stored.agyPid, 7331);
     assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
     assert.equal(stored.result.durationSeconds, 3.5);
     assert.equal(stored.result.agyConversationId, 'conv-123');

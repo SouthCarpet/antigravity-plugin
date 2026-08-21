@@ -74,6 +74,7 @@ const DIAGNOSTIC_HEALTH_STATUSES = new Set([
   "auth_required",
   "failed",
   "worker_missing",
+  "cancel_failed",
 ]);
 
 function classifyRuntimeHealth(job, options = {}) {

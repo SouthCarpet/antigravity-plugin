@@ -17,11 +17,11 @@ import { runAgyPrint, spawnAgyDetached, resolveAgyBin } from "./agent-runtime.mj
 import {
   appendJobLog,
   resolveJobLogFile,
-  upsertJob,
-  writeJobFile,
+  patchJobState,
   readJobFile,
 } from "./state.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
+import { isProcessRunning } from "./process.mjs";
 
 /** Generate a short, URL-safe job id (12 hex chars). */
 export function newJobId() {
@@ -94,6 +94,8 @@ export async function createTrackedJob({
     phase: "queued",
     sessionId,
     pid: null,
+    workerPid: null,
+    agyPid: null,
     conversationId,
     createdAt: now,
     updatedAt: now,
@@ -101,8 +103,7 @@ export async function createTrackedJob({
     completedAt: null,
     logFile: resolveJobLogFile(workspaceRoot, id),
   };
-  await upsertJob(workspaceRoot, job);
-  await writeJobFile(workspaceRoot, id, {
+  await patchJob(workspaceRoot, id, {
     ...job,
     request,
     result: null,
@@ -113,14 +114,7 @@ export async function createTrackedJob({
 
 /** Patch and persist a job index + file. */
 export async function patchJob(workspaceRoot, jobId, patch) {
-  const existing = readJobFile(workspaceRoot, jobId) ?? { id: jobId };
-  const merged = { ...existing, ...patch, id: jobId };
-  await upsertJob(workspaceRoot, {
-    id: jobId,
-    ...stripDetail(patch),
-  });
-  await writeJobFile(workspaceRoot, jobId, merged);
-  return merged;
+  return patchJobState(workspaceRoot, jobId, patch, stripDetail(patch));
 }
 
 /** Strip detail-only fields (request/result/stdout) from a patch destined for the index. */
@@ -170,6 +164,7 @@ export async function runForegroundJob({
     phase: "running",
     startedAt,
     pid: process.pid,
+    workerPid: process.pid,
   });
   appendJobLog(workspaceRoot, job.id, `[job] running (foreground) pid=${process.pid}`);
 
@@ -188,6 +183,9 @@ export async function runForegroundJob({
       onStdout,
       onStderr,
       onText,
+      onSpawn: async ({ pid }) => {
+        await patchJob(workspaceRoot, job.id, { agyPid: pid ?? null });
+      },
     });
   } catch (err) {
     const completedAt = new Date().toISOString();
@@ -296,6 +294,7 @@ export async function startBackgroundJob({
 
   await patchJob(workspaceRoot, job.id, {
     pid: child.pid ?? null,
+    workerPid: child.pid ?? null,
   });
   appendJobLog(workspaceRoot, job.id, `[job] dispatched worker pid=${child.pid}`);
   return { job, pid: child.pid ?? null };
@@ -304,15 +303,35 @@ export async function startBackgroundJob({
 /**
  * Block in the current process until a job reaches a terminal state.
  *
- * Polls at `pollMs` (default 1000ms). Returns the latest job record. Times
- * out after `timeoutMs` (0 = no timeout).
+ * Polls at `pollMs` (default 1000ms). Returns the latest job record. The
+ * default 30-minute deadline prevents an unbounded wait; pass 0 explicitly
+ * only when another supervisor owns the deadline.
  */
-export async function waitForJob(workspaceRoot, jobId, { pollMs = 1000, timeoutMs = 0 } = {}) {
+export async function waitForJob(
+  workspaceRoot,
+  jobId,
+  { pollMs = 1000, timeoutMs = 30 * 60 * 1000, isProcessAlive = isProcessRunning } = {},
+) {
   const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : null;
   const TERMINAL = new Set(["completed", "failed", "cancelled"]);
   while (true) {
     const job = readJobFile(workspaceRoot, jobId);
     if (job && TERMINAL.has(job.status)) return job;
+    const workerPid = Number(job?.workerPid ?? job?.pid);
+    if (job && (job.status === "running" || job.status === "queued") &&
+        Number.isInteger(workerPid) && workerPid > 0 && !isProcessAlive(workerPid)) {
+      const failed = await patchJob(workspaceRoot, jobId, {
+        status: "failed",
+        phase: "worker_missing",
+        completedAt: new Date().toISOString(),
+        healthStatus: "worker_missing",
+        healthMessage: `Worker process ${workerPid} vanished before recording a terminal result.`,
+        recommendedAction: "Inspect the job log, then retry the task.",
+        errorMessage: `Background worker process ${workerPid} is no longer running.`,
+      });
+      appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
+      return failed;
+    }
     if (deadline && Date.now() > deadline) return job ?? null;
     await new Promise((r) => setTimeout(r, pollMs));
   }

@@ -19,11 +19,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { withFileLockSync } from "./file-lock.mjs";
 
 export const VISION_PERMISSION = "mcp(vision/view_image)";
 const LEGACY_PERMISSIONS = ["read_file(*)", "view_image(*)", "mcp(*)"];
 const RECEIPT_VERSION = 1;
-const LOCK_WAIT_MS = 25;
 
 function todayStamp(now = new Date()) {
   const y = now.getFullYear();
@@ -92,58 +92,15 @@ function backupIfMissingForToday(filePath, read, now = new Date()) {
   if (!fs.existsSync(backupPath)) writeAtomic(backupPath, read.raw);
 }
 
-function sleepBriefly() {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_WAIT_MS);
-}
-
-function staleLockCanBeReaped(lock, staleLockMs) {
-  if (Date.now() - fs.statSync(lock).mtimeMs <= staleLockMs) return false;
-  try {
-    const owner = JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8"));
-    if (!Number.isInteger(owner.pid) || owner.pid <= 0) return true;
-    try {
-      process.kill(owner.pid, 0);
-      return false;
-    } catch (err) {
-      return err.code === "ESRCH";
-    }
-  } catch (err) {
-    if (err.code === "ENOENT" || err instanceof SyntaxError) return true;
-    throw err;
-  }
-}
-
 function withConfigLock(homeDir, fn, { lockTimeoutMs = 2000, staleLockMs = 60_000 } = {}) {
   const { lock } = pathsFor(homeDir);
-  fs.mkdirSync(path.dirname(lock), { recursive: true });
-  const deadline = Date.now() + lockTimeoutMs;
-  for (;;) {
-    try {
-      fs.mkdirSync(lock);
-      break;
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      try {
-        if (staleLockCanBeReaped(lock, staleLockMs)) {
-          fs.rmSync(lock, { recursive: true, force: true });
-          continue;
-        }
-      } catch (statErr) {
-        if (statErr.code !== "ENOENT") throw statErr;
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`vision config is locked by another process: ${lock}`);
-      }
-      sleepBriefly();
-    }
-  }
-
   try {
-    fs.writeFileSync(path.join(lock, "owner.json"), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
-    return fn();
-  } finally {
-    try { fs.rmSync(lock, { recursive: true, force: true }); } catch {}
+    return withFileLockSync(lock, fn, { lockTimeoutMs, staleLockMs });
+  } catch (err) {
+    if (String(err?.message).startsWith("timed out waiting for lock:")) {
+      throw new Error(`vision config is locked by another process: ${lock}`);
+    }
+    throw err;
   }
 }
 

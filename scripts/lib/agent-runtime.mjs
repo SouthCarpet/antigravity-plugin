@@ -259,7 +259,10 @@ export async function runAgyPrint({
   onStdout,
   onStderr,
   onText,
+  onSpawn,
   signal,
+  terminationGraceMs = 500,
+  forceKillGraceMs = 500,
 } = {}) {
   if (typeof prompt !== 'string' || !prompt.length) {
     throw new TypeError('runAgyPrint: prompt must be a non-empty string');
@@ -285,15 +288,30 @@ export async function runAgyPrint({
   let stderr = '';
   let oauthUrl;
   let status;
+  let forceTimer = null;
+  let giveUpTimer = null;
+  let terminationReason = null;
+  let settleExit;
+
+  const exitCodePromise = new Promise((resolve) => {
+    let settled = false;
+    settleExit = (code) => {
+      if (settled) return;
+      settled = true;
+      resolve(code);
+    };
+    child.on('error', (e) => {
+      stderr += `\nspawn error: ${e.message}`;
+      settleExit(typeof e.errno === 'number' ? e.errno : 1);
+    });
+    child.on('exit', (code) => settleExit(code ?? 0));
+  });
 
   child.stdin.on('error', (e) => {
     // EPIPE if agy exits before we finish writing the prompt line — record
     // it, never let it surface as an unhandled 'error' event.
     stderr += `\nstdin error: ${e.message}`;
   });
-  child.stdin.write(buildStreamJsonLine(prompt) + '\n');
-  child.stdin.end();
-
   const lineFeeder = onText ? createNdjsonLineFeeder() : null;
 
   child.stdout.setEncoding('utf8');
@@ -322,30 +340,59 @@ export async function runAgyPrint({
     onStderr?.(chunk);
   });
 
+  const initiateTermination = (reason) => {
+    if (terminationReason) return;
+    terminationReason = reason;
+    status = reason;
+    try {
+      child.kill('SIGTERM');
+    } catch (err) {
+      stderr += `\nSIGTERM failed: ${err.message}`;
+    }
+    forceTimer ??= setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch (err) {
+        stderr += `\nSIGKILL failed: ${err.message}`;
+      }
+      giveUpTimer ??= setTimeout(() => {
+        stderr += '\nagent-runtime: child did not exit after SIGKILL escalation';
+        child.stdout.destroy?.();
+        child.stderr.destroy?.();
+        child.stdin.destroy?.();
+        child.unref?.();
+        settleExit(124);
+      }, forceKillGraceMs);
+    }, terminationGraceMs);
+  };
+
   const timer = timeoutMs > 0
-    ? setTimeout(() => {
-        status = 'timeout';
-        child.kill('SIGTERM');
-      }, timeoutMs)
+    ? setTimeout(() => initiateTermination('timeout'), timeoutMs)
     : null;
 
+  let abortListener;
   if (signal) {
-    if (signal.aborted) child.kill('SIGTERM');
-    else signal.addEventListener('abort', () => {
-      status = 'cancelled';
-      child.kill('SIGTERM');
-    }, { once: true });
+    abortListener = () => initiateTermination('cancelled');
+    if (signal.aborted) abortListener();
+    else signal.addEventListener('abort', abortListener, { once: true });
   }
 
-  const exitCode = await new Promise((resolve) => {
-    child.on('error', (e) => {
-      stderr += `\nspawn error: ${e.message}`;
-      resolve(typeof e.errno === 'number' ? e.errno : 1);
-    });
-    child.on('exit', (code) => resolve(code ?? 0));
-  });
+  try {
+    await onSpawn?.({ pid: child.pid ?? null, child });
+  } catch (err) {
+    try { child.kill('SIGKILL'); } catch {}
+    throw err;
+  }
+
+  child.stdin.write(buildStreamJsonLine(prompt) + '\n');
+  child.stdin.end();
+
+  const exitCode = await exitCodePromise;
 
   if (timer) clearTimeout(timer);
+  if (forceTimer) clearTimeout(forceTimer);
+  if (giveUpTimer) clearTimeout(giveUpTimer);
+  if (signal && abortListener) signal.removeEventListener('abort', abortListener);
 
   const parsed = parseAgyStream(stdout);
 

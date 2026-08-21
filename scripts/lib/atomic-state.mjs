@@ -1,26 +1,35 @@
 /**
- * Promise-chain mutex helpers and atomic JSON write helper.
+ * Cross-process mutex helpers and atomic JSON write helper.
  *
- * `withJobMutex` and `withWorkspaceMutex` serialize operations keyed by the
- * given identifiers so concurrent readers/writers in the same Node.js process
- * cannot interleave a read-modify-write cycle.
+ * `withJobMutex` and `withWorkspaceMutex` use one workspace-wide lock. A
+ * local FIFO avoids self-contention; an atomic lock directory under the OS
+ * temp root serializes the same key across independent Node processes.
  *
  * `writeJsonAtomic` writes the serialized JSON payload to a unique temporary
  * sibling file and then renames it into place. If serialization or the write
  * itself fails the target file is left untouched and the temp file is cleaned
  * up on a best-effort basis.
  *
- * These helpers are in-process only. They are NOT a substitute for a
- * cross-process file lock — multiple Node processes writing the same file
- * concurrently is out of scope.
+ * Workspace-wide (rather than per-file) locking lets callers make the job
+ * index and detail file one read-modify-write transaction.
  */
 
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { reapFileLockOwnedBy, withFileLock } from "./file-lock.mjs";
 
-const jobMutexes = new Map();
-const workspaceMutexes = new Map();
+const mutexes = new Map();
+const LOCK_ROOT = path.join(os.tmpdir(), "antigravity-state-locks");
+const STATE_LOCK_TIMEOUT_MS = 30_000;
+
+function lockPathFor(key) {
+  const resolved = path.resolve(String(key));
+  const canonical = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  const hash = crypto.createHash("sha256").update(canonical).digest("hex");
+  return path.join(LOCK_ROOT, `${hash}.lock`);
+}
 
 async function runWithMutex(map, key, fn) {
   const prev = map.get(key) ?? Promise.resolve();
@@ -36,7 +45,7 @@ async function runWithMutex(map, key, fn) {
   );
   try {
     await prev;
-    return await fn();
+    return await withFileLock(lockPathFor(key), fn, { lockTimeoutMs: STATE_LOCK_TIMEOUT_MS });
   } finally {
     const tail = map.get(key);
     release();
@@ -52,12 +61,16 @@ async function runWithMutex(map, key, fn) {
   }
 }
 
-export function withJobMutex(workspaceRoot, jobId, fn) {
-  return runWithMutex(jobMutexes, `${workspaceRoot}::${jobId}`, fn);
+export function withJobMutex(workspaceRoot, _jobId, fn) {
+  return runWithMutex(mutexes, String(workspaceRoot), fn);
 }
 
 export function withWorkspaceMutex(workspaceRoot, fn) {
-  return runWithMutex(workspaceMutexes, String(workspaceRoot), fn);
+  return runWithMutex(mutexes, String(workspaceRoot), fn);
+}
+
+export function recoverWorkspaceMutex(workspaceRoot, ownerPids) {
+  return reapFileLockOwnedBy(lockPathFor(String(workspaceRoot)), ownerPids);
 }
 
 export function writeJsonAtomic(targetPath, value) {

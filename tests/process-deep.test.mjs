@@ -64,12 +64,10 @@ describe('binaryAvailable', () => {
 });
 
 describe('terminateProcessTree', () => {
-  it('ignores invalid pids (≤0, NaN)', () => {
-    // None of these should throw.
-    terminateProcessTree(0);
-    terminateProcessTree(-1);
-    terminateProcessTree(NaN);
-    terminateProcessTree(undefined);
+  it('reports failed for invalid pids (≤0, NaN)', async () => {
+    for (const pid of [0, -1, NaN, undefined]) {
+      assert.equal((await terminateProcessTree(pid)).outcome, 'failed');
+    }
   });
 
   it('SIGTERMs a real child process group', async () => {
@@ -83,21 +81,55 @@ describe('terminateProcessTree', () => {
       const exitSeen = new Promise((resolve) => {
         child.once('exit', () => resolve(true));
       });
-      terminateProcessTree(child.pid);
+      const termination = terminateProcessTree(child.pid);
       const gone = await Promise.race([
         exitSeen,
         waitUntilPidGone(child.pid, 5000),
       ]);
       assert.equal(gone, true, 'child should have exited after SIGTERM');
+      assert.equal((await termination).outcome, 'killed');
     } finally {
       try { process.kill(child.pid, 'SIGKILL'); } catch {}
     }
   });
 
-  it('silently absorbs ESRCH when the pid is already gone', () => {
+  it('reports not_found when the pid is already gone', async () => {
     // Pick a pid that will not exist. process.kill throws ESRCH internally
     // which the helper catches.
-    terminateProcessTree(2 ** 22);
+    assert.equal((await terminateProcessTree(2 ** 22)).outcome, 'not_found');
+  });
+
+  it('returns meaningful killed/not_found/denied/failed results from mocked taskkill', async () => {
+    let running = true;
+    const killed = await terminateProcessTree(101, {
+      platform: 'win32',
+      probe: () => running,
+      spawnSyncImpl: () => { running = false; return { status: 0, stderr: '', signal: null }; },
+      graceMs: 1,
+    });
+    assert.deepEqual(
+      { outcome: killed.outcome, killed: killed.killed, status: killed.status, attempt: killed.attempts[0].kind },
+      { outcome: 'killed', killed: true, status: 0, attempt: 'taskkill' },
+    );
+
+    const missing = await terminateProcessTree(102, { platform: 'win32', probe: () => false });
+    assert.equal(missing.outcome, 'not_found');
+    assert.equal(missing.killed, false);
+
+    const denied = await terminateProcessTree(103, {
+      platform: 'win32', probe: () => true, graceMs: 1, forceGraceMs: 1,
+      spawnSyncImpl: () => ({ status: 1, stderr: 'ERROR: Access is denied.', signal: null }),
+    });
+    assert.equal(denied.outcome, 'denied');
+    assert.equal(denied.status, 1);
+    assert.equal(denied.attempts.length, 2);
+
+    const failed = await terminateProcessTree(104, {
+      platform: 'win32', probe: () => true, graceMs: 1, forceGraceMs: 1,
+      spawnSyncImpl: () => ({ status: 7, stderr: 'unexpected taskkill failure', signal: null }),
+    });
+    assert.equal(failed.outcome, 'failed');
+    assert.equal(failed.status, 7);
   });
 });
 

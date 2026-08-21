@@ -176,6 +176,14 @@ describe('runAgyPrint', () => {
     assert.equal(out.status, 'cancelled');
   });
 
+  it('reports cancelled when the AbortSignal was already aborted', async () => {
+    const bin = writeFakeAgy(stubDir, 'agy-already-cancelled', { delayMs: 2000 });
+    const ac = new AbortController();
+    ac.abort();
+    const out = await runAgyPrint({ prompt: 'go', bin, signal: ac.signal });
+    assert.equal(out.status, 'cancelled');
+  });
+
   it('forwards onStdout / onStderr callbacks', async () => {
     const bin = writeFakeAgy(stubDir, 'agy-cb', { stdout: 'o', stderr: 'e' });
     const seenOut = [];

@@ -93,6 +93,16 @@ preferred AI host so you can:
 - `agy` v1.0.1+ on `PATH` ([install from antigravity.google](https://antigravity.google/download))
 - A Google account for `agy` OAuth (run `agy --print 'hi'` once or `/antigravity:setup`)
 
+### Job state location
+
+Tracked jobs use the first non-empty host data variable in this compatibility
+order: `CLAUDE_PLUGIN_DATA`, `CODEX_PLUGIN_DATA`, then `AGY_PLUGIN_DATA`.
+Standalone runs with none of those variables set use
+`<os-temporary-directory>/antigravity`. Codex and agy installations upgraded
+from a version that ignored their host variable continue to read and write an
+existing workspace state directory at that legacy temporary location; new
+workspaces use their host-owned data directory.
+
 ## Quick start (Claude Code)
 
 ```bash

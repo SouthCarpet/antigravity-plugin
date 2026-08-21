@@ -90,38 +90,140 @@ export function binaryAvailable(name) {
 }
 
 /**
- * Terminate a process and its children.
+ * Return whether a PID currently refers to a process. EPERM means the process
+ * exists but belongs to another principal, so it is considered running.
  *
  * @param {number} pid
  */
-export function terminateProcessTree(pid) {
-  if (!Number.isFinite(pid) || pid <= 0) {
-    return;
-  }
-
+export function isProcessRunning(pid, killImpl = process.kill) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
-    if (process.platform === "win32") {
-      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-    } else {
-      // Try SIGTERM on the process group first.
-      try {
-        process.kill(-pid, "SIGTERM");
-      } catch {
-        process.kill(pid, "SIGTERM");
-      }
-
-      // Follow up with SIGKILL after a short delay.
-      setTimeout(() => {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // Process already exited.
-        }
-      }, 500);
-    }
-  } catch {
-    // Process may already be gone.
+    killImpl(pid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === "EPERM";
   }
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntilGone(pid, probe, timeoutMs, pollMs = 25) {
+  const deadline = Date.now() + timeoutMs;
+  while (probe(pid)) {
+    if (Date.now() >= deadline) return false;
+    await wait(Math.min(pollMs, Math.max(1, deadline - Date.now())));
+  }
+  return true;
+}
+
+function deniedBy(result) {
+  const text = `${result?.error?.message ?? ""}\n${result?.stderr ?? ""}`;
+  return result?.error?.code === "EACCES" || result?.error?.code === "EPERM" ||
+    /access (?:is )?denied|operation not permitted|permission denied/i.test(text);
+}
+
+function publicAttempt(kind, result) {
+  return {
+    kind,
+    status: result?.status ?? null,
+    signal: result?.signal ?? null,
+    errorCode: result?.error?.code ?? null,
+    stderr: String(result?.stderr ?? "").trim() || null,
+  };
+}
+
+/**
+ * Terminate a process tree, verify that the root PID disappeared, and
+ * escalate from a polite request to a forced kill when needed.
+ *
+ * @returns {Promise<{ outcome: "killed"|"not_found"|"denied"|"failed",
+ *   killed: boolean, pid: number, status: number|null, attempts: object[], message: string }>}
+ */
+export async function terminateProcessTree(pid, options = {}) {
+  const numericPid = Number(pid);
+  const platform = options.platform ?? process.platform;
+  const killImpl = options.killImpl ?? process.kill;
+  const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
+  const probe = options.probe ?? ((candidate) => isProcessRunning(candidate, killImpl));
+  const graceMs = options.graceMs ?? 500;
+  const forceGraceMs = options.forceGraceMs ?? 500;
+  const attempts = [];
+
+  const finish = (outcome, message, status = null) => ({
+    outcome,
+    killed: outcome === "killed",
+    pid: numericPid,
+    status,
+    attempts,
+    message,
+  });
+
+  if (!Number.isInteger(numericPid) || numericPid <= 0) {
+    return finish("failed", `Invalid process id: ${pid}`);
+  }
+  if (!probe(numericPid)) {
+    return finish("not_found", `Process ${numericPid} is not running.`);
+  }
+
+  if (platform === "win32") {
+    let last;
+    for (const force of [false, true]) {
+      try {
+        last = spawnSyncImpl(
+          "taskkill",
+          ["/PID", String(numericPid), "/T", ...(force ? ["/F"] : [])],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        );
+      } catch (error) {
+        last = { status: null, signal: null, stderr: error?.message ?? String(error), error };
+      }
+      attempts.push(publicAttempt(force ? "taskkill-force" : "taskkill", last));
+      if (await waitUntilGone(numericPid, probe, force ? forceGraceMs : graceMs)) {
+        return finish("killed", `Process tree ${numericPid} terminated.`, last?.status ?? null);
+      }
+    }
+    if (deniedBy(last) || attempts.some((attempt) => /denied|permitted/i.test(attempt.stderr ?? ""))) {
+      return finish("denied", `Permission denied while terminating process tree ${numericPid}.`, last?.status ?? null);
+    }
+    return finish(
+      "failed",
+      `Process tree ${numericPid} is still running after taskkill escalation.`,
+      last?.status ?? null,
+    );
+  }
+
+  let lastError = null;
+  for (const [kind, signal] of [["group-term", "SIGTERM"], ["group-kill", "SIGKILL"]]) {
+    try {
+      killImpl(-numericPid, signal);
+      attempts.push({ kind, status: null, signal, errorCode: null, stderr: null });
+    } catch (groupError) {
+      lastError = groupError;
+      try {
+        killImpl(numericPid, signal);
+        attempts.push({ kind: kind.replace("group", "process"), status: null, signal, errorCode: null, stderr: null });
+      } catch (directError) {
+        lastError = directError;
+        attempts.push({
+          kind: kind.replace("group", "process"),
+          status: null,
+          signal,
+          errorCode: directError?.code ?? null,
+          stderr: directError?.message ?? null,
+        });
+      }
+    }
+    if (await waitUntilGone(numericPid, probe, signal === "SIGTERM" ? graceMs : forceGraceMs)) {
+      return finish("killed", `Process tree ${numericPid} terminated.`);
+    }
+  }
+
+  if (lastError?.code === "EPERM" || lastError?.code === "EACCES") {
+    return finish("denied", `Permission denied while terminating process tree ${numericPid}.`);
+  }
+  return finish("failed", `Process tree ${numericPid} is still running after SIGKILL escalation.`);
 }
 
 /**

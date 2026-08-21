@@ -15,11 +15,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { withJobMutex, withWorkspaceMutex, writeJsonAtomic } from "./atomic-state.mjs";
+import { recoverWorkspaceMutex, withWorkspaceMutex, writeJsonAtomic } from "./atomic-state.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 
 const STATE_VERSION = 1;
-const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
+const PLUGIN_DATA_ENVS = ["CLAUDE_PLUGIN_DATA", "CODEX_PLUGIN_DATA", "AGY_PLUGIN_DATA"];
 const FALLBACK_STATE_ROOT_DIR = path.join(os.tmpdir(), "antigravity");
 const STATE_FILE_NAME = "state.json";
 const JOBS_DIR_NAME = "jobs";
@@ -47,17 +47,34 @@ function defaultState() {
   };
 }
 
-function stateRootDir() {
-  return process.env[PLUGIN_DATA_ENV]
-    ? path.join(process.env[PLUGIN_DATA_ENV], "state")
-    : FALLBACK_STATE_ROOT_DIR;
+/**
+ * Resolve the host-owned state root. Claude retains first priority for
+ * backward compatibility if a caller unusually supplies multiple host vars.
+ * Standalone use (no host variable) is documented to use the OS temp root.
+ */
+export function resolveStateRoot(env = process.env) {
+  for (const name of PLUGIN_DATA_ENVS) {
+    if (env[name]) return { root: path.join(env[name], "state"), source: name };
+  }
+  return { root: FALLBACK_STATE_ROOT_DIR, source: "standalone-temp" };
 }
 
-export function resolveStateDir(cwd) {
+export function resolveStateDir(cwd, env = process.env) {
   const root = resolveWorkspaceRoot(cwd);
   const slug = slugify(path.basename(root));
   const hash = hashPath(root);
-  return path.join(stateRootDir(), `${slug}-${hash}`);
+  const leaf = `${slug}-${hash}`;
+  const selected = resolveStateRoot(env);
+  const preferred = path.join(selected.root, leaf);
+
+  // Before Codex/agy host roots were recognized, those hosts wrote to the
+  // standalone temp root. Keep using an existing legacy workspace directory
+  // until it is explicitly moved, so upgrades do not make old jobs vanish.
+  if (selected.source !== "CLAUDE_PLUGIN_DATA" && selected.source !== "standalone-temp") {
+    const legacy = path.join(FALLBACK_STATE_ROOT_DIR, leaf);
+    if (!fs.existsSync(preferred) && fs.existsSync(legacy)) return legacy;
+  }
+  return preferred;
 }
 
 export function resolveStateFile(cwd) {
@@ -78,6 +95,10 @@ export function resolveJobLogFile(cwd, jobId) {
 
 export function ensureStateDir(cwd) {
   fs.mkdirSync(resolveJobsDir(cwd), { recursive: true, mode: 0o700 });
+}
+
+export function recoverStateLock(cwd, ownerPids) {
+  return recoverWorkspaceMutex(resolveStateDir(cwd), ownerPids);
 }
 
 export function loadState(cwd) {
@@ -169,7 +190,7 @@ function saveStateUnlocked(cwd, state) {
 }
 
 export async function saveState(cwd, state) {
-  return withWorkspaceMutex(cwd, async () => {
+  return withWorkspaceMutex(resolveStateDir(cwd), () => {
     saveStateUnlocked(cwd, state);
   });
 }
@@ -179,7 +200,7 @@ export function getConfig(cwd) {
 }
 
 export async function setConfig(cwd, patch) {
-  return withWorkspaceMutex(cwd, async () => {
+  return withWorkspaceMutex(resolveStateDir(cwd), () => {
     const state = loadState(cwd);
     state.config = { ...state.config, ...patch };
     saveStateUnlocked(cwd, state);
@@ -191,20 +212,21 @@ export function listJobs(cwd) {
 }
 
 export async function upsertJob(cwd, job) {
-  return withWorkspaceMutex(cwd, async () => {
-    const state = loadState(cwd);
-    const index = state.jobs.findIndex((j) => j.id === job.id);
-    const now = new Date().toISOString();
-    const updated = { ...job, updatedAt: now };
-
-    if (index >= 0) {
-      state.jobs[index] = { ...state.jobs[index], ...updated };
-    } else {
-      state.jobs.push({ ...updated, createdAt: now });
-    }
-
-    saveStateUnlocked(cwd, state);
+  return withWorkspaceMutex(resolveStateDir(cwd), () => {
+    upsertJobUnlocked(cwd, job);
   });
+}
+
+function upsertJobUnlocked(cwd, job) {
+  const state = loadState(cwd);
+  const index = state.jobs.findIndex((j) => j.id === job.id);
+  const now = new Date().toISOString();
+  const updated = { ...job, updatedAt: now };
+
+  if (index >= 0) state.jobs[index] = { ...state.jobs[index], ...updated };
+  else state.jobs.push({ ...updated, createdAt: now });
+
+  saveStateUnlocked(cwd, state);
 }
 
 export function readJobFile(cwd, jobId) {
@@ -228,8 +250,19 @@ export function writeJobFileUnlocked(cwd, jobId, data) {
 }
 
 export async function writeJobFile(cwd, jobId, data) {
-  return withJobMutex(cwd, jobId, async () => {
+  return withWorkspaceMutex(resolveStateDir(cwd), () => {
     writeJobFileUnlocked(cwd, jobId, data);
+  });
+}
+
+/** Atomically patch both the job index entry and its detailed record. */
+export async function patchJobState(cwd, jobId, detailPatch, indexPatch = detailPatch) {
+  return withWorkspaceMutex(resolveStateDir(cwd), () => {
+    const existing = readJobFile(cwd, jobId) ?? { id: jobId };
+    const merged = { ...existing, ...detailPatch, id: jobId };
+    upsertJobUnlocked(cwd, { id: jobId, ...indexPatch });
+    writeJobFileUnlocked(cwd, jobId, merged);
+    return merged;
   });
 }
 

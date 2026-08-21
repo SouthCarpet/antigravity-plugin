@@ -44,12 +44,7 @@ async function main() {
     process.exit(1);
   }
 
-  await patchJob(workspaceRoot, jobId, {
-    status: "running",
-    phase: "running",
-    startedAt: new Date().toISOString(),
-    pid: process.pid,
-  });
+  const startedAt = new Date().toISOString();
   appendJobLog(workspaceRoot, jobId, `[worker] started pid=${process.pid}`);
 
   const logPath = resolveJobLogFile(workspaceRoot, jobId);
@@ -72,6 +67,21 @@ async function main() {
       addDirs: request.addDirs ?? [],
       cwd: request.cwd ?? workspaceRoot,
       onText,
+      onSpawn: async ({ pid }) => {
+        // Publish startup in one transaction after the child exists. The
+        // previous pre-spawn patch made a just-started worker own the state
+        // lock before it could log or launch agy, enlarging the exact window
+        // in which an immediate cancellation can kill the lock owner.
+        await patchJob(workspaceRoot, jobId, {
+          status: "running",
+          phase: "running",
+          startedAt,
+          pid: process.pid,
+          workerPid: process.pid,
+          agyPid: pid ?? null,
+        });
+        appendJobLog(workspaceRoot, jobId, `[worker] agy spawned pid=${pid ?? "unknown"}`);
+      },
     });
   } catch (err) {
     appendJobLog(workspaceRoot, jobId, `[worker] error: ${err?.message ?? err}`);

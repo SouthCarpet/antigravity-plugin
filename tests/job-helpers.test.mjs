@@ -180,6 +180,7 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     assert.equal(pid, 5555);
     const stored = readJobFile(workspaceRoot, job.id);
     assert.equal(stored.pid, 5555);
+    assert.equal(stored.workerPid, 5555);
     assert.equal(stored.kind, 'task');
     // The background request payload is persisted.
     assert.equal(stored.request.prompt, 'do');
@@ -225,6 +226,20 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     const timedOut = await waitForJob(workspaceRoot, job.id, { pollMs: 20, timeoutMs: 80 });
     // Either null or the still-queued snapshot.
     assert.ok(timedOut === null || timedOut.status === 'queued');
+  });
+
+  it('waitForJob marks a vanished worker terminal instead of hanging', async () => {
+    freshWorkspace();
+    const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone' });
+    await patchJob(workspaceRoot, job.id, { status: 'running', workerPid: 909090, pid: 909090 });
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 5,
+      timeoutMs: 2000,
+      isProcessAlive: () => false,
+    });
+    assert.equal(finalJob.status, 'failed');
+    assert.equal(finalJob.phase, 'worker_missing');
+    assert.match(finalJob.errorMessage, /no longer running/);
   });
 
   it('newJobId returns unique 12-char ids; currentSessionId reads SESSION_ID_ENV', () => {

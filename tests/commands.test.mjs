@@ -147,6 +147,25 @@ describe('/antigravity:status', () => {
     assert.match(text, new RegExp(id));
     assert.match(text, /Antigravity Job/);
   });
+
+  it('turns lock contention into a bounded friendly error', async () => {
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([], {
+        cwd: tempDir,
+        buildStatusSnapshot: () => {
+          throw Object.assign(new Error('raw lock path'), { code: 'FILE_LOCK_TIMEOUT' });
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.match(cap.err.join(''), /busy.*try again/i);
+    assert.doesNotMatch(cap.err.join(''), /raw lock path|\n\s+at /);
+  });
 });
 
 // ───────────────────────────── result ─────────────────────────────
@@ -163,6 +182,25 @@ describe('/antigravity:result', () => {
     }
     assert.equal(exit, 1);
     assert.match(cap.err.join(''), /antigravity:result/);
+  });
+
+  it('turns lock contention into a bounded friendly error', async () => {
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([], {
+        cwd: tempDir,
+        resolveResultJob: () => {
+          throw Object.assign(new Error('raw lock path'), { code: 'FILE_LOCK_TIMEOUT' });
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.match(cap.err.join(''), /busy.*try again/i);
+    assert.doesNotMatch(cap.err.join(''), /raw lock path|\n\s+at /);
   });
 
   it('renders a completed job and exits 0', async () => {
@@ -304,8 +342,8 @@ describe('/antigravity:cancel', () => {
   it('marks a running job cancelled when killed (with a fake pid)', async () => {
     const id = 'runningjob';
     ensureStateDir(tempDir);
-    // Use a PID that is guaranteed not to exist so process.kill throws and we
-    // verify the state mutation still happens.
+    // Use a PID that is guaranteed not to exist; "not found" truthfully means
+    // no work remains and is therefore a successful idempotent cancellation.
     await upsertJob(tempDir, {
       id,
       kind: 'task',
@@ -323,7 +361,13 @@ describe('/antigravity:cancel', () => {
     const cap = captureStdio();
     let exit;
     try {
-      exit = await run([id], { cwd: tempDir });
+      exit = await run([id], {
+        cwd: tempDir,
+        terminateProcessTree: async (pid) => ({
+          outcome: 'not_found', killed: true, pid, status: 128,
+          attempts: [], message: `Process ${pid} is not running.`,
+        }),
+      });
     } finally {
       cap.restore();
     }
