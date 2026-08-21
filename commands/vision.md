@@ -18,7 +18,7 @@ Flags:
 FOREGROUND ONLY: this verb has no `--background`/`--wait`. `agy --print` has no native image ingestion path — the answer depends on a live MCP tool call round-trip, so it always runs inline and blocks until agy responds.
 
 Setup requirement:
-- Run `/antigravity:setup` at least once so it can register the `vision` MCP server and the `read_file(*)`, `view_image(*)`, `mcp(*)` permissions agy needs to answer image questions unattended. Without that registration agy still runs, but it cannot see the images.
+- Run `/antigravity:setup` at least once so it can register the `vision` MCP server and the exact permission `mcp(vision/view_image)` agy needs to answer image questions unattended. Without that registration agy still runs, but it cannot see the images.
 
 Auth note:
 - If the output says "Antigravity is not authenticated", run `/antigravity:setup` to complete the OAuth flow and then re-try.

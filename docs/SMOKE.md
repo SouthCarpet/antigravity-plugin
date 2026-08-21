@@ -37,7 +37,7 @@ node /path/to/antigravity-plugin/bin/antigravity.mjs --version
 node /path/to/antigravity-plugin/bin/antigravity.mjs help review
 #   expect: review flag summary
 
-node /path/to/antigravity-plugin/bin/antigravity.mjs review --foreground
+node /path/to/antigravity-plugin/bin/antigravity.mjs review
 #   expect: agy launches, review completes, markdown printed to stdout, exit 0
 
 node /path/to/antigravity-plugin/bin/antigravity.mjs status

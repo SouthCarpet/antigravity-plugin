@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **fix: host surfaces advertised different verbs** — Claude Code had no
+  `commands/setup.md`, Codex's `agents/openai.yaml` omitted `vision`, and
+  `review`/`rescue` were documented as background-by-default while the
+  runtime is foreground unless `--background` is passed. All four hosts
+  now enumerate the same verb set; docs match the code.
+
 ## [0.2.4] — 2026-08-19
 
 ### Fixed

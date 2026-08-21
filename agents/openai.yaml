@@ -12,8 +12,8 @@
 
 interface:
   display_name: "Antigravity"
-  short_description: "Hand off to Google Antigravity CLI (agy) for code review, large-context investigation, debugging, or long-running tasks."
-  default_prompt: "Use $antigravity when a task benefits from agy's large-context window or a second-opinion reasoning pass — typical cases include cross-file code review, adversarial review of recent changes, refactor impact analysis, deep debugging, or running a long task in the background while the host continues other work."
+  short_description: "Hand off to Google Antigravity CLI (agy) for code review, large-context investigation, debugging, long-running tasks, or image analysis."
+  default_prompt: "Use $antigravity when a task benefits from agy's large-context window, a second-opinion reasoning pass, or looking at an image — typical cases include cross-file code review, adversarial review of recent changes, refactor impact analysis, deep debugging, image questions via $antigravity vision, or running a long task in the background while the host continues other work."
 
 policy:
   allow_implicit_invocation: true
@@ -25,13 +25,15 @@ policy:
 # agy's `agy plugin run antigravity review --base main`.
 commands:
   - name: setup
-    description: "One-time agy OAuth wizard. Idempotent — re-run anytime to refresh credentials."
+    description: "One-time agy OAuth wizard (foreground). Idempotent. Also registers the vision MCP server; --skip-vision to opt out, --remove-vision to undo plugin-owned entries."
   - name: review
-    description: "Hand the current git diff (or `--base <ref>`) to agy for a structured code review. Default is background mode; poll with $antigravity status."
+    description: "Hand the current git diff (or `--base <ref>`) to agy for a structured code review. Foreground by default; pass --background to fork a worker and poll with $antigravity status."
   - name: rescue
-    description: "Delegate an investigation or fix request to agy — e.g. 'why are the tests failing on main'. Returns a job id for $antigravity status / result."
+    description: "Delegate an investigation or fix request to agy — e.g. 'why are the tests failing on main'. Foreground by default; --background returns a job id for $antigravity status / result."
   - name: task
-    description: "Generic long-running task delegation. Supports --continue / --conversation <id> / --add-dir for follow-up agy conversations."
+    description: "Generic long-running task delegation. Background by default; --foreground to inline, --wait to block. Supports --continue / --conversation <id> / --add-dir for follow-up agy conversations."
+  - name: vision
+    description: "Ask agy to look at one or more image files (--prompt, --model, --json). Foreground-only; requires setup to have registered the vision MCP server."
   - name: status
     description: "Show a Markdown table of current and recent agy jobs, with health, last progress, and any pending OAuth URL."
   - name: result

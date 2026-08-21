@@ -17,14 +17,14 @@ Skip `$antigravity` for trivial one-line edits or anything that requires interac
 
 ## Verbs
 
-All verbs map to `scripts/commands/<verb>.mjs` and are byte-equivalent across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy native (`agy plugin run antigravity <verb>`), and standalone (`npx antigravity-plugin <verb>`).
+All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy native (`agy plugin run antigravity <verb>`), and standalone (`npx antigravity-plugin <verb>`). Host wrappers differ in shape; the verb set and flag contract do not.
 
 | Verb     | What it does |
 |----------|--------------|
-| `setup`  | One-time OAuth wizard. Runs `agy --print 'hi'` in the foreground so the user can complete the Google OAuth flow visibly. Idempotent. |
-| `review` | Reviews the current git diff (or `--base <ref>`). Background-by-default; returns a job id. |
-| `rescue` | Delegates an investigation or fix to agy — e.g. `$antigravity rescue why are the tests failing`. Returns a job id. |
-| `task`   | Generic long-running delegation. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--wait`, `--foreground`, `--json`. |
+| `setup`  | One-time OAuth wizard. Runs an authenticated `agy --print` probe in the foreground so the user can complete the Google OAuth flow visibly. Idempotent. Also registers the vision MCP server (`--skip-vision` to opt out, `--remove-vision` to undo plugin-owned entries). Foreground-only. |
+| `review` | Reviews the current git diff (or `--base <ref>`). Foreground by default; pass `--background` to fork a worker and get a job id. |
+| `rescue` | Delegates an investigation or fix to agy — e.g. `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. |
+| `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--json`. |
 | `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
 | `status` | Shows a compact table of current and recent jobs (id, kind, phase, health, last progress). Surfaces any pending OAuth URL prominently. |
 | `result` | Prints the final output of a completed job by id. |
