@@ -14,6 +14,7 @@
 
 import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +51,13 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
   },
 });
 
+const GIT_TEST_ENV = {
+  GIT_AUTHOR_NAME: 'test',
+  GIT_AUTHOR_EMAIL: 't@example.com',
+  GIT_COMMITTER_NAME: 'test',
+  GIT_COMMITTER_EMAIL: 't@example.com',
+};
+
 function makeTempCwd() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-test-'));
   // Make it look like a workspace root: an empty .git dir is enough for
@@ -57,6 +65,24 @@ function makeTempCwd() {
   // resolveWorkspaceRoot. But ensureGitRepository runs `git rev-parse`, so
   // simpler: skip git and pass cwd directly.
   return dir;
+}
+
+function requireGit() {
+  try {
+    execSync('git --version', { stdio: 'ignore' });
+  } catch {
+    assert.fail(
+      'git is required for this plugin: the review verb is built on it, and docs/COMPATIBILITY.md lists it as required. A missing git is a broken environment, not a skippable test.',
+    );
+  }
+}
+
+function initEmptyGitRepo(cwd) {
+  requireGit();
+  const env = { ...process.env, ...GIT_TEST_ENV };
+  execSync('git init -q', { cwd, stdio: 'ignore', env });
+  execSync('git commit --allow-empty -q -m init', { cwd, stdio: 'ignore', env });
+  return env;
 }
 
 function setPluginDataEnv(dir) {
@@ -478,21 +504,8 @@ describe('/antigravity:cancel', () => {
 // ───────────────────────────── review ─────────────────────────────
 
 describe('/antigravity:review', () => {
-  it('--json emits an envelope when there are no changes', async (t) => {
-    const { execSync } = await import('node:child_process');
-    try {
-      execSync('git init -q', { cwd: tempDir, stdio: 'ignore' });
-      execSync('git commit --allow-empty -q -m init', { cwd: tempDir, stdio: 'ignore', env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: 'test',
-        GIT_AUTHOR_EMAIL: 't@example.com',
-        GIT_COMMITTER_NAME: 'test',
-        GIT_COMMITTER_EMAIL: 't@example.com',
-      } });
-    } catch {
-      t.skip('git not available');
-      return;
-    }
+  it('--json emits an envelope when there are no changes', async () => {
+    initEmptyGitRepo(tempDir);
 
     const { run } = await import('../scripts/commands/review.mjs');
     const cap = captureStdio();
@@ -508,29 +521,9 @@ describe('/antigravity:review', () => {
     assert.equal(typeof payload.details.scope, 'string');
   });
 
-  it('returns 0 with "no changes" when collectReviewContext finds nothing', async (t) => {
-    // Patch collectReviewContext via a module mock: create a fake git env by
-    // pointing cwd at tempDir which is not a git repo, then short-circuit by
-    // installing a global hook on the prototype is impossible. Instead, we
-    // simulate by injecting an empty diff via a sibling-helper: temporarily
-    // replace process.env.GIT_DIR with a path that yields empty diffs.
-    //
-    // Simpler path: initialize an empty git repo in tempDir so working-tree
-    // diff is genuinely empty.
-    const { execSync } = await import('node:child_process');
-    try {
-      execSync('git init -q', { cwd: tempDir, stdio: 'ignore' });
-      execSync('git commit --allow-empty -q -m init', { cwd: tempDir, stdio: 'ignore', env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: 'test',
-        GIT_AUTHOR_EMAIL: 't@example.com',
-        GIT_COMMITTER_NAME: 'test',
-        GIT_COMMITTER_EMAIL: 't@example.com',
-      } });
-    } catch {
-      t.skip('git not available');
-      return;
-    }
+  it('returns 0 with "no changes" when collectReviewContext finds nothing', async () => {
+    // Empty git repo in tempDir so the working-tree diff is genuinely empty.
+    initEmptyGitRepo(tempDir);
 
     const { run } = await import('../scripts/commands/review.mjs');
     const cap = captureStdio();
@@ -544,22 +537,8 @@ describe('/antigravity:review', () => {
     assert.match(cap.out.join(''), /no changes to review/i);
   });
 
-  it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async (t) => {
-    const { execSync } = await import('node:child_process');
-    const gitEnv = {
-      ...process.env,
-      GIT_AUTHOR_NAME: 'test',
-      GIT_AUTHOR_EMAIL: 't@example.com',
-      GIT_COMMITTER_NAME: 'test',
-      GIT_COMMITTER_EMAIL: 't@example.com',
-    };
-    try {
-      execSync('git init -q', { cwd: tempDir, stdio: 'ignore' });
-      execSync('git commit --allow-empty -q -m init', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
-    } catch {
-      t.skip('git not available');
-      return;
-    }
+  it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
+    const gitEnv = initEmptyGitRepo(tempDir);
     fs.writeFileSync(path.join(tempDir, 'a.txt'), 'changed\n');
     execSync('git add a.txt', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
     execSync('git commit -q -m change', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
