@@ -21,15 +21,22 @@
  *   5. The static import graph of (3), (4), and `bin/antigravity.mjs`, plus
  *      relative `.mjs` string literals in those files (`new URL("…")`).
  *
- * The walk follows static `from`/`import` specifiers, literal
- * `import("…")` / `import('…')`, and relative `.mjs` string literals. It
- * does not evaluate computed specifiers (`import(pathToFileURL(modPath).href)`,
- * `import(parts.join(""))`, and so on). Guessing those is how a pack gate
- * starts lying, so a computed `import()` in a walked module fails the gate
- * unless a maintainer has named that specific call in NAMED_COMPUTED_IMPORTS
- * (file + specifier text) and the named prefix is already required by an
- * explicit rule above — not by the walk itself. One named call in a file
- * does not authorize a second.
+ * The walk follows static `from`/`import` specifiers and literal
+ * `import("…")` / `import('…')`. It cannot see a computed specifier
+ * (`import(pathToFileURL(modPath).href)`, `import(parts.join(""))`, and
+ * so on). A maintainer who adds one must put its target in an explicit
+ * rule above — a glob or a named path — or the tarball can omit it and
+ * this gate will still pass.
+ *
+ * One computed import exists today: `bin/antigravity.mjs` loads
+ * `scripts/commands/<verb>.mjs` via `import(pathToFileURL(modPath).href)`.
+ * The `scripts/commands/*.mjs` rule already requires every target, so that
+ * case is covered by construction, not by walking the specifier.
+ *
+ * Detecting computed specifiers reliably needs parser context a text
+ * scanner does not have. That work is a candidate for a later minor
+ * release; revisit it if a bug appears that this blindness would have
+ * caught, or if a new Antigravity release changes how modules are loaded.
  *
  * A reader can re-run the derivation: if a command markdown, verb module,
  * MCP server, or imported library file exists on disk, it is required in
@@ -76,231 +83,9 @@ function add(required, path, why) {
 }
 
 /**
- * Computed `import()` calls whose targets are already required by an
- * explicit rule. The walk cannot resolve these specifiers; naming them
- * here is the honest alternative to guessing. Do not add an entry to
- * silence a hole — the named prefix must already be in the required set
- * from a glob or other explicit rule.
- *
- * Each entry authorizes one occurrence: same file, specifier text matching
- * `specifier`, and a required path with `requiredPrefix`. A second computed
- * import in that file — even with the same specifier — needs its own entry.
- *
- * `bin/antigravity.mjs` loads `scripts/commands/<verb>.mjs` via
- * `await import(pathToFileURL(modPath).href)`. The `scripts/commands/*.mjs`
- * glob already requires every target.
- */
-const NAMED_COMPUTED_IMPORTS = [
-  {
-    file: 'bin/antigravity.mjs',
-    specifier: /^pathToFileURL\s*\(\s*modPath\s*\)\s*\.\s*href$/,
-    requiredPrefix: 'scripts/commands/',
-  },
-];
-
-function lineNumberAt(src, index) {
-  let line = 1;
-  for (let i = 0; i < index; i++) {
-    if (src[i] === '\n') line += 1;
-  }
-  return line;
-}
-
-/**
- * Replace comments and string contents with spaces (newlines kept) so
- * `import()` in a comment or string is not treated as a computed specifier.
- * Template-literal interpolations `${...}` are executable code and are
- * scanned, not masked; they nest (templates inside interpolations, braces
- * inside interpolations). Length-preserving so indices map back.
- */
-function maskCommentsAndStrings(src) {
-  return maskCode(src, 0, src.length, false).out;
-}
-
-function maskCode(src, start, end, stopOnBrace) {
-  let out = '';
-  let i = start;
-  let braceDepth = 0;
-  while (i < end) {
-    if (src.startsWith('/*', i)) {
-      const blockEnd = src.indexOf('*/', i + 2);
-      const close = blockEnd === -1 ? end : Math.min(end, blockEnd + 2);
-      out += src.slice(i, close).replace(/[^\n]/g, ' ');
-      i = close;
-      continue;
-    }
-    if (src.startsWith('//', i)) {
-      const nl = src.indexOf('\n', i);
-      const close = nl === -1 || nl > end ? end : nl;
-      out += ' '.repeat(close - i);
-      i = close;
-      continue;
-    }
-    const q = src[i];
-    if (q === '"' || q === "'") {
-      const masked = maskQuoted(src, i, end, q);
-      out += masked.out;
-      i = masked.i;
-      continue;
-    }
-    if (q === '`') {
-      const masked = maskTemplate(src, i, end);
-      out += masked.out;
-      i = masked.i;
-      continue;
-    }
-    if (stopOnBrace) {
-      if (src[i] === '{') {
-        braceDepth += 1;
-      } else if (src[i] === '}') {
-        if (braceDepth === 0) return { out, i };
-        braceDepth -= 1;
-      }
-    }
-    out += src[i];
-    i += 1;
-  }
-  return { out, i };
-}
-
-function maskQuoted(src, i, end, q) {
-  let out = q;
-  i += 1;
-  while (i < end && src[i] !== q) {
-    if (src[i] === '\\' && i + 1 < end) {
-      out += '  ';
-      i += 2;
-      continue;
-    }
-    out += src[i] === '\n' ? '\n' : ' ';
-    i += 1;
-  }
-  if (i < end) {
-    out += src[i];
-    i += 1;
-  }
-  return { out, i };
-}
-
-function maskTemplate(src, i, end) {
-  let out = '`';
-  i += 1;
-  while (i < end) {
-    if (src[i] === '\\' && i + 1 < end) {
-      out += '  ';
-      i += 2;
-      continue;
-    }
-    if (src[i] === '`') {
-      out += '`';
-      i += 1;
-      return { out, i };
-    }
-    if (src[i] === '$' && i + 1 < end && src[i + 1] === '{') {
-      out += '${';
-      i += 2;
-      const inner = maskCode(src, i, end, true);
-      out += inner.out;
-      i = inner.i;
-      if (i < end && src[i] === '}') {
-        out += '}';
-        i += 1;
-      }
-      continue;
-    }
-    out += src[i] === '\n' ? '\n' : ' ';
-    i += 1;
-  }
-  return { out, i };
-}
-
-/**
- * `import(` whose first argument is not a string literal. Template
- * literals, concatenation, and other expressions all count. Does not
- * evaluate the specifier. Comments and strings are masked first.
- */
-function skipSpace(s, i) {
-  while (i < s.length && /[ \t\r\n]/.test(s[i])) i += 1;
-  return i;
-}
-
-function consumeStringLiteral(s, i) {
-  const q = s[i];
-  if (q !== "'" && q !== '"') return -1;
-  i += 1;
-  while (i < s.length && s[i] !== q) {
-    if (s[i] === '\\') i += 1;
-    i += 1;
-  }
-  if (i >= s.length) return -1;
-  return i + 1;
-}
-
-function firstImportArgument(src, code, openParenIndex) {
-  let depth = 0;
-  const start = openParenIndex + 1;
-  for (let i = openParenIndex; i < code.length; i++) {
-    if (code[i] === '(') {
-      depth += 1;
-      continue;
-    }
-    if (code[i] === ')') {
-      depth -= 1;
-      if (depth === 0) return src.slice(start, i).trim();
-    }
-  }
-  return src.slice(start).trim();
-}
-
-function findComputedDynamicImports(rel, src) {
-  const hits = [];
-  const code = maskCommentsAndStrings(src);
-  const re = /\bimport\s*\(/g;
-  let m;
-  while ((m = re.exec(code))) {
-    const openParen = m.index + m[0].length - 1;
-    let i = skipSpace(code, openParen + 1);
-    const afterString = consumeStringLiteral(code, i);
-    if (afterString !== -1) {
-      i = skipSpace(code, afterString);
-      if (code[i] === ')' || code[i] === ',') continue;
-    }
-    hits.push({
-      file: rel,
-      line: lineNumberAt(src, m.index),
-      specifier: firstImportArgument(src, code, openParen),
-    });
-  }
-  return hits;
-}
-
-/**
- * Each NAMED_COMPUTED_IMPORTS entry matches at most one hit. A second
- * computed import in an already-named file stays unnamed so it fails
- * closed with its own file:line.
- */
-function unnamedComputedImports(hits, requiredPaths, named = NAMED_COMPUTED_IMPORTS) {
-  const remaining = named.map((entry) => ({ ...entry, used: false }));
-  const unnamed = [];
-  for (const hit of hits) {
-    const idx = remaining.findIndex(
-      (entry) =>
-        !entry.used &&
-        entry.file === hit.file &&
-        entry.specifier.test(hit.specifier) &&
-        requiredPaths.some((relPath) => relPath.startsWith(entry.requiredPrefix)),
-    );
-    if (idx === -1) unnamed.push(hit);
-    else remaining[idx].used = true;
-  }
-  return unnamed;
-}
-
-/**
  * Follow relative ESM specifiers and relative `.mjs` string literals.
  * `node:` / package imports are ignored; paths that resolve outside the
- * package root are ignored. Computed `import()` specifiers are collected,
- * not resolved.
+ * package root are ignored.
  */
 function walkImportGraph(entryRels) {
   const FROM_RE = /\b(?:from|import)\s*['"](\.\.?\/[^'"]+)['"]/g;
@@ -309,7 +94,6 @@ function walkImportGraph(entryRels) {
 
   const seen = new Set();
   const reachable = [];
-  const computedImports = [];
   const queue = [...entryRels];
 
   while (queue.length > 0) {
@@ -321,7 +105,6 @@ function walkImportGraph(entryRels) {
     const abs = join(root, rel);
     if (!existsSync(abs)) continue;
     const src = readFileSync(abs, 'utf8');
-    computedImports.push(...findComputedDynamicImports(rel, src));
     const specs = [];
     for (const re of [FROM_RE, IMPORT_CALL_RE, MJS_REL_RE]) {
       re.lastIndex = 0;
@@ -337,7 +120,7 @@ function walkImportGraph(entryRels) {
       if (!seen.has(resolved)) queue.push(resolved);
     }
   }
-  return { reachable, computedImports };
+  return reachable;
 }
 
 function deriveRequired() {
@@ -373,12 +156,11 @@ function deriveRequired() {
   }
 
   const graphEntries = ['bin/antigravity.mjs', ...commandModules, ...mcpModules];
-  const { reachable, computedImports } = walkImportGraph(graphEntries);
-  for (const rel of reachable) {
+  for (const rel of walkImportGraph(graphEntries)) {
     add(required, rel, 'reachable from bin/antigravity.mjs, a command module, or an MCP server');
   }
 
-  return { required, computedImports };
+  return required;
 }
 
 function isMainModule() {
@@ -398,15 +180,8 @@ function isMainModule() {
   return modulePath === entryPath;
 }
 
-export {
-  NAMED_COMPUTED_IMPORTS,
-  findComputedDynamicImports,
-  maskCommentsAndStrings,
-  unnamedComputedImports,
-};
-
 function runCli() {
-  const { required, computedImports } = deriveRequired();
+  const required = deriveRequired();
 
   const npm =
     process.platform === 'win32'
@@ -449,26 +224,11 @@ function runCli() {
     if (!files.has(relPath)) missingRequired.push({ path: relPath, why });
   }
 
-  const unnamedComputed = unnamedComputedImports(computedImports, [...required.keys()]);
-
   if (missingRequired.length > 0) {
     console.error('missing required pack entries:');
     for (const item of missingRequired) {
       console.error(`  ${item.path} — ${item.why}`);
     }
-  }
-
-  if (unnamedComputed.length > 0) {
-    console.error('computed dynamic import (specifier is not a literal); name the target:');
-    for (const hit of unnamedComputed) {
-      console.error(
-        `  ${hit.file}:${hit.line} — a maintainer must name the target ` +
-          `(or it must already be required by an explicit rule)`,
-      );
-    }
-  }
-
-  if (missingRequired.length > 0 || unnamedComputed.length > 0) {
     process.exit(1);
   }
 

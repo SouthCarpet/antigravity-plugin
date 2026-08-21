@@ -39,14 +39,22 @@ Subcommands:
 | Subcommand                 | Notes                                               |
 |----------------------------|-----------------------------------------------------|
 | `agy plugin list`          | Imported plugins                                    |
-| `agy plugin import [gemini\|claude]` | Pulls plugins from gemini-cli or Claude Code  |
-| `agy plugin install <plugin@marketplace>` | Same syntax as Claude Code               |
+| `agy plugin import [gemini\|claude]` | Pulls plugins from gemini-cli or Claude Code. **Superseded — see below.** |
+| `agy plugin install <plugin@marketplace>` | Same syntax as Claude Code. **Superseded — see below.** |
 | `agy plugin uninstall` / `enable` / `disable` | Lifecycle                            |
 | `agy plugin validate [path]` | Validates plugin layout                           |
 | `agy plugin link <marketplace> <target>` | Generate marketplace link                |
 | `agy install`              | Configure shell PATH                                |
 | `agy update`               | Self-update                                         |
 | `agy changelog`            | Release notes                                       |
+
+The two install rows above are 1.0.1 spike notes, not current procedure.
+On the agy versions this plugin ships against (1.1.15 and 1.1.17),
+`agy plugin install <plugin@marketplace>` is not Claude Code's syntax —
+it fails with `unknown marketplace`. `agy plugin import claude` reports
+`No claude extensions found` even when Claude Code already has the plugin.
+The working install is `agy plugin install <path-to-clone>`; see
+[INSTALL.md](./INSTALL.md).
 
 ## agy plugin layout (canonical)
 

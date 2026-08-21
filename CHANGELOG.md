@@ -50,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   marketplace. agy has no `plugin run`. After install, TUI
   `/antigravity:<verb>` locates the copied runtime; the standalone CLI is
   the fallback that always works. Tested agy versions are 1.1.15 and 1.1.17.
+- **`check-pack` promises only the static pack graph** — it no longer
+  tries to fail closed on computed `import()` specifiers. Distinguishing a
+  regex literal from a division operator needs parser context this
+  zero-dependency scanner does not have. The derived required set (host
+  discovery trees, `commands/*.md`, `scripts/commands/*.mjs`,
+  `scripts/mcp/*.mjs`) and the walk over static imports and literal
+  `import("…")` stay. A computed specifier's target must be named by an
+  explicit rule; `bin/antigravity.mjs` loading `scripts/commands/<verb>.mjs`
+  already is.
 
 ### Removed
 
@@ -59,7 +68,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`check-pack` scans template interpolations and authorizes computed imports per call** — `${import(...)}` is executable code, not string content, and a second computed `import()` in `bin/antigravity.mjs` is no longer covered by the one legitimate command-module load.
 - **agy TUI `/antigravity:<verb>` no longer looks succeeded when the plugin
   did not run** — `commands/*.md` located the runtime via
   `${CLAUDE_PLUGIN_ROOT}`, which agy does not set, so the path collapsed to
@@ -79,9 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.bat` shim is refused with an actionable message instead of failing
   with `EINVAL`.
 - **`check-pack` requires every host file, not a sample** — dropping
-  `commands/vision.md` or a verb module fails the gate. A computed
-  `import()` that the walk cannot resolve also fails unless a maintainer
-  has named a target already covered by an explicit rule.
+  `commands/vision.md` or a verb module fails the gate.
 - **Cancellation tests measure only cancellation** — plus coverage for
   cancelling a queued worker that has no lock yet.
 - **CLI path-identity assertions run on every platform** — the suite no
