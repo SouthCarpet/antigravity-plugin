@@ -81,65 +81,130 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       stdout: "unused",
     });
     try {
+      const lockPath = stateLockPath(workspaceRoot);
+      const holdMarker = path.join(workspaceRoot, "worker-lock-release-held");
+      const startGate = path.join(workspaceRoot, "worker-start-gate");
+      const holdReleasePreload = pathToFileURL(
+        path.resolve("tests/helpers/hold-lock-release.mjs"),
+      ).href;
       const { job, pid } = await startBackgroundJob({
         workspaceRoot,
         kind: "task",
         title: "early cancel",
         prompt: "stay busy",
-        env: process.env,
+        env: {
+          ...process.env,
+          NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${holdReleasePreload}`]
+            .filter(Boolean)
+            .join(" "),
+          ANTIGRAVITY_TEST_HOLD_LOCK_PATH: lockPath,
+          ANTIGRAVITY_TEST_HOLD_LOCK_MARKER: holdMarker,
+          ANTIGRAVITY_TEST_WORKER_START_GATE: startGate,
+        },
       });
+      fs.writeFileSync(startGate, "go", "utf8");
+      const owner = await waitFor(() => {
+        try {
+          if (!fs.existsSync(holdMarker)) return null;
+          return JSON.parse(fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"));
+        } catch {
+          return null;
+        }
+      }, 30_000);
+      assert.ok(owner, "worker should acquire the state lock during startup");
+      assert.equal(owner.pid, pid, "the worker itself should own its startup lock");
+      const agyPid = readJobFile(workspaceRoot, job.id)?.agyPid;
+      assert.ok(Number.isInteger(agyPid) && agyPid > 0, "startup should publish the agy pid");
+
       const startedCancelAt = Date.now();
-      const lockPath = stateLockPath(workspaceRoot);
       const exitCode = await (await import("../scripts/commands/cancel.mjs")).run(
         [job.id, "--json"],
         {
           cwd: workspaceRoot,
           terminateProcessTree: async (targetPid) => {
-            assert.equal(targetPid, pid);
-            const owner = await waitFor(() => {
-              try {
-                return JSON.parse(fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"));
-              } catch {
-                return null;
-              }
-            });
-            assert.ok(owner, "worker should acquire the state lock during startup");
-            assert.equal(owner.pid, pid, "the worker itself should own its startup lock");
-
-            // Model an abrupt successful tree kill while the worker owns the
-            // lock. Changing the token prevents the still-live test worker's
-            // finally block from cleaning up our simulated crash artifact.
-            fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
-              ...owner,
-              token: "simulated-crashed-owner",
-            }));
+            assert.ok(
+              targetPid === pid || targetPid === agyPid,
+              `unexpected cancellation target ${targetPid}`,
+            );
+            const currentOwner = JSON.parse(
+              fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"),
+            );
+            assert.deepEqual(
+              currentOwner,
+              owner,
+              "the same worker lock should still be owned when termination begins",
+            );
+            const isWorker = targetPid === pid;
             return {
-              outcome: "killed",
+              outcome: isWorker ? "killed" : "not_found",
               killed: true,
               pid: targetPid,
-              status: 0,
+              status: isWorker ? 0 : 128,
               attempts: [],
-              message: `Process tree ${targetPid} terminated.`,
+              message: isWorker
+                ? `Process tree ${targetPid} terminated.`
+                : `Process ${targetPid} is not running.`,
             };
           },
           outputCommandResult: () => {},
         },
       );
 
-      assert.ok(Date.now() - startedCancelAt < 5000, "early cancellation should stay bounded");
+      assert.ok(Date.now() - startedCancelAt < 5000, "cancellation should stay bounded");
       assert.equal(exitCode, 0);
       assert.equal(readJobFile(workspaceRoot, job.id)?.status, "cancelled");
 
-      // The injected terminator deliberately does not kill a real process in
-      // the sandbox. Let the short fake finish so cleanup does not leak it.
-      await waitFor(() => {
-        try { process.kill(pid, 0); return false; } catch { return true; }
-      }, 6000);
+      // The preload exits the worker when cancellation reaps its lock; the
+      // short fake agy exits on its own. Wait for both so cleanup leaks none.
+      await waitFor(() => [pid, agyPid].every((targetPid) => {
+        try { process.kill(targetPid, 0); return false; } catch { return true; }
+      }), 6000);
     } finally {
       if (originalClaudeData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
       else process.env.CLAUDE_PLUGIN_DATA = originalClaudeData;
       if (originalAgyBin === undefined) delete process.env.AGY_BIN;
       else process.env.AGY_BIN = originalAgyBin;
+    }
+  });
+
+  it("cancels a queued worker before it acquires the startup lock", async () => {
+    const { workspaceRoot, dataRoot } = freshWorkspace();
+    const originalClaudeData = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_PLUGIN_DATA = dataRoot;
+    try {
+      const job = await createTrackedJob({
+        workspaceRoot,
+        kind: "task",
+        title: "cancel before startup",
+      });
+      const workerPid = 2 ** 22;
+      await patchJob(workspaceRoot, job.id, { pid: workerPid, workerPid });
+      assert.equal(fs.existsSync(stateLockPath(workspaceRoot)), false);
+
+      const exitCode = await (await import("../scripts/commands/cancel.mjs")).run(
+        [job.id, "--json"],
+        {
+          cwd: workspaceRoot,
+          terminateProcessTree: async (targetPid) => {
+            assert.equal(targetPid, workerPid);
+            return {
+              outcome: "not_found",
+              killed: true,
+              pid: targetPid,
+              status: 128,
+              attempts: [],
+              message: `Process ${targetPid} is not running.`,
+            };
+          },
+          outputCommandResult: () => {},
+        },
+      );
+
+      assert.equal(exitCode, 0);
+      assert.equal(readJobFile(workspaceRoot, job.id)?.status, "cancelled");
+    } finally {
+      if (originalClaudeData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+      else process.env.CLAUDE_PLUGIN_DATA = originalClaudeData;
     }
   });
 
