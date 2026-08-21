@@ -10,7 +10,7 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { existsSync } from 'node:fs';
-import { resolve as resolvePath, join, delimiter } from 'node:path';
+import { resolve as resolvePath, join, delimiter, extname } from 'node:path';
 
 /** Default binary name. Override via env `AGY_BIN`. */
 export const DEFAULT_AGY_BIN = 'agy';
@@ -31,17 +31,81 @@ function candidateNames(platform) {
   return platform === 'win32' ? ['agy.exe', 'agy.cmd', DEFAULT_AGY_BIN] : [DEFAULT_AGY_BIN];
 }
 
+function isExeName(name) {
+  return extname(name).toLowerCase() === '.exe';
+}
+
+function firstExisting(dirs, names) {
+  for (const dir of dirs) {
+    for (const name of names) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * True when `bin` is a Windows batch shim. Node refuses to spawn these
+ * directly (EINVAL on >= 20.12.2) because arguments go through cmd.exe,
+ * which is an argument-injection surface (CVE-2024-27980). This plugin
+ * puts user prompts in those arguments, so we never make `.cmd`/`.bat`
+ * spawnable.
+ *
+ * @param {string} bin
+ */
+export function isWindowsBatchFile(bin) {
+  const ext = extname(String(bin ?? '')).toLowerCase();
+  return ext === '.cmd' || ext === '.bat';
+}
+
+/**
+ * Actionable refusal for a resolved `.cmd`/`.bat` path, including when
+ * the user pointed `AGY_BIN` at one.
+ *
+ * @param {string} bin
+ */
+export function batchShimRefusalMessage(bin) {
+  return (
+    `Refusing to spawn "${bin}" because it is a Windows .cmd/.bat shim. ` +
+    `Node.js cannot execute batch files directly (EINVAL on Node >= 20.12.2), ` +
+    `and passing user prompts through cmd.exe is an argument-injection surface. ` +
+    `Point AGY_BIN at the real agy.exe (the native binary, not this shim).`
+  );
+}
+
+/**
+ * Throw if `bin` is a `.cmd`/`.bat` shim. Call this at every spawn site
+ * instead of letting a raw EINVAL escape.
+ *
+ * @param {string} bin
+ */
+export function assertAgyBinSpawnable(bin) {
+  if (isWindowsBatchFile(bin)) {
+    throw new Error(batchShimRefusalMessage(bin));
+  }
+}
+
+function spawnAgy(bin, args, opts) {
+  assertAgyBinSpawnable(bin);
+  return spawn(bin, args, opts);
+}
+
 /**
  * Resolve the `agy` binary path.
  *
- * Order: `$AGY_BIN` → first `agy` on `PATH` → `~/.local/bin/agy` → bare
- * `agy` (left for the shell / PATH lookup at spawn time).
+ * Order: `$AGY_BIN` → `PATH` → `~/.local/bin/agy` → bare `agy` (left for
+ * the shell / PATH lookup at spawn time).
  *
  * On win32, `PATH`/`Path` is split on `path.delimiter` (`;`, not POSIX `:`)
- * and each directory is probed for `agy.exe`, `agy.cmd`, then bare `agy`
- * (covers native installs, npm shims, and MSYS-style installs). The home
+ * and searched in two passes: every directory for `agy.exe` first, and only
+ * then every directory for `agy.cmd` / bare `agy`. An `.exe` later on PATH
+ * therefore wins over a `.cmd` shim in an earlier directory. The home
  * fallback checks `HOME` then `USERPROFILE`, since `HOME` is frequently
  * unset in native Windows shells.
+ *
+ * Resolving to a `.cmd`/`.bat` is not the same as spawning it: spawn sites
+ * refuse batch shims via `assertAgyBinSpawnable`.
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @param {string} [platform] - defaults to `process.platform`; injectable for tests.
@@ -50,20 +114,23 @@ export function resolveAgyBin(env = process.env, platform = process.platform) {
   if (env.AGY_BIN && existsSync(env.AGY_BIN)) return env.AGY_BIN;
 
   const names = candidateNames(platform);
+  const exeNames = names.filter(isExeName);
+  const restNames = names.filter((name) => !isExeName(name));
   const PATH = env.PATH || env.Path || '';
-  for (const dir of PATH.split(delimiter).filter(Boolean)) {
-    for (const name of names) {
-      const candidate = join(dir, name);
-      if (existsSync(candidate)) return candidate;
-    }
-  }
+  const pathDirs = PATH.split(delimiter).filter(Boolean);
+
+  const fromPathExe = firstExisting(pathDirs, exeNames);
+  if (fromPathExe) return fromPathExe;
+  const fromPathRest = firstExisting(pathDirs, restNames);
+  if (fromPathRest) return fromPathRest;
 
   const home = env.HOME || env.USERPROFILE;
   if (home) {
-    for (const name of names) {
-      const candidate = join(home, '.local', 'bin', name);
-      if (existsSync(candidate)) return candidate;
-    }
+    const homeDirs = [join(home, '.local', 'bin')];
+    const fromHomeExe = firstExisting(homeDirs, exeNames);
+    if (fromHomeExe) return fromHomeExe;
+    const fromHomeRest = firstExisting(homeDirs, restNames);
+    if (fromHomeRest) return fromHomeRest;
   }
 
   return DEFAULT_AGY_BIN;
@@ -74,8 +141,13 @@ export function resolveAgyBin(env = process.env, platform = process.platform) {
  * `{ ok: false, reason }`.
  */
 export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000 } = {}) {
+  try {
+    assertAgyBinSpawnable(bin);
+  } catch (err) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
   return new Promise((resolve) => {
-    const child = spawn(bin, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawnAgy(bin, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
@@ -278,7 +350,7 @@ export async function runAgyPrint({
   args.push(...extraArgs);
   args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
 
-  const child = spawn(bin, args, {
+  const child = spawnAgy(bin, args, {
     cwd,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -468,7 +540,7 @@ export function spawnAgyDetached({
   args.push(...extraArgs);
   args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
 
-  const child = spawn(bin, args, {
+  const child = spawnAgy(bin, args, {
     cwd,
     env,
     detached: true,

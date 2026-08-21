@@ -12,7 +12,7 @@
  */
 import { spawn } from 'node:child_process';
 import { readCommandInput } from '../lib/args.mjs';
-import { resolveAgyBin, probeAgy } from '../lib/agent-runtime.mjs';
+import { resolveAgyBin, probeAgy, assertAgyBinSpawnable } from '../lib/agent-runtime.mjs';
 import { ensureVisionConfig, removeVisionConfig, VISION_PERMISSION } from '../lib/vision-config.mjs';
 import { runIfMain } from '../lib/cli-entry.mjs';
 
@@ -34,6 +34,12 @@ export async function run(argv = [], ctx = {}) {
   }
 
   const bin = resolveAgyBin();
+  try {
+    assertAgyBinSpawnable(bin);
+  } catch (err) {
+    process.stderr.write(`antigravity:setup — ${err?.message ?? err}\n`);
+    return 1;
+  }
   const probe = await probeAgy({ bin });
   if (!probe.ok) {
     process.stderr.write(

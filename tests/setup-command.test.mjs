@@ -25,6 +25,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
     resolveAgyBin: () => 'agy',
     probeAgy: async () => state.probe,
+    assertAgyBinSpawnable: () => {},
   },
 });
 

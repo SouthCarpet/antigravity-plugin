@@ -46,7 +46,16 @@ mock.module('node:child_process', {
   },
 });
 
-const { resolveAgyBin, runAgyPrint, spawnAgyDetached, DEFAULT_AGY_BIN } = await import(
+const {
+  resolveAgyBin,
+  runAgyPrint,
+  spawnAgyDetached,
+  probeAgy,
+  DEFAULT_AGY_BIN,
+  assertAgyBinSpawnable,
+  batchShimRefusalMessage,
+  isWindowsBatchFile,
+} = await import(
   '../scripts/lib/agent-runtime.mjs'
 );
 
@@ -125,6 +134,76 @@ describe('resolveAgyBin — platform-shaped candidates', () => {
       resolveAgyBin({ PATH: '/nonexistent/dir', HOME: '/also/nonexistent' }, 'win32'),
       DEFAULT_AGY_BIN,
     );
+  });
+
+  it('win32-shaped: two-pass PATH prefers a later agy.exe over an earlier agy.cmd', () => {
+    const shimDir = fs.mkdtempSync(path.join(root, 'shim-early-'));
+    const exeDir = fs.mkdtempSync(path.join(root, 'exe-late-'));
+    makeExecutable(shimDir, 'agy.cmd');
+    const exe = makeExecutable(exeDir, 'agy.exe');
+    const env = { PATH: [shimDir, exeDir].join(path.delimiter) };
+    assert.equal(resolveAgyBin(env, 'win32'), exe);
+  });
+});
+
+describe('assertAgyBinSpawnable — refuse Windows batch shims', () => {
+  let root;
+  before(() => {
+    root = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-refuse-'));
+  });
+  after(() => {
+    try { fs.rmSync(root, { recursive: true, force: true }); } catch {}
+  });
+
+  it('throws a message that names AGY_BIN and agy.exe for a .cmd path', () => {
+    const cmd = makeExecutable(fs.mkdtempSync(path.join(root, 'cmd-')), 'agy.cmd');
+    assert.equal(isWindowsBatchFile(cmd), true);
+    assert.throws(
+      () => assertAgyBinSpawnable(cmd),
+      (err) => {
+        assert.match(err.message, /AGY_BIN/);
+        assert.match(err.message, /agy\.exe/);
+        assert.match(err.message, /\.cmd/i);
+        assert.equal(err.message, batchShimRefusalMessage(cmd));
+        return true;
+      },
+    );
+  });
+
+  it('refuses AGY_BIN when it points at a .cmd shim', async () => {
+    const cmd = makeExecutable(fs.mkdtempSync(path.join(root, 'agybin-')), 'agy.cmd');
+    const resolved = resolveAgyBin({ AGY_BIN: cmd, PATH: '' }, 'win32');
+    assert.equal(resolved, cmd);
+
+    spawnCalls.length = 0;
+    await assert.rejects(runAgyPrint({ prompt: 'p', bin: resolved }), (err) => {
+      assert.match(err.message, /AGY_BIN/);
+      assert.match(err.message, /agy\.exe/);
+      return true;
+    });
+    assert.equal(spawnCalls.length, 0, 'must not spawn a .cmd shim');
+
+    assert.throws(
+      () => spawnAgyDetached({ prompt: 'p', bin: resolved }),
+      /AGY_BIN/,
+    );
+    assert.equal(spawnCalls.length, 0, 'must not spawn a .cmd shim');
+
+    const probe = await probeAgy({ bin: resolved });
+    assert.equal(probe.ok, false);
+    assert.match(probe.reason, /AGY_BIN/);
+    assert.match(probe.reason, /agy\.exe/);
+    assert.equal(spawnCalls.length, 0, 'must not spawn a .cmd shim');
+  });
+
+  it('refuses a .bat path the same way', () => {
+    const bat = makeExecutable(fs.mkdtempSync(path.join(root, 'bat-')), 'agy.bat');
+    assert.throws(() => assertAgyBinSpawnable(bat), /AGY_BIN/);
+  });
+
+  it('allows a non-batch binary', () => {
+    assert.doesNotThrow(() => assertAgyBinSpawnable('agy'));
+    assert.doesNotThrow(() => assertAgyBinSpawnable(process.execPath));
   });
 });
 

@@ -193,13 +193,10 @@ Threat boundaries and how to report a vulnerability:
 
 ## Known issues
 
-All four issues tracked before v0.2.3 are fixed in v0.2.3. Open ones live
-under the
-[`known issue` label](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22):
-
-| # | Issue | Workaround |
-|---|---|---|
-| [#5](https://github.com/SouthCarpet/antigravity-plugin/issues/5) | Latent: if `agy` resolves to a **`.cmd` shim** on Windows, spawning it fails with `EINVAL` on Node ≥ 20.12.2 (untraveled with a normal `agy.exe` install) | Point `AGY_BIN` at the real `agy.exe` |
+All previously tracked items, including
+[#5](https://github.com/SouthCarpet/antigravity-plugin/issues/5) (Windows
+`.cmd` shim), are fixed. Newly opened ones would live under the
+[`known issue` label](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22).
 
 ## Documentation
 
