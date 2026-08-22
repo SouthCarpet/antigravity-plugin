@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   normalises text to LF and marks binary extensions as `binary`, so a
   fresh checkout matches the Unix test baseline and binary fixtures cannot
   be mangled by `core.autocrlf`.
+- **One workspace no longer takes two different state locks on Windows** —
+  `lockPathFor` hashed `path.resolve` output, so the short (`RUNNER~1`) and
+  long (`runneradmin`) spelling of the same directory produced different
+  lock paths and two processes could each hold "the" lock. It now hashes the
+  canonical form. `cli-entry`'s main-module check was canonicalised for the
+  same reason.
 - **`spawnDetached` tests wait for the child `exit` after re-ref'ing** —
   the helper unrefs by design; tests that awaited `exit` without re-ref'ing
   left a pending promise after the event loop drained (`cancelledByParent`
