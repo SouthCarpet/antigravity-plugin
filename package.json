@@ -4,7 +4,7 @@
   "description": "Multi-host plugin for delegating tasks and code reviews to Google Antigravity CLI (agy). Works inside Claude Code, Codex CLI, agy itself, and as a standalone CLI.",
   "type": "module",
   "bin": {
-    "antigravity-plugin": "./bin/antigravity.mjs"
+    "antigravity-plugin": "bin/antigravity.mjs"
   },
   "scripts": {
     "test": "node --test --experimental-test-module-mocks tests/*.test.mjs",
@@ -18,7 +18,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SouthCarpet/antigravity-plugin.git"
+    "url": "git+https://github.com/SouthCarpet/antigravity-plugin.git"
   },
   "homepage": "https://github.com/SouthCarpet/antigravity-plugin#readme",
   "bugs": {
