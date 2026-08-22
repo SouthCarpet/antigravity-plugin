@@ -13,6 +13,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 import { portableTmpRoot, assertNotGitWorkTree } from './helpers/tmp.mjs';
+import { canonicalComparePath } from '../scripts/lib/paths.mjs';
 import {
   ensureGitRepository,
   getCurrentBranch,
@@ -63,7 +64,7 @@ after(() => {
 describe('git.ensureGitRepository / getCurrentBranch / getHeadSha', () => {
   it('returns repo root and branch metadata for a real repo', () => {
     const root = ensureGitRepository(repo);
-    assert.equal(fs.realpathSync(root), fs.realpathSync(repo));
+    assert.equal(canonicalComparePath(root), canonicalComparePath(repo));
 
     const branch = getCurrentBranch(repo);
     assert.equal(branch, 'main');

@@ -19,14 +19,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { reapFileLockOwnedBy, withFileLock } from "./file-lock.mjs";
+import { canonicalComparePath, expandShortPath } from "./paths.mjs";
 
 const mutexes = new Map();
-const LOCK_ROOT = path.join(os.tmpdir(), "antigravity-state-locks");
+const LOCK_ROOT = path.join(expandShortPath(os.tmpdir()), "antigravity-state-locks");
 const STATE_LOCK_TIMEOUT_MS = 30_000;
 
 function lockPathFor(key) {
-  const resolved = path.resolve(String(key));
-  const canonical = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  const canonical = canonicalComparePath(String(key));
   const hash = crypto.createHash("sha256").update(canonical).digest("hex");
   return path.join(LOCK_ROOT, `${hash}.lock`);
 }

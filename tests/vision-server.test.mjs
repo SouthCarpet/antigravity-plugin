@@ -8,7 +8,7 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import readline from 'node:readline';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,10 +16,26 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadImageResult } from '../scripts/mcp/vision-server.mjs';
+import { canonicalComparePath } from '../scripts/lib/paths.mjs';
 import { VISION_ALLOWLIST_ENV } from '../scripts/lib/vision-capability.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.resolve(__dirname, '..', 'scripts', 'mcp', 'vision-server.mjs');
+
+/** Windows `%~sI` short path, or `absPath` when 8.3 names are not available. */
+function windowsShortPath(absPath) {
+  if (process.platform !== 'win32') return absPath;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-short-'));
+  try {
+    const bat = path.join(dir, 'short.bat');
+    fs.writeFileSync(bat, `@echo off\r\nfor %%I in ("${absPath}") do echo %%~sI\r\n`);
+    const result = spawnSync('cmd.exe', ['/c', bat], { encoding: 'utf8' });
+    const line = String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop();
+    return line || absPath;
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+}
 
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -101,6 +117,36 @@ describe('vision-server.loadImageResult', () => {
     const out = loadImageResult(linkedPath, tmpDir, [linkedPath]);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /symlink|junction/);
+  });
+
+  it('still refuses a real junction after short-name canonicalization', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-junc-canon-'));
+    tmpDirs.push(outsideDir);
+    const outsidePath = path.join(outsideDir, 'secret.png');
+    fs.writeFileSync(outsidePath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    const linkDir = path.join(tmpDir, 'canonical-looking');
+    fs.symlinkSync(outsideDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
+    const linkedPath = path.join(linkDir, 'secret.png');
+    const shortLinked = windowsShortPath(linkedPath);
+
+    assert.notEqual(
+      canonicalComparePath(linkedPath),
+      canonicalComparePath(fs.realpathSync.native(linkedPath)),
+      'canonical form of a junction path must not equal its realpath target',
+    );
+
+    const out = loadImageResult(shortLinked, tmpDir, [shortLinked, linkedPath]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /symlink|junction/);
+  });
+
+  it('allows a legitimate image reached via a Windows 8.3 short path', () => {
+    const shortDir = windowsShortPath(tmpDir);
+    const shortPng = path.join(shortDir, 'probe.png');
+    const out = loadImageResult('probe.png', shortDir, [shortPng, pngPath]);
+    assert.equal(out.isError, undefined);
+    const imagePart = out.content.find((c) => c.type === 'image');
+    assert.ok(imagePart, 'expected an image content block');
   });
 
   it('denies all image access when the invocation capability is absent', () => {

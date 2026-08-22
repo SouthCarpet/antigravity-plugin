@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows 8.3 short paths are no longer treated as symlink escapes** —
+  `vision-server` compared `path.resolve` against `fs.realpathSync.native()`,
+  so a legitimate image under `C:\Users\RUNNER~1\…` was refused when native
+  realpath expanded it to `C:\Users\runneradmin\…`. Both sides are now
+  canonicalised (8.3 expanded, `\\?\` prefix stripped, case-folded) without
+  following junctions, so a real junction or symlink that points elsewhere
+  is still refused.
+- **Windows clones no longer rewrite text to CRLF** — `.gitattributes`
+  normalises text to LF and marks binary extensions as `binary`, so a
+  fresh checkout matches the Unix test baseline and binary fixtures cannot
+  be mangled by `core.autocrlf`.
+- **`spawnDetached` tests wait for the child `exit` after re-ref'ing** —
+  the helper unrefs by design; tests that awaited `exit` without re-ref'ing
+  left a pending promise after the event loop drained (`cancelledByParent`
+  on Node 22.3, a failure on Windows).
+
 ## [1.0.0] — 2026-08-21
 
 ### Added

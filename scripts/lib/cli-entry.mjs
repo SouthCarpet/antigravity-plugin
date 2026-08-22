@@ -19,18 +19,18 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+
+import { canonicalComparePath } from "./paths.mjs";
 
 /**
  * True when `importMetaUrl` is the URL of the module Node was invoked with
  * (`node <file>`), i.e. `process.argv[1]`.
  *
- * Both sides are normalized through fileURLToPath + path.resolve so that
- * forward vs backslashes and drive-letter case don't cause a false negative.
- * On win32 the comparison is case-insensitive (NTFS paths are, for this
- * purpose). Not covered: 8.3 short names and symlinked entrypoints —
- * path.resolve does not dereference those; realpath would, at the cost of a
- * filesystem call on every import.
+ * Both sides go through fileURLToPath + canonicalComparePath so that
+ * slashes, drive-letter case, and 8.3 short names don't cause a false
+ * negative. Junctions are not followed: an entrypoint reached through a
+ * reparse point is a different lexical path, matching the previous
+ * path.resolve behaviour.
  *
  * @param {string} importMetaUrl
  * @returns {boolean}
@@ -39,19 +39,11 @@ function isMainModule(importMetaUrl) {
   const entry = process.argv[1];
   if (!entry) return false;
 
-  let modulePath;
-  let entryPath;
   try {
-    modulePath = resolve(fileURLToPath(importMetaUrl));
-    entryPath = resolve(entry);
+    return canonicalComparePath(fileURLToPath(importMetaUrl)) === canonicalComparePath(entry);
   } catch {
     return false;
   }
-
-  if (process.platform === "win32") {
-    return modulePath.toLowerCase() === entryPath.toLowerCase();
-  }
-  return modulePath === entryPath;
 }
 
 /**

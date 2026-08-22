@@ -1,0 +1,26 @@
+# Deterministic checkouts on every OS. core.autocrlf on Windows would
+# otherwise rewrite text to CRLF and break byte-identical drift tests
+# (commands/*.md vs hostRefusalContract()) plus any binary fixture.
+* text=auto eol=lf
+
+# Genuinely binary — never inspected or converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.7z binary
+*.exe binary
+*.dll binary
+*.bin binary
+*.dat binary
+*.wasm binary

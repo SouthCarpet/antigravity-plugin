@@ -26,6 +26,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
+import { canonicalComparePath } from "../lib/paths.mjs";
 import { decodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
 
 /** Supported image extensions → MIME type. */
@@ -78,12 +79,14 @@ export function loadImageResult(
   allowedPaths = decodeVisionAllowlist(process.env[VISION_ALLOWLIST_ENV]),
 ) {
   const p = path.resolve(cwd, String(rawPath ?? ""));
-  const compare = (value) => {
-    const normalized = path.normalize(path.resolve(value));
-    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-  };
-  const allowed = new Set(allowedPaths.map((allowedPath) => compare(path.resolve(cwd, allowedPath))));
-  if (!allowed.has(compare(p))) {
+  // Canonicalise 8.3 short names and `\\?\` prefixes on both sides without
+  // following junctions. path.resolve("C:\\Users\\RUNNER~1\\…") and
+  // realpathSync.native of the same file otherwise compare unequal and a
+  // legitimate image is refused as a symlink escape.
+  const allowed = new Set(
+    allowedPaths.map((allowedPath) => canonicalComparePath(path.resolve(cwd, allowedPath))),
+  );
+  if (!allowed.has(canonicalComparePath(p))) {
     return errorContent("ERROR: path is not authorized for this vision invocation");
   }
 
@@ -95,7 +98,7 @@ export function loadImageResult(
   }
   // Compare after realpath: a symlink/junction may look allowed lexically but
   // resolve elsewhere. Requiring equality rejects that escape before reading.
-  if (compare(realPath) !== compare(p)) {
+  if (canonicalComparePath(realPath) !== canonicalComparePath(p)) {
     return errorContent("ERROR: authorized path resolves through a symlink or junction; refusing access");
   }
 

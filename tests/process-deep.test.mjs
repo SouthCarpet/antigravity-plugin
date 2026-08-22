@@ -133,12 +133,33 @@ describe('terminateProcessTree', () => {
   });
 });
 
+/**
+ * spawnDetached() unrefs the child so a fire-and-forget worker does not keep
+ * the parent event loop alive. node:test treats a Promise that outlives the
+ * loop as cancelledByParent. Re-ref and wait for the real `exit`/`error`
+ * signal — never a timeout.
+ *
+ * @param {import('node:child_process').ChildProcess} child
+ * @returns {Promise<{ code: number | null, signal: NodeJS.Signals | null }>}
+ */
+function waitForExit(child) {
+  if (typeof child.ref === 'function') child.ref();
+  return new Promise((resolve, reject) => {
+    const done = (code, signal) => resolve({ code, signal });
+    if (child.exitCode !== null || child.signalCode !== null) {
+      done(child.exitCode, child.signalCode);
+      return;
+    }
+    child.once('exit', done);
+    child.once('error', reject);
+  });
+}
+
 describe('spawnDetached', () => {
-  it('spawns with stdio=ignore and unrefs when no log file is provided', () => {
+  it('spawns with stdio=ignore and unrefs when no log file is provided', async () => {
     const child = spawnDetached(process.execPath, ['-e', 'process.exit(0)']);
     assert.ok(child.pid);
-    // Wait for exit so the test does not leave a zombie.
-    return new Promise((resolve) => child.on('exit', () => resolve()));
+    await waitForExit(child);
   });
 
   it('redirects stderr to a log file when logFile is provided', async () => {
@@ -155,7 +176,7 @@ describe('spawnDetached', () => {
     try {
       const child = spawnDetached(command, args, { logFile: log });
       assert.ok(child.pid);
-      await new Promise((resolve) => child.on('exit', () => resolve()));
+      await waitForExit(child);
       const body = fs.readFileSync(log, 'utf8');
       assert.match(body, /line-to-stderr/);
     } finally {

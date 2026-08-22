@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url";
 
 import { FileLockTimeoutError, withFileLock } from "../scripts/lib/file-lock.mjs";
 import { createTrackedJob, patchJob, startBackgroundJob } from "../scripts/lib/job-helpers.mjs";
+import { canonicalComparePath, expandShortPath } from "../scripts/lib/paths.mjs";
 import { readJobFile, resolveStateDir, resolveStateRoot } from "../scripts/lib/state.mjs";
 import { writeFakeAgy } from "./helpers/fake-agy.mjs";
 
@@ -37,10 +38,9 @@ function waitForChild(child) {
 }
 
 function stateLockPath(workspaceRoot) {
-  const resolved = path.resolve(resolveStateDir(workspaceRoot));
-  const canonical = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  const canonical = canonicalComparePath(resolveStateDir(workspaceRoot));
   const hash = crypto.createHash("sha256").update(canonical).digest("hex");
-  return path.join(os.tmpdir(), "antigravity-state-locks", `${hash}.lock`);
+  return path.join(expandShortPath(os.tmpdir()), "antigravity-state-locks", `${hash}.lock`);
 }
 
 async function waitFor(predicate, timeoutMs = 5000) {
