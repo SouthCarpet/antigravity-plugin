@@ -183,6 +183,21 @@ actual image content is reported through the stable
 `VISION-UNAVAILABLE: <reason>` response described in the compatibility
 contract, not through a special exit code.
 
+The prompt asks for a fixed answer shape: `## Transcription` (every visible
+text string of every image, verbatim, one per line, `(no text)` when there is
+none), then `## Observations` (visual facts only), then `## Answer`. It tells
+the model that `view_image` is the only way to see an image and that
+`read_file` on an image returns bytes, not pixels. An answer from this
+channel is not evidence. The transcript, cross-checked against the source
+image, is: a claim in `## Answer` that quotes no transcribed line has nothing
+behind it. The shape is requested by the prompt, not enforced by agy, so a
+model can still deviate from it.
+
+`vision` does not accept `--add-dir`. That flag is the headless read grant
+for agy's own file tools (see `rescue` and `task`); `vision` hands the
+images to agy through the MCP tool with a per-run allowlist instead, so the
+run never needs a directory grant.
+
 Exit status is 0 when agy reports a completed response (including the sentinel),
 1 for validation/authentication/execution/state failure, and 2 for a cancelled
 agy outcome.

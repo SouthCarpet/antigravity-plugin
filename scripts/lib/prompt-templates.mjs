@@ -78,8 +78,18 @@ export function buildReviewPrompt(contextEnvelope) {
  *
  * agy `--print` has no native image ingestion path (see vision-server.mjs
  * header). The only proven channel is an MCP tool call whose result carries
- * an image content block, so this prompt explicitly instructs the model to
- * call the `view_image` MCP tool for every listed path before answering.
+ * an image content block, so this prompt instructs the model to call the
+ * `view_image` MCP tool for every listed path, and forbids `read_file` on
+ * an image: that returns bytes as text, which is exactly the failure mode
+ * the `VISION-UNAVAILABLE` sentinel exists for.
+ *
+ * The answer has a fixed shape, transcription first. A model that must
+ * copy every visible string verbatim before it interprets anything cannot
+ * describe UI that is not there without the transcript contradicting it,
+ * and the transcript can be checked against the source by a human or a
+ * test. Plan 065 (2026-09) recorded a PASS-on-every-axis review of elements
+ * that did not exist; the transcription-first instruction was the fix that
+ * held.
  *
  * @param {{ imagePaths: string[], userPrompt: string }} args
  * @returns {string}
@@ -89,24 +99,44 @@ export function buildVisionPrompt({ imagePaths, userPrompt }) {
   lines.push("You have an MCP tool named `view_image` that loads an image file from disk");
   lines.push("and returns it as real visual image content you can see.");
   lines.push("");
+  lines.push("`view_image` is the ONLY way to see an image. Do NOT call `read_file` (or any");
+  lines.push("other file tool) on an image path: it returns bytes as text, not pixels, and");
+  lines.push("you would be guessing.");
+  lines.push("");
   lines.push(`Call \`view_image\` once for EACH of the following ${imagePaths.length} image path(s), in order:`);
   for (const p of imagePaths) {
     lines.push(`- ${p}`);
   }
   lines.push("");
-  lines.push("After you have called the tool for every path above and can see the returned images,");
-  lines.push("answer the following question with concrete visual observations only — describe what");
-  lines.push("you actually see (layout, elements, colors, text, anything unusual). Do not guess or");
-  lines.push("infer content you have not seen.");
+  lines.push("When you can see every image, reply with EXACTLY these three sections, in this");
+  lines.push("order, and nothing before the first heading:");
+  lines.push("");
+  lines.push("## Transcription");
+  lines.push("For each image, in the order listed, a sub-heading `### Image N: <file name>`");
+  lines.push("followed by EVERY visible text string, verbatim, one per line: labels, headings,");
+  lines.push("buttons, menu items, table cells, numbers, units, currency symbols, placeholders,");
+  lines.push("captions. Copy exactly what is rendered, including case, spacing, punctuation and");
+  lines.push("diacritics. No paraphrase, no omission, no grouping, no interpretation. If an image");
+  lines.push("has no text, write `(no text)` under its sub-heading.");
+  lines.push("");
+  lines.push("## Observations");
+  lines.push("Concrete visual facts only, one per line: layout, regions, colours, shapes, states");
+  lines.push("(selected, disabled, error), alignment, anything unusual. Describe only what is");
+  lines.push("visible. Do not name elements that do not appear in the transcription above unless");
+  lines.push("they carry no text (icons, images, borders).");
+  lines.push("");
+  lines.push("## Answer");
+  lines.push("Answer the question below using ONLY the two sections above. Where the question");
+  lines.push("asks about text or values, quote the transcribed line.");
   lines.push("");
   lines.push("## Question");
   lines.push(userPrompt);
   lines.push("");
   lines.push("## Contract");
   lines.push(
-    "If any `view_image` call returns no actual visual content, errors, or the tool is unavailable, " +
-      "do NOT guess or answer from the file path/name alone. Instead reply with EXACTLY one line, " +
-      "no other text:",
+    "If `view_image` is unavailable, errors, or returns no actual visual content for any path, " +
+      "do NOT guess, do NOT fall back to another tool, and do NOT answer from the file path/name. " +
+      "Instead reply with EXACTLY one line, no other text:",
   );
   lines.push("VISION-UNAVAILABLE: <one-line reason>");
   return lines.join("\n");
