@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Tests fake seams this plugin owns, not Node built-ins.**
+  `scripts/lib/process-adapter.mjs` is the single spawn seam, and `now`,
+  `sleep`, the atomic writer, and the `{ platform, fs }` options of
+  `paths.mjs` and `vision-server` are injectable with production defaults.
+  The 8.3 short-name and junction cases now run against a fixture volume
+  and assert on every host instead of skipping where the volume mints no
+  alias. No runtime behaviour changes.
+
 ## [1.0.1] — 2026-08-22
 
 ### Fixed

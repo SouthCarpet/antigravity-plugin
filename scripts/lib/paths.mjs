@@ -9,10 +9,27 @@
  * long name via directory listing + inode match. It does not follow
  * symlinks or junctions, so a path that actually resolves elsewhere still
  * compares unequal to `realpathSync.native()`.
+ *
+ * `expandShortPath` and `canonicalComparePath` take an optional seam
+ * `{ platform, fs }` (defaults: `process.platform`, `node:fs`; only
+ * `lstatSync` and `readdirSync` are used). Tests supply a fixture volume so
+ * 8.3 expansion is asserted on hosts whose filesystem never mints an alias.
+ * Production callers pass nothing and get the real implementation.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+
+/**
+ * `path.win32` or `path.posix` for a platform id. For the host's own
+ * platform this is the same object as `node:path`.
+ *
+ * @param {string} [platform]
+ * @returns {path.PlatformPath}
+ */
+export function pathModuleFor(platform = process.platform) {
+  return platform === "win32" ? path.win32 : path.posix;
+}
 
 /**
  * Strip a Windows extended-length prefix (`\\?\C:\…`, `\\?\UNC\…`).
@@ -33,23 +50,25 @@ export function stripExtendedPath(input) {
  * Expand 8.3 short-name components without following symlinks or junctions.
  *
  * @param {string} input
+ * @param {{ platform?: string, fs?: Pick<typeof fs, "lstatSync" | "readdirSync"> }} [seam]
  * @returns {string}
  */
-export function expandShortPath(input) {
-  const resolved = path.resolve(stripExtendedPath(input));
-  if (process.platform !== "win32") return path.normalize(resolved);
+export function expandShortPath(input, { platform = process.platform, fs: fsImpl = fs } = {}) {
+  const p = pathModuleFor(platform);
+  const resolved = p.resolve(stripExtendedPath(input));
+  if (platform !== "win32") return p.normalize(resolved);
 
-  const parsed = path.parse(resolved);
+  const parsed = p.parse(resolved);
   const parts = resolved.slice(parsed.root.length).split(/[\\/]/).filter(Boolean);
   let parent = parsed.root;
   const expanded = [];
 
   for (const part of parts) {
-    expanded.push(longNameOf(parent, part));
-    parent = path.join(parent, expanded[expanded.length - 1]);
+    expanded.push(longNameOf(parent, part, fsImpl, p));
+    parent = p.join(parent, expanded[expanded.length - 1]);
   }
 
-  return expanded.length === 0 ? parsed.root : path.join(parsed.root, ...expanded);
+  return expanded.length === 0 ? parsed.root : p.join(parsed.root, ...expanded);
 }
 
 /**
@@ -57,28 +76,30 @@ export function expandShortPath(input) {
  * case-folded on Windows. Does not follow reparse points.
  *
  * @param {string} input
+ * @param {{ platform?: string, fs?: Pick<typeof fs, "lstatSync" | "readdirSync"> }} [seam]
  * @returns {string}
  */
-export function canonicalComparePath(input) {
-  const expanded = path.normalize(expandShortPath(input));
-  return process.platform === "win32" ? expanded.toLowerCase() : expanded;
+export function canonicalComparePath(input, seam = {}) {
+  const platform = seam.platform ?? process.platform;
+  const expanded = pathModuleFor(platform).normalize(expandShortPath(input, seam));
+  return platform === "win32" ? expanded.toLowerCase() : expanded;
 }
 
-function longNameOf(parent, part) {
+function longNameOf(parent, part, fsImpl, p) {
   // Truncated 8.3 aliases always contain `~` (RUNNER~1, APPDAT~1). Names that
   // already fit in 8.3 compare equal after case-folding, so skip the readdir.
   if (!part.includes("~")) return part;
 
-  const candidate = path.join(parent, part);
+  const candidate = p.join(parent, part);
   let st;
   try {
-    st = fs.lstatSync(candidate);
+    st = fsImpl.lstatSync(candidate);
   } catch {
     return part;
   }
 
   try {
-    const names = fs.readdirSync(parent);
+    const names = fsImpl.readdirSync(parent);
     const partKey = part.toLowerCase();
     for (const name of names) {
       if (name.toLowerCase() === partKey) return name;
@@ -88,7 +109,7 @@ function longNameOf(parent, part) {
     if (!usableIno) return part;
     for (const name of names) {
       try {
-        const other = fs.lstatSync(path.join(parent, name));
+        const other = fsImpl.lstatSync(p.join(parent, name));
         if (other.ino === st.ino && other.dev === st.dev) return name;
       } catch {
         // Skip entries we cannot stat.

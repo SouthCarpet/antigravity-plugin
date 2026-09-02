@@ -8,7 +8,7 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,53 +18,32 @@ import { fileURLToPath } from 'node:url';
 import { loadImageResult } from '../scripts/mcp/vision-server.mjs';
 import { canonicalComparePath } from '../scripts/lib/paths.mjs';
 import { VISION_ALLOWLIST_ENV } from '../scripts/lib/vision-capability.mjs';
+import { fakeVolume, LONG_DIR, SHORT_DIR, TINY_PNG_BASE64 } from './helpers/fake-volume.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.resolve(__dirname, '..', 'scripts', 'mcp', 'vision-server.mjs');
 
-/** Windows `%~sI` short path, or `absPath` when 8.3 names are not available. */
-function windowsShortPath(absPath) {
-  if (process.platform !== 'win32') return absPath;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-short-'));
-  try {
-    const bat = path.join(dir, 'short.bat');
-    fs.writeFileSync(bat, `@echo off\r\nfor %%I in ("${absPath}") do echo %%~sI\r\n`);
-    const result = spawnSync('cmd.exe', ['/c', bat], { encoding: 'utf8' });
-    const line = String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop();
-    return line || absPath;
-  } finally {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
-  }
-}
-
 /**
- * Windows `%~sI` short path with a genuine lexical `~` alias, or `null` when
- * the platform is not win32 or 8.3 name generation is disabled on the
- * volume. Unlike `windowsShortPath` above, this never falls back to the
- * original long path: a test naming itself "8.3 short path" must either
- * exercise a real alias or visibly skip, not silently re-run the long-path
- * case under a short-path name.
+ * Real `node:fs` seen through one extra 8.3-style alias: every call that
+ * names `aliasDir` (or something under it) is served from `longDir`, which
+ * is what an NTFS volume with 8.3 names on does for `RUNNER~1`. This lets a
+ * test run alias expansion against a real reparse point on disk without
+ * needing the OS to mint an alias.
  */
-function windowsShortAlias(absPath) {
-  if (process.platform !== 'win32') return null;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-short-alias-'));
-  try {
-    const bat = path.join(dir, 'short.bat');
-    fs.writeFileSync(bat, `@echo off\r\nfor %%I in ("${absPath}") do echo %%~sI\r\n`);
-    const result = spawnSync('cmd.exe', ['/c', bat], { encoding: 'utf8' });
-    const line = String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop();
-    if (!line) return null;
-    const shortBase = path.basename(line);
-    const longBase = path.basename(absPath);
-    if (!shortBase.includes('~') || shortBase.toLowerCase() === longBase.toLowerCase()) return null;
-    return line;
-  } finally {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
-  }
+function aliasedFs(aliasDir, longDir) {
+  const rewrite = (input) => {
+    const s = String(input);
+    if (s === aliasDir || s.startsWith(aliasDir + path.sep)) return longDir + s.slice(aliasDir.length);
+    return s;
+  };
+  return {
+    lstatSync: (p) => fs.lstatSync(rewrite(p)),
+    readdirSync: (p) => fs.readdirSync(rewrite(p)),
+    realpathSync: { native: (p) => fs.realpathSync.native(rewrite(p)) },
+    statSync: (p) => fs.statSync(rewrite(p)),
+    readFileSync: (p) => fs.readFileSync(rewrite(p)),
+  };
 }
-
-const TINY_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 let tmpDir;
 let pngPath;
@@ -157,30 +136,54 @@ describe('vision-server.loadImageResult', () => {
     const linkDir = path.join(tmpDir, 'canonical-looking');
     fs.symlinkSync(outsideDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
     const linkedPath = path.join(linkDir, 'secret.png');
-    const shortLinked = windowsShortPath(linkedPath);
+    // The junction seen through an 8.3-style alias, served by the real fs.
+    const aliasDir = path.join(tmpDir, 'CANONI~1');
+    const shortLinked = path.join(aliasDir, 'secret.png');
+    const seam = { fs: aliasedFs(aliasDir, linkDir) };
 
+    // Only Windows expands `~` aliases; on POSIX `CANONI~1` is a literal
+    // name, so the alias and long spelling stay distinct there. Either way
+    // the request below must be refused: the alias is on the allowlist, but
+    // the file resolves through the junction.
+    const expandsAliases = process.platform === 'win32';
+    assert.equal(
+      canonicalComparePath(shortLinked, seam) === canonicalComparePath(linkedPath, seam),
+      expandsAliases,
+    );
     assert.notEqual(
       canonicalComparePath(linkedPath),
       canonicalComparePath(fs.realpathSync.native(linkedPath)),
       'canonical form of a junction path must not equal its realpath target',
     );
 
-    const out = loadImageResult(shortLinked, tmpDir, [shortLinked, linkedPath]);
+    const out = loadImageResult(shortLinked, tmpDir, [shortLinked, linkedPath], seam);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /symlink|junction/);
   });
 
-  it('allows a legitimate image reached via a Windows 8.3 short path', (t) => {
-    const shortDir = windowsShortAlias(tmpDir);
-    if (shortDir === null) {
-      t.skip('no real 8.3 short alias was produced for this volume/path — this platform/volume cannot exercise the case');
-      return;
+  it('allows a legitimate image reached via a Windows 8.3 short path (fixture volume)', () => {
+    const seam = { platform: 'win32', fs: fakeVolume() };
+    const shortPng = `${SHORT_DIR}\\probe.png`;
+    const longPng = `${LONG_DIR}\\probe.png`;
+
+    // Allowlist in short form, and allowlist in long form with a short cwd:
+    // both spellings of one file must be accepted, and the realpath check
+    // must not mistake the alias for a junction escape.
+    for (const allowed of [[shortPng], [longPng]]) {
+      const out = loadImageResult('probe.png', SHORT_DIR, allowed, seam);
+      assert.equal(out.isError, undefined, out.content[0].text);
+      const imagePart = out.content.find((c) => c.type === 'image');
+      assert.ok(imagePart, 'expected an image content block');
+      assert.equal(imagePart.data, TINY_PNG_BASE64);
     }
-    const shortPng = path.join(shortDir, 'probe.png');
-    const out = loadImageResult('probe.png', shortDir, [shortPng, pngPath]);
-    assert.equal(out.isError, undefined);
-    const imagePart = out.content.find((c) => c.type === 'image');
-    assert.ok(imagePart, 'expected an image content block');
+  });
+
+  it('refuses a junction reached via a Windows 8.3 short path (fixture volume)', () => {
+    const seam = { platform: 'win32', fs: fakeVolume() };
+    const viaAlias = `${SHORT_DIR}\\junction\\secret.png`;
+    const out = loadImageResult(viaAlias, SHORT_DIR, [viaAlias], seam);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /symlink|junction/);
   });
 
   it('denies all image access when the invocation capability is absent', () => {
