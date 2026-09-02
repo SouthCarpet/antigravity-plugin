@@ -62,6 +62,41 @@ nothing is published.
    `package.json`, or when npmjs.com does not trust the workflow yet.
 8. Verify the published version (next section).
 
+## Tag signing
+
+Release tags are signed with the maintainer's existing SSH key. Git has
+signed with SSH keys since 2.34; no GPG setup is needed. If no key exists
+yet, create one first: `ssh-keygen -t ed25519 -C "<e-mail>"`. One-time
+configuration on the maintainer's machine:
+
+```bash
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub   # the public half of the existing key
+git config --global tag.gpgsign true                         # sign every annotated tag
+```
+
+With `tag.gpgsign true`, `git tag -a vX.Y.Z -m "vX.Y.Z"` signs the tag;
+`git tag -s` does the same explicitly. `git tag -v` needs an allowed-signers
+file that maps the maintainer's e-mail to the public key:
+
+```bash
+printf '%s %s\n' "$(git config user.email)" "$(cut -d' ' -f1,2 ~/.ssh/id_ed25519.pub)" \
+  > ~/.ssh/allowed_signers
+git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
+git tag -v vX.Y.Z
+```
+
+A good result reads `Good "git" signature for <e-mail> with ED25519 key
+SHA256:...`. A reader verifies the same way after putting that one line into
+their own allowed-signers file; the public key is served at
+`https://github.com/SouthCarpet.keys`. When the same key is registered on
+GitHub as a signing key, GitHub also marks the tag as verified.
+
+Tags `v1.0.0` and `v1.0.1` are not signed. Signing starts at `v1.1.0`.
+Provenance (above) names the commit the tarball was built from; the signed
+tag proves the maintainer's key vouched for that commit. Together they let a
+reader tie the npm tarball to a commit the maintainer signed.
+
 ## Verify a published release
 
 ```bash
