@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A headless permission denial no longer looks like success** — since
+  agy 1.1.20 a tool that print mode cannot prompt for is auto-denied while
+  the run still exits 0 with `status: SUCCESS` and an empty response; the
+  runtime reported that as `completed` with nothing in it. It now detects
+  the denial on stderr by its stable parts (`auto-denied`, the quoted tool
+  name). An empty answer plus a denial is `failed`, with the denied tool
+  named and the per-verb remedy (`rescue`/`task`: `--add-dir <dir>`;
+  `vision`: the `view_image` MCP tool). A real answer plus a denial stays
+  `completed`, and the denial is kept on stderr and listed under
+  `details.warnings` in `--json`. An empty answer with no denial stays
+  `completed`; the `CANCELED` result of older agy is still `failed`.
+- **The `stdin error` diagnostic is newline-terminated** — it used to glue
+  itself to the first line of agy's own stderr.
+
+### Added
+
+- **`--mode <plan|accept-edits>` on `rescue` and `task`** — forwarded to
+  agy as its execution mode for that run, on the foreground and the
+  background path. Any other value is an argument error and agy is not
+  started.
+- **Vision answers have a fixed shape** — `## Transcription` (every
+  visible string of every image, verbatim, one per line), then
+  `## Observations`, then `## Answer`. The prompt names `view_image` as the
+  only way to see an image and forbids `read_file` on an image path. The
+  `VISION-UNAVAILABLE` sentinel is unchanged. The docs say plainly that an
+  answer from this channel is not evidence; the transcript, cross-checked
+  against the source image, is.
+- **`--add-dir` documented as the headless read grant** — on agy 1.1.24 no
+  `read_file(<path>)` allow rule works headless except the wildcard, while
+  `--add-dir <dir>` grants reads bounded to that directory, read-only, for
+  that run. `docs/COMPATIBILITY.md` carries the probe table; a test per
+  verb proves the flag reaches agy argv verbatim and in order.
+
 ## [1.0.1] — 2026-08-22
 
 ### Fixed
