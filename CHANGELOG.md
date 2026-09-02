@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`update` is a standalone convenience, not a ninth verb.**
+  `antigravity-plugin update` asks the npm registry for the latest published
+  version (one request, cached 24 h, `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips
+  it), compares it with the running copy, and prints the update command for
+  each host found on PATH. `--apply` runs those commands and prints each one
+  first; for agy it packs the published tarball and does uninstall, then
+  install, so no clone is needed. `status` prints one line on stderr when the
+  cache knows a newer version and never calls the network. The plugin does
+  not update itself and no host offers a hook for that: it probes, tells, and
+  drives the host's own command only when asked. No host wrapper exposes
+  `update` (docs/COMPATIBILITY.md, "Public command surface").
 ## [1.0.1] — 2026-08-22
 
 ### Fixed

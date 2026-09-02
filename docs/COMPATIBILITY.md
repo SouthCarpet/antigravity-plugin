@@ -62,7 +62,14 @@ are stable through 1.x subject to the deprecation and emergency rules below.
 The standalone dispatcher's `help`, `-h`/`--help`, and `-v`/`--version` entry
 points are also public. They are dispatcher conveniences, not ninth and tenth
 runtime verbs. Per-command help interception is guaranteed only through the
-standalone dispatcher.
+standalone dispatcher. `update` (from 1.1.0) is a third convenience in the
+same carve-out: it is reachable only through the standalone dispatcher
+(`antigravity-plugin update`, `npx @southcarpet/antigravity-plugin update`,
+`node bin/antigravity.mjs update`), no host wrapper exposes it, it changes an
+installed copy only with `--apply`, and its `--json` output uses the envelope
+shape but is a convenience whose fields and `command` value are unstable in
+1.x. `status` may print one advisory line on stderr when a cached `update`
+check knows a newer version; `status` itself never calls the network.
 
 The following are not promised command surface:
 
