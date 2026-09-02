@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not update itself and no host offers a hook for that: it probes, tells, and
   drives the host's own command only when asked. No host wrapper exposes
   `update` (docs/COMPATIBILITY.md, "Public command surface").
+- **Releases carry npm provenance.** `.github/workflows/release.yml`
+  publishes on a `v*` tag through npm trusted publishing: the job holds
+  `id-token: write` and `contents: read`, no token is stored, and npm
+  attaches an attestation that binds the tarball to this repository, the
+  tagged commit, and the workflow run. The job also refuses a tag that does
+  not match `package.json`. `docs/RELEASING.md` is the runbook;
+  `SECURITY.md` says how to verify and what a signature does not prove.
+
 ## [1.0.1] — 2026-08-22
 
 ### Fixed

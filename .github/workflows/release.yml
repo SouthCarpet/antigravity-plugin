@@ -1,0 +1,74 @@
+name: Release
+
+# Publishes a tagged commit to npm through npm trusted publishing (OIDC).
+# No token is stored anywhere: npm mints a short-lived credential from the
+# GitHub-issued id-token and, because this repository and the package are
+# both public, attaches a provenance attestation on its own. The one-time
+# npmjs.com setup and the maintainer's release steps are in
+# docs/RELEASING.md.
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    name: Publish ${{ github.ref_name }} to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The repository default is read-only; this job declares the two grants
+    # trusted publishing needs and nothing else.
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14.0. The
+          # 22.3.x floor in ci.yml is the oldest runtime the test suite must
+          # pass on, not a publishing requirement; Node 24 (Active LTS)
+          # satisfies the floor with its bundled npm.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          # No lockfile, no dependencies: nothing for setup-node to cache.
+          package-manager-cache: false
+
+      - name: Tool versions
+        run: |
+          node --version
+          npm --version
+
+      # Same four gates as ci.yml, on the exact commit being released.
+      - name: Test
+        run: node --test --experimental-test-module-mocks tests/*.test.mjs
+
+      - name: Manifest version parity
+        run: node scripts/check-manifests.mjs
+
+      - name: Package contents
+        run: node scripts/check-pack.mjs
+
+      - name: Version changelog agreement
+        run: node scripts/bump-version.mjs --check
+
+      # A tag pushed on the wrong tree must not publish a mislabelled
+      # tarball: v1.1.0 on a 1.0.1 package.json stops here.
+      - name: Tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} matches package.json ${version}"
+
+      # Plain publish: no --provenance flag and no auth-token variable. With
+      # the trusted publisher configured on npmjs.com, npm authenticates
+      # through OIDC and generates the provenance attestation itself.
+      - name: Publish
+        run: npm publish
