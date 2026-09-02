@@ -26,7 +26,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-import { canonicalComparePath } from "../lib/paths.mjs";
+import { canonicalComparePath, pathModuleFor } from "../lib/paths.mjs";
 import { decodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
 
 /** Supported image extensions → MIME type. */
@@ -69,40 +69,49 @@ function errorContent(message) {
 /**
  * Load an image file and build the MCP tool result payload.
  *
+ * The `seam` argument (`platform`, `fs`) defaults to the real host and is
+ * only supplied by tests that run the 8.3 short-name cases against a fixture
+ * volume; see scripts/lib/paths.mjs.
+ *
  * @param {string} rawPath
  * @param {string} [cwd]
+ * @param {string[]} [allowedPaths]
+ * @param {{ platform?: string, fs?: typeof fs }} [seam]
  * @returns {{ content: Array<any>, isError?: boolean }}
  */
 export function loadImageResult(
   rawPath,
   cwd = process.cwd(),
   allowedPaths = decodeVisionAllowlist(process.env[VISION_ALLOWLIST_ENV]),
+  { platform = process.platform, fs: fsImpl = fs } = {},
 ) {
-  const p = path.resolve(cwd, String(rawPath ?? ""));
+  const seam = { platform, fs: fsImpl };
+  const pathApi = pathModuleFor(platform);
+  const p = pathApi.resolve(cwd, String(rawPath ?? ""));
   // Canonicalise 8.3 short names and `\\?\` prefixes on both sides without
   // following junctions. path.resolve("C:\\Users\\RUNNER~1\\…") and
   // realpathSync.native of the same file otherwise compare unequal and a
   // legitimate image is refused as a symlink escape.
   const allowed = new Set(
-    allowedPaths.map((allowedPath) => canonicalComparePath(path.resolve(cwd, allowedPath))),
+    allowedPaths.map((allowedPath) => canonicalComparePath(pathApi.resolve(cwd, allowedPath), seam)),
   );
-  if (!allowed.has(canonicalComparePath(p))) {
+  if (!allowed.has(canonicalComparePath(p, seam))) {
     return errorContent("ERROR: path is not authorized for this vision invocation");
   }
 
   let realPath;
   try {
-    realPath = fs.realpathSync.native(p);
+    realPath = fsImpl.realpathSync.native(p);
   } catch {
     return errorContent(`ERROR: file not found: ${p}`);
   }
   // Compare after realpath: a symlink/junction may look allowed lexically but
   // resolve elsewhere. Requiring equality rejects that escape before reading.
-  if (canonicalComparePath(realPath) !== canonicalComparePath(p)) {
+  if (canonicalComparePath(realPath, seam) !== canonicalComparePath(p, seam)) {
     return errorContent("ERROR: authorized path resolves through a symlink or junction; refusing access");
   }
 
-  const ext = path.extname(p).toLowerCase();
+  const ext = pathApi.extname(p).toLowerCase();
   const mimeType = MIME[ext];
   if (!mimeType) {
     return errorContent(
@@ -112,7 +121,7 @@ export function loadImageResult(
 
   let stat;
   try {
-    stat = fs.statSync(realPath);
+    stat = fsImpl.statSync(realPath);
   } catch {
     return errorContent(`ERROR: file not found: ${p}`);
   }
@@ -124,7 +133,7 @@ export function loadImageResult(
   }
 
   try {
-    const data = fs.readFileSync(realPath).toString("base64");
+    const data = fsImpl.readFileSync(realPath).toString("base64");
     return {
       content: [
         { type: "text", text: `Image loaded from ${p} (${mimeType}).` },

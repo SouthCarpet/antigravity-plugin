@@ -80,6 +80,10 @@ describe('runIfMain (unit)', () => {
     assert.equal(fakeRun.mock.callCount(), 0);
   });
 
+  // (e) and (e2) compute their expectation from the platform they run on and
+  // assert on every platform. Do not split them into Windows-only and
+  // POSIX-only twins that skip each other: the release rule is 0 skipped,
+  // and a skip on one platform hides a real case from that platform's CI.
   it('(e) treats equivalent path spellings as the same entrypoint', async () => {
     const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');
 

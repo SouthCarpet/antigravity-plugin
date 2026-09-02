@@ -6,13 +6,14 @@
  * the NDJSON `result` event on every completed run, whether or not a caller
  * still passes `outputFormat: 'json'`.
  *
- * `node:child_process.spawn` is mocked the same way
- * tests/agent-runtime-vision.test.mjs mocks it (installed before
- * agent-runtime.mjs is imported) rather than shelling out to a real fake
- * binary: this repo's other real-spawn fixture (agent-runtime-deep.test.mjs)
- * hardcodes POSIX `/tmp` + `#!/bin/sh` stubs, which do not run on native
- * Windows. The mock lets us control exactly what stdout runAgyPrint sees,
- * which is what these assertions are actually about.
+ * `scripts/lib/process-adapter.mjs` — the owned seam agent-runtime.mjs
+ * spawns through — is faked the same way tests/agent-runtime-vision.test.mjs
+ * fakes it (installed before agent-runtime.mjs is imported) rather than
+ * shelling out to a real fake binary: this repo's other real-spawn fixture
+ * (agent-runtime-deep.test.mjs) hardcodes POSIX `/tmp` + `#!/bin/sh` stubs,
+ * which do not run on native Windows. The fake lets us control exactly what
+ * stdout runAgyPrint sees, which is what these assertions are actually
+ * about.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +38,7 @@ function makeFakeChild() {
   return child;
 }
 
-mock.module('node:child_process', {
+mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();

@@ -8,9 +8,10 @@
  *
  * Covers `parseAgyStream` directly (pure function, no spawn involved), plus
  * the new result-event-driven status rules against a mocked
- * `node:child_process.spawn` — same mocking style as
- * tests/agent-runtime-vision.test.mjs (installed before agent-runtime.mjs
- * is imported). Never spawns the real `agy`.
+ * `scripts/lib/process-adapter.mjs` — the owned seam agent-runtime.mjs
+ * spawns through, faked the same way tests/agent-runtime-vision.test.mjs
+ * fakes it (installed before agent-runtime.mjs is imported). Never spawns
+ * the real `agy`.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -42,7 +43,7 @@ function makeFakeChild() {
   return child;
 }
 
-mock.module('node:child_process', {
+mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();

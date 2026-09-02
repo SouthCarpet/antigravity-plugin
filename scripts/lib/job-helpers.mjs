@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { runAgyPrint, spawnAgyDetached, resolveAgyBin } from "./agent-runtime.mjs";
+import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
   resolveJobLogFile,
@@ -283,7 +284,6 @@ export async function startBackgroundJob({
   });
 
   const workerPath = resolveWorkerPath();
-  const { spawn } = await import("node:child_process");
   const child = spawn(process.execPath, [workerPath, job.id], {
     cwd: workspaceRoot,
     detached: true,
@@ -310,9 +310,15 @@ export async function startBackgroundJob({
 export async function waitForJob(
   workspaceRoot,
   jobId,
-  { pollMs = 1000, timeoutMs = 30 * 60 * 1000, isProcessAlive = isProcessRunning } = {},
+  {
+    pollMs = 1000,
+    timeoutMs = 30 * 60 * 1000,
+    isProcessAlive = isProcessRunning,
+    now = () => Date.now(),
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  } = {},
 ) {
-  const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : null;
+  const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
   const TERMINAL = new Set(["completed", "failed", "cancelled"]);
   while (true) {
     const job = readJobFile(workspaceRoot, jobId);
@@ -332,8 +338,8 @@ export async function waitForJob(
       appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
       return failed;
     }
-    if (deadline && Date.now() > deadline) return job ?? null;
-    await new Promise((r) => setTimeout(r, pollMs));
+    if (deadline && now() > deadline) return job ?? null;
+    await sleep(pollMs);
   }
 }
 

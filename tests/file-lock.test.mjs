@@ -19,19 +19,26 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-file-lock-")
 const childSource = `
   const [fileLockUrl, lockPath, lockTimeoutMs] = process.argv.slice(1);
   const { withFileLockSync } = await import(fileLockUrl);
-  const startedAt = Date.now();
+  // Deterministic virtual clock: sleep() advances it by exactly waitMs with
+  // no real wall-clock wait, so the timeout path is exercised on a schedule
+  // known in advance instead of raced against a real 5ms/30ms window.
+  let virtualNow = 0;
+  const fakeNow = () => virtualNow;
+  const fakeSleep = (ms) => { virtualNow += ms; };
   let acquired = false;
   let errorCode = null;
   try {
     withFileLockSync(lockPath, () => { acquired = true; }, {
       lockTimeoutMs: Number(lockTimeoutMs),
       waitMs: 5,
+      now: fakeNow,
+      sleep: fakeSleep,
     });
   } catch (err) {
     errorCode = err?.code ?? null;
   }
   const attempts = globalThis[Symbol.for("antigravity.test.mkdirAttempts")]();
-  console.log(JSON.stringify({ acquired, errorCode, attempts, elapsedMs: Date.now() - startedAt }));
+  console.log(JSON.stringify({ acquired, errorCode, attempts, virtualElapsedMs: virtualNow }));
 `;
 
 function runInjectedMkdir(code, { always = false, lockTimeoutMs = 100 } = {}) {
@@ -63,15 +70,18 @@ after(() => {
   try { fs.rmSync(tempRoot, { recursive: true, force: true }); } catch {}
 });
 
+/** Named cases, generated once at module scope — each becomes its own `it`. */
+const TRANSIENT_DENIAL_CODES = ["EPERM", "EACCES", "EBUSY"];
+
 describe("file-lock acquisition errors", { concurrency: false }, () => {
-  it("retries transient Windows denial codes and acquires on the next attempt", () => {
-    for (const code of ["EPERM", "EACCES", "EBUSY"]) {
+  for (const code of TRANSIENT_DENIAL_CODES) {
+    it(`retries transient Windows denial code ${code} and acquires on the next attempt`, () => {
       const result = runInjectedMkdir(code);
-      assert.equal(result.acquired, true, code);
-      assert.equal(result.errorCode, null, code);
-      assert.equal(result.attempts, 2, code);
-    }
-  });
+      assert.equal(result.acquired, true);
+      assert.equal(result.errorCode, null);
+      assert.equal(result.attempts, 2);
+    });
+  }
 
   it("still throws unrelated mkdir errors", () => {
     const result = runInjectedMkdir("ENOSPC");
@@ -85,8 +95,11 @@ describe("file-lock acquisition errors", { concurrency: false }, () => {
     const result = runInjectedMkdir("EPERM", { always: true, lockTimeoutMs });
     assert.equal(result.acquired, false);
     assert.equal(result.errorCode, "FILE_LOCK_TIMEOUT");
-    assert.ok(result.attempts > 1);
-    assert.ok(result.elapsedMs >= lockTimeoutMs);
-    assert.ok(result.elapsedMs < 1000, `timeout should stay bounded, got ${result.elapsedMs}ms`);
+    // Deterministic: the virtual clock advances by exactly waitMs (5) per
+    // retry with no real wall-clock wait, so both the attempt count and the
+    // elapsed virtual time at the moment of timeout are known in advance
+    // rather than asserted as a loose, potentially flaky bound.
+    assert.equal(result.attempts, 7);
+    assert.equal(result.virtualElapsedMs, 30);
   });
 });

@@ -659,27 +659,23 @@ describe('/antigravity:rescue argv parsing', () => {
   });
 
   it('logs an ignored-model warning when --model is passed', async () => {
-    // Pass an unknown conversation id so we go via the background path quickly,
-    // but startBackgroundJob will spawn a worker — so we stop at the model
-    // warning by passing an empty prompt+conversation: hitting the early
-    // model warning then the "no task text" error path. We assert the
-    // warning + the eventual exit=1 from the empty-prompt check (because the
-    // model check happens before the empty-prompt check).
+    // The empty-prompt check runs before the --model check (see
+    // scripts/commands/rescue.mjs), so a real prompt must be supplied for
+    // this run to ever reach the warning at all.
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
     const { run } = await import('../scripts/commands/rescue.mjs');
     const cap = captureStdio();
     let exit;
     try {
-      exit = await run(['--model', 'pro'], { cwd: tempDir });
+      exit = await run(['do the thing', '--model', 'pro'], { cwd: tempDir });
     } finally {
       cap.restore();
     }
-    assert.equal(exit, 1);
-    const errText = cap.err.join('');
-    // Either the model warning printed OR the empty-prompt error printed.
-    // We require the empty-prompt error to be present so the test is robust
-    // against argv-parser changes; the model warning is logged in the
-    // happy path through rescue.run prior to this exit.
-    assert.match(errText, /no task text/);
+    assert.equal(exit, 0);
+    assert.match(
+      cap.err.join(''),
+      /--model is accepted for forward-compatibility but agy 1\.0\.1 does not expose a per-invocation model flag yet\. Ignoring "pro"\./,
+    );
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {

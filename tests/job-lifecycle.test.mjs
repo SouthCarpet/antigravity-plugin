@@ -155,10 +155,13 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       assert.equal(readJobFile(workspaceRoot, job.id)?.status, "cancelled");
 
       // The preload exits the worker when cancellation reaps its lock; the
-      // short fake agy exits on its own. Wait for both so cleanup leaks none.
-      await waitFor(() => [pid, agyPid].every((targetPid) => {
+      // short fake agy exits on its own. Wait for both so cleanup leaks none,
+      // and assert it actually happened — a discarded wait result would let
+      // a real "process never exits" regression pass silently.
+      const bothExited = await waitFor(() => [pid, agyPid].every((targetPid) => {
         try { process.kill(targetPid, 0); return false; } catch { return true; }
       }), 6000);
+      assert.ok(bothExited, 'worker and agy processes should both exit after cancellation');
     } finally {
       if (originalClaudeData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
       else process.env.CLAUDE_PLUGIN_DATA = originalClaudeData;
@@ -282,6 +285,39 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
     }
   });
 
+  it("patchJob serializes concurrent same-process patches without losing fields", async () => {
+    // Smaller, deterministic complement to the cross-process stress case
+    // below: 12 patchJob calls fired in the same tick, in the same process.
+    // No external gate is needed — this exercises the existing in-process
+    // FIFO queue in withWorkspaceMutex (atomic-state.mjs), and the outcome
+    // (every field present) is guaranteed regardless of how the event loop
+    // happens to interleave them, not dependent on real OS process timing.
+    const { workspaceRoot, dataRoot } = freshWorkspace();
+    const originalClaudeData = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_PLUGIN_DATA = dataRoot;
+    try {
+      const job = await createTrackedJob({ workspaceRoot, kind: "task", title: "in-process race" });
+      await Promise.all(
+        Array.from({ length: 12 }, (_, index) => patchJob(workspaceRoot, job.id, { [`raceField${index}`]: index })),
+      );
+
+      const stored = readJobFile(workspaceRoot, job.id);
+      for (let index = 0; index < 12; index += 1) {
+        assert.equal(stored[`raceField${index}`], index, `lost raceField${index}`);
+      }
+    } finally {
+      if (originalClaudeData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+      else process.env.CLAUDE_PLUGIN_DATA = originalClaudeData;
+    }
+  });
+
+  // High-fidelity integration/stress case: 12 real OS processes contend for
+  // the same job file through the real cross-process file lock. This is not
+  // a claim that concurrent calls interleave deterministically at the unit
+  // level — that property is covered separately, in-process, above. The
+  // explicit `gate` file (written only after every child has spawned and is
+  // already polling for it) is the start signal, and the assertion is the
+  // caller-visible on-disk job state, not an internal call count.
   it("preserves every field when real processes race patchJob read-modify-write", async () => {
     const { workspaceRoot, dataRoot } = freshWorkspace();
     const originalClaudeData = process.env.CLAUDE_PLUGIN_DATA;
