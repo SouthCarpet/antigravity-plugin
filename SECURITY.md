@@ -120,6 +120,22 @@ This plugin does not bill or estimate cost. Images are large. Successful
 `usage: total=<N> in=<N> out=<N>` on stderr from whatever agy reported;
 this plugin does not estimate missing counts.
 
+## Provenance
+
+From 1.1.0 on, releases are published by `.github/workflows/release.yml`
+through npm trusted publishing. npm attaches a provenance attestation that
+binds the tarball to this public repository, the tagged commit, and the
+workflow run that built it. No npm token is stored anywhere; the job holds
+`id-token: write` and `contents: read` only.
+
+Verify a version with
+`npm view @southcarpet/antigravity-plugin@X.Y.Z dist.attestations` and, in a
+fresh install, `npm audit signatures`. The full steps, and how the signed
+release tag ties in, are in [docs/RELEASING.md](./docs/RELEASING.md).
+
+A valid attestation proves where a tarball came from. It does not review
+the code, and it does not cover `agy` or the hosts that load this plugin.
+
 ## Threat boundaries this plugin does **not** close
 
 - agy is a general tool-using agent. `rescue` and `task` can change the

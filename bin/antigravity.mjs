@@ -85,6 +85,18 @@ const COMMAND_HELP = {
     'antigravity-plugin cancel — terminate an active background job.\n\n' +
     'Usage: antigravity-plugin cancel [<job-id>] [flags]\n\n' +
     'Flags: --json, --cwd <path>',
+  update:
+    'antigravity-plugin update — check npm for a newer plugin version.\n\n' +
+    'Usage: antigravity-plugin update [--apply] [--json]\n\n' +
+    'Standalone only; not a runtime verb, so no host exposes it.\n' +
+    'Asks the npm registry for the latest published version (one request,\n' +
+    'cached 24 h), compares it with this copy, and prints the update command\n' +
+    'for each host found on PATH (Claude Code, Codex CLI, agy). It never\n' +
+    'changes an installed copy by itself.\n\n' +
+    'Flags:\n' +
+    "  --apply                 run each present host's update command, printing it first\n" +
+    '  --json                  emit JSON (a convenience; unstable in 1.x)\n' +
+    'Env: ANTIGRAVITY_NO_UPDATE_CHECK=1 skips the registry call.',
 };
 
 const [, , raw, ...rest] = process.argv;
@@ -108,6 +120,22 @@ if (!arg0 || arg0 === '-h' || arg0 === '--help' || arg0 === 'help') {
   }
   printHelp();
   process.exit(0);
+}
+
+// `update` is a dispatcher convenience like `help`/`--version`, not a ninth
+// runtime verb: it stays out of KNOWN and out of every host surface.
+if (arg0 === 'update') {
+  if (rest.includes('--help') || rest.includes('-h')) {
+    process.stdout.write(`${COMMAND_HELP.update}\n`);
+    process.exit(0);
+  }
+  try {
+    const { runUpdate } = await import('../scripts/lib/update.mjs');
+    process.exit(await runUpdate(rest, { cwd: process.cwd() }));
+  } catch (err) {
+    process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
+    process.exit(1);
+  }
 }
 
 if (!KNOWN.includes(arg0)) {
@@ -233,8 +261,11 @@ function printHelp(stream = process.stdout) {
     '  result     Fetch the result of a finished job',
     '  cancel     Cancel a running job',
     '',
+    'Standalone only (not a runtime verb):',
+    '  update     Check npm for a newer version; --apply runs each host\'s update command',
+    '',
     'Common flags: --background, --wait, --continue, --conversation <id>, --json',
-    'Env: AGY_BIN, ANTIGRAVITY_SCRIPT_ROOT (testing only)',
+    'Env: AGY_BIN, ANTIGRAVITY_NO_UPDATE_CHECK, ANTIGRAVITY_SCRIPT_ROOT (testing only)',
     '',
     `Install agy: ${INSTALL_URL}`,
     'Docs:        https://github.com/SouthCarpet/antigravity-plugin',

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`update` is a standalone convenience, not a ninth verb.**
+  `antigravity-plugin update` asks the npm registry for the latest published
+  version (one request, cached 24 h, `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips
+  it), compares it with the running copy, and prints the update command for
+  each host found on PATH. `--apply` runs those commands and prints each one
+  first; for agy it packs the published tarball and does uninstall, then
+  install, so no clone is needed. `status` prints one line on stderr when the
+  cache knows a newer version and never calls the network. The plugin does
+  not update itself and no host offers a hook for that: it probes, tells, and
+  drives the host's own command only when asked. No host wrapper exposes
+  `update` (docs/COMPATIBILITY.md, "Public command surface").
+- **Releases carry npm provenance.** `.github/workflows/release.yml`
+  publishes on a `v*` tag through npm trusted publishing: the job holds
+  `id-token: write` and `contents: read`, no token is stored, and npm
+  attaches an attestation that binds the tarball to this repository, the
+  tagged commit, and the workflow run. The job also refuses a tag that does
+  not match `package.json`. `docs/RELEASING.md` is the runbook;
+  `SECURITY.md` says how to verify and what a signature does not prove.
+
 ### Changed
 
 - **Tests fake seams this plugin owns, not Node built-ins.**

@@ -21,6 +21,7 @@ import {
 } from "../lib/render.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+import { readUpdateNotice } from "../lib/update.mjs";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
@@ -61,12 +62,14 @@ export async function run(argv = [], ctx = {}) {
       const final = await waitForAllActive(cwd, options, builders.all);
       const rendered = renderStatusSnapshot(final);
       outputCommandResult(statusEnvelope(final), rendered, json);
+      printUpdateNotice(ctx);
       return 0;
     }
 
     const snapshot = builders.all(cwd, { env: process.env });
     const rendered = renderStatusSnapshot(snapshot);
     outputCommandResult(statusEnvelope(snapshot), rendered, json);
+    printUpdateNotice(ctx);
     return 0;
   } catch (err) {
     process.stderr.write(`antigravity:status — ${friendlyStateError(err)}\n`);
@@ -111,6 +114,15 @@ function friendlyStateError(error) {
   return isFileLockTimeoutError(error)
     ? "job state is busy with another update; try again shortly"
     : error?.message ?? String(error);
+}
+
+/**
+ * One line on stderr when the update cache already knows a newer version.
+ * Cache only: `status` never calls the network (docs/COMPATIBILITY.md).
+ */
+function printUpdateNotice(ctx) {
+  const notice = (ctx.readUpdateNotice ?? readUpdateNotice)();
+  if (notice) process.stderr.write(`${notice}\n`);
 }
 
 function maybeAnnotateOAuth(job) {
