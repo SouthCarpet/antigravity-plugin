@@ -118,7 +118,13 @@ required unless `--resume`, `--continue`, or `--conversation` is supplied.
   `--resume`, `--continue`, and `--fresh`.
 - `--fresh` conflicts with `--resume` and `--continue`.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
-  to agy.
+  to agy, verbatim and in the order given. This is the way to give a
+  headless run read access to files outside the workspace: on agy 1.1.24 a
+  `read_file(<path>)` allow rule in `settings.json` does not grant it, while
+  `--add-dir <dir>` grants reads bounded to that directory, read-only, for
+  that run only (evidence in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access)).
+  A run that needed a file it was not granted fails with the denied tool
+  named and this flag as the remedy.
 - `--model <id>` is accepted but currently ignored, with a diagnostic on
   stderr. No model-selection behavior is promised for this flag until the
   documentation says it is active.
@@ -152,7 +158,9 @@ required unless `--continue` or `--conversation` is supplied.
 - `--continue` resumes the most recent conversation and conflicts with
   `--conversation <id>`.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
-  to agy.
+  to agy, verbatim and in the order given, on both the foreground and the
+  background path. It is the headless read grant described under `rescue`
+  and in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access).
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled

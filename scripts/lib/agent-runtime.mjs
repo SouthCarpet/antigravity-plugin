@@ -419,8 +419,9 @@ export async function runAgyPrint({
 
   child.stdin.on('error', (e) => {
     // EPIPE if agy exits before we finish writing the prompt line — record
-    // it, never let it surface as an unhandled 'error' event.
-    stderr += `\nstdin error: ${e.message}`;
+    // it, never let it surface as an unhandled 'error' event. Newline-
+    // terminated: the child's own stderr usually arrives after this.
+    stderr += `\nstdin error: ${e.message}\n`;
   });
   const lineFeeder = onText ? createNdjsonLineFeeder() : null;
 
