@@ -98,7 +98,17 @@ describe('ensureVisionConfig — merge with pre-existing config', () => {
       JSON.stringify({ permissions: { allow: ['some_other(*)'] }, unrelatedTop: true }),
     );
 
-    const { mcpConfig, permissions } = ensureVisionConfig({ homeDir });
+    // Fixed, injected clock instead of the live system date: the backup
+    // stamp is asserted against the exact date passed in, not against
+    // whatever `new Date()` happens to return the moment the test runs (a
+    // real midnight rollover between computing the expected stamp and the
+    // library's internal `new Date()` call would otherwise make this flake).
+    // Local noon, not a UTC instant: todayStamp() reads local Y/M/D, and a
+    // UTC instant near midnight would round to a different local calendar
+    // date in some timezones, defeating the point of fixing the clock.
+    const now = new Date(2026, 2, 14, 12, 0, 0);
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const { mcpConfig, permissions } = ensureVisionConfig({ homeDir, now });
     assert.equal(mcpConfig.changed, true);
     assert.equal(permissions.changed, true);
 
@@ -111,8 +121,6 @@ describe('ensureVisionConfig — merge with pre-existing config', () => {
     assert.equal(settings.unrelatedTop, true);
     assert.deepEqual(settings.permissions.allow, ['some_other(*)', VISION_PERMISSION]);
 
-    const now = new Date();
-    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
     assert.ok(fs.existsSync(`${mcpConfigPath(homeDir)}.bak-${stamp}`));
     assert.ok(fs.existsSync(`${settingsPath(homeDir)}.bak-${stamp}`));
   });
@@ -154,21 +162,22 @@ describe('ensureVisionConfig — idempotent second run', () => {
     const homeDir = trackedHome();
     ensureVisionConfig({ homeDir });
 
-    const mcpBefore = fs.statSync(mcpConfigPath(homeDir));
-    const settingsBefore = fs.statSync(settingsPath(homeDir));
-    const receiptBefore = fs.statSync(receiptPath(homeDir));
     const mcpContentBefore = fs.readFileSync(mcpConfigPath(homeDir), 'utf8');
     const settingsContentBefore = fs.readFileSync(settingsPath(homeDir), 'utf8');
 
-    const { mcpConfig, permissions } = ensureVisionConfig({ homeDir });
+    // mtimeMs before/after is not proof on its own: two synchronous calls in
+    // the same test can land in the same millisecond tick, so a real write
+    // could go undetected (a false green). Faking the owned atomic-writer
+    // boundary (see defaultAtomicWriter in vision-config.mjs) instead of
+    // mocking fs.renameSync directly proves the same thing without reaching
+    // into a node:fs export this module does not own (TotT R9).
+    let writeCount = 0;
+    const fakeAtomicWriter = { write() { writeCount += 1; } };
+    const { mcpConfig, permissions } = ensureVisionConfig({ homeDir, atomicWriter: fakeAtomicWriter });
     assert.equal(mcpConfig.changed, false);
     assert.equal(permissions.changed, false);
+    assert.equal(writeCount, 0, 'ensureVisionConfig must not write any file when nothing changed');
 
-    const mcpAfter = fs.statSync(mcpConfigPath(homeDir));
-    const settingsAfter = fs.statSync(settingsPath(homeDir));
-    assert.equal(mcpAfter.mtimeMs, mcpBefore.mtimeMs);
-    assert.equal(settingsAfter.mtimeMs, settingsBefore.mtimeMs);
-    assert.equal(fs.statSync(receiptPath(homeDir)).mtimeMs, receiptBefore.mtimeMs);
     assert.equal(fs.readFileSync(mcpConfigPath(homeDir), 'utf8'), mcpContentBefore);
     assert.equal(fs.readFileSync(settingsPath(homeDir), 'utf8'), settingsContentBefore);
   });

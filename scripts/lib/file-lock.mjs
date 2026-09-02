@@ -159,17 +159,22 @@ export async function withFileLock(
   }
 }
 
+/**
+ * `now`/`sleep` are injectable so a test can drive the wait loop with a
+ * deterministic virtual clock instead of a real wall-clock wait (TotT R12):
+ * production passes no override and gets `Date.now`/a real blocking sleep.
+ */
 export function withFileLockSync(
   lockPath,
   fn,
-  { lockTimeoutMs = 2000, staleLockMs = 60_000, waitMs = DEFAULT_WAIT_MS } = {},
+  { lockTimeoutMs = 2000, staleLockMs = 60_000, waitMs = DEFAULT_WAIT_MS, now = Date.now, sleep = sleepSync } = {},
 ) {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-  const deadline = Date.now() + lockTimeoutMs;
+  const deadline = now() + lockTimeoutMs;
   let token;
   while (!(token = tryAcquire(lockPath, staleLockMs))) {
-    if (Date.now() >= deadline) throw new FileLockTimeoutError(lockPath, lockTimeoutMs);
-    sleepSync(waitMs);
+    if (now() >= deadline) throw new FileLockTimeoutError(lockPath, lockTimeoutMs);
+    sleep(waitMs);
   }
   try {
     return fn();

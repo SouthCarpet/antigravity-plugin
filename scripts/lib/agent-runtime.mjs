@@ -7,7 +7,7 @@
  *  - Keeps every caller honest about non-streaming output (final response
  *    only) so we never accidentally write code that expects ACP semantics.
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './process-adapter.mjs';
 import { promises as fs } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { resolve as resolvePath, join, delimiter, extname } from 'node:path';

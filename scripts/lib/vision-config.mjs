@@ -65,31 +65,37 @@ function jsonBody(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function writeAtomic(filePath, body) {
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`);
-  let fd;
-  try {
-    fd = fs.openSync(tmp, "wx", 0o600);
-    fs.writeFileSync(fd, body, "utf8");
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = undefined;
-    fs.renameSync(tmp, filePath);
-  } catch (err) {
-    if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch {}
+/**
+ * Owned atomic-writer seam. Production writes to a temporary sibling, fsyncs
+ * it, then renames it. Tests fake this interface instead of Node's fs exports.
+ */
+export const defaultAtomicWriter = {
+  write(filePath, body) {
+    const dir = path.dirname(filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`);
+    let fd;
+    try {
+      fd = fs.openSync(tmp, "wx", 0o600);
+      fs.writeFileSync(fd, body, "utf8");
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
+      fs.renameSync(tmp, filePath);
+    } catch (err) {
+      if (fd !== undefined) {
+        try { fs.closeSync(fd); } catch {}
+      }
+      try { fs.unlinkSync(tmp); } catch {}
+      throw err;
     }
-    try { fs.unlinkSync(tmp); } catch {}
-    throw err;
-  }
-}
+  },
+};
 
-function backupIfMissingForToday(filePath, read, now = new Date()) {
+function backupIfMissingForToday(filePath, read, now = new Date(), atomicWriter = defaultAtomicWriter) {
   if (!read.existed) return;
   const backupPath = `${filePath}.bak-${todayStamp(now)}`;
-  if (!fs.existsSync(backupPath)) writeAtomic(backupPath, read.raw);
+  if (!fs.existsSync(backupPath)) atomicWriter.write(backupPath, read.raw);
 }
 
 function withConfigLock(homeDir, fn, { lockTimeoutMs = 2000, staleLockMs = 60_000 } = {}) {
@@ -173,22 +179,22 @@ function permissionsPlan(read, { removeLegacy = false } = {}) {
   };
 }
 
-function applyBatch(operations) {
+function applyBatch(operations, now = new Date(), atomicWriter = defaultAtomicWriter) {
   for (const op of operations.filter((item) => item.backup)) {
-    backupIfMissingForToday(op.filePath, op.read);
+    backupIfMissingForToday(op.filePath, op.read, now, atomicWriter);
   }
   const applied = [];
   try {
     for (const op of operations) {
       if (op.delete) fs.unlinkSync(op.filePath);
-      else writeAtomic(op.filePath, op.body);
+      else atomicWriter.write(op.filePath, op.body);
       applied.push(op);
     }
   } catch (err) {
     const rollbackErrors = [];
     for (const op of applied.reverse()) {
       try {
-        if (op.read.existed) writeAtomic(op.filePath, op.read.raw);
+        if (op.read.existed) atomicWriter.write(op.filePath, op.read.raw);
         else fs.unlinkSync(op.filePath);
       } catch (rollbackErr) {
         rollbackErrors.push(`${op.filePath}: ${rollbackErr.message}`);
@@ -213,6 +219,8 @@ export function ensureMcpConfig({
   serverPath = resolveVisionServerPath(),
   nodePath = process.execPath,
   lockTimeoutMs,
+  now = new Date(),
+  atomicWriter = defaultAtomicWriter,
 } = {}) {
   const filePath = pathsFor(homeDir).mcp;
   try {
@@ -222,8 +230,8 @@ export function ensureMcpConfig({
       const plan = mcpPlan(read, serverPath, nodePath);
       if (plan.error) return failureResult(filePath, plan.error);
       if (!plan.changed) return { changed: false, filePath };
-      backupIfMissingForToday(filePath, read);
-      writeAtomic(filePath, jsonBody(plan.next));
+      backupIfMissingForToday(filePath, read, now, atomicWriter);
+      atomicWriter.write(filePath, jsonBody(plan.next));
       return { changed: true, filePath };
     }, { lockTimeoutMs });
   } catch (err) {
@@ -231,7 +239,12 @@ export function ensureMcpConfig({
   }
 }
 
-export function ensurePermissions({ homeDir = os.homedir(), lockTimeoutMs } = {}) {
+export function ensurePermissions({
+  homeDir = os.homedir(),
+  lockTimeoutMs,
+  now = new Date(),
+  atomicWriter = defaultAtomicWriter,
+} = {}) {
   const filePath = pathsFor(homeDir).settings;
   try {
     return withConfigLock(homeDir, () => {
@@ -240,8 +253,8 @@ export function ensurePermissions({ homeDir = os.homedir(), lockTimeoutMs } = {}
       const plan = permissionsPlan(read);
       if (plan.error) return failureResult(filePath, plan.error);
       if (!plan.changed) return { changed: false, filePath };
-      backupIfMissingForToday(filePath, read);
-      writeAtomic(filePath, jsonBody(plan.next));
+      backupIfMissingForToday(filePath, read, now, atomicWriter);
+      atomicWriter.write(filePath, jsonBody(plan.next));
       return { changed: true, filePath };
     }, { lockTimeoutMs });
   } catch (err) {
@@ -254,6 +267,8 @@ export function ensureVisionConfig({
   serverPath = resolveVisionServerPath(),
   nodePath = process.execPath,
   lockTimeoutMs,
+  now = new Date(),
+  atomicWriter = defaultAtomicWriter,
 } = {}) {
   const files = pathsFor(homeDir);
   const empty = {
@@ -287,7 +302,7 @@ export function ensureVisionConfig({
       if (mcp.changed) operations.push({ filePath: files.mcp, read: mcpRead, body: jsonBody(mcp.next), backup: true });
       if (permissions.changed) operations.push({ filePath: files.settings, read: settingsRead, body: jsonBody(permissions.next), backup: true });
       if (receiptChanged) operations.push({ filePath: files.receipt, read: receiptRead, body: jsonBody(receipt) });
-      applyBatch(operations);
+      applyBatch(operations, now, atomicWriter);
 
       return {
         ok: true,
@@ -311,6 +326,8 @@ export function removeVisionConfig({
   homeDir = os.homedir(),
   serverPath = resolveVisionServerPath(),
   lockTimeoutMs,
+  now = new Date(),
+  atomicWriter = defaultAtomicWriter,
 } = {}) {
   const files = pathsFor(homeDir);
   try {
@@ -372,7 +389,7 @@ export function removeVisionConfig({
         });
       }
       if (receiptRead.existed) operations.push({ filePath: files.receipt, read: receiptRead, delete: true });
-      applyBatch(operations);
+      applyBatch(operations, now, atomicWriter);
 
       return {
         ok: true,

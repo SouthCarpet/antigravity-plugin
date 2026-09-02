@@ -257,20 +257,40 @@ describe('atomic-state', () => {
     ]);
   });
 
-  it('withWorkspaceMutex isolates different keys', async () => {
-    const ops = [];
+  it('withWorkspaceMutex proves no overlap: different keys never block each other', async () => {
+    const order = [];
+    // Explicit deferred gates instead of a real sleep (TotT R12): 'a' pushes
+    // its start marker, signals aReached, then blocks on aGate until the
+    // test releases it. 'b' pushes both its markers and signals bDone with
+    // no wait of its own. If key isolation held, 'b' can finish while 'a' is
+    // still gated; if it did not — if both calls shared one lock — 'b' would
+    // never run until 'a' released it, and `await bDone` below would hang
+    // instead of silently passing.
+    let releaseA;
+    const aGate = new Promise((resolve) => { releaseA = resolve; });
+    let resolveAReached;
+    const aReached = new Promise((resolve) => { resolveAReached = resolve; });
+    let resolveBDone;
+    const bDone = new Promise((resolve) => { resolveBDone = resolve; });
+
     const a = withWorkspaceMutex('/wa', async () => {
-      ops.push('a-start');
-      await new Promise((r) => setTimeout(r, 2));
-      ops.push('a-end');
+      order.push('a-start');
+      resolveAReached();
+      await aGate;
+      order.push('a-end');
     });
     const b = withWorkspaceMutex('/wb', async () => {
-      ops.push('b-start');
-      ops.push('b-end');
+      order.push('b-start');
+      order.push('b-end');
+      resolveBDone();
     });
+
+    await aReached;
+    await bDone;
+    assert.deepEqual(order, ['a-start', 'b-start', 'b-end']);
+    releaseA();
     await Promise.all([a, b]);
-    // Both completed; b ran while a was waiting.
-    assert.ok(ops.includes('a-end') && ops.includes('b-end'));
+    assert.deepEqual(order, ['a-start', 'b-start', 'b-end', 'a-end']);
   });
 
   it('writeJsonAtomic writes via temp rename', () => {

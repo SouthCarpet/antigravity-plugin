@@ -356,72 +356,88 @@ describe('bump-version README Status token', () => {
     );
   });
 
-  it('rewrites only the version token and leaves freeze wording intact', () => {
-    const root0 = makeTree();
-    const current = currentVersion(root0);
-    const cases = [
-      ['major', nextVersion(current, 'major')],
-      [nextVersion(current, 'patch'), nextVersion(current, 'patch')],
-      [otherVersion(current), otherVersion(current)],
-    ];
-    for (const [arg, expected] of cases) {
+  /** Named cases, generated once at module scope — each becomes its own `it`. */
+  const README_REWRITE_CASES = [
+    { label: 'major', arg: () => 'major', expected: (current) => nextVersion(current, 'major') },
+    {
+      label: 'explicit patch target',
+      arg: (current) => nextVersion(current, 'patch'),
+      expected: (current) => nextVersion(current, 'patch'),
+    },
+    {
+      label: 'explicit other-branch version',
+      arg: (current) => otherVersion(current),
+      expected: (current) => otherVersion(current),
+    },
+  ];
+
+  for (const { label, arg, expected } of README_REWRITE_CASES) {
+    it(`rewrites only the version token and leaves freeze wording intact — ${label}`, () => {
       const root = makeTree();
+      const current = currentVersion(root);
       const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
       assert.match(before, new RegExp(`^> \\*\\*v${escapeRe(current)}\\.\\*\\*`, 'm'));
       assert.match(before, /frozen for 1\.x/);
       assert.match(before, /docs\/COMPATIBILITY\.md/);
 
-      const result = runBump(root, [arg]);
-      assert.equal(result.status, 0, `${arg}: ${result.stderr}`);
+      const expectedVersion = expected(current);
+      const result = runBump(root, [arg(current)]);
+      assert.equal(result.status, 0, result.stderr);
       const after = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-      assert.match(after, new RegExp(`^> \\*\\*v${escapeRe(expected)}\\.\\*\\*`, 'm'));
+      assert.match(after, new RegExp(`^> \\*\\*v${escapeRe(expectedVersion)}\\.\\*\\*`, 'm'));
       assert.doesNotMatch(after, /Pre-release/);
       assert.match(after, /frozen for 1\.x/);
       assert.match(after, /docs\/COMPATIBILITY\.md/);
       assert.match(after, /CHANGELOG\.md/);
-      assert.equal(readmeStatusVersion(root), expected);
+      assert.equal(readmeStatusVersion(root), expectedVersion);
 
       const check = runBump(root, ['--check']);
-      assert.equal(check.status, 0, `${arg} --check: ${check.stderr}`);
-      assert.match(check.stdout, new RegExp(`README\\.md Status is v${escapeRe(expected)}`));
-    }
-  });
+      assert.equal(check.status, 0, check.stderr);
+      assert.match(check.stdout, new RegExp(`README\\.md Status is v${escapeRe(expectedVersion)}`));
+    });
+  }
 });
 
 describe('bump-version increments and explicit targets', () => {
-  it('patch / minor / major / explicit update all seven scalars and keep plugin.json copies identical', () => {
-    const root0 = makeTree();
-    const current = currentVersion(root0);
-    const previous = previousFromChangelog(root0);
-    const cases = [
-      ['patch', nextVersion(current, 'patch')],
-      ['minor', nextVersion(current, 'minor')],
-      ['major', nextVersion(current, 'major')],
-      [otherVersion(current), otherVersion(current)],
-    ];
-    for (const [arg, expected] of cases) {
+  /** Named cases, generated once at module scope — each becomes its own `it`. */
+  const SCALAR_BUMP_CASES = [
+    { label: 'patch', arg: () => 'patch', expected: (current) => nextVersion(current, 'patch') },
+    { label: 'minor', arg: () => 'minor', expected: (current) => nextVersion(current, 'minor') },
+    { label: 'major', arg: () => 'major', expected: (current) => nextVersion(current, 'major') },
+    {
+      label: 'explicit other-branch version',
+      arg: (current) => otherVersion(current),
+      expected: (current) => otherVersion(current),
+    },
+  ];
+
+  for (const { label, arg, expected } of SCALAR_BUMP_CASES) {
+    it(`patch / minor / major / explicit update all seven scalars and keep plugin.json copies identical — ${label}`, () => {
       const root = makeTree();
-      const result = runBump(root, [arg]);
-      assert.equal(result.status, 0, `${arg}: ${result.stderr}`);
-      assertSevenAgree(root, expected);
+      const current = currentVersion(root);
+      const previous = previousFromChangelog(root);
+      const expectedVersion = expected(current);
+      const result = runBump(root, [arg(current)]);
+      assert.equal(result.status, 0, result.stderr);
+      assertSevenAgree(root, expectedVersion);
       assertPluginCopiesIdentical(root);
-      assert.equal(readmeStatusVersion(root), expected);
+      assert.equal(readmeStatusVersion(root), expectedVersion);
       const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-      assert.match(changelog, new RegExp(`^## \\[${escapeRe(expected)}\\] — \\d{4}-\\d{2}-\\d{2}`, 'm'));
+      assert.match(changelog, new RegExp(`^## \\[${escapeRe(expectedVersion)}\\] — \\d{4}-\\d{2}-\\d{2}`, 'm'));
       assert.match(
         changelog,
         new RegExp(
-          `\\[Unreleased\\]: ${escapeRe(COMPARE_REPO)}/compare/v${escapeRe(expected)}\\.\\.\\.HEAD`,
+          `\\[Unreleased\\]: ${escapeRe(COMPARE_REPO)}/compare/v${escapeRe(expectedVersion)}\\.\\.\\.HEAD`,
         ),
       );
       assert.match(
         changelog,
         new RegExp(
-          `\\[${escapeRe(expected)}\\]: ${escapeRe(COMPARE_REPO)}/compare/v${escapeRe(previous)}\\.\\.\\.v${escapeRe(expected)}`,
+          `\\[${escapeRe(expectedVersion)}\\]: ${escapeRe(COMPARE_REPO)}/compare/v${escapeRe(previous)}\\.\\.\\.v${escapeRe(expectedVersion)}`,
         ),
       );
-    }
-  });
+    });
+  }
 
   it('promotes [Unreleased] notes into the new version section', () => {
     const root = makeTree();
@@ -456,16 +472,25 @@ describe('bump-version increments and explicit targets', () => {
 });
 
 describe('bump-version invalid input', () => {
-  it('rejects an invalid version string with a nonzero exit and a clear message', () => {
-    const root = makeTree();
-    const current = currentVersion(root);
-    for (const bad of [`v${nextVersion(current, 'patch')}`, '1.2', '01.0.0', 'banana', '1.2.3.4']) {
-      const result = runBump(root, [bad]);
-      assert.notEqual(result.status, 0, bad);
-      assert.match(result.stderr, /Invalid version/, bad);
-      assert.equal(readJson(root, 'package.json').version, current, bad);
-    }
-  });
+  /** Named cases, generated once at module scope — each becomes its own `it`. */
+  const INVALID_VERSION_CASES = [
+    { label: 'v-prefixed valid semver', arg: (current) => `v${nextVersion(current, 'patch')}` },
+    { label: 'missing patch component', arg: () => '1.2' },
+    { label: 'leading zero in major', arg: () => '01.0.0' },
+    { label: 'non-numeric', arg: () => 'banana' },
+    { label: 'four components', arg: () => '1.2.3.4' },
+  ];
+
+  for (const { label, arg } of INVALID_VERSION_CASES) {
+    it(`rejects an invalid version string with a nonzero exit and a clear message — ${label}`, () => {
+      const root = makeTree();
+      const current = currentVersion(root);
+      const result = runBump(root, [arg(current)]);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Invalid version/);
+      assert.equal(readJson(root, 'package.json').version, current);
+    });
+  }
 });
 
 describe('bump-version git tag report', () => {

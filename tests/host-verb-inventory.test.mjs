@@ -2,11 +2,12 @@
  * Fail if the public verb set drifts across host discovery surfaces.
  *
  * Each surface's set is derived from the file (dispatcher array, directory
- * listing, YAML command names, SKILL.md verb table). Marketplace JSON
- * files are catalogs, not verb enumerations, and are not surfaces.
- * There is no hardcoded expected verb list: a ninth verb added in one
- * place and forgotten in another grows the union and the neglected
- * surface is named.
+ * listing, YAML command names, SKILL.md verb table) and compared against
+ * the frozen 1.x contract in docs/COMPATIBILITY.md — not against each
+ * other. Deriving "expected" from a union of the same surfaces under test
+ * would let all of them drift together in lockstep and still pass; only an
+ * independent oracle catches that. A ninth verb added in one place and
+ * forgotten in another names the exact neglected surface.
  */
 
 import { describe, it } from 'node:test';
@@ -104,58 +105,60 @@ function uniqueSorted(list) {
   return [...new Set(list)].sort();
 }
 
+/**
+ * Named surfaces, read once at module scope — each becomes its own `it`
+ * below. A ninth verb added in one place and forgotten in another names the
+ * exact neglected surface instead of a single "some surface failed" case.
+ */
+const SURFACES = [
+  {
+    name: 'bin/antigravity.mjs dispatcher',
+    verbs: verbsFromKnownDispatcher(read('bin/antigravity.mjs')),
+  },
+  {
+    name: 'scripts/commands/*.mjs',
+    verbs: listVerbsFromDir(path.join('scripts', 'commands'), '.mjs'),
+  },
+  {
+    name: 'commands/*.md',
+    verbs: listVerbsFromDir('commands', '.md'),
+  },
+  {
+    name: 'agents/openai.yaml',
+    verbs: verbsFromOpenaiYaml(read('agents/openai.yaml')),
+  },
+  {
+    name: 'SKILL.md verb table',
+    verbs: verbsFromSkillMd(read('SKILL.md')),
+  },
+];
+
+/**
+ * The frozen 1.x public command surface, copied verbatim from
+ * docs/COMPATIBILITY.md ("The public verbs are exactly: ..."). This is the
+ * independent oracle (TotT R19): it comes from the contract document, never
+ * from reading any of the surfaces under test.
+ */
+const EXPECTED_VERBS = uniqueSorted([
+  'setup',
+  'review',
+  'rescue',
+  'task',
+  'vision',
+  'status',
+  'result',
+  'cancel',
+]);
+
 describe('host verb inventory', () => {
-  it('every discovery surface enumerates the same derived verb set', () => {
-    const surfaces = [
-      {
-        name: 'bin/antigravity.mjs dispatcher',
-        verbs: verbsFromKnownDispatcher(read('bin/antigravity.mjs')),
-      },
-      {
-        name: 'scripts/commands/*.mjs',
-        verbs: listVerbsFromDir(path.join('scripts', 'commands'), '.mjs'),
-      },
-      {
-        name: 'commands/*.md',
-        verbs: listVerbsFromDir('commands', '.md'),
-      },
-      {
-        name: 'agents/openai.yaml',
-        verbs: verbsFromOpenaiYaml(read('agents/openai.yaml')),
-      },
-      {
-        name: 'SKILL.md verb table',
-        verbs: verbsFromSkillMd(read('SKILL.md')),
-      },
-    ];
+  for (const surface of SURFACES) {
+    it(`${surface.name} matches the frozen 1.x verb set exactly, with no gaps or extras`, () => {
+      assert.deepEqual(uniqueSorted(surface.verbs), EXPECTED_VERBS, `${surface.name} does not match docs/COMPATIBILITY.md`);
+    });
 
-    const union = new Set();
-    for (const surface of surfaces) {
-      for (const verb of surface.verbs) union.add(verb);
-    }
-
-    assert.ok(
-      union.size > 0,
-      'derived verb union is empty — parsers found nothing on any surface',
-    );
-
-    const gaps = [];
-    for (const surface of surfaces) {
-      const have = new Set(surface.verbs);
-      const missing = [...union].filter((verb) => !have.has(verb)).sort();
-      if (missing.length > 0) {
-        gaps.push(`${surface.name} is missing: ${missing.join(', ')}`);
-      }
-      const dupes = surface.verbs.filter((verb, i) => surface.verbs.indexOf(verb) !== i);
-      if (dupes.length > 0) {
-        gaps.push(`${surface.name} lists duplicates: ${uniqueSorted(dupes).join(', ')}`);
-      }
-    }
-
-    assert.equal(
-      gaps.length,
-      0,
-      `host verb inventory mismatch (union=${uniqueSorted(union).join(', ')}):\n  ${gaps.join('\n  ')}`,
-    );
-  });
+    it(`${surface.name} lists each verb exactly once, with no duplicates`, () => {
+      const dupes = uniqueSorted(surface.verbs.filter((verb, i) => surface.verbs.indexOf(verb) !== i));
+      assert.deepEqual(dupes, [], `${surface.name} lists duplicates: ${dupes.join(', ')}`);
+    });
+  }
 });

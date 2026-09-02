@@ -176,9 +176,14 @@ describe('host bootstrap source', () => {
 describe('commands/*.md wrappers', () => {
   const verbs = listVerbs();
 
-  it('every command file opens with the canonical refusal contract, before anything else', () => {
+  it('at least one command file exists', () => {
     assert.ok(verbs.length > 0, 'no command files');
-    for (const verb of verbs) {
+  });
+
+  // One `it` per verb, generated outside any test body: a failure names the
+  // exact verb instead of "some verb in the loop failed".
+  for (const verb of verbs) {
+    it(`${verb}.md opens with the canonical refusal contract, before anything else`, () => {
       const body = readCommand(verb);
       assert.equal(
         bodyAfterFrontmatter(body).startsWith(hostRefusalContract(verb)),
@@ -195,40 +200,37 @@ describe('commands/*.md wrappers', () => {
         false,
         `${verb}.md still shell-expands CLAUDE_PLUGIN_ROOT into the script path`,
       );
-    }
+    });
+  }
+
+  // The 2026-08-21 fabrication: agy's model forged a status table and a
+  // review because status.md enumerated the columns of a correct answer.
+  // Wrappers may say "show the output unchanged"; they must never describe
+  // what that output looks like.
+  for (const verb of verbs) {
+    it(`${verb}.md does not hand the model an output shape to imitate`, () => {
+      const body = readCommand(verb);
+      assert.doesNotMatch(body, /markdown table/i, `${verb}.md reintroduces an output recipe: markdown table`);
+      assert.doesNotMatch(body, /render the command output/i, `${verb}.md reintroduces an output recipe: render the command output`);
+      assert.doesNotMatch(body, /preserve the actionable fields/i, `${verb}.md reintroduces an output recipe: preserve the actionable fields`);
+      assert.doesNotMatch(body, /job id, kind, status, phase/i, `${verb}.md reintroduces an output recipe: job id, kind, status, phase`);
+    });
+  }
+
+  it('rescue.md embeds the canonical node -e bootstrap directly, without !`...` substitution', () => {
+    const body = readCommand('rescue');
+    assert.equal(
+      body.includes(hostBootstrapSource('rescue')),
+      true,
+      'rescue.md is missing the canonical bootstrap source',
+    );
+    assert.equal(extractBangBootstrap(body), null, 'rescue.md should not use !`...` substitution');
   });
 
-  it('no command file hands the model an output shape to imitate', () => {
-    // The 2026-08-21 fabrication: agy's model forged a status table and a
-    // review because status.md enumerated the columns of a correct answer.
-    // Wrappers may say "show the output unchanged"; they must never
-    // describe what that output looks like.
-    const forbidden = [
-      /markdown table/i,
-      /render the command output/i,
-      /preserve the actionable fields/i,
-      /job id, kind, status, phase/i,
-    ];
-    for (const verb of verbs) {
+  const nonRescueVerbs = verbs.filter((verb) => verb !== 'rescue');
+  for (const verb of nonRescueVerbs) {
+    it(`${verb}.md embeds the canonical bang-substitution bootstrap`, () => {
       const body = readCommand(verb);
-      for (const re of forbidden) {
-        assert.doesNotMatch(body, re, `${verb}.md reintroduces an output recipe: ${re}`);
-      }
-    }
-  });
-
-  it('bang-substitution verbs embed the canonical node -e bootstrap', () => {
-    for (const verb of verbs) {
-      const body = readCommand(verb);
-      if (verb === 'rescue') {
-        assert.equal(
-          body.includes(hostBootstrapSource('rescue')),
-          true,
-          'rescue.md is missing the canonical bootstrap source',
-        );
-        assert.equal(extractBangBootstrap(body), null, 'rescue.md should not use !`...` substitution');
-        continue;
-      }
       const embedded = extractBangBootstrap(body);
       assert.equal(embedded, hostBootstrapSource(verb), `${verb}.md bang line drifted`);
       assert.equal(
@@ -236,8 +238,8 @@ describe('commands/*.md wrappers', () => {
         true,
         `${verb}.md is missing the canonical bang line`,
       );
-    }
-  });
+    });
+  }
 });
 
 describe('host bootstrap execution', () => {

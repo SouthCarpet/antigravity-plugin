@@ -37,6 +37,32 @@ function windowsShortPath(absPath) {
   }
 }
 
+/**
+ * Windows `%~sI` short path with a genuine lexical `~` alias, or `null` when
+ * the platform is not win32 or 8.3 name generation is disabled on the
+ * volume. Unlike `windowsShortPath` above, this never falls back to the
+ * original long path: a test naming itself "8.3 short path" must either
+ * exercise a real alias or visibly skip, not silently re-run the long-path
+ * case under a short-path name.
+ */
+function windowsShortAlias(absPath) {
+  if (process.platform !== 'win32') return null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-short-alias-'));
+  try {
+    const bat = path.join(dir, 'short.bat');
+    fs.writeFileSync(bat, `@echo off\r\nfor %%I in ("${absPath}") do echo %%~sI\r\n`);
+    const result = spawnSync('cmd.exe', ['/c', bat], { encoding: 'utf8' });
+    const line = String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop();
+    if (!line) return null;
+    const shortBase = path.basename(line);
+    const longBase = path.basename(absPath);
+    if (!shortBase.includes('~') || shortBase.toLowerCase() === longBase.toLowerCase()) return null;
+    return line;
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
@@ -97,12 +123,16 @@ describe('vision-server.loadImageResult', () => {
     assert.match(out.content[0].text, /not authorized/);
   });
 
-  it('blocks Windows UNC and extended-length path forms before filesystem access', () => {
-    for (const candidate of ['\\\\server\\share\\secret.png', '\\\\?\\C:\\secret.png']) {
-      const out = loadImageResult(candidate, tmpDir, [pngPath]);
-      assert.equal(out.isError, true);
-      assert.match(out.content[0].text, /not authorized/);
-    }
+  it('blocks a Windows UNC path before filesystem access', () => {
+    const out = loadImageResult('\\\\server\\share\\secret.png', tmpDir, [pngPath]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /not authorized/);
+  });
+
+  it('blocks a Windows extended-length path before filesystem access', () => {
+    const out = loadImageResult('\\\\?\\C:\\secret.png', tmpDir, [pngPath]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /not authorized/);
   });
 
   it('blocks a permitted-looking path that resolves through a symlink or junction', () => {
@@ -140,8 +170,12 @@ describe('vision-server.loadImageResult', () => {
     assert.match(out.content[0].text, /symlink|junction/);
   });
 
-  it('allows a legitimate image reached via a Windows 8.3 short path', () => {
-    const shortDir = windowsShortPath(tmpDir);
+  it('allows a legitimate image reached via a Windows 8.3 short path', (t) => {
+    const shortDir = windowsShortAlias(tmpDir);
+    if (shortDir === null) {
+      t.skip('no real 8.3 short alias was produced for this volume/path — this platform/volume cannot exercise the case');
+      return;
+    }
     const shortPng = path.join(shortDir, 'probe.png');
     const out = loadImageResult('probe.png', shortDir, [shortPng, pngPath]);
     assert.equal(out.isError, undefined);

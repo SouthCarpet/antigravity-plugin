@@ -3,8 +3,9 @@
  * and runAgyPrint / spawnAgyDetached `model` + `extraArgs` spawn-arg
  * placement.
  *
- * `node:child_process.spawn` is mocked (installed before agent-runtime.mjs
- * is imported, following the pattern in tests/job-helpers.test.mjs) so no
+ * `scripts/lib/process-adapter.mjs` — the owned seam agent-runtime.mjs
+ * spawns through — is faked (installed before agent-runtime.mjs is
+ * imported, following the pattern in tests/job-helpers.test.mjs) so no
  * real process is ever spawned; resolveAgyBin is a pure function and is
  * exercised directly against temp-dir fixtures built with `os.tmpdir()`
  * (portable — this suite must pass on both POSIX and Windows).
@@ -35,7 +36,7 @@ function makeFakeChild() {
   return child;
 }
 
-mock.module('node:child_process', {
+mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();

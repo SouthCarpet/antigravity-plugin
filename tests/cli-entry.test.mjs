@@ -80,72 +80,127 @@ describe('runIfMain (unit)', () => {
     assert.equal(fakeRun.mock.callCount(), 0);
   });
 
-  it('(e) treats equivalent path spellings as the same entrypoint', async () => {
-    const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');
+  it(
+    '(e) Windows: case and slash differences in the same path are still the same entrypoint',
+    { skip: process.platform !== 'win32' },
+    async () => {
+      const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');
 
-    const originalArgv1 = process.argv[1];
-    const originalExit = process.exit;
-    let capturedExitCode;
-    process.exit = (code) => {
-      capturedExitCode = code;
-    };
+      const originalArgv1 = process.argv[1];
+      const originalExit = process.exit;
+      let capturedExitCode;
+      process.exit = (code) => {
+        capturedExitCode = code;
+      };
 
-    try {
-      const fakeRun = mock.fn(async () => 7);
-      let importMetaUrl;
-      if (process.platform === 'win32') {
+      try {
+        const fakeRun = mock.fn(async () => 7);
         // Same file, but forward slashes and flipped case on the drive
         // letter and directory names — NTFS comparison is case-insensitive.
         process.argv[1] = 'C:\\Users\\Asus\\fake\\module.mjs';
-        importMetaUrl = 'file:///c:/users/ASUS/FAKE/Module.MJS';
-      } else {
-        process.argv[1] = '/tmp/fake/module.mjs';
-        importMetaUrl = pathToFileURL('/tmp/fake/module.mjs').href;
-      }
+        const importMetaUrl = 'file:///c:/users/ASUS/FAKE/Module.MJS';
 
-      const result = await runIfMain(importMetaUrl, fakeRun);
-
-      assert.equal(result, true);
-      assert.equal(fakeRun.mock.callCount(), 1);
-      assert.equal(capturedExitCode, 7);
-    } finally {
-      process.argv[1] = originalArgv1;
-      process.exit = originalExit;
-    }
-  });
-
-  it('(e2) case handling follows the platform', async () => {
-    const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');
-
-    const originalArgv1 = process.argv[1];
-    const originalExit = process.exit;
-    let capturedExitCode;
-    process.exit = (code) => {
-      capturedExitCode = code;
-    };
-
-    try {
-      const fakeRun = mock.fn(async () => 7);
-      if (process.platform === 'win32') {
-        process.argv[1] = 'C:\\Users\\Asus\\fake\\module.mjs';
-        const importMetaUrl = 'file:///C:/Users/Asus/fake/MODULE.mjs';
         const result = await runIfMain(importMetaUrl, fakeRun);
+
         assert.equal(result, true);
         assert.equal(fakeRun.mock.callCount(), 1);
         assert.equal(capturedExitCode, 7);
-      } else {
+      } finally {
+        process.argv[1] = originalArgv1;
+        process.exit = originalExit;
+      }
+    },
+  );
+
+  it(
+    '(e) POSIX: an identical path spelling is the same entrypoint',
+    { skip: process.platform === 'win32' },
+    async () => {
+      const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');
+
+      const originalArgv1 = process.argv[1];
+      const originalExit = process.exit;
+      let capturedExitCode;
+      process.exit = (code) => {
+        capturedExitCode = code;
+      };
+
+      try {
+        const fakeRun = mock.fn(async () => 7);
+        process.argv[1] = '/tmp/fake/module.mjs';
+        const importMetaUrl = pathToFileURL('/tmp/fake/module.mjs').href;
+
+        const result = await runIfMain(importMetaUrl, fakeRun);
+
+        assert.equal(result, true);
+        assert.equal(fakeRun.mock.callCount(), 1);
+        assert.equal(capturedExitCode, 7);
+      } finally {
+        process.argv[1] = originalArgv1;
+        process.exit = originalExit;
+      }
+    },
+  );
+
+  it(
+    '(e2) Windows: mixed case in the import URL still matches argv[1]',
+    { skip: process.platform !== 'win32' },
+    async () => {
+      const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');
+
+      const originalArgv1 = process.argv[1];
+      const originalExit = process.exit;
+      let capturedExitCode;
+      process.exit = (code) => {
+        capturedExitCode = code;
+      };
+
+      try {
+        const fakeRun = mock.fn(async () => 7);
+        process.argv[1] = 'C:\\Users\\Asus\\fake\\module.mjs';
+        const importMetaUrl = 'file:///C:/Users/Asus/fake/MODULE.mjs';
+
+        const result = await runIfMain(importMetaUrl, fakeRun);
+
+        assert.equal(result, true);
+        assert.equal(fakeRun.mock.callCount(), 1);
+        assert.equal(capturedExitCode, 7);
+      } finally {
+        process.argv[1] = originalArgv1;
+        process.exit = originalExit;
+      }
+    },
+  );
+
+  it(
+    '(e2) POSIX: a differently-cased path is a different entrypoint',
+    { skip: process.platform === 'win32' },
+    async () => {
+      const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');
+
+      const originalArgv1 = process.argv[1];
+      const originalExit = process.exit;
+      let capturedExitCode;
+      process.exit = (code) => {
+        capturedExitCode = code;
+      };
+
+      try {
+        const fakeRun = mock.fn(async () => 7);
         process.argv[1] = '/tmp/fake/module.mjs';
         const importMetaUrl = pathToFileURL('/tmp/FAKE/module.mjs').href;
+
         const result = await runIfMain(importMetaUrl, fakeRun);
+
         assert.equal(result, false);
         assert.equal(fakeRun.mock.callCount(), 0);
         assert.equal(capturedExitCode, undefined);
+      } finally {
+        process.argv[1] = originalArgv1;
+        process.exit = originalExit;
       }
-    } finally {
-      process.argv[1] = originalArgv1;
-      process.exit = originalExit;
-    }
-  });
+    },
+  );
 
   it('propagates a run() error to stderr and exits 1', async () => {
     const { runIfMain } = await import('../scripts/lib/cli-entry.mjs');

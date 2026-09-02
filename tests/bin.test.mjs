@@ -116,13 +116,16 @@ export async function run(argv, ctx) {
   });
 
   it('per-command --help exits 0 without running command', () => {
+    // Own the marker's prior state instead of depending on an earlier test
+    // having populated it: write a known sentinel value first, then assert
+    // --help left it untouched (the stub was never invoked).
+    const priorProbe = { argv: ['sentinel'], host: 'previous-run', cwd: tmpRoot };
+    fs.writeFileSync(probeMarker, JSON.stringify(priorProbe));
+
     const res = run(['review', '--help'], { ANTIGRAVITY_SCRIPT_ROOT: tmpRoot });
     assert.equal(res.status, 0);
     assert.match(res.stdout, /antigravity-plugin review/);
-    // The stub was NOT invoked: probe marker should reflect the previous run only.
-    // (We rely on dispatch test having already populated it; verify it wasn't
-    // overwritten with a help-shaped payload.)
     const probe = JSON.parse(fs.readFileSync(probeMarker, 'utf8'));
-    assert.deepEqual(probe.argv, ['--scope', 'working-tree', 'extra']);
+    assert.deepEqual(probe, priorProbe);
   });
 });

@@ -10,7 +10,7 @@
  * `/antigravity:vision` works unattended. Pass `--skip-vision` to opt out,
  * or `--remove-vision` to remove only plugin-owned persistent entries.
  */
-import { spawn } from 'node:child_process';
+import { spawn } from '../lib/process-adapter.mjs';
 import { readCommandInput } from '../lib/args.mjs';
 import { resolveAgyBin, probeAgy, assertAgyBinSpawnable } from '../lib/agent-runtime.mjs';
 import { ensureVisionConfig, removeVisionConfig, VISION_PERMISSION } from '../lib/vision-config.mjs';

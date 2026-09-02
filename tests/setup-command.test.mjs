@@ -2,10 +2,10 @@
  * Tests for scripts/commands/setup.mjs — the post-OAuth ensureVisionConfig
  * wiring and --skip-vision flag added for the vision work.
  *
- * agent-runtime.mjs, vision-config.mjs, and node:child_process are all
- * mocked (installed before setup.mjs is imported, following the pattern in
- * tests/job-helpers.test.mjs) so no real `agy` process is spawned and the
- * real `~/.gemini` config is never touched.
+ * agent-runtime.mjs, vision-config.mjs, and the owned process-adapter.mjs
+ * spawn seam are all mocked (installed before setup.mjs is imported,
+ * following the pattern in tests/job-helpers.test.mjs) so no real `agy`
+ * process is spawned and the real `~/.gemini` config is never touched.
  */
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -43,7 +43,7 @@ mock.module('../scripts/lib/vision-config.mjs', {
   },
 });
 
-mock.module('node:child_process', {
+mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
     spawn: () => {
       const child = new EventEmitter();

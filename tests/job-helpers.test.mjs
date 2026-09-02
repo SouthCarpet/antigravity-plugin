@@ -1,9 +1,10 @@
 /**
  * Tests for scripts/lib/job-helpers.mjs.
  *
- * Replaces `agent-runtime` exports and `node:child_process.spawn` with
- * mutable test doubles installed via node:test's experimental module
- * mocking. A single mock is installed and the underlying behaviour is
+ * Replaces `agent-runtime` exports and the owned `process-adapter.mjs`
+ * spawn seam with mutable test doubles installed via node:test's
+ * experimental module mocking. A single mock is installed and the
+ * underlying behaviour is
  * swapped via a shared `state` object, so all tests share the same
  * cached job-helpers module — that keeps the V8 coverage report
  * accurate (one module instance, one tally).
@@ -41,7 +42,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
   },
 });
 
-mock.module('node:child_process', {
+mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
     spawn: () => ({
       pid: runtime.spawnPid,
@@ -215,17 +216,39 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
   it('waitForJob returns the terminal record promptly when status flips', async () => {
     freshWorkspace();
     const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'w' });
-    setTimeout(() => { patchJob(workspaceRoot, job.id, { status: 'completed' }); }, 30);
-    const finalJob = await waitForJob(workspaceRoot, job.id, { pollMs: 15, timeoutMs: 2000 });
+    // Deterministic signal instead of a real-timer race: the status flip
+    // happens on a specific poll iteration rather than "whichever timer
+    // wins", so the assertion below proves waitForJob picked it up on the
+    // very next poll rather than merely eventually noticing it.
+    let pollCount = 0;
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 15,
+      timeoutMs: 2000,
+      sleep: async () => {
+        pollCount += 1;
+        if (pollCount === 1) await patchJob(workspaceRoot, job.id, { status: 'completed' });
+      },
+    });
     assert.equal(finalJob.status, 'completed');
+    assert.equal(pollCount, 1);
   });
 
-  it('waitForJob returns the latest snapshot when the deadline elapses', async () => {
+  it('waitForJob returns the latest (still-queued) snapshot when the deadline elapses', async () => {
     freshWorkspace();
     const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'w2' });
-    const timedOut = await waitForJob(workspaceRoot, job.id, { pollMs: 20, timeoutMs: 80 });
-    // Either null or the still-queued snapshot.
-    assert.ok(timedOut === null || timedOut.status === 'queued');
+    // Injected clock: the deadline elapses on the first simulated tick, with
+    // zero real wall-clock time spent and no reliance on system timer
+    // granularity. Nothing ever patches the job, so the only reachable
+    // outcome is the still-queued snapshot — assert it exactly instead of
+    // the previously permissive "null or queued" check.
+    let clock = 0;
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 20,
+      timeoutMs: 80,
+      now: () => clock,
+      sleep: async () => { clock += 100; },
+    });
+    assert.equal(finalJob.status, 'queued');
   });
 
   it('waitForJob marks a vanished worker terminal instead of hanging', async () => {
