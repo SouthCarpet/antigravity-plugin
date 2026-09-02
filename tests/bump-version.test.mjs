@@ -498,8 +498,17 @@ describe('bump-version git tag report', () => {
     const root = makeTree();
     const current = currentVersion(root);
     const patch = nextVersion(current, 'patch');
+    // Isolate from the developer's global and system git config. A global
+    // tag.gpgsign=true would turn the plain `git tag` below into a signed,
+    // annotated tag that fails without a message; core.hooksPath or
+    // init.defaultBranch would change the fixture in other ways. An empty
+    // file is used because git.exe cannot open os.devNull (\\.\nul).
+    const emptyGitConfig = path.join(root, 'empty.gitconfig');
+    fs.writeFileSync(emptyGitConfig, '');
     const gitEnv = {
       ...process.env,
+      GIT_CONFIG_GLOBAL: emptyGitConfig,
+      GIT_CONFIG_NOSYSTEM: '1',
       GIT_AUTHOR_NAME: 'test',
       GIT_AUTHOR_EMAIL: 't@example.com',
       GIT_COMMITTER_NAME: 'test',
