@@ -1,6 +1,6 @@
 # Releasing
 
-Runbook for the maintainer of `@southcarpet/antigravity-plugin`.
+This runbook is for the maintainer of `@southcarpet/antigravity-plugin`.
 
 A release is a tag `vX.Y.Z` pushed to GitHub. `.github/workflows/release.yml`
 runs the four gates on that commit and publishes it to npm through npm
@@ -15,11 +15,11 @@ read 2026-09-02): npm 11.5.1 or newer, Node 22.14.0 or newer (the job uses
 Node 24), `actions/setup-node` with `registry-url`, a public repository and a
 public package.
 
-## One-time setup on npmjs.com
+## One-time npmjs.com setup
 
-Done once by the package owner, in the browser. Open the package page for
-`@southcarpet/antigravity-plugin`, then Settings, then Trusted Publisher, and
-choose GitHub Actions:
+The package owner does this once in the browser. Open the package page for
+`@southcarpet/antigravity-plugin`. Select Settings, then Trusted Publisher,
+then GitHub Actions. Enter these values:
 
 | Field | Value |
 |---|---|
@@ -30,12 +30,13 @@ choose GitHub Actions:
 | Allowed action | `npm publish` |
 
 The filename must match the file under `.github/workflows/` exactly. Until
-this is configured, the Publish step fails with an authentication error and
-nothing is published.
+you configure this publisher, the Publish step fails with an authentication
+error. Nothing is published.
 
 ## Release flow
 
-1. Write the release notes under `## [Unreleased]` in `CHANGELOG.md`.
+1. Start from the commit that you will release. Write the release notes under
+   `## [Unreleased]` in `CHANGELOG.md`.
    `bump-version` refuses to promote an empty section.
 2. Bump every version scalar at once:
    `node scripts/bump-version.mjs <patch|minor|major|x.y.z>`.
@@ -52,22 +53,22 @@ nothing is published.
    ```
 
 4. Commit: `git commit -am "release: X.Y.Z"`.
-5. Tag with a signature (see "Tag signing" below):
+5. Tag with a signature. See [Tag signing](#tag-signing).
    `git tag -s vX.Y.Z -m "vX.Y.Z"`, then `git tag -v vX.Y.Z`.
-6. Push the commit first, then the tag:
+6. Push the commit first. Then push the tag:
    `git push origin main` and `git push origin vX.Y.Z`.
    CI runs on the commit; the tag push starts `release.yml`.
-7. Watch the run on the Actions tab (or `gh run watch`). The job stops
+7. Watch the run on the Actions tab or use `gh run watch`. The job stops
    before publishing when a gate fails, when the tag does not match
    `package.json`, or when npmjs.com does not trust the workflow yet.
 8. Verify the published version (next section).
 
 ## Tag signing
 
-Release tags are signed with the maintainer's existing SSH key. Git has
-signed with SSH keys since 2.34; no GPG setup is needed. If no key exists
-yet, create one first: `ssh-keygen -t ed25519 -C "<e-mail>"`. One-time
-configuration on the maintainer's machine:
+Release tags use the maintainer's existing SSH key. Git supports SSH signing
+from version 2.34. You do not need GPG setup. If no key exists, create one:
+`ssh-keygen -t ed25519 -C "<e-mail>"`. Configure the maintainer's machine
+once:
 
 ```bash
 git config --global gpg.format ssh
@@ -86,9 +87,16 @@ git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
 git tag -v vX.Y.Z
 ```
 
-A good result reads `Good "git" signature for <e-mail> with ED25519 key
+On Windows, Git for Windows ships an MSYS `ssh-keygen`. Measured on
+2026-09-02, it cannot reach the Windows `ssh-agent` service. Therefore,
+`git tag -a` prompts for the passphrase and fails in a non-interactive shell
+even when the key is loaded. Run `git config --global gpg.ssh.program
+C:\Windows\System32\OpenSSH\ssh-keygen.exe`, then use `ssh-add` to add the key
+to the running `ssh-agent` service once per boot.
+
+The expected result reads `Good "git" signature for <e-mail> with ED25519 key
 SHA256:...`. A reader verifies the same way after putting that one line into
-their own allowed-signers file; the public key is served at
+their allowed-signers file. The public key is served at
 `https://github.com/SouthCarpet.keys`. When the same key is registered on
 GitHub as a signing key, GitHub also marks the tag as verified.
 
@@ -103,8 +111,8 @@ reader tie the npm tarball to a commit the maintainer signed.
 npm view @southcarpet/antigravity-plugin@X.Y.Z dist.attestations
 ```
 
-Prints the attestations URL and the provenance count. Versions before 1.1.0
-have no `dist.attestations` field at all.
+Verify that this prints the attestations URL and the provenance count.
+Versions before 1.1.0 have no `dist.attestations` field at all.
 
 ```bash
 mkdir verify && cd verify
@@ -113,8 +121,8 @@ npm install @southcarpet/antigravity-plugin@X.Y.Z
 npm audit signatures
 ```
 
-`npm audit signatures` must report the package as having a verified registry
-signature and a verified attestation.
+Verify that `npm audit signatures` reports the package as having a verified
+registry signature and a verified attestation.
 
 On npmjs.com, the version page shows a Provenance block naming the source
 commit and the workflow run. Check that the commit is the tagged one:
@@ -129,9 +137,8 @@ from the named commit, in the named workflow run. A signed tag on that commit
 proves the maintainer's key vouched for that commit. Together they let a
 reader tie the tarball on npm to a commit the maintainer signed.
 
-Provenance does not review the code. It says nothing about whether the code
-is correct or safe, nothing about `agy` or Google's services, and it cannot
-protect against a compromised GitHub account that can push a tag. There is
-no way to produce an attestation on a laptop: npm generates one only for an
-OIDC publish from a public repository, which is why publishing moved into
-the workflow.
+Provenance does not review the code. It does not show that the code is correct
+or safe. It does not cover `agy` or Google's services. It cannot protect
+against a compromised GitHub account that can push a tag. npm generates an
+attestation only for an OIDC publish from a public repository. You cannot
+produce one on a laptop.

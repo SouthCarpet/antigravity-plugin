@@ -94,7 +94,7 @@ working tree into `~/.gemini/config/plugins/antigravity/`, including `.git`,
 `.github`, and `tests/`. It does not honour `package.json` `files`. agy keeps
 that copy, and reinstalling over it merges instead of replacing. **To upgrade,
 run `agy plugin uninstall antigravity`, then `agy plugin install
-<path-to-clean-clone>`** — otherwise the TUI can keep serving stale files.
+<path-to-clean-clone>`**. Otherwise, the TUI can keep serving stale files.
 
 ```bash
 git clone https://github.com/SouthCarpet/antigravity-plugin.git

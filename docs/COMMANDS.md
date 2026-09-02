@@ -202,10 +202,10 @@ text string of every image, verbatim, one per line, `(no text)` when there is
 none), then `## Observations` (visual facts only), then `## Answer`. It tells
 the model that `view_image` is the only way to see an image and that
 `read_file` on an image returns bytes, not pixels. An answer from this
-channel is not evidence. The transcript, cross-checked against the source
-image, is: a claim in `## Answer` that quotes no transcribed line has nothing
-behind it. The shape is requested by the prompt, not enforced by agy, so a
-model can still deviate from it.
+channel is not evidence. Cross-check the transcript against the source image
+before you use the answer. The cross-checked transcript is the evidence. The
+shape is requested by the prompt. agy does not enforce it, so a model can
+still deviate from it.
 
 On agy 1.1.24 a large image does not arrive inline. agy writes the MCP result
 to a file in its own conversation directory and gives the model the note

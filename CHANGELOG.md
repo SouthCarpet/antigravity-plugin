@@ -9,44 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`update` is a standalone convenience, not a ninth verb.**
-  `antigravity-plugin update` asks the npm registry for the latest published
-  version (one request, cached 24 h, `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips
-  it), compares it with the running copy, and prints the update command for
-  each host found on PATH. `--apply` runs those commands and prints each one
-  first; for agy it packs the published tarball and does uninstall, then
-  install, so no clone is needed. `status` prints one line on stderr when the
-  cache knows a newer version and never calls the network. The plugin does
-  not update itself and no host offers a hook for that: it probes, tells, and
-  drives the host's own command only when asked. No host wrapper exposes
-  `update` (docs/COMPATIBILITY.md, "Public command surface").
-- **Releases carry npm provenance.** `.github/workflows/release.yml`
-  publishes on a `v*` tag through npm trusted publishing: the job holds
-  `id-token: write` and `contents: read`, no token is stored, and npm
-  attaches an attestation that binds the tarball to this repository, the
-  tagged commit, and the workflow run. The job also refuses a tag that does
-  not match `package.json`. `docs/RELEASING.md` is the runbook;
-  `SECURITY.md` says how to verify and what a signature does not prove.
-- **`--mode <plan|accept-edits>` on `rescue` and `task`** — forwarded to
-  agy as its execution mode for that run, on the foreground and the
-  background path. Any other value is an argument error and agy is not
-  started.
-- **Vision answers have a fixed shape** — `## Transcription` (every
-  visible string of every image, verbatim, one per line), then
-  `## Observations`, then `## Answer`. The prompt names `view_image` as the
-  only way to see an image and forbids `read_file` on an image path. The
-  `VISION-UNAVAILABLE` sentinel is unchanged. The docs say plainly that an
-  answer from this channel is not evidence; the transcript, cross-checked
-  against the source image, is.
-- **`--add-dir` documented as the headless read grant** — on agy 1.1.24 no
-  `read_file(<path>)` allow rule works headless except the wildcard, while
-  `--add-dir <dir>` grants reads bounded to that directory, read-only, for
-  that run. `docs/COMPATIBILITY.md` carries the probe table; a test per
-  verb proves the flag reaches agy argv verbatim and in order.
+- **Standalone `update`.** `antigravity-plugin update` checks the npm
+  registry for the latest published version. It makes one request and caches
+  the result for 24 h. `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the check. The
+  command compares the running copy with the latest version and prints an
+  update command for each host on `PATH`. `--apply` prints and runs those
+  commands. For agy, it packs the published tarball, uninstalls, then
+  installs. No clone is needed. `status` prints one stderr line when the
+  cache knows a newer version. `status` never calls the network. The plugin
+  does not update itself. No host wrapper exposes `update`. See
+  `docs/COMPATIBILITY.md`, "Public command surface".
+- **npm provenance.** `.github/workflows/release.yml` publishes a `v*` tag
+  through npm trusted publishing. The job holds `id-token: write` and
+  `contents: read`. No token is stored. npm attaches an attestation that
+  binds the tarball to this repository, the tagged commit, and the workflow
+  run. The job refuses a tag that does not match `package.json`.
+  `docs/RELEASING.md` is the runbook. `SECURITY.md` explains verification and
+  the limits of a signature.
+- **`--mode <plan|accept-edits>` for `rescue` and `task`.** The plugin
+  forwards this value to agy as the execution mode for that run. This works
+  on foreground and background paths. For any other value the plugin reports
+  an argument error and does not start agy.
+- **Fixed vision answer shape.** The answer contains `## Transcription`,
+  then `## Observations`, then `## Answer`. `## Transcription` lists every
+  visible string of every image, verbatim, one per line. The prompt names
+  `view_image` as the only way to see an image. It forbids `read_file` on an
+  image path. The `VISION-UNAVAILABLE` sentinel is unchanged. An answer from
+  this channel is not evidence. Cross-check the transcript against the
+  source image.
+- **`--add-dir` headless read grant.** On agy 1.1.24, no
+  `read_file(<path>)` allow rule works headless except the wildcard.
+  `--add-dir <dir>` grants bounded, read-only access to that directory for
+  one run. `docs/COMPATIBILITY.md` has the probe table. A test for each verb
+  proves that the flag reaches agy argv verbatim and in order.
 
 ### Changed
 
-- **Tests fake seams this plugin owns, not Node built-ins.**
+- **Owned test seams.** Tests fake seams this plugin owns, not Node built-ins.
+  `scripts/lib/process-adapter.mjs` is the single spawn seam. The clock,
+  `sleep`, the atomic writer, and the `{ platform, fs }` options of
+  `paths.mjs` and `vision-server` are injectable with production defaults.
+  The 8.3 short-name and junction cases run against a fixture volume and
+  assert on every host. They no longer skip where the volume mints no alias.
+  No runtime behaviour changes.
   `scripts/lib/process-adapter.mjs` is the single spawn seam, and `now`,
   `sleep`, the atomic writer, and the `{ platform, fs }` options of
   `paths.mjs` and `vision-server` are injectable with production defaults.
@@ -56,31 +61,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A headless permission denial no longer looks like success** — since
-  agy 1.1.20 a tool that print mode cannot prompt for is auto-denied while
-  the run still exits 0 with `status: SUCCESS` and an empty response; the
-  runtime reported that as `completed` with nothing in it. It now detects
-  the denial on stderr by its stable parts (`auto-denied`, the quoted tool
-  name). An empty answer plus a denial is `failed`, with the denied tool
-  named and the per-verb remedy (`rescue`/`task`: `--add-dir <dir>`;
-  `vision`: the `view_image` MCP tool). A real answer plus a denial stays
-  `completed`, and the denial is kept on stderr and listed under
-  `details.warnings` in `--json`. An empty answer with no denial stays
-  `completed`; the `CANCELED` result of older agy is still `failed`.
-- **The `stdin error` diagnostic is newline-terminated** — it used to glue
-  itself to the first line of agy's own stderr.
-- **`vision` sees large images again on agy 1.1.24.** agy writes an MCP image
-  result to a file in its own conversation directory and gives the model the
-  note `[Resource offloaded to file://<X>]` in place of the pixels, so the
-  prompt's contract answered `VISION-UNAVAILABLE` for every image that was
-  large enough. The prompt now tells the model to open exactly the path from
-  that note with agy's `view_file` tool, and no other path. The ban on
-  `read_file` and `view_file` for the image paths you name stays, the MCP
-  allowlist does not change, and no directory grant is added.
-- **A failed agy result names its reason.** `parseAgyStream` reads
-  `result.error` and the runtime adds `agent-runtime: agy reported error:
-  <reason>` to stderr. A `--print-timeout` exits 1 with an empty stderr, so
-  before this the word "timeout" appeared nowhere in the output.
+- **Headless permission denial reports failure.** Since agy 1.1.20, a tool
+  that print mode cannot prompt for is auto-denied. The run still exits 0
+  with `status: SUCCESS` and an empty response. The runtime previously
+  reported this as `completed`. It now detects `auto-denied` and the quoted
+  tool name on stderr. An empty answer with a denial is `failed`. The error
+  names the denied tool and the remedy: `--add-dir <dir>` for `rescue` and
+  `task`, and the `view_image` MCP tool for `vision`. A real answer with a
+  denial remains `completed`. The denial stays on stderr and is listed in
+  `details.warnings` in `--json`. An empty answer without a denial remains
+  `completed`. The `CANCELED` result of older agy remains `failed`.
+- **Newline after `stdin error`.** The diagnostic no longer joins the first
+  line of agy's stderr.
+- **Large images work with agy 1.1.24.** agy writes an MCP image result to a
+  file in its conversation directory. It gives the model the note
+  `[Resource offloaded to file://<X>]` instead of the pixels. The prompt now
+  tells the model to open exactly that path with agy's `view_file` tool, and
+  no other path. The ban on `read_file` and `view_file` for named image
+  paths remains. The MCP allowlist does not change. No directory grant
+  is added.
+- **Failed agy results include a reason.** `parseAgyStream` reads
+  `result.error`. The runtime adds `agent-runtime: agy reported error:
+  <reason>` to stderr. A `--print-timeout` exits 1 with empty stderr. Before
+  this change, the output did not contain the word "timeout".
 
 ## [1.0.1] — 2026-08-22
 

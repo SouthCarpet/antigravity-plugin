@@ -28,6 +28,12 @@ for free / personal users.
 > This does not mean finished — it means the surface stops moving. See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
+## Versions
+
+Plugin 1.1.0 is tested with agy 1.1.15, 1.1.17, and 1.1.24. See
+[`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for behavior that differs
+by agy version. The plugin does not update itself.
+
 ## CI
 
 Every pull request targeting `main`, and every push to `main`, runs the full
@@ -76,6 +82,24 @@ preferred AI host so you can:
 | Codex CLI        | `codex plugin marketplace add <path-to-clone>` then `codex plugin add antigravity@antigravity` (see [docs/INSTALL.md](./docs/INSTALL.md)) |
 | Antigravity (agy)| `agy plugin install <path-to-clone>` from a clean clone. In an interactive TUI, `/antigravity:<verb>` runs the copied runtime. Re-run install after upgrading — agy keeps its own copy. If that invocation cannot run, use the standalone CLI |
 | Standalone       | `npx @southcarpet/antigravity-plugin <command>` |
+
+## Updating
+
+For the standalone CLI, run `npx @southcarpet/antigravity-plugin <command>`.
+An unversioned `npx` command resolves the latest published version. A pinned
+version such as `@1.0.1` does not update.
+
+For Claude Code, run `claude plugin update antigravity@antigravity`, then
+restart Claude Code. Codex CLI has no plugin update command. Run
+`codex plugin remove antigravity`, then `codex plugin add antigravity@antigravity`.
+
+For agy, run `agy plugin uninstall antigravity`, then
+`agy plugin install <path-to-clean-clone>`. A plain reinstall merges with the
+old copy.
+
+`antigravity-plugin update` checks the registry and reports the host commands.
+`antigravity-plugin update --apply` runs those commands for detected hosts.
+Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
 
 ## Requirements
 
@@ -164,12 +188,11 @@ which agy reads without a directory grant.
 
 The answer has a fixed shape: `## Transcription` first (every visible text
 string of every image, verbatim, one per line), then `## Observations`, then
-`## Answer`. An answer from this channel is not evidence. The transcript,
-cross-checked against the source image, is. A model has returned a confident
-PASS while describing UI elements that did not exist; a transcript that must
-list every visible string makes that kind of answer contradict itself. Read
-the transcript, compare it with what you know is in the image, and only then
-weigh the answer.
+`## Answer`. An answer from this channel is not evidence. Cross-check the
+transcript against the source image before you use the answer. The
+cross-checked transcript is the evidence. A model has returned a confident
+PASS while describing UI elements that did not exist. Read the transcript,
+compare it with what you know is in the image, and only then weigh the answer.
 
 ## Permissions and privacy
 
