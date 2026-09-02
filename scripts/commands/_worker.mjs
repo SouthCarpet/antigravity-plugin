@@ -16,7 +16,7 @@
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
-import { patchJob } from "../lib/job-helpers.mjs";
+import { applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
 
 async function main() {
   const [jobId] = process.argv.slice(2);
@@ -65,6 +65,7 @@ async function main() {
       mode: request.mode ?? "print",
       conversationId: request.conversationId,
       addDirs: request.addDirs ?? [],
+      extraArgs: request.extraArgs ?? [],
       cwd: request.cwd ?? workspaceRoot,
       onText,
       onSpawn: async ({ pid }) => {
@@ -102,6 +103,7 @@ async function main() {
       ? "cancelled"
       : "failed";
   const oauth = result.oauthUrl ?? null;
+  applyDenialHint(result, stored.kind);
   const summary = deriveSummary(result.stdout);
 
   await patchJob(workspaceRoot, jobId, {
@@ -116,9 +118,15 @@ async function main() {
     healthMessage:
       result.status === "auth_required"
         ? "Antigravity is not authenticated. Complete OAuth and retry."
+        : result.denial && status === "failed"
+        ? `agy auto-denied the "${result.denial.tool}" tool (headless mode cannot prompt) and produced no output.`
         : null,
     recommendedAction:
-      result.status === "auth_required" ? "Run /antigravity:setup to complete the OAuth flow." : null,
+      result.status === "auth_required"
+        ? "Run /antigravity:setup to complete the OAuth flow."
+        : result.denial && status === "failed"
+        ? headlessDenialHint(stored.kind)
+        : null,
     errorMessage: status === "failed" ? trim(result.stderr) : null,
     result: {
       rawOutput: result.stdout,
@@ -129,6 +137,7 @@ async function main() {
       usage: result.usage ?? null,
       durationSeconds: result.durationSeconds ?? null,
       agyConversationId: result.agyConversationId ?? null,
+      warnings: result.warnings ?? [],
     },
   });
   appendJobLog(workspaceRoot, jobId, `[worker] ${status} exit=${result.exitCode}`);

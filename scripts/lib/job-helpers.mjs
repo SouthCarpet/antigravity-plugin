@@ -29,9 +29,64 @@ export function newJobId() {
   return randomBytes(6).toString("hex");
 }
 
+/** Values agy accepts for `--mode` (agy 1.1.24 `--help`). */
+export const AGY_MODES = ["plan", "accept-edits"];
+
+/**
+ * agy argv for a validated `--mode` value; empty when the flag was not given.
+ * Validation itself is the parser's job (`valueChoices`), so this never sees
+ * an unknown value.
+ *
+ * @param {unknown} mode
+ * @returns {string[]}
+ */
+export function agyModeArgs(mode) {
+  return mode ? ["--mode", String(mode)] : [];
+}
+
 /** Resolve the current session id (or `null` if unset). */
 export function currentSessionId(env = process.env) {
   return env[SESSION_ID_ENV] ?? null;
+}
+
+/**
+ * The per-verb remedy for a headless auto-denial that starved the answer
+ * (`result.denial` set and `status: failed`, see agent-runtime.mjs).
+ *
+ * This lives here, not in agent-runtime, because the runtime is the
+ * verb-agnostic spawn chokepoint and this module is already the one place
+ * that turns a runtime result into verb-facing job fields (`healthMessage`,
+ * `recommendedAction`); every verb path, foreground or worker, passes
+ * through it with the job `kind` in hand.
+ *
+ * `--add-dir <dir>` is the only headless read grant that works on agy
+ * 1.1.24 (bounded to that directory, read-only, per run); `vision` does not
+ * plumb it on purpose, because `read_file` on an image yields bytes, not
+ * pixels.
+ *
+ * @param {string} kind job kind (`rescue`, `task`, `vision`, `review`)
+ * @returns {string | null}
+ */
+export function headlessDenialHint(kind) {
+  if (kind === "vision") {
+    return "vision: the runtime must use the `view_image` MCP tool, not `read_file`.";
+  }
+  if (kind === "rescue" || kind === "task") {
+    return `${kind}: pass --add-dir <dir> to grant read access to that directory for this run.`;
+  }
+  return null;
+}
+
+/**
+ * Fold the per-verb hint into a starved-by-denial result so every reader of
+ * `result.stderr` (the verb's failure print, the stored `errorMessage`)
+ * sees the remedy next to the reason. Returns the same object.
+ */
+export function applyDenialHint(result, kind) {
+  if (result?.status !== "failed" || !result.denial) return result;
+  const hint = headlessDenialHint(kind);
+  if (hint) result.stderr = `${result.stderr ?? ""}\nagent-runtime: ${hint}`;
+  return result;
 }
 
 /**
@@ -40,7 +95,7 @@ export function currentSessionId(env = process.env) {
  * `auth_required` and `timeout` are surfaced as `failed` with a diagnostic
  * `healthStatus` set so the status command can render the OAuth URL.
  */
-function deriveJobStatus(result) {
+function deriveJobStatus(result, kind) {
   switch (result.status) {
     case "completed":
       return { status: "completed" };
@@ -63,6 +118,15 @@ function deriveJobStatus(result) {
       };
     case "failed":
     default:
+      if (result.denial) {
+        return {
+          status: "failed",
+          healthStatus: "failed",
+          healthMessage:
+            `agy auto-denied the "${result.denial.tool}" tool (headless mode cannot prompt) and produced no output.`,
+          recommendedAction: headlessDenialHint(kind),
+        };
+      }
       return {
         status: "failed",
         healthStatus: "failed",
@@ -202,7 +266,8 @@ export async function runForegroundJob({
   }
 
   const completedAt = new Date().toISOString();
-  const derived = deriveJobStatus(result);
+  applyDenialHint(result, kind);
+  const derived = deriveJobStatus(result, kind);
   await patchJob(workspaceRoot, job.id, {
     status: derived.status,
     phase: derived.status,
@@ -222,6 +287,7 @@ export async function runForegroundJob({
       oauthUrl: result.oauthUrl ?? null,
       usage: result.usage ?? null,
       durationSeconds: result.durationSeconds ?? null,
+      warnings: result.warnings ?? [],
     },
   });
   appendJobLog(
@@ -263,6 +329,7 @@ export async function startBackgroundJob({
   mode = "print",
   conversationId = null,
   addDirs = [],
+  extraArgs = [],
   cwd,
   request = null,
   env = process.env,
@@ -276,6 +343,7 @@ export async function startBackgroundJob({
       mode,
       conversationId,
       addDirs,
+      extraArgs,
       cwd: cwd ?? workspaceRoot,
       ...(request ?? {}),
     },

@@ -154,6 +154,15 @@ isn't available for any reason, agy
 is instructed to reply with `VISION-UNAVAILABLE: <reason>` rather than guess
 from the file name — treat that line as a health signal, not a real answer.
 
+The answer has a fixed shape: `## Transcription` first (every visible text
+string of every image, verbatim, one per line), then `## Observations`, then
+`## Answer`. An answer from this channel is not evidence. The transcript,
+cross-checked against the source image, is. A model has returned a confident
+PASS while describing UI elements that did not exist; a transcript that must
+list every visible string makes that kind of answer contradict itself. Read
+the transcript, compare it with what you know is in the image, and only then
+weigh the answer.
+
 ## Permissions and privacy
 
 `setup` changes **user-level** files under `~/.gemini`, not the current

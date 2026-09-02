@@ -183,6 +183,36 @@ JSON vision field) and returns 0 when agy otherwise reported success. The
 prefix and one-line form are stable machine-readable signals. The reason text
 is not stable, and the sentinel is not a distinct exit status.
 
+## Headless read access
+
+`agy --print` cannot prompt for a tool permission. Since agy 1.1.20 a tool
+it cannot prompt for is auto-denied and the run still reports success; the
+plugin turns an auto-denial that starved the answer into a failure and keeps
+one that did not as a warning (stderr, and `details.warnings` in `--json`).
+
+The way to give a headless `rescue` or `task` run read access to files is
+`--add-dir <dir>` on the invocation. It is not an allow rule in
+`~/.gemini/antigravity-cli/settings.json`: on agy 1.1.24 twelve
+`read_file(<path>)` rule forms (absolute with and without drive, relative,
+trailing slash, `*`, `**`, `/A:/...`, `/a/...`) were all denied headless even
+though the rule was confirmed loaded; only `read_file(*)` matched, and a
+wildcard is not something this plugin writes. With no rule at all
+(probed 2026-09-02):
+
+| Probe | Invocation | Result |
+|---|---|---|
+| P3 | `--add-dir A:\projects-vault`, read inside | granted |
+| P2 | `--add-dir <evidence dir>`, read inside | granted |
+| B2 | `--add-dir <evidence dir>`, read `STATE.md` outside it | denied |
+| B3 | `--add-dir <evidence dir>`, write inside it | denied, no file created |
+
+So the grant is bounded to the named directory, read-only, and lasts for
+that run only; nothing is persisted in the user's settings. `setup` has no
+flag for this on purpose: a persistent rule is either too narrow to work or a
+wildcard. `--add-dir` is forwarded verbatim and in order on `rescue` and
+`task`, foreground and background. `vision` does not take it; its images
+travel through the MCP tool with a per-run allowlist.
+
 ## Environment variables
 
 These variables have direct semantics in the shipped code:

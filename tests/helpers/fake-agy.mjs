@@ -47,7 +47,7 @@ class Program {
         string controlPath = exePath + ".control.txt";
         string stdout = "", stderr = "";
         int exitCode = 0, delayMs = 0;
-        bool echoArgs = false;
+        bool echoArgs = false, echoArgsStderr = false;
         if (File.Exists(controlPath)) {
             foreach (var line in File.ReadAllLines(controlPath)) {
                 int eq = line.IndexOf('=');
@@ -58,6 +58,7 @@ class Program {
                     case "EXITCODE": exitCode = int.Parse(val); break;
                     case "DELAYMS": delayMs = int.Parse(val); break;
                     case "ECHOARGS": echoArgs = val == "1"; break;
+                    case "ECHOARGS_STDERR": echoArgsStderr = val == "1"; break;
                     case "STDOUT_B64": stdout = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "STDERR_B64": stderr = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                 }
@@ -65,6 +66,9 @@ class Program {
         }
         if (echoArgs) {
             foreach (var a in args) Console.Out.WriteLine("arg=" + a);
+        }
+        if (echoArgsStderr) {
+            foreach (var a in args) Console.Error.WriteLine("arg=" + a);
         }
         if (stdout.Length > 0) Console.Out.Write(stdout);
         Console.Out.Flush();
@@ -110,7 +114,7 @@ function ensureTemplateExe() {
   return exePath;
 }
 
-function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs }) {
+function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr }) {
   const template = ensureTemplateExe();
   const exePath = path.join(dir, `${name}.exe`);
   fs.copyFileSync(template, exePath);
@@ -118,6 +122,7 @@ function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoAr
     `EXITCODE=${exitCode}`,
     `DELAYMS=${delayMs}`,
     `ECHOARGS=${echoArgs ? 1 : 0}`,
+    `ECHOARGS_STDERR=${echoArgsStderr ? 1 : 0}`,
     `STDOUT_B64=${Buffer.from(stdout, "utf8").toString("base64")}`,
     `STDERR_B64=${Buffer.from(stderr, "utf8").toString("base64")}`,
   ];
@@ -130,10 +135,13 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs }) {
+function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr }) {
   const lines = ["#!/bin/sh"];
   if (echoArgs) {
     lines.push('for a in "$@"; do echo arg=$a; done');
+  }
+  if (echoArgsStderr) {
+    lines.push('for a in "$@"; do echo arg=$a 1>&2; done');
   }
   if (stdout) lines.push(`printf '%s\\n' ${shQuote(stdout)}`);
   if (stderr) lines.push(`printf '%s\\n' ${shQuote(stderr)} 1>&2`);
@@ -155,12 +163,17 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
  *   exitCode?: number,
  *   delayMs?: number,
  *   echoArgs?: boolean,
- * }} [opts]
+ *   echoArgsStderr?: boolean,
+ * }} [opts] `echoArgs` prints one `arg=<value>` line per argv entry to
+ *   stdout; `echoArgsStderr` does the same to stderr (useful when a verb
+ *   only surfaces the child's stderr, i.e. on failure).
  * @returns {string} absolute path to the spawnable stub
  */
 export function writeFakeAgy(dir, name, opts = {}) {
-  const { stdout = "", stderr = "", exitCode = 0, delayMs = 0, echoArgs = false } = opts;
-  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs };
+  const {
+    stdout = "", stderr = "", exitCode = 0, delayMs = 0, echoArgs = false, echoArgsStderr = false,
+  } = opts;
+  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr };
   return process.platform === "win32"
     ? writeWindowsStub(dir, name, normalized)
     : writePosixStub(dir, name, normalized);

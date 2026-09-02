@@ -8,6 +8,7 @@
  *   valueOptions?: string[],
  *   booleanOptions?: string[],
  *   repeatableOptions?: string[],
+ *   valueChoices?: Record<string, string[]>,
  *   conflicts?: string[][],
  * }} ArgSchema
  *
@@ -16,6 +17,9 @@
  *   present, including a single occurrence (`['only']`, never `'only'`).
  *   Absent repeatable options stay unset (`undefined`), not `[]`.
  *   Scalar `valueOptions` keep last-wins string behaviour.
+ *
+ * `valueChoices` restricts a scalar value option to the listed strings; any
+ * other value throws {@link ArgsError} naming the flag and the choices.
  *
  * @typedef {{ options: Record<string, string | boolean | string[]>, positionals: string[] }} ParsedArgs
  */
@@ -99,6 +103,13 @@ export function parseArgs(argv, schema = {}) {
     const [a, b] = pair;
     if (options[a] && options[b]) {
       throw new ArgsError(`cannot combine --${a} and --${b}`);
+    }
+  }
+
+  for (const [key, choices] of Object.entries(schema.valueChoices ?? {})) {
+    const value = options[key];
+    if (value !== undefined && !choices.includes(String(value))) {
+      throw new ArgsError(`invalid value for --${key}: "${value}" (expected ${choices.join("|")})`);
     }
   }
 

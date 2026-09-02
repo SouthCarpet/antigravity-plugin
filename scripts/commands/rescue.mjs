@@ -10,6 +10,7 @@
  *   --continue            alias of --resume (parity with agy)
  *   --conversation <id>   resume a specific conversation
  *   --add-dir <path>      additional workspace dir (repeatable)
+ *   --mode <plan|accept-edits>  agy execution mode for this run
  *   --model <id>          accepted for forward-compat, currently logged + ignored
  *   --json                emit JSON instead of markdown
  */
@@ -17,15 +18,16 @@
 import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
-import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { AGY_MODES, agyModeArgs, runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
+import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "model", "cwd", "add-dir"],
+    valueOptions: ["conversation", "model", "cwd", "add-dir", "mode"],
     booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json"],
     repeatableOptions: ["add-dir"],
+    valueChoices: { mode: AGY_MODES },
     conflicts: [
       ["continue", "conversation"],
       ["resume", "conversation"],
@@ -64,6 +66,7 @@ export async function run(argv = [], ctx = {}) {
   }
 
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
+  const extraArgs = agyModeArgs(options.mode);
 
   const prompt = buildRescuePrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
@@ -77,6 +80,7 @@ export async function run(argv = [], ctx = {}) {
       mode,
       conversationId,
       addDirs,
+      extraArgs,
       cwd: workspaceRoot,
       request: { mode, addDirs },
     });
@@ -107,6 +111,7 @@ export async function run(argv = [], ctx = {}) {
     mode,
     conversationId,
     addDirs,
+    extraArgs,
     cwd: workspaceRoot,
     request: { mode, addDirs },
     onText: (delta) => process.stderr.write(delta),
@@ -125,11 +130,13 @@ export async function run(argv = [], ctx = {}) {
     return result.status === "cancelled" ? 2 : 1;
   }
 
+  reportWarnings("rescue", result);
   outputCommandResult(
     createJsonEnvelope("rescue", {
       status: "completed",
       jobId: job.id,
       answer: result.stdout,
+      details: warningDetails(result),
     }),
     result.stdout,
     Boolean(options.json),

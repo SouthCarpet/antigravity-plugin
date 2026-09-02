@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { parseArgs } from '../scripts/lib/args.mjs';
+import { ArgsError, parseArgs } from '../scripts/lib/args.mjs';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -140,6 +140,25 @@ describe('parseArgs missing value options', () => {
       () => parseArgs(['--cwd', '--json'], { valueOptions: ['cwd'], booleanOptions: ['json'] }),
       /missing value for --cwd/,
     );
+  });
+});
+
+describe('parseArgs valueChoices', () => {
+  const schema = { valueOptions: ['mode'], valueChoices: { mode: ['plan', 'accept-edits'] } };
+
+  it('accepts a listed value', () => {
+    assert.equal(parseArgs(['--mode', 'accept-edits'], schema).options.mode, 'accept-edits');
+  });
+
+  it('throws an ArgsError naming the flag, the value and the choices for anything else', () => {
+    assert.throws(
+      () => parseArgs(['--mode', 'yolo'], schema),
+      (err) => err instanceof ArgsError && /invalid value for --mode: "yolo" \(expected plan\|accept-edits\)/.test(err.message),
+    );
+  });
+
+  it('leaves an absent option alone', () => {
+    assert.equal(parseArgs([], schema).options.mode, undefined);
   });
 });
 

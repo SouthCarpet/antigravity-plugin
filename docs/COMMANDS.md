@@ -104,7 +104,7 @@ or state failure; and 2 when an awaited/foreground agy outcome is cancelled.
 rescue <prompt...>
        [--background] [--wait]
        [--resume] [--continue] [--fresh] [--conversation <id>]
-       [--add-dir <path>]...
+       [--add-dir <path>]... [--mode <plan|accept-edits>]
        [--model <id>] [--json] [--cwd <path>]
 ```
 
@@ -118,7 +118,17 @@ required unless `--resume`, `--continue`, or `--conversation` is supplied.
   `--resume`, `--continue`, and `--fresh`.
 - `--fresh` conflicts with `--resume` and `--continue`.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
-  to agy.
+  to agy, verbatim and in the order given. This is the way to give a
+  headless run read access to files outside the workspace: on agy 1.1.24 a
+  `read_file(<path>)` allow rule in `settings.json` does not grant it, while
+  `--add-dir <dir>` grants reads bounded to that directory, read-only, for
+  that run only (evidence in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access)).
+  A run that needed a file it was not granted fails with the denied tool
+  named and this flag as the remedy.
+- `--mode <plan|accept-edits>` is forwarded to agy as its execution mode
+  for this run (`plan`: propose without editing; `accept-edits`: apply file
+  edits without a prompt). Any other value is an argument error (exit 1)
+  and agy is not started.
 - `--model <id>` is accepted but currently ignored, with a diagnostic on
   stderr. No model-selection behavior is promised for this flag until the
   documentation says it is active.
@@ -136,7 +146,7 @@ awaited/foreground outcome.
 task <prompt...>
      [--background | --foreground] [--wait]
      [--continue | --conversation <id>]
-     [--add-dir <path>]...
+     [--add-dir <path>]... [--mode <plan|accept-edits>]
      [--json] [--cwd <path>]
 ```
 
@@ -152,7 +162,11 @@ required unless `--continue` or `--conversation` is supplied.
 - `--continue` resumes the most recent conversation and conflicts with
   `--conversation <id>`.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
-  to agy.
+  to agy, verbatim and in the order given, on both the foreground and the
+  background path. It is the headless read grant described under `rescue`
+  and in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access).
+- `--mode <plan|accept-edits>` is forwarded to agy on both paths, as under
+  `rescue`. Any other value is an argument error.
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
@@ -182,6 +196,21 @@ Run `setup` first to register the MCP server and permission. Failure to obtain
 actual image content is reported through the stable
 `VISION-UNAVAILABLE: <reason>` response described in the compatibility
 contract, not through a special exit code.
+
+The prompt asks for a fixed answer shape: `## Transcription` (every visible
+text string of every image, verbatim, one per line, `(no text)` when there is
+none), then `## Observations` (visual facts only), then `## Answer`. It tells
+the model that `view_image` is the only way to see an image and that
+`read_file` on an image returns bytes, not pixels. An answer from this
+channel is not evidence. The transcript, cross-checked against the source
+image, is: a claim in `## Answer` that quotes no transcribed line has nothing
+behind it. The shape is requested by the prompt, not enforced by agy, so a
+model can still deviate from it.
+
+`vision` does not accept `--add-dir`. That flag is the headless read grant
+for agy's own file tools (see `rescue` and `task`); `vision` hands the
+images to agy through the MCP tool with a per-run allowlist instead, so the
+run never needs a directory grant.
 
 Exit status is 0 when agy reports a completed response (including the sentinel),
 1 for validation/authentication/execution/state failure, and 2 for a cancelled

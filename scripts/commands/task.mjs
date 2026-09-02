@@ -12,21 +12,23 @@
  *   --continue            resume the most recent agy conversation
  *   --conversation <id>   resume a specific conversation
  *   --add-dir <path>      additional workspace dir (repeatable)
+ *   --mode <plan|accept-edits>  agy execution mode for this run
  *   --json                emit JSON
  */
 
 import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
-import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { AGY_MODES, agyModeArgs, runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
+import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "cwd", "add-dir"],
+    valueOptions: ["conversation", "cwd", "add-dir", "mode"],
     booleanOptions: ["wait", "foreground", "background", "continue", "json"],
     repeatableOptions: ["add-dir"],
+    valueChoices: { mode: AGY_MODES },
     conflicts: [
       ["foreground", "background"],
       ["continue", "conversation"],
@@ -54,6 +56,7 @@ export async function run(argv = [], ctx = {}) {
   }
 
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
+  const extraArgs = agyModeArgs(options.mode);
 
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
@@ -67,6 +70,7 @@ export async function run(argv = [], ctx = {}) {
       mode,
       conversationId,
       addDirs,
+      extraArgs,
       cwd: workspaceRoot,
       request: { mode, addDirs },
       onText: (delta) => process.stderr.write(delta),
@@ -84,11 +88,13 @@ export async function run(argv = [], ctx = {}) {
       if (result.stderr) process.stderr.write(result.stderr);
       return result.status === "cancelled" ? 2 : 1;
     }
+    reportWarnings("task", result);
     outputCommandResult(
       createJsonEnvelope("task", {
         status: "completed",
         jobId: job.id,
         answer: result.stdout,
+        details: warningDetails(result),
       }),
       result.stdout,
       Boolean(options.json),
@@ -107,6 +113,7 @@ export async function run(argv = [], ctx = {}) {
     mode,
     conversationId,
     addDirs,
+    extraArgs,
     cwd: workspaceRoot,
     request: { mode, addDirs },
   });
