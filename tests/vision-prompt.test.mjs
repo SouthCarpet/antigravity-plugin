@@ -5,6 +5,14 @@
  * Pure function, no spawn. The sentinel line is asserted byte-for-byte
  * because docs/COMPATIBILITY.md promises the `VISION-UNAVAILABLE: <reason>`
  * form as a stable machine-readable signal.
+ *
+ * T2b adds the agy 1.1.24 offload fallback. agy hands a large tool result to
+ * the model as a `[Resource offloaded to file://<X>]` note instead of pixels,
+ * so the prompt sends the model to `view_file` on that one path. The cases
+ * below pin the three limits that keep the fallback from becoming a general
+ * file-read licence: it names `view_file` and the offload marker, it allows
+ * only the path in the note, and it still forbids `read_file`/`view_file` on
+ * the original image paths.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,5 +56,34 @@ describe('buildVisionPrompt', () => {
     assert.ok(p.endsWith('\nVISION-UNAVAILABLE: <one-line reason>'));
     assert.match(p, /reply with EXACTLY one line, no other text:\nVISION-UNAVAILABLE: <one-line reason>$/);
     assert.match(p, /do NOT fall back to another tool/);
+  });
+
+  it('sends an offloaded view_image result to view_file, on that path only', () => {
+    const p = buildVisionPrompt({ imagePaths: TWO, userPrompt: 'q' });
+    assert.match(p, /A `view_image` result can carry the note `\[Resource offloaded to file:\/\/<X>\]`/);
+    assert.match(p, /call `view_file` on exactly the `<X>` from that note, copied verbatim, and on no\nother path\./);
+  });
+
+  it('still forbids read_file AND view_file on the original image paths', () => {
+    const p = buildVisionPrompt({ imagePaths: TWO, userPrompt: 'q' });
+    assert.match(p, /Do NOT call `read_file` or\n`view_file` on any image path listed below/);
+    // "listed below" is only a ban if the originals are the list that follows.
+    const banEnd = p.indexOf('and you would be guessing.');
+    for (const image of TWO) assert.ok(p.indexOf(image) > banEnd, `${image} is listed after the ban`);
+  });
+
+  it('places the fallback after the path list and before the answer shape', () => {
+    const p = buildVisionPrompt({ imagePaths: TWO, userPrompt: 'q' });
+    const offload = p.indexOf('Resource offloaded');
+    assert.ok(p.indexOf(TWO[1]) < offload, 'fallback follows the paths it can be triggered by');
+    assert.ok(offload < p.indexOf('## Transcription'), 'fallback precedes the answer shape');
+  });
+
+  it('reaches the sentinel only after the offloaded-copy step was tried', () => {
+    const p = buildVisionPrompt({ imagePaths: TWO, userPrompt: 'q' });
+    assert.match(p, /even after the offloaded-copy step above, do NOT guess/);
+    const tail = p.split('\n').slice(-2);
+    assert.ok(tail[0].endsWith('Instead reply with EXACTLY one line, no other text:'));
+    assert.equal(tail[1], 'VISION-UNAVAILABLE: <one-line reason>');
   });
 });

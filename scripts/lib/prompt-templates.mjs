@@ -79,9 +79,22 @@ export function buildReviewPrompt(contextEnvelope) {
  * agy `--print` has no native image ingestion path (see vision-server.mjs
  * header). The only proven channel is an MCP tool call whose result carries
  * an image content block, so this prompt instructs the model to call the
- * `view_image` MCP tool for every listed path, and forbids `read_file` on
- * an image: that returns bytes as text, which is exactly the failure mode
- * the `VISION-UNAVAILABLE` sentinel exists for.
+ * `view_image` MCP tool for every listed path, and forbids `read_file` and
+ * `view_file` on a listed image path: those return bytes as text, which is
+ * exactly the failure mode the `VISION-UNAVAILABLE` sentinel exists for.
+ *
+ * agy 1.1.24 adds a step in the middle. A large tool result is offloaded to
+ * a file in agy's own conversation directory and the model gets a note,
+ * `[Resource offloaded to file://<X>]`, instead of the pixels. Measured
+ * 2026-09-02 on gemini-3.7-flash-high: a 790-byte PNG stayed inline, a
+ * 6761-byte PNG was offloaded in 3 of 3 runs, and the offloaded copy was
+ * byte-identical to the source. Real screenshots are far above that size,
+ * so without a fallback this verb answers `VISION-UNAVAILABLE` every time.
+ * agy's own `view_file` on that offloaded copy does deliver pixels, and the
+ * copy sits inside agy's conversation directory, which the model may
+ * already read, so no `--add-dir` grant is involved. The fallback is
+ * therefore scoped to the one path the note names: it completes the
+ * `view_image` call rather than opening a second channel.
  *
  * The answer has a fixed shape, transcription first. A model that must
  * copy every visible string verbatim before it interprets anything cannot
@@ -99,14 +112,19 @@ export function buildVisionPrompt({ imagePaths, userPrompt }) {
   lines.push("You have an MCP tool named `view_image` that loads an image file from disk");
   lines.push("and returns it as real visual image content you can see.");
   lines.push("");
-  lines.push("`view_image` is the ONLY way to see an image. Do NOT call `read_file` (or any");
-  lines.push("other file tool) on an image path: it returns bytes as text, not pixels, and");
-  lines.push("you would be guessing.");
+  lines.push("`view_image` is the ONLY way to see an image. Do NOT call `read_file` or");
+  lines.push("`view_file` on any image path listed below: they return bytes as text, not pixels,");
+  lines.push("and you would be guessing.");
   lines.push("");
   lines.push(`Call \`view_image\` once for EACH of the following ${imagePaths.length} image path(s), in order:`);
   for (const p of imagePaths) {
     lines.push(`- ${p}`);
   }
+  lines.push("");
+  lines.push("A `view_image` result can carry the note `[Resource offloaded to file://<X>]` in");
+  lines.push("place of the pixels. That file IS the same result, written to disk by the CLI, so");
+  lines.push("call `view_file` on exactly the `<X>` from that note, copied verbatim, and on no");
+  lines.push("other path. Then continue below as if the pixels had arrived inline.");
   lines.push("");
   lines.push("When you can see every image, reply with EXACTLY these three sections, in this");
   lines.push("order, and nothing before the first heading:");
@@ -134,8 +152,9 @@ export function buildVisionPrompt({ imagePaths, userPrompt }) {
   lines.push("");
   lines.push("## Contract");
   lines.push(
-    "If `view_image` is unavailable, errors, or returns no actual visual content for any path, " +
-      "do NOT guess, do NOT fall back to another tool, and do NOT answer from the file path/name. " +
+    "If `view_image` is unavailable, errors, or gives you no actual visual content for any path, " +
+      "even after the offloaded-copy step above, do NOT guess, do NOT fall back to another tool, " +
+      "and do NOT answer from the file path/name. " +
       "Instead reply with EXACTLY one line, no other text:",
   );
   lines.push("VISION-UNAVAILABLE: <one-line reason>");

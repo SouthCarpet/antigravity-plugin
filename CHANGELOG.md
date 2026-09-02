@@ -69,6 +69,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `completed`; the `CANCELED` result of older agy is still `failed`.
 - **The `stdin error` diagnostic is newline-terminated** — it used to glue
   itself to the first line of agy's own stderr.
+- **`vision` sees large images again on agy 1.1.24.** agy writes an MCP image
+  result to a file in its own conversation directory and gives the model the
+  note `[Resource offloaded to file://<X>]` in place of the pixels, so the
+  prompt's contract answered `VISION-UNAVAILABLE` for every image that was
+  large enough. The prompt now tells the model to open exactly the path from
+  that note with agy's `view_file` tool, and no other path. The ban on
+  `read_file` and `view_file` for the image paths you name stays, the MCP
+  allowlist does not change, and no directory grant is added.
+- **A failed agy result names its reason.** `parseAgyStream` reads
+  `result.error` and the runtime adds `agent-runtime: agy reported error:
+  <reason>` to stderr. A `--print-timeout` exits 1 with an empty stderr, so
+  before this the word "timeout" appeared nowhere in the output.
 
 ## [1.0.1] — 2026-08-22
 

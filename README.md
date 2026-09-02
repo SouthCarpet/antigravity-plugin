@@ -154,6 +154,14 @@ isn't available for any reason, agy
 is instructed to reply with `VISION-UNAVAILABLE: <reason>` rather than guess
 from the file name — treat that line as a health signal, not a real answer.
 
+agy 1.1.24 adds a step in the middle. It writes a large MCP result to a file
+in its own conversation directory and shows the model the note
+`[Resource offloaded to file://<X>]` in place of the pixels. The prompt tells
+the model to open exactly that path with agy's `view_file` tool, and no other
+path, so `vision` still gets real pixels. The MCP allowlist does not change:
+it still holds only the images you name. The offloaded copy is agy's own file,
+which agy reads without a directory grant.
+
 The answer has a fixed shape: `## Transcription` first (every visible text
 string of every image, verbatim, one per line), then `## Observations`, then
 `## Answer`. An answer from this channel is not evidence. The transcript,

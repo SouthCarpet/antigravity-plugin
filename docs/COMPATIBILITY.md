@@ -32,6 +32,14 @@ transport. The same envelope was confirmed on 1.1.17. `setup` probes and
 displays the installed version but does not enforce this matrix; that probe
 succeeding is not a promise that an unlisted agy version is compatible.
 
+agy 1.1.24 changes how an MCP image result reaches the model. agy writes a
+large result to a file in the conversation directory and gives the model the
+note `[Resource offloaded to file://<X>]` in place of the pixels. The vision
+prompt answers this: it tells the model to open exactly that path with agy's
+`view_file` tool. Measured on 2026-09-02, a 6761-byte image was offloaded in
+every run and a 790-byte image was offloaded in some runs, so there is no
+size limit you can depend on. 1.1.24 is not in the promised matrix.
+
 agy is a real host for discovery and lifecycle: `agy plugin install <path-to-clone>`,
 `list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no
 `plugin run` subcommand. After install, the eight verbs are reachable from an

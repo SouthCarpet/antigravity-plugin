@@ -225,11 +225,17 @@ function createNdjsonLineFeeder() {
  * `sawResult` is `false` and every other field stays `null` — nothing is
  * guessed from `step_update`/`init` events.
  *
+ * `resultError` carries `result.error`, the one-line reason agy attaches to a
+ * failed result (`"timeout waiting for response"` on `--print-timeout`,
+ * measured on 1.1.24). Without it the caller only learns the status word and
+ * has to guess what went wrong.
+ *
  * @param {string} text - full accumulated stdout (or any concatenation of
  *   chunks — reassembly across chunk boundaries falls out of `\n`-splitting
  *   the joined string, so callers never need to pre-align chunks).
  * @returns {{ response: string|null, usage: object|null, durationSeconds: number|null,
- *   conversationId: string|null, resultStatus: string|null, sawResult: boolean }}
+ *   conversationId: string|null, resultStatus: string|null, resultError: string|null,
+ *   sawResult: boolean }}
  */
 export function parseAgyStream(text) {
   const out = {
@@ -238,6 +244,7 @@ export function parseAgyStream(text) {
     durationSeconds: null,
     conversationId: null,
     resultStatus: null,
+    resultError: null,
     sawResult: false,
   };
   if (typeof text !== 'string' || !text.length) return out;
@@ -258,9 +265,24 @@ export function parseAgyStream(text) {
     out.durationSeconds = r.duration_seconds ?? out.durationSeconds;
     out.conversationId = r.conversation_id ?? out.conversationId;
     out.resultStatus = r.status ?? out.resultStatus;
+    out.resultError = typeof r.error === 'string' && r.error ? r.error : out.resultError;
     out.sawResult = true;
   }
   return out;
+}
+
+/**
+ * The stderr line for `result.error`, or `''` when agy sent none.
+ *
+ * agy reports a `--print-timeout` as `status: ERROR` plus
+ * `error: "timeout waiting for response"`, and on that path it also exits
+ * non-zero with an empty stderr. Repeating the status word alone told the
+ * caller nothing, so the reason is echoed on both failure shapes.
+ *
+ * @param {string|null} resultError
+ */
+function agyResultErrorNote(resultError) {
+  return resultError ? `\nagent-runtime: agy reported error: ${resultError}` : '';
 }
 
 /**
@@ -338,7 +360,10 @@ export function detectAutoDenial(stderr) {
  * `timeout`. `exitCode === 0` with no `result` event is `failed`, never a
  * silent success — stderr gains a diagnostic line explaining why. A `result`
  * event whose `status` isn't `SUCCESS` is also `failed`, with that status
- * string folded into stderr. Auth prompts are detected both in the raw
+ * string folded into stderr. A `result.error` reason is folded in as its own
+ * `agent-runtime: agy reported error:` line, on the non-zero-exit path too:
+ * a `--print-timeout` exits 1 with empty stderr, so the result event is the
+ * only place the word "timeout" appears. Auth prompts are detected both in the raw
  * stdout text (as before) and in `result.response` — they can arrive either
  * way.
  *
@@ -543,6 +568,7 @@ export async function runAgyPrint({
         if (denial) warnings.push(denial.line);
       }
     }
+    stderr += agyResultErrorNote(parsed.resultError);
   }
 
   return {

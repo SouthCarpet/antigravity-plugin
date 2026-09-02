@@ -207,6 +207,15 @@ image, is: a claim in `## Answer` that quotes no transcribed line has nothing
 behind it. The shape is requested by the prompt, not enforced by agy, so a
 model can still deviate from it.
 
+On agy 1.1.24 a large image does not arrive inline. agy writes the MCP result
+to a file in its own conversation directory and gives the model the note
+`[Resource offloaded to file://<X>]` in place of the pixels. The prompt tells
+the model to open exactly the `<X>` from that note with agy's `view_file`
+tool, and no other path, then to answer in the same shape. Measured on
+2026-09-02, a 6761-byte image was offloaded in every run and a 790-byte image
+was offloaded in some runs, so do not depend on a size limit. Read the
+transcript to see which path a run used.
+
 `vision` does not accept `--add-dir`. That flag is the headless read grant
 for agy's own file tools (see `rescue` and `task`); `vision` hands the
 images to agy through the MCP tool with a per-run allowlist instead, so the

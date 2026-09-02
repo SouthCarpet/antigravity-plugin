@@ -61,7 +61,7 @@ mock.module('node:child_process', {
   },
 });
 
-const { runAgyPrint, detectAutoDenial } = await import('../scripts/lib/agent-runtime.mjs');
+const { runAgyPrint, detectAutoDenial, parseAgyStream } = await import('../scripts/lib/agent-runtime.mjs');
 
 function resultLine(overrides = {}) {
   return JSON.stringify({
@@ -78,11 +78,13 @@ function resultLine(overrides = {}) {
   });
 }
 
-function arm({ response = '', status = 'SUCCESS', stderr = '' } = {}) {
+function arm({ response = '', status = 'SUCCESS', stderr = '', error, exitCode = 0 } = {}) {
   spawnCalls.length = 0;
-  nextStdout = [resultLine({ response, status }) + '\n'];
+  const overrides = { response, status };
+  if (error !== undefined) overrides.error = error;
+  nextStdout = [resultLine(overrides) + '\n'];
   nextStderr = stderr ? [stderr + '\n'] : [];
-  nextExitCode = 0;
+  nextExitCode = exitCode;
 }
 
 describe('detectAutoDenial', () => {
@@ -156,6 +158,46 @@ describe('runAgyPrint — auto-denial classification', () => {
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'completed');
     assert.deepEqual(res.warnings, []);
+  });
+});
+
+// agy's own `--print-timeout` (probed live on 1.1.24, plan 068 T4): the run
+// exits 1 with EMPTY stderr and a result event that carries
+// status: ERROR + error: "timeout waiting for response". Before this, the
+// caller saw only "failed" and the word "timeout" appeared nowhere.
+describe('runAgyPrint — result.error reaches stderr', () => {
+  const TIMEOUT_ERROR = 'timeout waiting for response';
+
+  it('names the reason when agy exits non-zero with empty stderr', async () => {
+    arm({ status: 'ERROR', error: TIMEOUT_ERROR, exitCode: 1 });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.match(res.stderr, /agent-runtime: agy reported error: timeout waiting for response/);
+  });
+
+  it('adds the reason beside the status word when agy exits 0', async () => {
+    arm({ status: 'ERROR', error: TIMEOUT_ERROR });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.match(res.stderr, /"ERROR", not SUCCESS/);
+    assert.match(res.stderr, /agent-runtime: agy reported error: timeout waiting for response/);
+  });
+
+  it('stays silent when the result carries no error field', async () => {
+    arm({ response: 'fine' });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.stderr.includes('agy reported error'), false);
+  });
+});
+
+describe('parseAgyStream — resultError', () => {
+  it('is null without an error field and the string with one', () => {
+    const line = (extra) =>
+      JSON.stringify({ event: 'result', result: { status: 'ERROR', response: '', ...extra } }) + '\n';
+    assert.equal(parseAgyStream(line({})).resultError, null);
+    assert.equal(parseAgyStream(line({ error: 'timeout waiting for response' })).resultError,
+      'timeout waiting for response');
+    assert.equal(parseAgyStream(line({ error: '' })).resultError, null, 'empty string is not a reason');
   });
 });
 
