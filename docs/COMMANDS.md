@@ -104,7 +104,7 @@ or state failure; and 2 when an awaited/foreground agy outcome is cancelled.
 rescue <prompt...>
        [--background] [--wait]
        [--resume] [--continue] [--fresh] [--conversation <id>]
-       [--add-dir <path>]...
+       [--add-dir <path>]... [--mode <plan|accept-edits>]
        [--model <id>] [--json] [--cwd <path>]
 ```
 
@@ -125,6 +125,10 @@ required unless `--resume`, `--continue`, or `--conversation` is supplied.
   that run only (evidence in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access)).
   A run that needed a file it was not granted fails with the denied tool
   named and this flag as the remedy.
+- `--mode <plan|accept-edits>` is forwarded to agy as its execution mode
+  for this run (`plan`: propose without editing; `accept-edits`: apply file
+  edits without a prompt). Any other value is an argument error (exit 1)
+  and agy is not started.
 - `--model <id>` is accepted but currently ignored, with a diagnostic on
   stderr. No model-selection behavior is promised for this flag until the
   documentation says it is active.
@@ -142,7 +146,7 @@ awaited/foreground outcome.
 task <prompt...>
      [--background | --foreground] [--wait]
      [--continue | --conversation <id>]
-     [--add-dir <path>]...
+     [--add-dir <path>]... [--mode <plan|accept-edits>]
      [--json] [--cwd <path>]
 ```
 
@@ -161,6 +165,8 @@ required unless `--continue` or `--conversation` is supplied.
   to agy, verbatim and in the order given, on both the foreground and the
   background path. It is the headless read grant described under `rescue`
   and in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access).
+- `--mode <plan|accept-edits>` is forwarded to agy on both paths, as under
+  `rescue`. Any other value is an argument error.
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled

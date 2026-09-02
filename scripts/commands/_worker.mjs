@@ -65,6 +65,7 @@ async function main() {
       mode: request.mode ?? "print",
       conversationId: request.conversationId,
       addDirs: request.addDirs ?? [],
+      extraArgs: request.extraArgs ?? [],
       cwd: request.cwd ?? workspaceRoot,
       onText,
       onSpawn: async ({ pid }) => {

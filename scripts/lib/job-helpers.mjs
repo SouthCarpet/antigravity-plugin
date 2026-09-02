@@ -28,6 +28,21 @@ export function newJobId() {
   return randomBytes(6).toString("hex");
 }
 
+/** Values agy accepts for `--mode` (agy 1.1.24 `--help`). */
+export const AGY_MODES = ["plan", "accept-edits"];
+
+/**
+ * agy argv for a validated `--mode` value; empty when the flag was not given.
+ * Validation itself is the parser's job (`valueChoices`), so this never sees
+ * an unknown value.
+ *
+ * @param {unknown} mode
+ * @returns {string[]}
+ */
+export function agyModeArgs(mode) {
+  return mode ? ["--mode", String(mode)] : [];
+}
+
 /** Resolve the current session id (or `null` if unset). */
 export function currentSessionId(env = process.env) {
   return env[SESSION_ID_ENV] ?? null;
@@ -313,6 +328,7 @@ export async function startBackgroundJob({
   mode = "print",
   conversationId = null,
   addDirs = [],
+  extraArgs = [],
   cwd,
   request = null,
   env = process.env,
@@ -326,6 +342,7 @@ export async function startBackgroundJob({
       mode,
       conversationId,
       addDirs,
+      extraArgs,
       cwd: cwd ?? workspaceRoot,
       ...(request ?? {}),
     },

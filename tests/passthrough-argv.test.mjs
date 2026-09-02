@@ -111,3 +111,41 @@ describe('--add-dir reaches agy argv verbatim and in order', () => {
     assertRun(argvOf(payload.details.result.stderr), ['--add-dir', 'x', '--add-dir', 'y']);
   });
 });
+
+describe('--mode <plan|accept-edits> reaches agy argv; anything else is an ArgsError', () => {
+  it('rescue --mode plan lands as `--mode plan` after --add-dir and before the tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'plan it', '--add-dir', 'd', '--mode', 'plan'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    const argv = argvOf(res.stderr);
+    assertRun(argv, ['--add-dir', 'd', '--mode', 'plan']);
+    assert.ok(argv.indexOf('--mode') < argv.indexOf('--input-format'));
+  });
+
+  it('task --foreground --mode accept-edits lands as `--mode accept-edits`', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['task', 'edit it', '--foreground', '--mode', 'accept-edits'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assertRun(argvOf(res.stderr), ['--mode', 'accept-edits']);
+  });
+
+  it('task (background worker): --mode survives the job file', () => {
+    const { work, data } = freshDirs();
+    const env = makeEnv(data);
+    const queued = runVerb(['task', 'plan it', '--mode', 'plan', '--wait', '--json'], env, work);
+    assert.equal(queued.status, 1, queued.stderr);
+    const { jobId } = JSON.parse(queued.stdout);
+    const stored = runVerb(['result', jobId, '--json'], env, work);
+    assertRun(argvOf(JSON.parse(stored.stdout).details.result.stderr), ['--mode', 'plan']);
+  });
+
+  it('an unknown --mode value exits 1, names the flag and the choices, and never spawns agy', () => {
+    const { work, data } = freshDirs();
+    for (const verb of [['rescue', 'x'], ['task', 'x', '--foreground']]) {
+      const res = runVerb([...verb, '--mode', 'yolo'], makeEnv(data), work);
+      assert.equal(res.status, 1, res.stderr);
+      assert.match(res.stderr, /antigravity:(rescue|task) — invalid value for --mode: "yolo" \(expected plan\|accept-edits\)/);
+      assert.deepEqual(argvOf(res.stderr), [], 'agy must not be spawned');
+    }
+  });
+});
