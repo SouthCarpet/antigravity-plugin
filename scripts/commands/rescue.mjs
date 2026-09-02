@@ -18,7 +18,7 @@ import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
@@ -125,11 +125,13 @@ export async function run(argv = [], ctx = {}) {
     return result.status === "cancelled" ? 2 : 1;
   }
 
+  reportWarnings("rescue", result);
   outputCommandResult(
     createJsonEnvelope("rescue", {
       status: "completed",
       jobId: job.id,
       answer: result.stdout,
+      details: warningDetails(result),
     }),
     result.stdout,
     Boolean(options.json),

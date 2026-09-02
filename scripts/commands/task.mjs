@@ -19,7 +19,7 @@ import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
 import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
@@ -84,11 +84,13 @@ export async function run(argv = [], ctx = {}) {
       if (result.stderr) process.stderr.write(result.stderr);
       return result.status === "cancelled" ? 2 : 1;
     }
+    reportWarnings("task", result);
     outputCommandResult(
       createJsonEnvelope("task", {
         status: "completed",
         jobId: job.id,
         answer: result.stdout,
+        details: warningDetails(result),
       }),
       result.stdout,
       Boolean(options.json),

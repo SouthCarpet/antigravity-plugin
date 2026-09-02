@@ -264,6 +264,31 @@ export function parseAgyStream(text) {
 }
 
 /**
+ * Find a headless permission auto-denial in agy's stderr.
+ *
+ * Since agy 1.1.20 a tool that print mode cannot prompt for is auto-denied
+ * while the run still exits 0 with `status: SUCCESS`; the only trace is a
+ * stderr line such as (1.1.24, verbatim):
+ *   jetski: no output produced — a tool required the "read_file" permission
+ *   that headless mode cannot prompt for, so it was auto-denied. ...
+ * Only `auto-denied` and the first quoted token on that line are treated as
+ * stable; agy rewords the surrounding hints between releases.
+ *
+ * @param {string} stderr
+ * @returns {{ tool: string, line: string } | null}
+ */
+export function detectAutoDenial(stderr) {
+  if (typeof stderr !== 'string' || !stderr.length) return null;
+  for (const rawLine of stderr.split('\n')) {
+    const line = rawLine.trim();
+    if (!line.includes('auto-denied')) continue;
+    const quoted = line.match(/"([^"]+)"/);
+    return { tool: quoted ? quoted[1] : 'unknown', line };
+  }
+  return null;
+}
+
+/**
  * Run `agy` (or a continuation variant) over its stream-json transport and
  * capture the final response.
  *
@@ -308,13 +333,26 @@ export function parseAgyStream(text) {
  * `onText`), independent of `onStdout`'s raw pass-through.
  *
  * Returns `{ status, stdout, stderr, exitCode, oauthUrl, usage,
- * durationSeconds, agyConversationId, rawStdout }`. `status` is one of
- * `completed`, `failed`, `auth_required`, `cancelled`, `timeout`.
- * `exitCode === 0` with no `result` event is `failed`, never a silent
- * success — stderr gains a diagnostic line explaining why. A `result` event
- * whose `status` isn't `SUCCESS` is also `failed`, with that status string
- * folded into stderr. Auth prompts are detected both in the raw stdout text
- * (as before) and in `result.response` — they can arrive either way.
+ * durationSeconds, agyConversationId, rawStdout, warnings, denial }`.
+ * `status` is one of `completed`, `failed`, `auth_required`, `cancelled`,
+ * `timeout`. `exitCode === 0` with no `result` event is `failed`, never a
+ * silent success — stderr gains a diagnostic line explaining why. A `result`
+ * event whose `status` isn't `SUCCESS` is also `failed`, with that status
+ * string folded into stderr. Auth prompts are detected both in the raw
+ * stdout text (as before) and in `result.response` — they can arrive either
+ * way.
+ *
+ * Headless auto-denials (agy >= 1.1.20, see `detectAutoDenial`) are
+ * classified after those checks, in this order:
+ *   (a) SUCCESS + empty/whitespace `response` + denial on stderr → `failed`;
+ *       `denial` is set and stderr gains an `agent-runtime:` line naming the
+ *       tool. Callers that know the verb add the per-verb hint.
+ *   (b) SUCCESS + non-empty `response` + denial on stderr → `completed`;
+ *       the denial line stays in stderr AND is listed in `warnings`. agy
+ *       calls these denials benign, so a real answer with one missing input
+ *       is not a failure, but it is never swallowed either.
+ * A SUCCESS with an empty response and NO denial line stays `completed`: a
+ * model may legitimately say nothing.
  */
 export async function runAgyPrint({
   prompt,
@@ -480,6 +518,8 @@ export async function runAgyPrint({
     }
   }
 
+  const warnings = [];
+  let denial = null;
   if (!status) {
     if (exitCode !== 0) {
       status = 'failed';
@@ -490,7 +530,17 @@ export async function runAgyPrint({
       status = 'failed';
       stderr += `\nagent-runtime: agy result status was "${parsed.resultStatus ?? 'unknown'}", not SUCCESS`;
     } else {
-      status = 'completed';
+      denial = detectAutoDenial(stderr);
+      const answered = typeof parsed.response === 'string' && parsed.response.trim().length > 0;
+      if (denial && !answered) {
+        status = 'failed';
+        stderr +=
+          `\nagent-runtime: agy produced no output because the "${denial.tool}" tool was ` +
+          `auto-denied (headless mode cannot prompt for it)`;
+      } else {
+        status = 'completed';
+        if (denial) warnings.push(denial.line);
+      }
     }
   }
 
@@ -504,6 +554,8 @@ export async function runAgyPrint({
     usage: parsed.usage ?? null,
     durationSeconds: parsed.durationSeconds ?? null,
     agyConversationId: parsed.conversationId ?? null,
+    warnings,
+    denial,
   };
 }
 

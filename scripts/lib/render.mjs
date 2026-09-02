@@ -53,6 +53,33 @@ export function createJsonEnvelope(command, fields = {}) {
 }
 
 /**
+ * `details` fragment for runtime warnings (headless auto-denials that did
+ * not starve the answer, see agent-runtime.mjs). Present only when there is
+ * at least one, so a clean envelope is unchanged.
+ *
+ * @param {{ warnings?: string[] }} result
+ * @returns {{ warnings?: string[] }}
+ */
+export function warningDetails(result) {
+  const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+  return warnings.length ? { warnings } : {};
+}
+
+/**
+ * Echo runtime warnings to stderr on a completed run. The verbs only print
+ * `result.stderr` on failure, so without this a benign denial would reach
+ * the stored job and `--json` but never the terminal.
+ *
+ * @param {string} command
+ * @param {{ warnings?: string[] }} result
+ */
+export function reportWarnings(command, result) {
+  for (const warning of warningDetails(result).warnings ?? []) {
+    process.stderr.write(`antigravity:${command} — warning: ${warning}\n`);
+  }
+}
+
+/**
  * Render a status snapshot as markdown.
  *
  * @param {{ workspaceRoot: string, config: any, runtimeStatus: any, running: any[], latestFinished: any, recent: any[], needsReview: boolean }} snapshot

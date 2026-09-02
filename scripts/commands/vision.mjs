@@ -28,7 +28,7 @@ import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { encodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
 
@@ -102,6 +102,7 @@ export async function run(argv = [], ctx = {}) {
     return result.status === "cancelled" ? 2 : 1;
   }
 
+  reportWarnings("vision", result);
   const usage = result.usage ?? null;
   if (usage && typeof usage.total_tokens === "number") {
     // Measured by agy itself (json envelope). The ledger rule requires
@@ -121,6 +122,7 @@ export async function run(argv = [], ctx = {}) {
     details: {
       usage,
       durationSeconds: result.durationSeconds ?? null,
+      ...warningDetails(result),
     },
   });
   outputCommandResult(payload, result.stdout, Boolean(options.json));
