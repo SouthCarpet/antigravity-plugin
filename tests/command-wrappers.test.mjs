@@ -18,7 +18,10 @@ import {
   hostBangLine,
   hostBootstrapSource,
   hostRefusalContract,
+  invalidPluginRootMessage,
+  isPluginRoot,
   missingRuntimeMessage,
+  PLUGIN_MANIFEST_NAME,
   resolvePluginRoot,
   resolveVerbScript,
 } from '../scripts/lib/plugin-root.mjs';
@@ -80,7 +83,17 @@ function runBootstrap(verb, { args = [], env = {}, cwd } = {}) {
   });
 }
 
+function writePluginManifest(pluginRoot, name = PLUGIN_MANIFEST_NAME) {
+  fs.mkdirSync(pluginRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginRoot, 'plugin.json'),
+    JSON.stringify({ name, version: '0.0.0-test' }),
+    'utf8',
+  );
+}
+
 function writeStubVerb(pluginRoot, verb, markerFile) {
+  writePluginManifest(pluginRoot);
   const dir = path.join(pluginRoot, 'scripts', 'commands');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
@@ -170,6 +183,61 @@ describe('host bootstrap source', () => {
     const message = missingRuntimeMessage('/tmp/missing.mjs', 'status');
     assert.match(message, /runtime not found at \/tmp\/missing\.mjs/);
     assert.match(message, /npx @southcarpet\/antigravity-plugin status/);
+  });
+
+  it('checks the plugin manifest before it resolves the verb script', () => {
+    const source = hostBootstrapSource('review');
+    assert.equal(source.includes("p.join(root,'plugin.json')"), true, source);
+    assert.ok(
+      source.indexOf("'plugin.json'") < source.indexOf("'scripts','commands'"),
+      'manifest check must precede the verb-script path',
+    );
+    assert.ok(
+      source.indexOf('is not an antigravity plugin tree') < source.indexOf('spawnSync(process.execPath'),
+      'manifest check must precede the spawn',
+    );
+  });
+
+  it('invalidPluginRootMessage names the root and the standalone CLI', () => {
+    const message = invalidPluginRootMessage('/tmp/foreign', 'status');
+    assert.equal(
+      message,
+      'antigravity-plugin: /tmp/foreign is not an antigravity plugin tree ' +
+        '(plugin.json missing or name mismatch). ' +
+        'Run: npx @southcarpet/antigravity-plugin status',
+    );
+  });
+});
+
+describe('plugin manifest check', () => {
+  let tmpRoot;
+
+  before(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-manifest-'));
+  });
+
+  after(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("accepts this repository's own tree", () => {
+    assert.equal(isPluginRoot(ROOT), true);
+  });
+
+  it('rejects a missing, unreadable, malformed, or foreign manifest', () => {
+    const absent = path.join(tmpRoot, 'absent');
+    fs.mkdirSync(absent, { recursive: true });
+    assert.equal(isPluginRoot(absent), false);
+
+    const malformed = path.join(tmpRoot, 'malformed');
+    fs.mkdirSync(malformed, { recursive: true });
+    fs.writeFileSync(path.join(malformed, 'plugin.json'), '{ not json', 'utf8');
+    assert.equal(isPluginRoot(malformed), false);
+
+    const foreign = path.join(tmpRoot, 'foreign');
+    fs.mkdirSync(foreign, { recursive: true });
+    fs.writeFileSync(path.join(foreign, 'plugin.json'), '{"name":"other"}', 'utf8');
+    assert.equal(isPluginRoot(foreign), false);
   });
 });
 
@@ -283,9 +351,47 @@ describe('host bootstrap execution', () => {
     assert.equal(res.stderr.includes('/scripts/commands/status.mjs'), false);
   });
 
+  // Root without a manifest: the wrapper must refuse before it spawns
+  // anything. The stub verb is present on purpose — the marker file proves
+  // the wrapper did not run it.
+  it('a plugin root without plugin.json is refused and never spawns the verb', () => {
+    const pluginRoot = path.join(tmpRoot, 'no-manifest');
+    const marker = path.join(tmpRoot, 'no-manifest-marker.json');
+    writeStubVerb(pluginRoot, 'review', marker);
+    fs.rmSync(path.join(pluginRoot, 'plugin.json'));
+
+    const res = runBootstrap('review', { env: { CLAUDE_PLUGIN_ROOT: pluginRoot } });
+    assert.equal(res.status, 1, `stderr=${res.stderr}`);
+    assert.equal(res.stdout, '');
+    assert.equal(
+      res.stderr.trim(),
+      invalidPluginRootMessage(pluginRoot, 'review'),
+      res.stderr,
+    );
+    assert.equal(fs.existsSync(marker), false, 'verb script ran despite the missing manifest');
+  });
+
+  it('a plugin root whose plugin.json names another plugin is refused', () => {
+    const pluginRoot = path.join(tmpRoot, 'foreign-manifest');
+    const marker = path.join(tmpRoot, 'foreign-manifest-marker.json');
+    writeStubVerb(pluginRoot, 'status', marker);
+    writePluginManifest(pluginRoot, 'not-antigravity');
+
+    const res = runBootstrap('status', { env: { CLAUDE_PLUGIN_ROOT: pluginRoot } });
+    assert.equal(res.status, 1, `stderr=${res.stderr}`);
+    assert.equal(res.stdout, '');
+    assert.equal(
+      res.stderr.trim(),
+      invalidPluginRootMessage(pluginRoot, 'status'),
+      res.stderr,
+    );
+    assert.equal(fs.existsSync(marker), false, 'verb script ran despite the foreign manifest');
+  });
+
   it('missing runtime prints the path and the standalone CLI, then exits 1', () => {
     const pluginRoot = path.join(tmpRoot, 'empty-plugin');
     fs.mkdirSync(pluginRoot, { recursive: true });
+    writePluginManifest(pluginRoot);
     const expectedScript = path.join(pluginRoot, 'scripts', 'commands', 'review.mjs');
 
     const res = runBootstrap('review', {

@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The host wrapper spawned a script from any plugin root.** The wrapper took
+  `CLAUDE_PLUGIN_ROOT` as given and ran `<root>/scripts/commands/<verb>.mjs`
+  from it. It now reads `<root>/plugin.json` first and exits 1 with one line
+  unless that manifest names this plugin.
 - **`update --apply` sent Codex an unqualified plugin name.** The Codex plan's
   `plugin remove` step passed `antigravity`, and Codex refuses that with
   "plugin requires --marketplace unless passed as `<plugin>@<marketplace>`",

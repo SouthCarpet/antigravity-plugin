@@ -12,6 +12,7 @@
  * cmd.exe, and PowerShell do not interpolate it.
  */
 
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -62,6 +63,47 @@ export function missingRuntimeMessage(scriptPath, verb) {
   );
 }
 
+/** The manifest that identifies a plugin tree, and the name it must carry. */
+export const PLUGIN_MANIFEST_FILE = "plugin.json";
+export const PLUGIN_MANIFEST_NAME = "antigravity";
+
+/**
+ * True when `root` holds this plugin's manifest.
+ *
+ * The root comes from the environment (CLAUDE_PLUGIN_ROOT), so it decides
+ * which `.mjs` file the wrapper spawns. Reading the manifest first keeps a
+ * wrong or stale value from starting a foreign script. It is not a defence
+ * against a hostile host: see SECURITY.md.
+ *
+ * @param {string} root
+ * @param {{ readFileSync?: typeof fs.readFileSync }} [io]
+ * @returns {boolean}
+ */
+export function isPluginRoot(root, { readFileSync = fs.readFileSync } = {}) {
+  try {
+    const raw = readFileSync(path.join(root, PLUGIN_MANIFEST_FILE), "utf8");
+    return JSON.parse(raw)?.name === PLUGIN_MANIFEST_NAME;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The one line a wrapper prints when its plugin root is not this plugin.
+ * Mirrored verbatim by the generated bootstrap; a test pins the two together.
+ *
+ * @param {string} root
+ * @param {string} verb
+ * @returns {string}
+ */
+export function invalidPluginRootMessage(root, verb) {
+  return (
+    `antigravity-plugin: ${root} is not an antigravity plugin tree ` +
+    `(plugin.json missing or name mismatch). ` +
+    `Run: npx @southcarpet/antigravity-plugin ${verb}`
+  );
+}
+
 const VERB_RE = /^[a-z]+$/;
 
 /**
@@ -81,6 +123,12 @@ export function hostBootstrapSource(verb) {
     "const fs=require('node:fs');" +
     "const {spawnSync}=require('node:child_process');" +
     `const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),${segments});` +
+    // The refusal text is built by invalidPluginRootMessage with `'+root+'`
+    // in place of the root, so the snippet concatenates the real root at run
+    // time and the wording has exactly one definition.
+    "let ok=false;" +
+    `try{ok=JSON.parse(fs.readFileSync(p.join(root,'${PLUGIN_MANIFEST_FILE}'),'utf8')).name==='${PLUGIN_MANIFEST_NAME}'}catch(e){ok=false}` +
+    `if(!ok){console.error('${invalidPluginRootMessage("'+root+'", verb)}');process.exit(1)}` +
     `const s=p.join(root,'scripts','commands','${verb}.mjs');` +
     `if(!fs.existsSync(s)){console.error('antigravity-plugin: runtime not found at '+s+'. Run: npx @southcarpet/antigravity-plugin ${verb}');process.exit(1)}` +
     "const r=spawnSync(process.execPath,[s].concat(process.argv.slice(1)),{stdio:'inherit'});" +

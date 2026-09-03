@@ -149,3 +149,8 @@ the code. It does not cover `agy` or the hosts that load this plugin.
   allowlist is outside this plugin's guarantee.
 - Job logs under the state root can contain model output and prompts.
   Protect that directory as you would other local project metadata.
+- The host wrapper reads `<plugin root>/plugin.json` and refuses to spawn
+  anything unless that manifest names this plugin. An attacker who can set the
+  host's environment already has code execution on that machine, so this check
+  limits accidental misdirection, for example a stale or half-removed install
+  copy in `CLAUDE_PLUGIN_ROOT`. It is not a defence against a hostile host.

@@ -67,7 +67,10 @@ interactive agy TUI as `/antigravity:<verb>` (command markdown converted to
 skills) and from the standalone CLI. The TUI wrappers locate the copied runtime
 in Node: `CLAUDE_PLUGIN_ROOT` when that is set and non-empty, otherwise
 `<homedir>/.gemini/config/plugins/antigravity`. They do not shell-expand
-`CLAUDE_PLUGIN_ROOT`. If that invocation cannot run or does not succeed, they
+`CLAUDE_PLUGIN_ROOT`. They then refuse a plugin root whose `plugin.json` is
+missing, unreadable, or does not name this plugin: the wrapper prints one line
+and exits 1 without running anything from that tree. If that invocation cannot
+run or does not succeed, they
 instruct the reading model to print the error and stop rather than perform the
 task itself; `npx @southcarpet/antigravity-plugin <verb>` is the fallback that
 always works. agy stores its own copy of the tree, so an upgrade takes effect
