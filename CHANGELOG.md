@@ -38,13 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from it. It now reads `<root>/plugin.json` first and exits 1 with one line
   unless that manifest names this plugin. The standalone dispatcher applies
   the same check to `ANTIGRAVITY_SCRIPT_ROOT` before it imports a verb.
-- **A missing `agy` or Git surfaced as a raw Node error.** `review`,
-  `rescue`, `task` and `vision` now probe `agy` first and exit 1 with
+- **A missing `agy` or Git surfaced as a raw Node error.** `rescue`, `task`
+  and `vision` now probe `agy` first and exit 1 with
   `antigravity:<verb> — \`agy\` is not on PATH (<reason>). Run
-  /antigravity:setup.` before any diff, job record or spawn. A run whose
-  process never starts prints `failed: <spawn error>` instead of `failed
-  (failed).`, and `review` without Git prints `git is not on PATH (spawnSync
-  git ENOENT).`
+  /antigravity:setup.` before any job record or spawn. `review` reads the
+  diff first, so nothing to review still exits 0 with the `no_changes`
+  result and never needs `agy`; with changes to send it prints the same
+  line and exits 1. A run whose process never starts prints
+  `failed: <spawn error>` instead of `failed (failed).`, and `review`
+  without Git prints `git is not on PATH (spawnSync git ENOENT).`
 - **`vision` started agy for a file it could never send.** An unsupported
   extension or a file over the 10 MiB cap failed only when the model called
   the local image server, which spent tokens and returned an answer-shaped

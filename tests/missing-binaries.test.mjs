@@ -1,9 +1,12 @@
 /**
  * One clear first line when agy or git is missing.
  *
- * review, rescue, task and vision probe the agy binary before they collect a
- * diff, write a job record or start anything. review maps a missing git to
- * one plain line. A run whose process never starts names the spawn error.
+ * rescue, task and vision probe the agy binary before they write a job record
+ * or start anything. review collects the diff first, so an empty tree answers
+ * `no_changes` with exit 0 and never probes agy; with content to send it
+ * probes before the prompt, the job record and the spawn. review maps a
+ * missing git to one plain line. A run whose process never starts names the
+ * spawn error.
  *
  * agent-runtime.mjs is mocked (before any command module is imported, see
  * tests/commands.test.mjs) so the probe result is under test control and no
@@ -23,6 +26,7 @@ const real = await import('../scripts/lib/agent-runtime.mjs');
 const runtime = {
   probe: { ok: false, reason: 'not-installed' },
   calls: [],
+  probeCalls: 0,
   useRealRun: false,
 };
 mock.module('../scripts/lib/agent-runtime.mjs', {
@@ -37,13 +41,33 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       return { pid: 1 };
     },
     resolveAgyBin: real.resolveAgyBin,
-    probeAgy: async () => runtime.probe,
+    probeAgy: async () => {
+      runtime.probeCalls += 1;
+      return runtime.probe;
+    },
     assertAgyBinSpawnable: real.assertAgyBinSpawnable,
     DEFAULT_AGY_BIN: 'agy',
   },
 });
 
-const ORIGINAL_ENV = { ...process.env };
+/**
+ * Snapshot through `process.env` itself, never through a spread copy. On
+ * Windows `process.env` is case-insensitive (`.PATH` reads the host's `Path`)
+ * while a spread copy keeps only the host's own spelling, so the other
+ * spelling reads `undefined`. Assigning `undefined` to `process.env.X` stores
+ * the STRING `"undefined"`, which is how a restore erased PATH on the Windows
+ * runner. A variable the host does not set is deleted, not assigned.
+ */
+const ENV_KEYS = ['PATH', 'HOME', 'USERPROFILE'];
+const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+
+function restoreEnv() {
+  for (const key of ENV_KEYS) {
+    if (ORIGINAL_ENV[key] === undefined) delete process.env[key];
+    else process.env[key] = ORIGINAL_ENV[key];
+  }
+}
+
 let tempDir;
 let dataDir;
 
@@ -97,14 +121,12 @@ beforeEach(() => {
   process.env.ANTIGRAVITY_PLUGIN_SESSION_ID = 'missing-' + randomBytes(3).toString('hex');
   runtime.probe = { ok: false, reason: 'not-installed' };
   runtime.calls = [];
+  runtime.probeCalls = 0;
   runtime.useRealRun = false;
 });
 
 afterEach(() => {
-  process.env.PATH = ORIGINAL_ENV.PATH;
-  process.env.Path = ORIGINAL_ENV.Path;
-  process.env.HOME = ORIGINAL_ENV.HOME;
-  process.env.USERPROFILE = ORIGINAL_ENV.USERPROFILE;
+  restoreEnv();
   delete process.env.CLAUDE_PLUGIN_DATA;
   delete process.env.ANTIGRAVITY_PLUGIN_SESSION_ID;
   try {
@@ -112,13 +134,41 @@ afterEach(() => {
   } catch {}
 });
 
-/** Leave only the directory that holds this Node executable on PATH. */
+/**
+ * Leave only the directory that holds this Node executable on PATH. One
+ * assignment is enough: on Windows `PATH` and `Path` are the same variable
+ * through `process.env`.
+ */
 function keepOnlyNodeOnPath() {
-  const nodeDir = path.dirname(process.execPath);
-  process.env.PATH = nodeDir;
-  process.env.Path = nodeDir;
+  process.env.PATH = path.dirname(process.execPath);
   process.env.HOME = tempDir;
   process.env.USERPROFILE = tempDir;
+}
+
+function requireGit() {
+  try {
+    execSync('git --version', { stdio: 'ignore' });
+  } catch {
+    assert.fail('git is required for this plugin (docs/COMPATIBILITY.md).');
+  }
+}
+
+/**
+ * Run git inside the fixture repository with a fixed identity and no signing,
+ * so the host's global config cannot change what the test builds.
+ */
+function gitFixture(args) {
+  execSync(`git -c commit.gpgsign=false ${args}`, {
+    cwd: tempDir,
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'test',
+      GIT_AUTHOR_EMAIL: 't@example.com',
+      GIT_COMMITTER_NAME: 'test',
+      GIT_COMMITTER_EMAIL: 't@example.com',
+    },
+  });
 }
 
 const AGY_LINE = (verb) =>
@@ -131,7 +181,6 @@ describe('agy missing: one line, exit 1, nothing started', () => {
     return p;
   };
   const cases = [
-    ['review', () => []],
     ['rescue', () => ['do the thing']],
     ['rescue --background', () => ['do the thing', '--background'], 'rescue'],
     ['task --foreground', () => ['do the thing', '--foreground'], 'task'],
@@ -150,18 +199,51 @@ describe('agy missing: one line, exit 1, nothing started', () => {
     });
   }
 
-  it('review: the line comes before any diff collection (cwd is not a git repo)', async () => {
-    // tempDir has no .git; a diff attempt would print a git failure instead.
-    const res = await runVerb('review', ['--scope', 'working-tree']);
-    assert.equal(res.exit, 1);
-    assert.equal(res.err, AGY_LINE('review'));
-  });
-
   it('--json keeps stdout empty and the message on stderr', async () => {
     const res = await runVerb('task', ['do the thing', '--foreground', '--json']);
     assert.equal(res.exit, 1);
     assert.equal(res.out, '');
     assert.equal(res.err, AGY_LINE('task'));
+  });
+});
+
+describe('review collects the diff first', () => {
+  it('empty tree, no agy: no_changes, exit 0, agy never probed', async () => {
+    requireGit();
+    gitFixture('init -q');
+    gitFixture('commit --allow-empty -q -m init');
+    const res = await runVerb('review', ['--json']);
+    assert.equal(res.exit, 0, res.err);
+    assert.equal(res.err, '');
+    assert.equal(JSON.parse(res.out).status, 'no_changes');
+    assert.equal(runtime.probeCalls, 0, 'nothing to send: agy must not be probed');
+    assert.deepEqual(dataFiles(), []);
+  });
+
+  it('a modified tracked file, no agy: the line, exit 1, no spawn, no job record', async () => {
+    requireGit();
+    const file = path.join(tempDir, 'file.txt');
+    gitFixture('init -q');
+    fs.writeFileSync(file, 'first\n');
+    gitFixture('add file.txt');
+    gitFixture('commit -q -m first');
+    fs.writeFileSync(file, 'second\n');
+    const res = await runVerb('review', []);
+    assert.equal(res.exit, 1);
+    assert.equal(res.err, AGY_LINE('review'));
+    assert.equal(res.out, '');
+    assert.equal(runtime.probeCalls, 1, 'content to send: agy is probed once');
+    assert.deepEqual(runtime.calls, [], 'agy must not be spawned');
+    assert.deepEqual(dataFiles(), [], 'no job record may be written');
+  });
+
+  it('cwd is not a repository, no agy: the git failure comes first', async () => {
+    requireGit();
+    const res = await runVerb('review', ['--scope', 'working-tree']);
+    assert.equal(res.exit, 1);
+    assert.match(res.err, /^antigravity:review — Command exited with status 128\./);
+    assert.doesNotMatch(res.err, /not on PATH/);
+    assert.equal(runtime.probeCalls, 0, 'the diff fails before the probe');
   });
 });
 
@@ -178,11 +260,7 @@ describe('git missing: review prints one plain line', () => {
 
   it('other git failures keep their text', async () => {
     runtime.probe = { ok: true, version: 'test' };
-    try {
-      execSync('git --version', { stdio: 'ignore' });
-    } catch {
-      assert.fail('git is required for this plugin (docs/COMPATIBILITY.md).');
-    }
+    requireGit();
     // A cwd that is not a repository: git runs and exits 128.
     const res = await runVerb('review', ['--scope', 'working-tree']);
     assert.equal(res.exit, 1);

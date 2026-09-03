@@ -9,6 +9,11 @@
  *   --continue        resume the last review conversation
  *   --conversation <id>  resume a specific conversation
  *   --json            output JSON instead of markdown
+ *
+ * The diff is collected first. An empty one answers `no_changes` with exit 0
+ * from Git alone, so a machine without `agy` can still run this. `agy` is
+ * probed only when there is content to send, before the prompt, the job
+ * record and any spawn.
  */
 
 import { readCommandInput } from "../lib/args.mjs";
@@ -41,12 +46,6 @@ export async function run(argv = [], ctx = {}) {
   const scope = (options.scope ? String(options.scope) : "auto");
   const base = options.base ? String(options.base) : undefined;
 
-  const unavailable = await agyUnavailableLine("review");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
-    return 1;
-  }
-
   let envelope;
   try {
     envelope = collectReviewContext(workspaceRoot, { scope, base });
@@ -65,6 +64,12 @@ export async function run(argv = [], ctx = {}) {
       Boolean(options.json),
     );
     return 0;
+  }
+
+  const unavailable = await agyUnavailableLine("review");
+  if (unavailable) {
+    process.stderr.write(`${unavailable}\n`);
+    return 1;
   }
 
   const prompt = buildReviewPrompt(envelope);

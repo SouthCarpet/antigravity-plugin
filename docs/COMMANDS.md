@@ -31,8 +31,11 @@ found; otherwise the supplied/current directory is the workspace.
 
 When `agy` is missing, every verb that runs it except `setup` exits 1 with
 one line, `antigravity:<verb> — \`agy\` is not on PATH (<reason>). Run
-/antigravity:setup.`, before it collects a diff, writes a job record or starts
-anything; `setup` keeps its own line and exit 2.
+/antigravity:setup.`, before it writes a job record or starts anything;
+`setup` keeps its own line and exit 2. `review` collects the diff first: with
+nothing to review it prints the `no_changes` result and exits 0 without
+touching `agy`; with changes to send and no `agy` it prints the line and
+exits 1.
 
 ## Summary
 
