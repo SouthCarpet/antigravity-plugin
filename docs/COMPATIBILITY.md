@@ -5,6 +5,11 @@ later 1.x releases. The implementation at 0.2.4 is the baseline from which
 the contract was frozen. A behavior is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
+Plugin 1.1.0 is this package's version number. agy 1.1.15, 1.1.17, and
+1.1.24 are versions of Google's Antigravity CLI, which is an external
+program. The two version lines advance independently. A new agy release does
+not change the plugin version.
+
 ## Supported matrix
 
 | Surface | Supported in 1.x |
@@ -12,7 +17,7 @@ the contract was frozen. A behavior is public only when this document or the
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux and Windows. Both run the full CI suite. macOS and other Node platforms are best-effort, not part of the compatibility promise. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 and 1.1.17. Other versions may work, but are not in the tested or promised matrix. |
+| Google Antigravity CLI | `agy` 1.1.15, 1.1.17, and 1.1.24. These versions form the tested and supported matrix. Live coverage differs by version as shown below. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -25,12 +30,27 @@ and 22.3.0 is the first Node 22 release on which this repository's full test
 suite can run (`mock.module()` and `--experimental-test-module-mocks`). The
 runtime has no npm dependencies.
 
-The agy version is intentionally narrow. Every delegated verb uses agy's
-stream-JSON input and output. agy 1.1.15 rejected the input envelope accepted
-by 1.1.14, breaking every delegated verb until this plugin changed its
-transport. The same envelope was confirmed on 1.1.17. `setup` probes and
-displays the installed version but does not enforce this matrix; that probe
-succeeding is not a promise that an unlisted agy version is compatible.
+The tested agy matrix is intentionally narrow. Every delegated verb uses
+agy's stream-JSON input and output. agy 1.1.15 rejected the input envelope
+accepted by 1.1.14. This broke every delegated verb until this plugin changed
+its transport. The same envelope was confirmed on 1.1.17. `setup` probes and
+displays the installed version but does not enforce this matrix. A successful
+probe does not promise that an unlisted agy version is compatible.
+
+| agy version | Verbs exercised live | Date |
+|---|---|---|
+| 1.1.15 | All eight: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, and `cancel` | 2026-08-21 |
+| 1.1.17 | All eight: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, and `cancel` | 2026-08-21 |
+| 1.1.24 | `rescue`, `task`, `vision`, and `result` | 2026-09-02 |
+
+The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
+`result`. The 1.1.24 runs covered foreground and background `rescue` and
+`task`, `--add-dir`, and `--mode`. They also covered five `vision` runs, the
+offloaded-copy fallback, a negative `vision` run, and `result` on a background
+job. The runs also covered headless auto-denial detection and the
+`--print-timeout` error shape. `review`, `status`, `cancel`, and `setup` use
+the same runtime paths and pass the fake-agy suite. They were not run live on
+1.1.24.
 
 agy 1.1.24 changes how an MCP image result reaches the model. agy writes a
 large result to a file in the conversation directory and gives the model the
@@ -38,7 +58,7 @@ note `[Resource offloaded to file://<X>]` in place of the pixels. The vision
 prompt answers this: it tells the model to open exactly that path with agy's
 `view_file` tool. Measured on 2026-09-02, a 6761-byte image was offloaded in
 every run and a 790-byte image was offloaded in some runs, so there is no
-size limit you can depend on. 1.1.24 is not in the promised matrix.
+size limit you can depend on.
 
 agy is a real host for discovery and lifecycle: `agy plugin install <path-to-clone>`,
 `list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no

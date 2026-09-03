@@ -30,13 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forwards this value to agy as the execution mode for that run. This works
   on foreground and background paths. For any other value the plugin reports
   an argument error and does not start agy.
-- **Fixed vision answer shape.** The answer contains `## Transcription`,
-  then `## Observations`, then `## Answer`. `## Transcription` lists every
-  visible string of every image, verbatim, one per line. The prompt names
-  `view_image` as the only way to see an image. It forbids `read_file` on an
-  image path. The `VISION-UNAVAILABLE` sentinel is unchanged. An answer from
-  this channel is not evidence. Cross-check the transcript against the
-  source image.
+- **Vision answer shape prompt.** The prompt requires the model to answer with
+  `## Transcription`, then `## Observations`, then `## Answer`.
+  `## Transcription` must list every visible string of every image, verbatim,
+  one per line. The prompt names `view_image` as the only way to see an image.
+  It forbids `read_file` on an image path. The `VISION-UNAVAILABLE` sentinel
+  is unchanged. agy does not enforce this shape. A caller must check the
+  answer. An answer from this channel is not evidence. Cross-check the
+  transcript against the source image.
 - **`--add-dir` headless read grant.** On agy 1.1.24, no
   `read_file(<path>)` allow rule works headless except the wildcard.
   `--add-dir <dir>` grants bounded, read-only access to that directory for
@@ -52,12 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The 8.3 short-name and junction cases run against a fixture volume and
   assert on every host. They no longer skip where the volume mints no alias.
   No runtime behaviour changes.
-  `scripts/lib/process-adapter.mjs` is the single spawn seam, and `now`,
-  `sleep`, the atomic writer, and the `{ platform, fs }` options of
-  `paths.mjs` and `vision-server` are injectable with production defaults.
-  The 8.3 short-name and junction cases now run against a fixture volume
-  and assert on every host instead of skipping where the volume mints no
-  alias. No runtime behaviour changes.
 
 ### Fixed
 

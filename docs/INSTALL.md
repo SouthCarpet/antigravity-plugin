@@ -6,9 +6,8 @@ that matches your workflow.
 ## Prerequisites (all hosts)
 
 1. **Node.js ≥ 22.3.0** — `node --version`.
-2. **agy CLI 1.1.15 or 1.1.17** — Google Antigravity CLI on `PATH`. Those
-   are the versions this plugin has been exercised against. Other versions
-   are outside the tested compatibility matrix.
+2. **agy CLI 1.1.15, 1.1.17, or 1.1.24** - Google Antigravity CLI on `PATH`.
+   These versions form the tested compatibility matrix.
    ```bash
    curl -fsSL https://antigravity.google/cli/install.sh | bash
    agy --version
@@ -138,7 +137,7 @@ node bin/antigravity.mjs review
 
 ```bash
 # host-agnostic check
-agy --version              # 1.1.15 or 1.1.17
+agy --version              # 1.1.15, 1.1.17, or 1.1.24
 node --version             # 22.3.0+
 which agy                  # /home/<user>/.local/bin/agy on Linux
 ```

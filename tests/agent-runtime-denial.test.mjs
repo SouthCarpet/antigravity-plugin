@@ -14,7 +14,7 @@
  *   SUCCESS + empty response + NO denial line               -> completed
  *   result status CANCELED (pre-1.1.20 shape)               -> failed (unchanged)
  *
- * Same `node:child_process.spawn` mock as tests/agent-runtime-stream.test.mjs,
+ * Same owned process-adapter spawn fake as tests/agent-runtime-stream.test.mjs,
  * installed before agent-runtime.mjs (and the verbs that import it) load.
  * Never spawns the real `agy`.
  */
@@ -46,7 +46,7 @@ function makeFakeChild() {
   return child;
 }
 
-mock.module('node:child_process', {
+mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();

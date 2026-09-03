@@ -10,7 +10,7 @@ Multi-host plugin for delegating tasks and code reviews to
 > **This is a maintained fork** of
 > [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin)
 > (credit to the original author for the plugin architecture). The fork is
-> currently **functional against Antigravity CLI 1.1.15 and 1.1.17 — including image
+> currently **functional against Antigravity CLI 1.1.15, 1.1.17, and 1.1.24, including image
 > analysis**: it adds a working vision channel (`/antigravity:vision`, MCP
 > image server), headless permission setup for agy's auto-deny print mode,
 > and Windows binary-resolution fixes. See [`CHANGELOG.md`](./CHANGELOG.md)
@@ -27,6 +27,11 @@ for free / personal users.
 > needs 2.0.0. That contract is in [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md).
 > This does not mean finished — it means the surface stops moving. See
 > [`CHANGELOG.md`](./CHANGELOG.md).
+
+Plugin 1.1.0 is this package's version number. agy 1.1.15, 1.1.17, and
+1.1.24 are versions of Google's Antigravity CLI, which is an external
+program. The two version lines advance independently. A new agy release does
+not change the plugin version.
 
 ## Versions
 
@@ -104,7 +109,7 @@ Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
 ## Requirements
 
 - Node.js ≥ 22.3.0
-- `agy` 1.1.15 or 1.1.17 on `PATH` ([install from antigravity.google](https://antigravity.google/download)); other versions are not part of the tested compatibility matrix
+- `agy` 1.1.15, 1.1.17, or 1.1.24 on `PATH` ([install from antigravity.google](https://antigravity.google/download)); these versions form the tested compatibility matrix
 - A Google account for `agy` OAuth (run `agy --print 'hi'` once or `/antigravity:setup`)
 
 ### Job state location
