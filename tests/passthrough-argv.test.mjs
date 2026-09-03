@@ -149,3 +149,15 @@ describe('--mode <plan|accept-edits> reaches agy argv; anything else is an ArgsE
     }
   });
 });
+
+describe('vision --add-dir is rejected before any spawn', () => {
+  it('vision --add-dir exits 1, names the flag, and never spawns agy', () => {
+    const { work, data } = freshDirs();
+    const img = path.join(work, 'shot.png');
+    fs.writeFileSync(img, 'not-a-real-png');
+    const res = runVerb(['vision', img, '--add-dir', 'C:\\scope'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, /antigravity:vision — vision does not take --add-dir/);
+    assert.deepEqual(argvOf(res.stderr), [], 'agy must not be spawned');
+  });
+});

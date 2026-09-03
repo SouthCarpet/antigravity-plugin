@@ -24,7 +24,7 @@
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 
-import { readCommandInput } from "../lib/args.mjs";
+import { ArgsError, readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob } from "../lib/job-helpers.mjs";
@@ -43,6 +43,19 @@ export async function run(argv = [], ctx = {}) {
   }, "vision");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
+
+  // `parseArgs` keeps unknown options on purpose (see args.mjs), so a caller
+  // passing --add-dir would otherwise sail through silently: it is not
+  // forwarded to agy, but the run would proceed as if extra read access had
+  // been granted. vision has no --add-dir contract (docs/COMPATIBILITY.md).
+  // Reject it here, before image validation and before any spawn.
+  if (options["add-dir"] !== undefined) {
+    const err = new ArgsError(
+      "vision does not take --add-dir; the images named on the command line are the only files the model may see.",
+    );
+    process.stderr.write(`antigravity:vision — ${err.message}\n`);
+    return 1;
+  }
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);

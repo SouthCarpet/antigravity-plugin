@@ -219,7 +219,9 @@ transcript to see which path a run used.
 `vision` does not accept `--add-dir`. That flag is the headless read grant
 for agy's own file tools (see `rescue` and `task`); `vision` hands the
 images to agy through the MCP tool with a per-run allowlist instead, so the
-run never needs a directory grant.
+run never needs a directory grant. Passing `--add-dir` to `vision` is an
+argument error: the command exits 1 before it validates any image path or
+spawns agy.
 
 Exit status is 0 when agy reports a completed response (including the sentinel),
 1 for validation/authentication/execution/state failure, and 2 for a cancelled

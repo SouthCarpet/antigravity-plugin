@@ -296,6 +296,25 @@ describe('command: missing value option', () => {
   });
 });
 
+describe('command: vision rejects --add-dir', () => {
+  it('vision --add-dir exits nonzero, names the flag, and never spawns agy', async () => {
+    const { run } = await import('../scripts/commands/vision.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      // The image path does not exist. If image validation ran first, the
+      // failure would be "image file not found" instead — proving --add-dir
+      // is rejected before that check, not just eventually.
+      exit = await run(['does-not-exist.png', '--add-dir', 'C:/scope'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.match(cap.err.join(''), /antigravity:vision — vision does not take --add-dir/);
+    assert.equal(agyRuntime.calls.length, 0);
+  });
+});
+
 describe('command: conflicting execution flags', () => {
   it('task --foreground --background exits nonzero and names both flags', async () => {
     const { run } = await import('../scripts/commands/task.mjs');

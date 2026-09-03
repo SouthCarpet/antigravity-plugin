@@ -84,6 +84,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `result.error`. The runtime adds `agent-runtime: agy reported error:
   <reason>` to stderr. A `--print-timeout` exits 1 with empty stderr. Before
   this change, the output did not contain the word "timeout".
+- **`vision` rejects `--add-dir`.** The parser used to keep the flag without
+  forwarding it to agy, so the run proceeded as if it had granted extra read
+  access. `vision` now reports an argument error and exits before it reads
+  or validates any image path. No directory grant exists for `vision`; the
+  images named on the command line remain the only files agy can see.
 
 ## [1.0.1] — 2026-08-22
 
