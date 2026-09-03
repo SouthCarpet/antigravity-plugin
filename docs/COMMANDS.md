@@ -1,7 +1,8 @@
 # Commands reference
 
-This is the argument and execution reference for the eight public 1.x verbs.
-The broader versioning, output, environment, and state promises are in the
+This is the argument and execution reference for the eight public 1.x verbs,
+and for the standalone `update` convenience at the end. The broader
+versioning, output, environment, and state promises are in the
 [1.x compatibility contract](./COMPATIBILITY.md).
 
 ## Invocation forms
@@ -317,3 +318,39 @@ be retried.
 
 Exit status is 0 only when cancellation is established and persisted, and 1
 for resolution, termination, state-lock, or persistence failure.
+
+## `update`
+
+```text
+update [--apply] [--json]
+```
+
+`update` is a standalone dispatcher convenience, not one of the eight verbs.
+No host wrapper reaches it, and its `--json` output is unstable in 1.x. It
+reads the running version, asks the npm registry for the latest version
+(cached 24 hours), and prints the update command of every host it finds on
+`PATH`. Without `--apply` it changes nothing.
+
+`--apply` runs those commands for the hosts that are present, and prints each
+command before it runs it. It stops a host at the first failing step and
+exits 1.
+
+Per host, `--apply` does this:
+
+- Claude Code: `plugin marketplace update antigravity` first, then
+  `plugin update antigravity@antigravity`. Without the marketplace refresh,
+  `plugin update` reports the version you already have as the latest.
+- Codex CLI: `plugin marketplace list` first, then `plugin remove` and
+  `plugin add`, both with the qualified `antigravity@antigravity` name. If
+  the `antigravity` marketplace is a local clone, the command prints the path
+  and tells you to pull that clone first, because `plugin add` installs the
+  version the clone holds. After the install it reads the version from the
+  plugin root that `plugin add` prints, prints `installed <version>`, and adds
+  one line when that version is not the latest. It never pulls or changes your
+  clone.
+- agy: `npm pack` of the latest version, `tar -x`, `plugin uninstall`, then
+  `plugin install` of the extracted directory. With the registry check
+  disabled there is no known latest version, so this host is skipped.
+- npx: nothing. An unversioned `npx` resolves the latest version on every run.
+
+`ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.

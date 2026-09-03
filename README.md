@@ -12,7 +12,7 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Node >=22.3.0](https://img.shields.io/badge/node-%3E%3D22.3.0-339933?logo=node.js&logoColor=white)](./package.json)
 [![Known issues](https://img.shields.io/github/issues/SouthCarpet/antigravity-plugin/known%20issue?label=known%20issues&color=D93F0B)](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22)
-[![Socket Badge](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin/)](https://socket.dev/npm/package/@southcarpet/antigravity-plugin/overview/)
+[![Socket Badge](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin)](https://socket.dev/npm/package/@southcarpet/antigravity-plugin/overview/)
 
 </div>
 
@@ -135,7 +135,7 @@ For Claude Code, run `claude plugin marketplace update antigravity` first, then 
 
 For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-to-clean-clone>`. A plain reinstall merges with the old copy.
 
-`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. It does not refresh the Claude Code marketplace and does not pull a local Codex marketplace clone, so run those two steps first. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
+`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
 
 ## Requirements
 

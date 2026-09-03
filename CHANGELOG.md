@@ -7,14 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/` and `CHANGELOG.md` in the package.** The npm tarball now ships the
+  documentation the README links to. Before this, an installed copy had a
+  README whose relative links pointed at files that were not there, and the
+  Troubleshooting table could not be read offline. The pack check derives the
+  required list from the README links, so a new documentation link tightens
+  the gate by itself.
+
 ### Changed
 
+- **`update --apply` refreshes the Claude Code marketplace.** The plan runs
+  `claude plugin marketplace update antigravity` before
+  `claude plugin update antigravity@antigravity`. Without that step,
+  `plugin update` reports the version you already have as the latest.
+- **`update --apply` reports a local Codex marketplace.** The plan runs
+  `codex plugin marketplace list` first. If the `antigravity` marketplace is a
+  local clone, the command prints the path and tells you to pull that clone,
+  because `plugin add` installs the version the clone holds. After the install
+  it prints the installed version, and one more line when that version is not
+  the latest. It never pulls or changes your clone.
+- **Socket badge.** The badge image URL lost its trailing slash. The
+  trailing-slash form answers with a redirect, which GitHub renders as a
+  broken image. The unversioned URL needs no change per release.
 - **Update instructions.** The README now says that Claude Code needs
   `claude plugin marketplace update antigravity` before `plugin update`, that
   Codex installs from the registered marketplace (pull a local clone first),
-  and that `update --apply` does neither step. The README no longer states a
-  test count, the Socket badge sits with the other badges without a version
-  pin, and the compatibility contract notes the wrapper manifest check.
+  and what `update --apply` does for each host. The commands reference gains
+  an `update` section, and the installation guide gains a Troubleshooting row
+  for a Codex reinstall of an old version. The README no longer states a test
+  count, the Socket badge sits with the other badges without a version pin,
+  and the compatibility contract notes the wrapper manifest check.
 
 ## [1.1.1] — 2026-09-03
 
