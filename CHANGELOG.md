@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`update --apply` sent Codex an unqualified plugin name.** The Codex plan's
+  `plugin remove` step passed `antigravity`, and Codex refuses that with
+  "plugin requires --marketplace unless passed as `<plugin>@<marketplace>`",
+  stopping the whole run before `plugin add` could run. The remove step now
+  passes `antigravity@antigravity`, matching the add step and the printed
+  instruction.
+- **`update --apply` could reinstall a stale cached version on agy.** The
+  24 h cache is right for the plain report, but `--apply` read it too, so a
+  run could pack a version the cache still remembered even after a newer
+  release shipped. `--apply` now always asks the npm registry once and
+  rewrites the cache. With `ANTIGRAVITY_NO_UPDATE_CHECK=1` the agy step is
+  skipped with a clear message instead of packing an unknown version; Claude
+  Code and Codex, which do not need a version number, still run.
+
 ## [1.1.0] — 2026-09-03
 
 ### Added

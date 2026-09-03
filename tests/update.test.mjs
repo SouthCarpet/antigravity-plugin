@@ -297,11 +297,11 @@ describe('update --apply: command plans', () => {
     assert.equal((text.match(/^\$ /gm) ?? []).length, 5);
   });
 
-  it('codex plan is remove then add', () => {
+  it('codex plan is remove then add, both with the qualified plugin@marketplace name', () => {
     const [host] = detectHosts({ env: stubPath(tmp, ['codex']) }).filter((h) => h.id === 'codex');
     const plan = buildHostPlan(host, { latest: '1.5.0', tmpDir: tmp });
     assert.deepEqual(plan.map((s) => s.args), [
-      ['plugin', 'remove', 'antigravity'],
+      ['plugin', 'remove', 'antigravity@antigravity'],
       ['plugin', 'add', 'antigravity@antigravity'],
     ]);
     assert.ok(plan.every((s) => s.command === host.binary));
@@ -360,6 +360,66 @@ describe('update --apply: command plans', () => {
     assert.equal(outcome.ok, true);
     assert.equal(outcome.steps[1].args[1], path.join(tmp, 'southcarpet-antigravity-plugin-1.5.0.tgz'));
     assert.equal(lines.length, 2);
+  });
+
+  it('--apply ignores a fresh cache, fetches once, and rewrites the cache with the fetched version', async () => {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify({ latest: '1.0.1', checkedAt: new Date(NOW - HOUR).toISOString() }));
+    const env = stubPath(tmp, ['agy']);
+    const fetch = fakeFetch({ latest: '1.1.0' });
+    const runner = recordingRunner({
+      packOutput: JSON.stringify([{ filename: 'southcarpet-antigravity-plugin-1.1.0.tgz', name: PACKAGE_NAME }]),
+    });
+    const work = path.join(tmp, 'work-fresh');
+    fs.mkdirSync(work);
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply'], { env, now: NOW, fetch, cacheFile, running: '1.0.1', runner, tmpDir: work });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0, cap.err.join(''));
+    assert.equal(fetch.calls.length, 1);
+    assert.deepEqual(
+      runner.calls.find((c) => c.command === 'npm').args,
+      ['pack', `${PACKAGE_NAME}@1.1.0`, '--pack-destination', work, '--json'],
+    );
+    assert.equal(JSON.parse(fs.readFileSync(cacheFile, 'utf8')).latest, '1.1.0');
+  });
+
+  it('without --apply, a fresh cache still answers the report and makes zero fetches', async () => {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify({ latest: '1.0.1', checkedAt: new Date(NOW - HOUR).toISOString() }));
+    const env = stubPath(tmp, ['agy']);
+    const fetch = fakeFetch({ latest: '1.1.0' });
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate([], { env, now: NOW, fetch, cacheFile, running: '1.0.1' });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(fetch.calls.length, 0);
+    assert.match(cap.out.join(''), /latest: 1\.0\.1 \(cached/);
+  });
+
+  it('--apply with the update check disabled skips agy (no known latest) but still runs the other hosts', async () => {
+    const env = { ...stubPath(tmp, ['claude', 'codex', 'agy']), ANTIGRAVITY_NO_UPDATE_CHECK: '1' };
+    const fetch = fakeFetch({ latest: '9.9.9' });
+    const runner = recordingRunner();
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply'], { env, now: NOW, fetch, cacheFile, running: '1.0.1', runner, tmpDir: tmp });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.equal(fetch.calls.length, 0);
+    assert.deepEqual(runner.calls.map((c) => c.command), ['claude', 'codex', 'codex']);
+    assert.match(cap.out.join(''), /agy: update check disabled \(ANTIGRAVITY_NO_UPDATE_CHECK=1\); no known "latest" version to pack, skipping this host\./);
   });
 });
 

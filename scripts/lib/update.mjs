@@ -160,12 +160,17 @@ export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {
 /**
  * Resolve the latest published version: disabled, fresh cache, registry, or
  * unreachable. Never throws; a failed check is a message, not an error.
+ * `forceRefresh` skips the cache read: `--apply` sets it, so a run never
+ * packs a version that a later release has already replaced. A disabled
+ * check is still checked first, since forcing a refresh cannot make a
+ * network request happen.
  */
 export async function resolveLatest({
   env = process.env,
   now = Date.now(),
   fetchImpl = globalThis.fetch,
   cacheFile = resolveUpdateCacheFile(),
+  forceRefresh = false,
 } = {}) {
   if (isCheckDisabled(env)) {
     return {
@@ -175,7 +180,7 @@ export async function resolveLatest({
       message: `update check disabled (${DISABLE_ENV}=${env[DISABLE_ENV]})`,
     };
   }
-  const cached = readUpdateCache(cacheFile);
+  const cached = forceRefresh ? null : readUpdateCache(cacheFile);
   if (cached && isCacheFresh(cached, now)) {
     return { latest: cached.latest, source: "cache", checkedAt: cached.checkedAt, message: null };
   }
@@ -230,8 +235,11 @@ export function buildHostPlan(host, { latest, tmpDir, tools = {} }) {
     case "claude-code":
       return [step(host.binary, ["plugin", "update", "antigravity@antigravity"])];
     case "codex":
+      // Codex requires the qualified <plugin>@<marketplace> form on both
+      // subcommands; an unqualified name fails `remove` with
+      // "plugin requires --marketplace unless passed as <plugin>@<marketplace>".
       return [
-        step(host.binary, ["plugin", "remove", "antigravity"]),
+        step(host.binary, ["plugin", "remove", "antigravity@antigravity"]),
         step(host.binary, ["plugin", "add", "antigravity@antigravity"]),
       ];
     case "agy":
@@ -333,6 +341,15 @@ function applyToHosts(report, { deps, env, write, json }) {
   let ok = true;
   for (const host of present) {
     write(`\n${host.name}:\n`);
+    // agy is the only step that needs a version number to pack; with the
+    // check disabled there is no known "latest" to trust, and the previous
+    // cache answer was already rejected by the forced refresh above.
+    if (host.id === "agy" && report.source === "disabled") {
+      host.steps = [];
+      ok = false;
+      write(`agy: ${report.message}; no known "latest" version to pack, skipping this host.\n`);
+      continue;
+    }
     const outcome = applyPlan(buildHostPlan(host, { latest: report.latest, tmpDir, tools }), {
       runner,
       write,
@@ -425,7 +442,13 @@ export async function runUpdate(argv = [], deps = {}) {
   const apply = Boolean(parsed.options.apply);
   const env = deps.env ?? process.env;
 
-  const check = await resolveLatest({ env, now: deps.now, fetchImpl: deps.fetch, cacheFile: deps.cacheFile });
+  const check = await resolveLatest({
+    env,
+    now: deps.now,
+    fetchImpl: deps.fetch,
+    cacheFile: deps.cacheFile,
+    forceRefresh: apply,
+  });
   const running = deps.running ?? readRunningVersion();
   const report = {
     running,
