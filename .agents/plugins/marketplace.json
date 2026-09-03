@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Multi-host plugin for delegating tasks, code reviews and Gemini vision (image analysis) to Google Antigravity CLI (agy). Maintained fork of sakibsadmanshajib/antigravity-plugin.",
-    "version": "1.0.1"
+    "version": "1.1.0"
   },
   "plugins": [
     {
