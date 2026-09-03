@@ -199,6 +199,9 @@ current directory and must name existing regular files.
 - The MCP server accepts `.png`, `.jpg`, `.jpeg`, `.webp`, and `.gif`, with a
   10 MiB maximum per source file. It rejects symlink/junction resolution and
   every path not named by this invocation.
+- `vision` applies the same extension list and the same 10 MiB cap before it
+  starts agy, and exits 1 on the first file that breaks either limit, so a
+  file the server would refuse costs no tokens.
 
 Measured on 2026-09-02 with agy 1.1.24, `gemini-3.6-flash-high` transcribed
 `ZETA-4471`, `Bežné účty`, and `1 435,50 €` exactly in three of four runs;

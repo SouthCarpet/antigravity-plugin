@@ -22,7 +22,7 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import { basename, resolve as resolvePath } from "node:path";
+import { basename, extname, resolve as resolvePath } from "node:path";
 
 import { ArgsError, readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
@@ -30,11 +30,45 @@ import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runForegroundJob } from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
-import { encodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
+import {
+  encodeVisionAllowlist,
+  VISION_ALLOWLIST_ENV,
+  VISION_EXTENSIONS,
+  VISION_MAX_BYTES,
+  VISION_MIME,
+} from "../lib/vision-capability.mjs";
 
 const DEFAULT_MODEL = "gemini-3.6-flash-high";
 const DEFAULT_PROMPT =
   "Describe this image in concrete, specific detail: layout, elements, colors, text, and anything unusual.";
+
+/**
+ * The first reason this file cannot reach the model, or null when it can.
+ *
+ * The MCP server applies the same extension table and the same size cap, but
+ * only after agy has started and spent tokens, and its refusal comes back as
+ * an answer-shaped reply. Checking here fails before any spawn.
+ *
+ * @param {string} imagePath - absolute path
+ * @returns {string|null}
+ */
+function imageProblem(imagePath) {
+  if (!existsSync(imagePath) || !statSync(imagePath).isFile()) {
+    return `image file not found: ${imagePath}`;
+  }
+  const ext = extname(imagePath).toLowerCase();
+  if (!VISION_MIME[ext]) {
+    return (
+      `unsupported image extension "${ext || "(none)"}": ${imagePath}. ` +
+      `Supported: ${VISION_EXTENSIONS.join(", ")}`
+    );
+  }
+  const { size } = statSync(imagePath);
+  if (size > VISION_MAX_BYTES) {
+    return `image too large (${size} bytes > ${VISION_MAX_BYTES} byte cap): ${imagePath}`;
+  }
+  return null;
+}
 
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
@@ -72,8 +106,9 @@ export async function run(argv = [], ctx = {}) {
   // the caller's cwd. Absolute paths sidestep that mismatch entirely.
   const imagePaths = positionals.map((p) => resolvePath(cwd, String(p)));
   for (const imagePath of imagePaths) {
-    if (!existsSync(imagePath) || !statSync(imagePath).isFile()) {
-      process.stderr.write(`antigravity:vision — image file not found: ${imagePath}\n`);
+    const problem = imageProblem(imagePath);
+    if (problem) {
+      process.stderr.write(`antigravity:vision — ${problem}\n`);
       return 1;
     }
   }

@@ -17,7 +17,11 @@ import { mock } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { VISION_ALLOWLIST_ENV } from '../scripts/lib/vision-capability.mjs';
+import {
+  VISION_ALLOWLIST_ENV,
+  VISION_EXTENSIONS,
+  VISION_MAX_BYTES,
+} from '../scripts/lib/vision-capability.mjs';
 
 const TMPROOT = os.tmpdir();
 
@@ -108,6 +112,68 @@ describe('/antigravity:vision', () => {
     assert.equal(exit, 1);
     assert.match(cap.err.join(''), /image file not found/);
     assert.match(cap.err.join(''), /definitely-missing\.png/);
+  });
+
+  // The MCP server refuses both of these too, but only after agy has started
+  // and spent tokens. runtime.calls stays empty here, which is the proof that
+  // nothing was spawned.
+  it('refuses an unsupported extension before any spawn', async () => {
+    runtime.calls = [];
+    const notAnImage = path.join(tmpDir, 'note.txt');
+    fs.writeFileSync(notAnImage, 'plain text');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([notAnImage, '--prompt', 'probe'], { cwd: tmpDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.equal(runtime.calls.length, 0, 'agy was started for an unsupported file');
+    const err = cap.err.join('');
+    assert.match(err, /antigravity:vision — unsupported image extension "\.txt"/);
+    assert.ok(err.includes(VISION_EXTENSIONS.join(', ')), err);
+  });
+
+  it('refuses a file over the size cap before any spawn', async () => {
+    runtime.calls = [];
+    const tooBig = path.join(tmpDir, 'large.png');
+    const size = VISION_MAX_BYTES + 1024 * 1024;
+    const fd = fs.openSync(tooBig, 'w');
+    fs.ftruncateSync(fd, size);
+    fs.closeSync(fd);
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([tooBig, '--prompt', 'probe'], { cwd: tmpDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.equal(runtime.calls.length, 0, 'agy was started for an oversized file');
+    assert.match(
+      cap.err.join(''),
+      new RegExp(`image too large \\(${size} bytes > ${VISION_MAX_BYTES} byte cap\\)`),
+    );
+  });
+
+  it('allows a file exactly at the size cap', async () => {
+    runtime.calls = [];
+    runtime.next = { status: 'completed', exitCode: 0, stdout: 'at the cap', stderr: '' };
+    const atCap = path.join(tmpDir, 'at-cap.png');
+    const fd = fs.openSync(atCap, 'w');
+    fs.ftruncateSync(fd, VISION_MAX_BYTES);
+    fs.closeSync(fd);
+    assert.equal(fs.statSync(atCap).size, VISION_MAX_BYTES);
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([atCap, '--prompt', 'probe'], { cwd: tmpDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0, cap.err.join(''));
+    assert.equal(runtime.calls.length, 1);
   });
 
   it('happy path: returns agy stdout and forwards the default model + built prompt', async () => {

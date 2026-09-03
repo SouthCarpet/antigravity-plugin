@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CLAUDE_PLUGIN_ROOT` as given and ran `<root>/scripts/commands/<verb>.mjs`
   from it. It now reads `<root>/plugin.json` first and exits 1 with one line
   unless that manifest names this plugin.
+- **`vision` started agy for a file it could never send.** An unsupported
+  extension or a file over the 10 MiB cap failed only when the model called
+  the local image server, which spent tokens and returned an answer-shaped
+  reply. The command now checks both limits before any spawn and exits 1.
 - **`update --apply` sent Codex an unqualified plugin name.** The Codex plan's
   `plugin remove` step passed `antigravity`, and Codex refuses that with
   "plugin requires --marketplace unless passed as `<plugin>@<marketplace>`",

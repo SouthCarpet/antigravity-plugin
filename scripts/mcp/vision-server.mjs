@@ -27,19 +27,17 @@ import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
 import { canonicalComparePath, pathModuleFor } from "../lib/paths.mjs";
-import { decodeVisionAllowlist, VISION_ALLOWLIST_ENV } from "../lib/vision-capability.mjs";
+import {
+  decodeVisionAllowlist,
+  VISION_ALLOWLIST_ENV,
+  VISION_MAX_BYTES,
+  VISION_MIME,
+} from "../lib/vision-capability.mjs";
 
-/** Supported image extensions → MIME type. */
-const MIME = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-};
-
-/** Hard cap on source file size — protects the model context / IPC channel. */
-const MAX_BYTES = 10 * 1024 * 1024;
+// Shared with the vision command, which applies the same two limits before it
+// starts agy. One definition, two checks.
+const MIME = VISION_MIME;
+const MAX_BYTES = VISION_MAX_BYTES;
 
 const TOOLS = [
   {
