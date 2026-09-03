@@ -34,7 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The host wrapper spawned a script from any plugin root.** The wrapper took
   `CLAUDE_PLUGIN_ROOT` as given and ran `<root>/scripts/commands/<verb>.mjs`
   from it. It now reads `<root>/plugin.json` first and exits 1 with one line
-  unless that manifest names this plugin.
+  unless that manifest names this plugin. The standalone dispatcher applies
+  the same check to `ANTIGRAVITY_SCRIPT_ROOT` before it imports a verb.
+- **A missing `agy` or Git surfaced as a raw Node error.** `review`,
+  `rescue`, `task` and `vision` now probe `agy` first and exit 1 with
+  `antigravity:<verb> — \`agy\` is not on PATH (<reason>). Run
+  /antigravity:setup.` before any diff, job record or spawn. A run whose
+  process never starts prints `failed: <spawn error>` instead of `failed
+  (failed).`, and `review` without Git prints `git is not on PATH (spawnSync
+  git ENOENT).`
 - **`vision` started agy for a file it could never send.** An unsupported
   extension or a file over the 10 MiB cap failed only when the model called
   the local image server, which spent tokens and returned an answer-shaped

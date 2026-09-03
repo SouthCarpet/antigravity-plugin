@@ -27,7 +27,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { ArgsError, readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { runForegroundJob } from "../lib/job-helpers.mjs";
+import { agyUnavailableLine, foregroundFailureLine, runForegroundJob } from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
@@ -113,6 +113,12 @@ export async function run(argv = [], ctx = {}) {
     }
   }
 
+  const unavailable = await agyUnavailableLine("vision");
+  if (unavailable) {
+    process.stderr.write(`${unavailable}\n`);
+    return 1;
+  }
+
   const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
   const model = options.model ? String(options.model) : DEFAULT_MODEL;
   const prompt = buildVisionPrompt({ imagePaths, userPrompt });
@@ -145,7 +151,7 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
   if (result.status !== "completed") {
-    process.stderr.write(`\nantigravity:vision — failed (${result.status}).\n`);
+    process.stderr.write(`\n${foregroundFailureLine("vision", result)}\n`);
     if (result.stderr) process.stderr.write(result.stderr);
     return result.status === "cancelled" ? 2 : 1;
   }

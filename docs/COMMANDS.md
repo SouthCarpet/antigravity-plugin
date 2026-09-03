@@ -29,6 +29,11 @@ errors in 1.x.
 every verb except `setup`. A Git repository root is used when one can be
 found; otherwise the supplied/current directory is the workspace.
 
+When `agy` is missing, every verb that runs it except `setup` exits 1 with
+one line, `antigravity:<verb> — \`agy\` is not on PATH (<reason>). Run
+/antigravity:setup.`, before it collects a diff, writes a job record or starts
+anything; `setup` keeps its own line and exit 2.
+
 ## Summary
 
 | Verb | Positional arguments | Default execution |

@@ -355,7 +355,9 @@ export function detectAutoDenial(stderr) {
  * `onText`), independent of `onStdout`'s raw pass-through.
  *
  * Returns `{ status, stdout, stderr, exitCode, oauthUrl, usage,
- * durationSeconds, agyConversationId, rawStdout, warnings, denial }`.
+ * durationSeconds, agyConversationId, rawStdout, warnings, denial,
+ * spawnError }`. `spawnError` is the child's `error` event message (for
+ * example `spawn agy ENOENT`) when the process never started, else `null`.
  * `status` is one of `completed`, `failed`, `auth_required`, `cancelled`,
  * `timeout`. `exitCode === 0` with no `result` event is `failed`, never a
  * silent success — stderr gains a diagnostic line explaining why. A `result`
@@ -423,6 +425,7 @@ export async function runAgyPrint({
   let stderr = '';
   let oauthUrl;
   let status;
+  let spawnError = null;
   let forceTimer = null;
   let giveUpTimer = null;
   let terminationReason = null;
@@ -436,6 +439,7 @@ export async function runAgyPrint({
       resolve(code);
     };
     child.on('error', (e) => {
+      spawnError = e.message;
       stderr += `\nspawn error: ${e.message}`;
       settleExit(typeof e.errno === 'number' ? e.errno : 1);
     });
@@ -583,6 +587,7 @@ export async function runAgyPrint({
     agyConversationId: parsed.conversationId ?? null,
     warnings,
     denial,
+    spawnError,
   };
 }
 

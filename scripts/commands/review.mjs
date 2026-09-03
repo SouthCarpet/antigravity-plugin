@@ -15,7 +15,13 @@ import { readCommandInput } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
+import {
+  agyUnavailableLine,
+  foregroundFailureLine,
+  runForegroundJob,
+  startBackgroundJob,
+  waitForJob,
+} from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
@@ -34,6 +40,12 @@ export async function run(argv = [], ctx = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const scope = (options.scope ? String(options.scope) : "auto");
   const base = options.base ? String(options.base) : undefined;
+
+  const unavailable = await agyUnavailableLine("review");
+  if (unavailable) {
+    process.stderr.write(`${unavailable}\n`);
+    return 1;
+  }
 
   let envelope;
   try {
@@ -115,7 +127,7 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
   if (result.status !== "completed") {
-    process.stderr.write(`\nantigravity:review — failed (${result.status}).\n`);
+    process.stderr.write(`\n${foregroundFailureLine("review", result)}\n`);
     if (result.stderr) process.stderr.write(result.stderr);
     return result.status === "cancelled" ? 2 : 1;
   }

@@ -18,7 +18,15 @@
 import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
-import { AGY_MODES, agyModeArgs, runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
+import {
+  AGY_MODES,
+  agyModeArgs,
+  agyUnavailableLine,
+  foregroundFailureLine,
+  runForegroundJob,
+  startBackgroundJob,
+  waitForJob,
+} from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
@@ -70,6 +78,12 @@ export async function run(argv = [], ctx = {}) {
 
   const prompt = buildRescuePrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
+
+  const unavailable = await agyUnavailableLine("rescue");
+  if (unavailable) {
+    process.stderr.write(`${unavailable}\n`);
+    return 1;
+  }
 
   if (options.background) {
     const { job } = await startBackgroundJob({
@@ -125,7 +139,7 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
   if (result.status !== "completed") {
-    process.stderr.write(`\nantigravity:rescue — failed (${result.status}).\n`);
+    process.stderr.write(`\n${foregroundFailureLine("rescue", result)}\n`);
     if (result.stderr) process.stderr.write(result.stderr);
     return result.status === "cancelled" ? 2 : 1;
   }

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { isProbablyText } from "./fs.mjs";
-import { formatCommandFailure, runCommand, runCommandChecked } from "./process.mjs";
+import { formatCommandFailure, runCommand } from "./process.mjs";
 
 const MAX_UNTRACKED_BYTES = 24 * 1024;
 const DEFAULT_INLINE_DIFF_MAX_FILES = 2;
@@ -16,8 +16,30 @@ function git(cwd, args, options = {}) {
   return runCommand("git", args, { cwd, ...options });
 }
 
+/**
+ * The error to throw for a git spawn failure. A missing binary
+ * (`spawnSync git ENOENT`) gets one plain line; every other spawn error
+ * passes through unchanged.
+ *
+ * @param {NodeJS.ErrnoException} error
+ * @returns {Error}
+ */
+function gitSpawnError(error) {
+  if (error.code === "ENOENT") {
+    return new Error(`git is not on PATH (${error.message}).`);
+  }
+  return error;
+}
+
 function gitChecked(cwd, args, options = {}) {
-  return runCommandChecked("git", args, { cwd, ...options });
+  const result = git(cwd, args, options);
+  if (result.error) {
+    throw gitSpawnError(result.error);
+  }
+  if (result.status !== 0) {
+    throw new Error(formatCommandFailure(result));
+  }
+  return result.stdout;
 }
 
 function listUniqueFiles(...groups) {
@@ -46,7 +68,7 @@ function measureGitOutputBytes(cwd, args, maxBytes) {
     return maxBytes + 1;
   }
   if (result.error) {
-    throw result.error;
+    throw gitSpawnError(result.error);
   }
   if (result.status !== 0) {
     throw new Error(formatCommandFailure(result));

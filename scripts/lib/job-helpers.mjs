@@ -13,7 +13,7 @@
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { runAgyPrint, spawnAgyDetached, resolveAgyBin } from "./agent-runtime.mjs";
+import { runAgyPrint, spawnAgyDetached, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
@@ -42,6 +42,37 @@ export const AGY_MODES = ["plan", "accept-edits"];
  */
 export function agyModeArgs(mode) {
   return mode ? ["--mode", String(mode)] : [];
+}
+
+/**
+ * Probe the agy binary once, before a verb collects a diff, writes a job
+ * record or starts anything. Returns `null` when agy can be spawned, else
+ * the one stderr line the verb prints before it exits 1. `setup` keeps its
+ * own wording and exit 2; this is for the four verbs that run agy.
+ *
+ * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
+ * @param {{ bin?: string, probe?: typeof probeAgy }} [opts]
+ * @returns {Promise<string | null>}
+ */
+export async function agyUnavailableLine(kind, { bin = resolveAgyBin(), probe = probeAgy } = {}) {
+  const result = await probe({ bin });
+  if (result.ok) return null;
+  return `antigravity:${kind} — \`agy\` is not on PATH (${result.reason}). Run /antigravity:setup.`;
+}
+
+/**
+ * The first stderr line for a foreground run that did not complete.
+ * A run whose process never started names the spawn error; a run that
+ * agy reported on keeps the status word.
+ *
+ * @param {string} kind
+ * @param {{ status: string, spawnError?: string | null }} result
+ * @returns {string}
+ */
+export function foregroundFailureLine(kind, result) {
+  return result.spawnError
+    ? `antigravity:${kind} — failed: ${result.spawnError}`
+    : `antigravity:${kind} — failed (${result.status}).`;
 }
 
 /** Resolve the current session id (or `null` if unset). */

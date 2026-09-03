@@ -38,6 +38,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
     },
     spawnAgyDetached: () => ({ pid: runtime.spawnPid }),
     resolveAgyBin: () => 'agy',
+    probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },
 });

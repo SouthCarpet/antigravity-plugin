@@ -47,7 +47,7 @@ class Program {
         string controlPath = exePath + ".control.txt";
         string stdout = "", stderr = "";
         int exitCode = 0, delayMs = 0;
-        bool echoArgs = false, echoArgsStderr = false;
+        bool echoArgs = false, echoArgsStderr = false, versionOk = false;
         if (File.Exists(controlPath)) {
             foreach (var line in File.ReadAllLines(controlPath)) {
                 int eq = line.IndexOf('=');
@@ -59,10 +59,15 @@ class Program {
                     case "DELAYMS": delayMs = int.Parse(val); break;
                     case "ECHOARGS": echoArgs = val == "1"; break;
                     case "ECHOARGS_STDERR": echoArgsStderr = val == "1"; break;
+                    case "VERSION_OK": versionOk = val == "1"; break;
                     case "STDOUT_B64": stdout = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "STDERR_B64": stderr = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                 }
             }
+        }
+        if (versionOk && args.Length == 1 && args[0] == "--version") {
+            Console.Out.WriteLine("0.0.0-fake");
+            return 0;
         }
         if (echoArgs) {
             foreach (var a in args) Console.Out.WriteLine("arg=" + a);
@@ -114,7 +119,7 @@ function ensureTemplateExe() {
   return exePath;
 }
 
-function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr }) {
+function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk }) {
   const template = ensureTemplateExe();
   const exePath = path.join(dir, `${name}.exe`);
   fs.copyFileSync(template, exePath);
@@ -123,6 +128,7 @@ function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoAr
     `DELAYMS=${delayMs}`,
     `ECHOARGS=${echoArgs ? 1 : 0}`,
     `ECHOARGS_STDERR=${echoArgsStderr ? 1 : 0}`,
+    `VERSION_OK=${versionOk ? 1 : 0}`,
     `STDOUT_B64=${Buffer.from(stdout, "utf8").toString("base64")}`,
     `STDERR_B64=${Buffer.from(stderr, "utf8").toString("base64")}`,
   ];
@@ -135,8 +141,11 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr }) {
+function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk }) {
   const lines = ["#!/bin/sh"];
+  if (versionOk) {
+    lines.push('if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then echo 0.0.0-fake; exit 0; fi');
+  }
   if (echoArgs) {
     lines.push('for a in "$@"; do echo arg=$a; done');
   }
@@ -164,16 +173,20 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
  *   delayMs?: number,
  *   echoArgs?: boolean,
  *   echoArgsStderr?: boolean,
+ *   versionOk?: boolean,
  * }} [opts] `echoArgs` prints one `arg=<value>` line per argv entry to
  *   stdout; `echoArgsStderr` does the same to stderr (useful when a verb
- *   only surfaces the child's stderr, i.e. on failure).
+ *   only surfaces the child's stderr, i.e. on failure). `versionOk` answers
+ *   a lone `--version` with `0.0.0-fake` and exit 0 regardless of the other
+ *   settings, so a fake that fails the run still passes the verbs' probe.
  * @returns {string} absolute path to the spawnable stub
  */
 export function writeFakeAgy(dir, name, opts = {}) {
   const {
     stdout = "", stderr = "", exitCode = 0, delayMs = 0, echoArgs = false, echoArgsStderr = false,
+    versionOk = false,
   } = opts;
-  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr };
+  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk };
   return process.platform === "win32"
     ? writeWindowsStub(dir, name, normalized)
     : writePosixStub(dir, name, normalized);

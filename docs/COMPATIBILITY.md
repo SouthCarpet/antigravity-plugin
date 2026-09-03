@@ -265,8 +265,10 @@ These variables have direct semantics in the shipped code:
 the priority above.
 
 `ANTIGRAVITY_SCRIPT_ROOT` redirects the standalone dispatcher to a different
-command-module directory. It exists for tests and is explicitly not a public
-1.x integration point.
+command-module directory. That directory must contain this plugin's manifest
+(`plugin.json` with `"name": "antigravity"`); otherwise the dispatcher exits 1
+with one line before it imports anything. It exists for tests and is
+explicitly not a public 1.x integration point.
 
 All other inherited environment variables are passed to child processes in
 the normal Node fashion but have no plugin-specific compatibility promise.

@@ -51,6 +51,8 @@ export async function run(argv, ctx) {
 }
 `;
     fs.writeFileSync(path.join(tmpRoot, 'review.mjs'), stub);
+    // The dispatcher refuses an override root without this plugin's manifest.
+    fs.writeFileSync(path.join(tmpRoot, 'plugin.json'), JSON.stringify({ name: 'antigravity' }));
   });
 
   after(() => {
@@ -107,6 +109,27 @@ export async function run(argv, ctx) {
     const probe = JSON.parse(fs.readFileSync(probeMarker, 'utf8'));
     assert.deepEqual(probe.argv, ['--scope', 'working-tree', 'extra']);
     assert.equal(probe.host, 'standalone');
+  });
+
+  it('refuses an ANTIGRAVITY_SCRIPT_ROOT without plugin.json and never runs the stub', () => {
+    const bareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-bin-bare-'));
+    const bareMarker = path.join(bareRoot, 'probe.json');
+    try {
+      fs.writeFileSync(
+        path.join(bareRoot, 'review.mjs'),
+        `export async function run() { (await import('node:fs')).writeFileSync(${JSON.stringify(bareMarker)}, 'ran'); return 42; }\n`,
+      );
+      const res = run(['review'], { ANTIGRAVITY_SCRIPT_ROOT: bareRoot });
+      assert.equal(res.status, 1, `stderr=${res.stderr} stdout=${res.stdout}`);
+      assert.equal(
+        res.stderr.trim(),
+        `antigravity-plugin: ${path.resolve(bareRoot)} is not an antigravity plugin tree ` +
+          '(plugin.json missing or name mismatch). Run: npx @southcarpet/antigravity-plugin review',
+      );
+      assert.equal(fs.existsSync(bareMarker), false, 'stub verb must not run');
+    } finally {
+      fs.rmSync(bareRoot, { recursive: true, force: true });
+    }
   });
 
   it('missing command module exits 2', () => {

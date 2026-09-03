@@ -31,7 +31,9 @@ const cleanup = [];
 
 before(() => {
   stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-argv-'));
-  echoAgy = writeFakeAgy(stubDir, 'agy-echo', { echoArgsStderr: true, exitCode: 1 });
+  // versionOk: the verbs probe `agy --version` first; this fake must pass
+  // that probe and fail only the run.
+  echoAgy = writeFakeAgy(stubDir, 'agy-echo', { echoArgsStderr: true, exitCode: 1, versionOk: true });
 });
 
 after(() => {

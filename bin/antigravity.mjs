@@ -5,12 +5,16 @@
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
+import { isPluginRoot, invalidPluginRootMessage } from '../scripts/lib/plugin-root.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-const SCRIPT_ROOT = process.env.ANTIGRAVITY_SCRIPT_ROOT
+// ANTIGRAVITY_SCRIPT_ROOT names a directory that must hold this plugin's
+// manifest (plugin.json) beside the command modules; checked before import.
+const SCRIPT_ROOT_OVERRIDE = process.env.ANTIGRAVITY_SCRIPT_ROOT
   ? resolve(process.env.ANTIGRAVITY_SCRIPT_ROOT)
-  : resolve(ROOT, 'scripts', 'commands');
+  : null;
+const SCRIPT_ROOT = SCRIPT_ROOT_OVERRIDE ?? resolve(ROOT, 'scripts', 'commands');
 
 const INSTALL_URL = 'https://antigravity.google/download';
 const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel'];
@@ -157,6 +161,11 @@ if (AGY_REQUIRED.has(arg0) && !removingVision && process.env.AGY_BIN && !existsS
     `Install Google Antigravity CLI from ${INSTALL_URL} or unset AGY_BIN.\n`,
   );
   process.exit(127);
+}
+
+if (SCRIPT_ROOT_OVERRIDE && !isPluginRoot(SCRIPT_ROOT_OVERRIDE)) {
+  process.stderr.write(`${invalidPluginRootMessage(SCRIPT_ROOT_OVERRIDE, arg0)}\n`);
+  process.exit(1);
 }
 
 const modPath = resolve(SCRIPT_ROOT, `${arg0}.mjs`);

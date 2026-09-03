@@ -19,7 +19,15 @@
 import { readCommandInput } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
-import { AGY_MODES, agyModeArgs, runForegroundJob, startBackgroundJob, waitForJob } from "../lib/job-helpers.mjs";
+import {
+  AGY_MODES,
+  agyModeArgs,
+  agyUnavailableLine,
+  foregroundFailureLine,
+  runForegroundJob,
+  startBackgroundJob,
+  waitForJob,
+} from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
@@ -61,6 +69,12 @@ export async function run(argv = [], ctx = {}) {
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
+  const unavailable = await agyUnavailableLine("task");
+  if (unavailable) {
+    process.stderr.write(`${unavailable}\n`);
+    return 1;
+  }
+
   if (options.foreground) {
     const { job, result } = await runForegroundJob({
       workspaceRoot,
@@ -84,7 +98,7 @@ export async function run(argv = [], ctx = {}) {
       return 1;
     }
     if (result.status !== "completed") {
-      process.stderr.write(`\nantigravity:task — failed (${result.status}).\n`);
+      process.stderr.write(`\n${foregroundFailureLine("task", result)}\n`);
       if (result.stderr) process.stderr.write(result.stderr);
       return result.status === "cancelled" ? 2 : 1;
     }
