@@ -154,6 +154,26 @@ which agy                  # /home/<user>/.local/bin/agy on Linux
 
 ## Troubleshooting
 
+The lines below come from standalone commands run from a clone of this
+repository. The test commands use temporary files, temporary job stores, and a
+fake `agy`. They do not contact Google.
+
+| Situation | What you see (verbatim first line) | What to do |
+|---|---|---|
+| `agy` is not on `PATH`.<br><br>Commands: `node bin/antigravity.mjs setup`; `node bin/antigravity.mjs review`; `node bin/antigravity.mjs task probe --foreground` with a Node-only `PATH`. | `setup`: `antigravity:setup — \`agy\` is not on PATH (not-installed).` Exit 2.<br><br>`review`: `antigravity:review — spawnSync git ENOENT` Exit 1 because the same `PATH` also hides Git.<br><br>`task --foreground`: `antigravity:task — failed (failed).` Exit 1. The next line is `spawn error: spawn agy ENOENT`. | Install `agy`. Restore the normal `PATH`, including Git, then run `setup` again. On WSL, remove a Windows-only `~/.local/bin/agy` link and install the Linux CLI. |
+| `agy` is installed, but OAuth is incomplete.<br><br>Commands: `node bin/antigravity.mjs rescue probe`; `review`; `task probe --foreground`; and `vision pixel.png --prompt probe`, with `AGY_BIN` set to the test fake. | `rescue`: `antigravity:rescue — Antigravity is not authenticated. Run /antigravity:setup, then retry.`<br><br>`review`: `antigravity:review — Antigravity is not authenticated.`<br><br>`task`: `antigravity:task — not authenticated. Run /antigravity:setup, then retry.`<br><br>`vision`: `antigravity:vision — Antigravity is not authenticated.`<br><br>Each command exits 1. The fake also produces `OAuth URL: https://accounts.google.com/o/oauth2/auth?probe=docs`. A background worker stores `auth_required` in the job state. | Run `/antigravity:setup`. Complete OAuth, then retry. For a background job, use `status` or `result` to inspect its health and OAuth URL. |
+| The installed `agy` version is outside the tested matrix.<br><br>Command: `node bin/antigravity.mjs setup --skip-vision` with a fake `agy` version 9.9.9. | `antigravity:setup — using <path to agy> v9.9.9` Exit 0. `setup` reports the version and does not enforce the matrix. | Use agy 1.1.15, 1.1.17, or 1.1.24 for tested behavior. |
+| A `vision` file does not exist.<br><br>Command: `node bin/antigravity.mjs vision Z:\missing.png --prompt probe`. | `antigravity:vision — image file not found: Z:\missing.png` Exit 1. | Correct the path and retry. |
+| A `vision` file has an unsupported extension.<br><br>Command: `node bin/antigravity.mjs vision note.txt --prompt probe` with a successful fake `agy`. | `probe answer` Exit 0. The standalone command does not check the extension before it starts `agy`. If `agy` calls the local image server, that server returns `ERROR: unsupported image extension ".txt". Supported: .png, .jpg, .jpeg, .webp, .gif`. | Use `.png`, `.jpg`, `.jpeg`, `.webp`, or `.gif`. |
+| A `vision` file is over 10 MiB.<br><br>Command: `node bin/antigravity.mjs vision large.png --prompt probe` with an 11 MiB file and a successful fake `agy`. | `probe answer` Exit 0. The standalone command does not check the size before it starts `agy`. If `agy` calls the local image server, that server returns `ERROR: file too large (11534336 bytes > 10485760 byte cap): <path>`. | Reduce the file to 10 MiB or less. |
+| `vision` receives `--add-dir`.<br><br>Command: `node bin/antigravity.mjs vision pixel.png --add-dir C:\scope`. | `antigravity:vision — vision does not take --add-dir; the images named on the command line are the only files the model may see.` Exit 1. | Remove `--add-dir`. Name each image path on the command line. |
+| `rescue` or `task` receives `--mode yolo`.<br><br>Commands: `node bin/antigravity.mjs rescue probe --mode yolo`; `node bin/antigravity.mjs task probe --mode yolo`. | `rescue`: `antigravity:rescue — invalid value for --mode: "yolo" (expected plan\|accept-edits)`<br><br>`task`: `antigravity:task — invalid value for --mode: "yolo" (expected plan\|accept-edits)`<br><br>Each command exits 1. | Use `--mode plan` or `--mode accept-edits`. |
+| `result` receives an unknown job ID.<br><br>Command: `node bin/antigravity.mjs result unknown-job-id`. | `antigravity:result — No job found for "unknown-job-id". Run /antigravity:status to inspect active jobs.` Exit 1. | Run `status` and use a listed finished job ID. |
+| `cancel` receives the ID of a finished job.<br><br>Command: `node bin/antigravity.mjs cancel a0a74eadce4a` after that job completed. | `antigravity:cancel — No active antigravity jobs to cancel.` Exit 1. | Use `result` to read the finished job. Cancel only a queued or running job. |
+| `update --apply` runs with `ANTIGRAVITY_NO_UPDATE_CHECK=1`.<br><br>Command: `$env:ANTIGRAVITY_NO_UPDATE_CHECK='1'; node bin/antigravity.mjs update --apply`, with fake host binaries and a recording runner. | `agy: update check disabled (ANTIGRAVITY_NO_UPDATE_CHECK=1); no known "latest" version to pack, skipping this host.` Exit 1. Claude Code and Codex steps still run. | Allow the registry check before you apply an agy update. You can update the other detected hosts while the check stays disabled. |
+| The npm registry is unreachable during `update`.<br><br>Command: `node bin/antigravity.mjs update`, with `fetch` forced to fail offline. | `- latest: unknown: could not reach the npm registry: probe offline` Exit 0. A failed check is a message, not a command error. | Check the network and run `update` again. You can still use the printed host instructions. |
+| Two copies of the test suite run at the same time on one machine.<br><br>Command: `node --test --experimental-test-module-mocks tests/*.test.mjs`. | A `job-lifecycle` test or one `denial-verbs` case can fail. Both suites share the fake `agy` template cache in the OS temporary directory. | Run the test suite alone in the foreground. |
+
 ### `agy` not found on WSL after a Windows install
 
 The Windows Antigravity Desktop ships a symlink at `~/.local/bin/agy` that
@@ -167,7 +187,7 @@ curl -fsSL https://antigravity.google/cli/install.sh | bash
 
 ### `agy --print` blocks on first run
 
-That's the OAuth flow. Open the URL printed on stdout in your browser, paste
+That is the OAuth flow. Open the URL printed on stdout in your browser, paste
 the resulting code back in the terminal, and the prompt continues. Subsequent
 calls reuse the cached token. The plugin's `/antigravity:setup` (or
 `$antigravity setup` / `npx @southcarpet/antigravity-plugin setup`) wraps

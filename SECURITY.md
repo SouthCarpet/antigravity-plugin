@@ -9,6 +9,8 @@ CVE assignment process beyond what GitHub provides.
 Use **GitHub private vulnerability reporting** on
 [SouthCarpet/antigravity-plugin](https://github.com/SouthCarpet/antigravity-plugin/security/advisories/new).
 
+[Code scanning](https://github.com/SouthCarpet/antigravity-plugin/security/code-scanning) with CodeQL and Dependabot are the repository's automated checks, and [Socket](https://socket.dev/npm/package/@southcarpet/antigravity-plugin) scores the published package.
+
 Do **not** open a public issue with exploit details, payloads, or a
 proof-of-concept that would help someone else reproduce a local-file or
 credential leak.

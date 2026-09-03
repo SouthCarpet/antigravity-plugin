@@ -82,6 +82,8 @@ npx @southcarpet/antigravity-plugin setup
 npx @southcarpet/antigravity-plugin review
 ```
 
+If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
+
 ## How it works
 
 ```mermaid
@@ -171,6 +173,10 @@ See [Security](./SECURITY.md) for threat boundaries and vulnerability reports.
 
 ## Release integrity
 
+[![Socket](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin)](https://socket.dev/npm/package/@southcarpet/antigravity-plugin)
+
+Socket scores the published package. Its supply chain score counts the capabilities this plugin needs: it starts the `agy` process, makes one request to the npm registry in `update`, reads and writes the local job store, and reads host environment variables; [Security](./SECURITY.md) and [Permissions and privacy](#permissions-and-privacy) state exactly what leaves the machine.
+
 npmjs.org is the primary registry. Releases use npm trusted publishing and include a provenance attestation. Release tags use SSH signatures from v1.1.0 onward.
 
 Check the attestation:
@@ -193,6 +199,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 ## Documentation
 
 - [Installation](./docs/INSTALL.md): per-host setup recipes.
+- [Troubleshooting](./docs/INSTALL.md#troubleshooting): command failures and corrective actions.
 - [1.x compatibility contract](./docs/COMPATIBILITY.md): supported matrix, outputs, state, and versioning promises.
 - [Commands reference](./docs/COMMANDS.md): all eight verbs, flags, defaults, and exit behavior.
 - [Security](./SECURITY.md): reporting channel, scope, and what leaves the machine.

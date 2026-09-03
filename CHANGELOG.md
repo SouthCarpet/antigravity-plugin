@@ -11,9 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **GitHub Packages mirror.** A workflow republishes each `v*` release tarball
   to GitHub Packages and supports a manual run for an existing tag.
+- **Troubleshooting guide.** The installation guide now lists measured command
+  failures, their first output lines, exit codes, and corrective actions.
+- **Automated repository checks.** `.github/dependabot.yml` checks GitHub
+  Actions pins each week. Its npm entry stays idle until a dependency exists.
+  `.github/workflows/codeql.yml` scans `javascript-typescript` on pushes and
+  pull requests to `main`, and each week.
+- **Socket badge.** The README now links to the Socket score for the published
+  npm package.
 
 ### Changed
 
+- **Local vault notes.** `.vault/`, which contains the maintainer's local
+  vault-ops notes, is no longer tracked in the repository.
 - **Release documentation.** The README now uses per-host quick starts and
   includes how the plugin works, release integrity, and contributing guidance.
   The release runbook now warns that trusted publisher fields must match
@@ -25,8 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `plugin remove` step passed `antigravity`, and Codex refuses that with
   "plugin requires --marketplace unless passed as `<plugin>@<marketplace>`",
   stopping the whole run before `plugin add` could run. The remove step now
-  passes `antigravity@antigravity`, matching the add step and the printed
-  instruction.
+  passes `antigravity@antigravity`. The remove and add argv now match the
+  printed instruction.
 - **`update --apply` could reinstall a stale cached version on agy.** The
   24 h cache is right for the plain report, but `--apply` read it too, so a
   run could pack a version the cache still remembered even after a newer
