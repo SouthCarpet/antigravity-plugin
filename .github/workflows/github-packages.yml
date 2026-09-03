@@ -1,0 +1,64 @@
+name: GitHub Packages mirror
+
+# Mirrors a released tarball to GitHub Packages (npm.pkg.github.com) so the
+# repository page lists the package. npmjs.org stays the primary registry:
+# it carries the provenance attestation (release.yml), and an unversioned
+# `npx @southcarpet/antigravity-plugin` resolves there. GitHub Packages
+# requires a token to install even a public package, so this mirror is for
+# discovery and for people who already work through GitHub Packages.
+#
+# Runs on every v* tag after release.yml, and by hand for an existing tag
+# (Actions > GitHub Packages mirror > Run workflow > tag).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to mirror (for example v1.1.0)'
+        required: true
+        type: string
+
+jobs:
+  mirror:
+    name: Mirror ${{ inputs.tag || github.ref_name }} to GitHub Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@southcarpet'
+          package-manager-cache: false
+
+      - name: Tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tag="${{ inputs.tag || github.ref_name }}"
+          if [ "${tag}" != "v${version}" ]; then
+            echo "::error::tag ${tag} does not match package.json version ${version}"
+            exit 1
+          fi
+          echo "tag ${tag} matches package.json ${version}"
+
+      - name: Package contents
+        run: node scripts/check-pack.mjs
+
+      # Token auth, no provenance: GitHub Packages does not take the npm
+      # provenance attestation. The npmjs.org publish is the signed one.
+      - name: Publish to GitHub Packages
+        run: npm publish --registry=https://npm.pkg.github.com --provenance=false
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
