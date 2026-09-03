@@ -21,17 +21,17 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 
 ## Status
 
-> **v1.1.0.** The eight verbs, their flags, exit codes, `--json` envelope,
+> **v1.1.1.** The eight verbs, their flags, exit codes, `--json` envelope,
 > state locations, and supported hosts are frozen for 1.x; breaking them
 > needs 2.0.0. That contract is in [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md).
 > This does not mean finished — it means the surface stops moving. See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 1.1.0 is this package's version number. agy 1.1.15, 1.1.17, and
+Plugin 1.1.1 is this package's version number. agy 1.1.15, 1.1.17, and
 1.1.24 are versions of Google's Antigravity CLI. The two version lines
 advance independently. A new agy release does not change the plugin version.
 
-Plugin 1.1.0 is tested with agy 1.1.15, 1.1.17, and 1.1.24. See
+Plugin 1.1.1 is tested with agy 1.1.15, 1.1.17, and 1.1.24. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for behavior that differs
 by agy version. The plugin does not update itself.
 
