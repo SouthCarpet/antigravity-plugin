@@ -30,6 +30,8 @@ export const DIST_TAGS_URL =
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const DISABLE_ENV = "ANTIGRAVITY_NO_UPDATE_CHECK";
 export const UPDATE_COMMAND = "antigravity-plugin update";
+/** The marketplace name every host registers this plugin under. */
+export const MARKETPLACE_NAME = "antigravity";
 
 const CACHE_FILE_NAME = "update-check.json";
 const FETCH_TIMEOUT_MS = 10_000;
@@ -52,15 +54,19 @@ export const HOSTS = [
     id: "claude-code",
     name: "Claude Code",
     binary: "claude",
-    instruction: "claude plugin update antigravity@antigravity (restart Claude Code afterwards)",
+    instruction:
+      "claude plugin marketplace update antigravity, then claude plugin update antigravity@antigravity " +
+      "(without the marketplace refresh the update reports the old version as the latest; " +
+      "restart Claude Code afterwards)",
   },
   {
     id: "codex",
     name: "Codex CLI",
     binary: "codex",
     instruction:
-      "codex plugin remove antigravity@antigravity, then codex plugin add antigravity@antigravity " +
-      "(Codex has no plugin update subcommand)",
+      "codex plugin marketplace list, then codex plugin remove antigravity@antigravity, " +
+      "then codex plugin add antigravity@antigravity " +
+      "(Codex has no plugin update subcommand; a marketplace that is a local clone must be pulled first)",
   },
   {
     id: "agy",
@@ -233,14 +239,29 @@ export function buildHostPlan(host, { latest, tmpDir, tools = {} }) {
   const step = (command, args, extra = {}) => ({ command, args, ...extra });
   switch (host.id) {
     case "claude-code":
-      return [step(host.binary, ["plugin", "update", "antigravity@antigravity"])];
+      // The marketplace refresh comes first. Measured on 2026-09-03 with
+      // 1.1.1: `plugin update` alone answered "already at the latest version
+      // (1.1.0)" until `plugin marketplace update` had run.
+      return [
+        step(host.binary, ["plugin", "marketplace", "update", MARKETPLACE_NAME]),
+        step(host.binary, ["plugin", "update", "antigravity@antigravity"]),
+      ];
     case "codex":
       // Codex requires the qualified <plugin>@<marketplace> form on both
       // subcommands; an unqualified name fails `remove` with
       // "plugin requires --marketplace unless passed as <plugin>@<marketplace>".
+      // The marketplace list runs first because `plugin add` installs what
+      // the registered marketplace holds: a local clone that is behind main
+      // reinstalls the old version. This plugin reports that; it never
+      // pulls or changes the clone.
       return [
+        step(host.binary, ["plugin", "marketplace", "list"], { capture: "marketplace", echo: true }),
         step(host.binary, ["plugin", "remove", "antigravity@antigravity"]),
-        step(host.binary, ["plugin", "add", "antigravity@antigravity"]),
+        step(host.binary, ["plugin", "add", "antigravity@antigravity"], {
+          capture: "install",
+          echo: true,
+          latest,
+        }),
       ];
     case "agy":
       return [
@@ -257,6 +278,113 @@ export function buildHostPlan(host, { latest, tmpDir, tools = {} }) {
       return [];
   }
 }
+
+/**
+ * The record for one marketplace in `codex plugin marketplace list`: the line
+ * that names it, plus the indented lines under it. The output format is not a
+ * contract, so this reads a name line and its continuation instead of fixed
+ * columns.
+ */
+function marketplaceRecord(stdout, name) {
+  const lines = String(stdout ?? "").split(/\r?\n/);
+  const names = new RegExp(`(^|[\\s"'\`])${name}($|[\\s"'\`:,])`);
+  const start = lines.findIndex((line) => names.test(line));
+  if (start === -1) return null;
+  const record = [lines[start]];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (lines[i].trim() === "" || !/^\s/.test(lines[i])) break;
+    record.push(lines[i]);
+  }
+  return record.join("\n");
+}
+
+const REMOTE_SOURCE_RE = /\b(?:https?:\/\/\S+|git@\S+|github:\S+)/;
+const LOCAL_SOURCE_RE = /(?:file:\/\/\/?\S+|\b[A-Za-z]:[\\/]\S*|(?:^|\s)(?:\.{1,2}[\\/]|~[\\/]|\/)\S*)/;
+
+/**
+ * The source of one marketplace, and whether it is a local clone.
+ * A remote source wins: a GitHub URL holds slashes that read as a path.
+ * @returns {{ source: string, local: boolean } | null}
+ */
+export function parseMarketplaceSource(stdout, name = MARKETPLACE_NAME) {
+  const record = marketplaceRecord(stdout, name);
+  if (record === null) return null;
+  const remote = REMOTE_SOURCE_RE.exec(record);
+  if (remote) return { source: remote[0], local: false };
+  const local = LOCAL_SOURCE_RE.exec(record);
+  if (local) return { source: local[0].trim(), local: true };
+  return null;
+}
+
+/** `codex plugin add` prints `Installed plugin root: <path>`. */
+export function parseInstalledRoot(stdout) {
+  const match = /Installed plugin root:\s*(.+)/.exec(String(stdout ?? ""));
+  if (!match) return null;
+  const root = match[1].trim();
+  return root === "" ? null : root;
+}
+
+/** The `version` of the `plugin.json` an installed plugin root holds. */
+export function readInstalledPluginVersion(root) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(root, "plugin.json"), "utf8"));
+    return typeof parsed?.version === "string" ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+
+function captureMarketplace(step, result, write) {
+  const found = parseMarketplaceSource(result.stdout);
+  if (found === null) {
+    write(`codex: the marketplace "${MARKETPLACE_NAME}" is not in the list; plugin add can fail.\n`);
+    return {};
+  }
+  if (!found.local) return {};
+  write(
+    `codex: the marketplace "${MARKETPLACE_NAME}" is a local clone at ${found.source}. ` +
+      "Pull that clone first; plugin add installs the version it holds. " +
+      "This command does not change it.\n",
+  );
+  return {};
+}
+
+function captureInstall(step, result, write) {
+  const root = parseInstalledRoot(result.stdout);
+  if (root === null) {
+    write("codex: the plugin add output did not name the installed plugin root; the version was not read.\n");
+    return {};
+  }
+  const installed = readInstalledPluginVersion(root);
+  if (installed === null) {
+    write(`codex: could not read the installed version from ${path.join(root, "plugin.json")}.\n`);
+    return {};
+  }
+  write(`codex: installed ${installed}\n`);
+  if (step.latest && installed !== step.latest) {
+    write(
+      `codex: installed ${installed} does not match latest ${step.latest}. ` +
+        "Pull the marketplace clone, then run update --apply again.\n",
+    );
+  }
+  return {};
+}
+
+function capturePack(step, result) {
+  try {
+    const destination = step.args[step.args.indexOf("--pack-destination") + 1];
+    return { tarball: tarballFromPackOutput(result.stdout, destination) };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/** What to do with the stdout of a step that captured it, by `capture` kind. */
+const CAPTURE_HANDLERS = {
+  pack: capturePack,
+  marketplace: captureMarketplace,
+  install: captureInstall,
+};
 
 /** `npm pack --json` prints `[{ filename }]`; plain `npm pack` prints the file name last. */
 export function tarballFromPackOutput(stdout, destination) {
@@ -300,13 +428,17 @@ export function applyPlan(steps, { runner, write, cwd }) {
       const reason = result?.error?.message ?? `exit status ${status ?? "unknown"}`;
       return { ok: false, steps: done, message: `${step.command}: ${reason}; stopped, nothing after this step was run.` };
     }
-    if (step.capture === "pack") {
-      try {
-        tarball = tarballFromPackOutput(result.stdout, step.args[step.args.indexOf("--pack-destination") + 1]);
-      } catch (err) {
-        return { ok: false, steps: done, message: `${err.message}; stopped, nothing after this step was run.` };
-      }
+    // A captured step printed nothing to the terminal; echo it, then read it.
+    if (step.echo && result?.stdout) {
+      write(result.stdout.endsWith("\n") ? result.stdout : `${result.stdout}\n`);
     }
+    const handler = CAPTURE_HANDLERS[step.capture];
+    if (!handler) continue;
+    const outcome = handler(step, result, write);
+    if (outcome.error) {
+      return { ok: false, steps: done, message: `${outcome.error}; stopped, nothing after this step was run.` };
+    }
+    if (outcome.tarball) tarball = outcome.tarball;
   }
   return { ok: true, steps: done, message: null };
 }

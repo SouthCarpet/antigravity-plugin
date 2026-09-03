@@ -24,6 +24,9 @@ import {
   compareVersions,
   detectHosts,
   findOnPath,
+  parseInstalledRoot,
+  parseMarketplaceSource,
+  readInstalledPluginVersion,
   readUpdateNotice,
   resolveLatest,
   runUpdate,
@@ -202,8 +205,14 @@ describe('update: report', () => {
     assert.match(text, /latest: 1\.5\.0 \(npm registry/);
     assert.match(text, /update available: yes/);
     assert.match(text, /npx: nothing to do/);
-    assert.match(text, /Claude Code: claude plugin update antigravity@antigravity/);
-    assert.match(text, /Codex CLI: codex plugin remove antigravity@antigravity, then codex plugin add antigravity@antigravity/);
+    assert.match(
+      text,
+      /Claude Code: claude plugin marketplace update antigravity, then claude plugin update antigravity@antigravity/,
+    );
+    assert.match(
+      text,
+      /Codex CLI: codex plugin marketplace list, then codex plugin remove antigravity@antigravity, then codex plugin add antigravity@antigravity/,
+    );
     assert.match(text, /agy: agy plugin uninstall antigravity, then agy plugin install/);
     assert.match(text, /never changes an installed copy by itself/);
     assert.match(text, /antigravity-plugin update --apply/);
@@ -256,12 +265,37 @@ describe('update: report', () => {
 describe('update --apply: command plans', () => {
   const PACK_JSON = JSON.stringify([{ filename: 'southcarpet-antigravity-plugin-1.5.0.tgz', name: PACKAGE_NAME }]);
 
-  function recordingRunner({ packOutput = PACK_JSON, failOn = null } = {}) {
+  const GITHUB_MARKETPLACE = [
+    'Marketplaces:',
+    '  antigravity',
+    '    source: https://github.com/SouthCarpet/antigravity-plugin',
+    '',
+  ].join('\n');
+
+  /**
+   * `capture` reaches the runner as a boolean, so the fake picks its answer
+   * from the argv the way a real CLI would: `pack`, `marketplace list`, and
+   * `plugin add` each print a different thing.
+   */
+  function outputFor(args, outputs) {
+    if (args[0] === 'pack') return outputs.pack;
+    if (args[1] === 'marketplace') return outputs.marketplace;
+    if (args[1] === 'add') return outputs.install;
+    return '';
+  }
+
+  function recordingRunner({
+    packOutput = PACK_JSON,
+    marketplaceOutput = GITHUB_MARKETPLACE,
+    installOutput = '',
+    failOn = null,
+  } = {}) {
+    const outputs = { pack: packOutput, marketplace: marketplaceOutput, install: installOutput };
     const calls = [];
     const runner = ({ command, args, capture }) => {
       calls.push({ command: path.basename(command), args, capture });
       if (failOn && path.basename(command) === failOn) return { status: 1, stdout: '', error: null };
-      return { status: 0, stdout: capture ? packOutput : '', error: null };
+      return { status: 0, stdout: capture ? outputFor(args, outputs) : '', error: null };
     };
     runner.calls = calls;
     return runner;
@@ -284,6 +318,7 @@ describe('update --apply: command plans', () => {
     assert.equal(exit, 0, cap.err.join(''));
     const tarball = path.join(work, 'southcarpet-antigravity-plugin-1.5.0.tgz');
     assert.deepEqual(runner.calls, [
+      { command: 'claude', args: ['plugin', 'marketplace', 'update', 'antigravity'], capture: false },
       { command: 'claude', args: ['plugin', 'update', 'antigravity@antigravity'], capture: false },
       { command: 'npm', args: ['pack', `${PACKAGE_NAME}@1.5.0`, '--pack-destination', work, '--json'], capture: true },
       { command: 'tar', args: ['-xzf', tarball, '-C', work], capture: false },
@@ -294,17 +329,43 @@ describe('update --apply: command plans', () => {
     const text = cap.out.join('');
     assert.match(text, /\$ .*claude plugin update antigravity@antigravity/);
     assert.match(text, /\$ .*agy plugin install /);
-    assert.equal((text.match(/^\$ /gm) ?? []).length, 5);
+    assert.equal((text.match(/^\$ /gm) ?? []).length, 6);
   });
 
-  it('codex plan is remove then add, both with the qualified plugin@marketplace name', () => {
+  it('claude plan refreshes the marketplace before it updates the plugin', () => {
+    const [host] = detectHosts({ env: stubPath(tmp, ['claude']) }).filter((h) => h.id === 'claude-code');
+    const plan = buildHostPlan(host, { latest: '1.5.0', tmpDir: tmp });
+    assert.deepEqual(plan.map((s) => s.args), [
+      ['plugin', 'marketplace', 'update', 'antigravity'],
+      ['plugin', 'update', 'antigravity@antigravity'],
+    ]);
+    assert.ok(plan.every((s) => s.command === host.binary));
+  });
+
+  it('codex plan lists the marketplace first, then removes and adds with the qualified name', () => {
     const [host] = detectHosts({ env: stubPath(tmp, ['codex']) }).filter((h) => h.id === 'codex');
     const plan = buildHostPlan(host, { latest: '1.5.0', tmpDir: tmp });
     assert.deepEqual(plan.map((s) => s.args), [
+      ['plugin', 'marketplace', 'list'],
       ['plugin', 'remove', 'antigravity@antigravity'],
       ['plugin', 'add', 'antigravity@antigravity'],
     ]);
     assert.ok(plan.every((s) => s.command === host.binary));
+    assert.equal(plan[2].latest, '1.5.0', 'the add step carries latest so it can report a mismatch');
+  });
+
+  it('the printed instruction names every command the plan runs, in order', () => {
+    const env = stubPath(tmp, ['claude', 'codex']);
+    for (const host of detectHosts({ env }).filter((h) => ['claude-code', 'codex'].includes(h.id))) {
+      const plan = buildHostPlan(host, { latest: '1.5.0', tmpDir: tmp });
+      let cursor = 0;
+      for (const step of plan) {
+        const text = `${path.basename(step.command)} ${step.args.join(' ')}`;
+        const at = host.instruction.indexOf(text, cursor);
+        assert.notEqual(at, -1, `${host.id}: instruction must name "${text}"\n${host.instruction}`);
+        cursor = at + text.length;
+      }
+    }
   });
 
   it('agy plan falls back to the latest tag when the version is unknown', () => {
@@ -339,7 +400,7 @@ describe('update --apply: command plans', () => {
     }
     assert.equal(exit, 1);
     // codex ran fully, agy stopped after npm pack; nothing after the failure ran.
-    assert.deepEqual(runner.calls.map((c) => c.command), ['codex', 'codex', 'npm']);
+    assert.deepEqual(runner.calls.map((c) => c.command), ['codex', 'codex', 'codex', 'npm']);
     const payload = JSON.parse(cap.out.join(''));
     assert.equal(payload.status, 'apply_failed');
     const agy = payload.hosts.find((h) => h.id === 'agy');
@@ -418,8 +479,137 @@ describe('update --apply: command plans', () => {
     }
     assert.equal(exit, 1);
     assert.equal(fetch.calls.length, 0);
-    assert.deepEqual(runner.calls.map((c) => c.command), ['claude', 'codex', 'codex']);
+    assert.deepEqual(runner.calls.map((c) => c.command), ['claude', 'claude', 'codex', 'codex', 'codex']);
     assert.match(cap.out.join(''), /agy: update check disabled \(ANTIGRAVITY_NO_UPDATE_CHECK=1\); no known "latest" version to pack, skipping this host\./);
+  });
+});
+
+describe('update --apply: a local Codex marketplace', () => {
+  const LOCAL_PATH = 'A:\\projects-vault\\apps\\plugins\\antigravity-plugin';
+
+  function localMarketplace(source) {
+    return ['Marketplaces:', '  antigravity', `    source: ${source}`, ''].join('\n');
+  }
+
+  function codexRunner({ marketplaceOutput, installOutput = '' }) {
+    const outputs = { marketplace: marketplaceOutput, install: installOutput };
+    const calls = [];
+    const runner = ({ command, args, capture }) => {
+      calls.push({ command: path.basename(command), args });
+      const kind = args[1] === 'marketplace' ? 'marketplace' : 'install';
+      return { status: 0, stdout: capture ? outputs[kind] ?? '' : '', error: null };
+    };
+    runner.calls = calls;
+    return runner;
+  }
+
+  async function applyCodex(runner) {
+    const env = stubPath(tmp, ['codex']);
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply'], {
+        env, now: NOW, fetch: fakeFetch({ latest: '1.1.2' }), cacheFile, running: '1.1.2', runner, tmpDir: tmp,
+      });
+    } finally {
+      cap.restore();
+    }
+    return { exit, text: cap.out.join('') };
+  }
+
+  it('parses the source and classifies it: a path is local, a URL is not', () => {
+    assert.deepEqual(parseMarketplaceSource(localMarketplace(LOCAL_PATH)), {
+      source: LOCAL_PATH,
+      local: true,
+    });
+    assert.deepEqual(parseMarketplaceSource(localMarketplace('/home/me/antigravity-plugin')), {
+      source: '/home/me/antigravity-plugin',
+      local: true,
+    });
+    assert.equal(
+      parseMarketplaceSource(localMarketplace('https://github.com/SouthCarpet/antigravity-plugin')).local,
+      false,
+      'a GitHub URL holds slashes but is not a local clone',
+    );
+    assert.equal(parseMarketplaceSource('Marketplaces:\n  other\n    source: /tmp/x\n'), null);
+  });
+
+  it('warns and names the path when the marketplace is a local clone', async () => {
+    const { exit, text } = await applyCodex(codexRunner({ marketplaceOutput: localMarketplace(LOCAL_PATH) }));
+    assert.equal(exit, 0, text);
+    assert.ok(
+      text.includes(`codex: the marketplace "antigravity" is a local clone at ${LOCAL_PATH}.`),
+      text,
+    );
+    assert.match(text, /Pull that clone first/);
+    assert.match(text, /This command does not change it\./);
+  });
+
+  it('does not warn when the marketplace is a GitHub source', async () => {
+    const { exit, text } = await applyCodex(
+      codexRunner({ marketplaceOutput: localMarketplace('https://github.com/SouthCarpet/antigravity-plugin') }),
+    );
+    assert.equal(exit, 0, text);
+    assert.ok(!text.includes('is a local clone at'), text);
+  });
+
+  it('reads the installed version from the plugin root the add step prints, and flags a mismatch', async () => {
+    const installed = path.join(tmp, 'installed');
+    fs.mkdirSync(installed);
+    fs.writeFileSync(path.join(installed, 'plugin.json'), JSON.stringify({ name: 'antigravity', version: '1.1.0' }));
+    const runner = codexRunner({
+      marketplaceOutput: localMarketplace(LOCAL_PATH),
+      installOutput: `Installed plugin root: ${installed}\n`,
+    });
+    const { exit, text } = await applyCodex(runner);
+    assert.equal(exit, 0, text);
+    assert.match(text, /^codex: installed 1\.1\.0$/m);
+    assert.match(text, /codex: installed 1\.1\.0 does not match latest 1\.1\.2\./);
+    assert.match(text, /Pull the marketplace clone, then run update --apply again\./);
+  });
+
+  it('prints no mismatch line when the installed version is the latest', async () => {
+    const installed = path.join(tmp, 'installed-current');
+    fs.mkdirSync(installed);
+    fs.writeFileSync(path.join(installed, 'plugin.json'), JSON.stringify({ version: '1.1.2' }));
+    const { exit, text } = await applyCodex(
+      codexRunner({
+        marketplaceOutput: localMarketplace('https://github.com/SouthCarpet/antigravity-plugin'),
+        installOutput: `Installed plugin root: ${installed}\n`,
+      }),
+    );
+    assert.equal(exit, 0, text);
+    assert.match(text, /^codex: installed 1\.1\.2$/m);
+    assert.ok(!text.includes('does not match latest'), text);
+  });
+
+  it('says so, and stays exit 0, when the add output names no plugin root', async () => {
+    const { exit, text } = await applyCodex(
+      codexRunner({ marketplaceOutput: localMarketplace(LOCAL_PATH), installOutput: 'done\n' }),
+    );
+    assert.equal(exit, 0, text);
+    assert.match(text, /codex: the plugin add output did not name the installed plugin root/);
+  });
+
+  it('reads the root out of one line, and reports an unreadable plugin.json', async () => {
+    assert.equal(parseInstalledRoot('noise\nInstalled plugin root: C:\\x\\y\nmore\n'), 'C:\\x\\y');
+    assert.equal(parseInstalledRoot('nothing here'), null);
+    assert.equal(readInstalledPluginVersion(path.join(tmp, 'no-such-root')), null);
+    const { exit, text } = await applyCodex(
+      codexRunner({
+        marketplaceOutput: localMarketplace(LOCAL_PATH),
+        installOutput: `Installed plugin root: ${path.join(tmp, 'no-such-root')}\n`,
+      }),
+    );
+    assert.equal(exit, 0, text);
+    assert.match(text, /codex: could not read the installed version from /);
+  });
+
+  it('echoes the captured host output, so nothing the user would have seen is lost', async () => {
+    const { text } = await applyCodex(
+      codexRunner({ marketplaceOutput: localMarketplace('https://github.com/SouthCarpet/antigravity-plugin') }),
+    );
+    assert.match(text, /source: https:\/\/github\.com\/SouthCarpet\/antigravity-plugin/);
   });
 });
 
@@ -487,7 +677,7 @@ describe('update is on no host surface', () => {
     assert.equal(res.status, 0, res.stderr);
     assert.ok(res.stdout.includes(`running: ${PKG_VERSION}`), res.stdout);
     assert.match(res.stdout, /update check disabled/);
-    assert.match(res.stdout, /Claude Code: claude plugin update/);
+    assert.match(res.stdout, /Claude Code: claude plugin marketplace update antigravity, then claude plugin update/);
     assert.match(res.stdout, /Codex CLI: not found on PATH/);
   });
 });
