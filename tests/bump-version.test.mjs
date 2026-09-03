@@ -235,6 +235,26 @@ function readmeStatusVersion(root) {
   return match ? match[1] : null;
 }
 
+/** `makeTree` copies no docs/ directory; a phrase test makes its own. */
+function writeDoc(root, name, text) {
+  const dir = path.join(root, 'docs');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, name), text);
+}
+
+function readDoc(root, name) {
+  return fs.readFileSync(path.join(root, 'docs', name), 'utf8');
+}
+
+/** The phrase the script owns: the word `Plugin`, one space, one version. */
+function phraseRe(version, flags = '') {
+  return new RegExp(`\\bPlugin ${escapeRe(version)}\\b`, flags);
+}
+
+function countPhrases(text, version) {
+  return (text.match(phraseRe(version, 'g')) ?? []).length;
+}
+
 let tmpRoot;
 
 before(() => {
@@ -396,6 +416,144 @@ describe('bump-version README Status token', () => {
       assert.match(check.stdout, new RegExp(`README\\.md Status is v${escapeRe(expectedVersion)}`));
     });
   }
+});
+
+describe('bump-version documentation version phrases', () => {
+  it('a bump rewrites the phrases in README.md and in a docs file', () => {
+    const root = makeTree();
+    const current = currentVersion(root);
+    const patch = nextVersion(current, 'patch');
+    writeDoc(
+      root,
+      'COMPATIBILITY.md',
+      [
+        '# Contract',
+        '',
+        `Plugin ${current} is this package's version number.`,
+        '',
+        `Plugin ${current} is tested with agy 1.1.24.`,
+        '',
+      ].join('\n'),
+    );
+    const readmeBefore = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+    assert.ok(countPhrases(readmeBefore, current) > 0, 'the fixture README must name the version');
+
+    const result = runBump(root, ['patch']);
+    assert.equal(result.status, 0, result.stderr);
+
+    const readmeAfter = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+    assert.equal(countPhrases(readmeAfter, current), 0);
+    assert.equal(countPhrases(readmeAfter, patch), countPhrases(readmeBefore, current));
+
+    const docAfter = readDoc(root, 'COMPATIBILITY.md');
+    assert.equal(countPhrases(docAfter, current), 0);
+    assert.equal(countPhrases(docAfter, patch), 2);
+    assert.match(docAfter, /agy 1\.1\.24/, "another product's version stays");
+
+    assert.match(
+      result.stdout,
+      new RegExp(`Rewrote \\d+ version phrases? in README\\.md to Plugin ${escapeRe(patch)}`),
+    );
+    assert.match(
+      result.stdout,
+      new RegExp(`Rewrote 2 version phrases in docs/COMPATIBILITY\\.md to Plugin ${escapeRe(patch)}`),
+    );
+
+    const check = runBump(root, ['--check']);
+    assert.equal(check.status, 0, check.stderr);
+  });
+
+  it('a repair bump rewrites phrases that name the version the README claimed', () => {
+    // package.json alone drifts, so the phrases name neither the drifted
+    // version nor the target. The README Status line still names them.
+    const root = makeTree();
+    const current = currentVersion(root);
+    const drifted = otherVersion(current);
+    writeDoc(root, 'COMPATIBILITY.md', `Plugin ${current} is this package.\n`);
+    desyncPackageJson(root, drifted);
+
+    const bump = runBump(root, [drifted]);
+    assert.equal(bump.status, 0, bump.stderr);
+    assert.equal(countPhrases(readDoc(root, 'COMPATIBILITY.md'), drifted), 1);
+
+    const check = runBump(root, ['--check']);
+    assert.equal(check.status, 0, `${check.stdout}${check.stderr}`);
+  });
+
+  it('a bump leaves a phrase that names some other version, and --check reports it', () => {
+    const root = makeTree();
+    const current = currentVersion(root);
+    const patch = nextVersion(current, 'patch');
+    const historical = otherVersion(current);
+    writeDoc(root, 'HISTORY.md', `Plugin ${historical} did that first.\n`);
+
+    const bump = runBump(root, ['patch']);
+    assert.notEqual(bump.status, 0, bump.stdout);
+    assert.match(bump.stderr, /Wrote files but the tree still disagrees/);
+    assert.match(
+      bump.stderr,
+      new RegExp(`docs/HISTORY\\.md:1: Plugin ${escapeRe(historical)} \\(expected Plugin ${escapeRe(patch)}\\)`),
+    );
+    assert.equal(countPhrases(readDoc(root, 'HISTORY.md'), historical), 1);
+  });
+
+  it('--check fails on a stale phrase and names the file and the line', () => {
+    const root = makeTree();
+    const current = currentVersion(root);
+    const stale = otherVersion(current);
+    const lines = ['# Drifted', '', `Plugin ${stale} is what this file still claims.`, ''];
+    writeDoc(root, 'DRIFT.md', lines.join('\n'));
+    const line = lines.findIndex((text) => phraseRe(stale).test(text)) + 1;
+    assert.ok(line > 0, 'the fixture must hold the stale phrase');
+
+    const result = runBump(root, ['--check']);
+    assert.notEqual(result.status, 0);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.match(output, /version check failed:/);
+    assert.match(
+      output,
+      new RegExp(
+        `docs/DRIFT\\.md:${line}: Plugin ${escapeRe(stale)} \\(expected Plugin ${escapeRe(current)}\\)`,
+      ),
+    );
+  });
+
+  it('--check exempts CHANGELOG history, a placeholder, and another product', () => {
+    const root = makeTree();
+    const current = currentVersion(root);
+    const stale = otherVersion(current);
+    fs.appendFileSync(path.join(root, 'CHANGELOG.md'), `\nPlugin ${stale} shipped that day.\n`);
+    writeDoc(root, 'CHANGELOG.md', `Plugin ${stale} shipped that day.\n`);
+    writeDoc(
+      root,
+      'NOTES.md',
+      [
+        'Plugin 1.1.x is a placeholder, not a version.',
+        `agy ${stale} is another product.`,
+        `Plugin ${current} is this package.`,
+        '',
+      ].join('\n'),
+    );
+
+    const result = runBump(root, ['--check']);
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /ok: no stale Plugin <version> phrase/);
+  });
+
+  it('--check passes on a tree that holds no version phrase', () => {
+    const root = makeTree();
+    const current = currentVersion(root);
+    const readmePath = path.join(root, 'README.md');
+    const text = fs.readFileSync(readmePath, 'utf8');
+    const stripped = text.replace(phraseRe(current, 'g'), 'This plugin');
+    assert.notEqual(stripped, text);
+    fs.writeFileSync(readmePath, stripped);
+    assert.ok(!fs.existsSync(path.join(root, 'docs')), 'the fixture tree has no docs/');
+
+    const result = runBump(root, ['--check']);
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /ok: no stale Plugin <version> phrase/);
+  });
 });
 
 describe('bump-version increments and explicit targets', () => {

@@ -25,7 +25,10 @@
  *      shows the README first: a link from it to a file the tarball omits
  *      is a dead link, and the Troubleshooting table cannot be read offline.
  *      The list comes from the README, so a new documentation link tightens
- *      this gate by itself.
+ *      this gate by itself. A link to a markdown file inside the package
+ *      that is not on disk fails the gate on its own: the required set is
+ *      derived from the links, so a deleted document would otherwise leave
+ *      a live link behind and still pass.
  *
  * The walk follows static `from`/`import` specifiers and literal
  * `import("…")` / `import('…')`. It cannot see a computed specifier
@@ -130,27 +133,53 @@ function walkImportGraph(entryRels) {
 }
 
 /**
- * Every markdown file the README links to with a relative link, as package
- * relative posix paths. A fragment (`#section`) is stripped, a link that
- * escapes the package root is dropped, and a target that is not on disk is
- * dropped: this gate is about the tarball, not about broken links.
+ * Every markdown file the README links to with a relative link, as
+ * `{ link, resolved }` pairs: `link` is the text in the README, `resolved`
+ * is the package-relative posix path. A fragment (`#section`) is stripped
+ * and a link that escapes the package root is dropped. Whether the target
+ * is on disk is the caller's question.
  */
-export function listReadmeLinkedDocs(readmeRel = 'README.md') {
+function readmeLinkTargets(readmeRel) {
   const abs = join(root, readmeRel);
   if (!existsSync(abs)) return [];
   const src = readFileSync(abs, 'utf8');
   const LINK_RE = /\]\(\s*(\.{0,2}\/[^)\s#]+|[A-Za-z0-9_][^):\s#]*)\s*(?:#[^)\s]*)?\)/g;
-  const out = new Set();
+  /** @type {Map<string, string>} */
+  const out = new Map();
   let match;
   while ((match = LINK_RE.exec(src))) {
-    const target = match[1];
-    if (!target.endsWith('.md')) continue;
-    const resolved = toPosix(relative(root, normalize(join(root, dirname(readmeRel), target))));
+    const link = match[1];
+    if (!link.endsWith('.md')) continue;
+    const resolved = toPosix(relative(root, normalize(join(root, dirname(readmeRel), link))));
     if (resolved.startsWith('../') || resolved === '..') continue;
-    if (!existsSync(join(root, resolved))) continue;
-    out.add(resolved);
+    if (!out.has(resolved)) out.set(resolved, link);
   }
-  return [...out].sort();
+  return [...out]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([resolved, link]) => ({ link, resolved }));
+}
+
+/**
+ * Every markdown file the README links to that is on disk, as package
+ * relative posix paths. A target that is absent is not a pack entry; it is
+ * a dead link, which `readmeDeadLinkErrors` reports.
+ */
+export function listReadmeLinkedDocs(readmeRel = 'README.md') {
+  return readmeLinkTargets(readmeRel)
+    .filter(({ resolved }) => existsSync(join(root, resolved)))
+    .map(({ resolved }) => resolved);
+}
+
+/**
+ * README links to a markdown file inside the package that does not exist.
+ * The required set is derived from the links, so without this rule a
+ * deleted document with a live README link would pass the gate: its target
+ * would simply drop out of the required list.
+ */
+export function readmeDeadLinkErrors(readmeRel = 'README.md') {
+  return readmeLinkTargets(readmeRel)
+    .filter(({ resolved }) => !existsSync(join(root, resolved)))
+    .map(({ link, resolved }) => `${readmeRel} links ${link} but ${resolved} is not on disk`);
 }
 
 export function deriveRequired() {
@@ -218,6 +247,14 @@ function isMainModule() {
 
 function runCli() {
   const required = deriveRequired();
+
+  const deadLinks = readmeDeadLinkErrors();
+  if (deadLinks.length > 0) {
+    console.error('dead README links:');
+    for (const line of deadLinks) console.error(`  ${line}`);
+    process.exit(1);
+  }
+  console.log('ok: every README link to a package .md file resolves on disk');
 
   const npm =
     process.platform === 'win32'

@@ -55,11 +55,20 @@ exists for discovery on the repository page.
 1. Start from the commit that you will release. Write the release notes under
    `## [Unreleased]` in `CHANGELOG.md`.
    `bump-version` refuses to promote an empty section.
-2. Bump every version scalar at once:
+2. Documentation currency. Search the README and `docs/` for numbers and
+   version phrases: `grep -rn '[0-9]\+\.[0-9]\+\.[0-9]\+' README.md docs/`.
+   Read the sections that describe behaviour you changed: Updating,
+   Troubleshooting, Commands, and Compatibility. Correct every number and
+   every sentence that the change made false. Then run
+   `node scripts/bump-version.mjs --check`. The check fails when a
+   `Plugin <version>` phrase in `README.md` or in `docs/*.md` names a version
+   that is not the one in `package.json`, and it prints the file and the line.
+3. Bump every version scalar at once:
    `node scripts/bump-version.mjs <patch|minor|major|x.y.z>`.
    This rewrites the seven host manifests, the changelog heading and compare
-   links, and the README status line.
-3. Run the gates locally:
+   links, the README status line, and every `Plugin <version>` phrase in the
+   README and in `docs/`.
+4. Run the gates locally:
 
    ```bash
    node --test --experimental-test-module-mocks tests/*.test.mjs
@@ -69,16 +78,16 @@ exists for discovery on the repository page.
    npm publish --dry-run
    ```
 
-4. Commit: `git commit -am "release: X.Y.Z"`.
-5. Tag with a signature. See [Tag signing](#tag-signing).
+5. Commit: `git commit -am "release: X.Y.Z"`.
+6. Tag with a signature. See [Tag signing](#tag-signing).
    `git tag -s vX.Y.Z -m "vX.Y.Z"`, then `git tag -v vX.Y.Z`.
-6. Push the commit first. Then push the tag:
+7. Push the commit first. Then push the tag:
    `git push origin main` and `git push origin vX.Y.Z`.
    CI runs on the commit; the tag push starts `release.yml`.
-7. Watch the run on the Actions tab or use `gh run watch`. The job stops
+8. Watch the run on the Actions tab or use `gh run watch`. The job stops
    before publishing when a gate fails, when the tag does not match
    `package.json`, or when npmjs.com does not trust the workflow yet.
-8. Verify the published version (next section).
+9. Verify the published version (next section).
 
 ## Tag signing
 

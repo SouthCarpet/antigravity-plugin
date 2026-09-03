@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Troubleshooting table could not be read offline. The pack check derives the
   required list from the README links, so a new documentation link tightens
   the gate by itself.
+- **A check for stale documentation.** A bump now rewrites every
+  `Plugin <version>` phrase in the README and in `docs/`, and
+  `bump-version --check` fails when such a phrase names a version that is not
+  the one in `package.json`. The pack check also fails when the README links
+  a markdown file that is not in the package.
 
 ### Changed
 

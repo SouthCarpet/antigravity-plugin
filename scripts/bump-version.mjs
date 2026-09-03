@@ -4,8 +4,9 @@
  *
  * Detector: scripts/check-manifests.mjs (fails on drift).
  * This script is the writer, plus CHANGELOG heading/compare-link
- * agreement, the README Status blockquote version, and a read-only
- * git-tag report. It never creates, moves, or deletes tags.
+ * agreement, the README Status blockquote version, the `Plugin <version>`
+ * phrases in README.md and docs/*.md, and a read-only git-tag report.
+ * It never creates, moves, or deletes tags.
  *
  * Seven scalars (six files; marketplace.json carries two):
  *   package.json                               .version
@@ -21,7 +22,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } = fs;
+const { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } =
+  fs;
 
 const defaultRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -119,7 +121,8 @@ function usage() {
     '  node scripts/bump-version.mjs --check [x.y.z]',
     '',
     'Options:',
-    '  --check, --dry-run  Verify version, CHANGELOG, README Status, and tag agreement; write nothing.',
+    '  --check, --dry-run  Verify version, CHANGELOG, README Status, the Plugin <version>',
+    '                      phrases in README.md and docs/*.md, and tag agreement; write nothing.',
     '  --root <dir>        Operate on a different tree (tests). Default: this repo.',
     '  --help, -h          Print this help.',
     '',
@@ -282,6 +285,90 @@ function applyReadmeStatus(text, version) {
   return text.replace(README_STATUS_RE, `> **v${version}.**`);
 }
 
+/**
+ * Prose that names this package's own version: the word `Plugin`, one
+ * space, a full semver. `Plugin 1.1.x` and `agy 1.1.24` do not match, so a
+ * placeholder and another product's version are left alone.
+ */
+const PLUGIN_PHRASE_RE = /\bPlugin (\d+\.\d+\.\d+)\b/g;
+
+/**
+ * The prose files whose version phrases this script owns: README.md and
+ * docs/*.md. CHANGELOG.md is history and is never rewritten or pinned. A
+ * tree without docs/ (a test fixture, a slim checkout) is not an error.
+ */
+function proseFiles(root) {
+  const files = [];
+  if (existsSync(join(root, 'README.md'))) files.push('README.md');
+  const docsDir = join(root, 'docs');
+  if (!existsSync(docsDir)) return files;
+  for (const entry of readdirSync(docsDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    if (entry.name === 'CHANGELOG.md') continue;
+    files.push(`docs/${entry.name}`);
+  }
+  return files.sort();
+}
+
+/** Every phrase in `text`, with its 1-based line number. */
+function phraseHits(text) {
+  /** @type {{ line: number, phrase: string, version: string }[]} */
+  const hits = [];
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    PLUGIN_PHRASE_RE.lastIndex = 0;
+    let match;
+    while ((match = PLUGIN_PHRASE_RE.exec(lines[i]))) {
+      hits.push({ line: i + 1, phrase: match[0], version: match[1] });
+    }
+  }
+  return hits;
+}
+
+function phraseErrors(root, version) {
+  const errors = [];
+  for (const rel of proseFiles(root)) {
+    const text = readBuf(root, rel).toString('utf8');
+    for (const hit of phraseHits(text)) {
+      if (hit.version === version) continue;
+      errors.push(`${rel}:${hit.line}: ${hit.phrase} (expected Plugin ${version})`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * The versions this package claimed before the bump: package.json, and the
+ * README Status line when the two had drifted apart. A phrase naming either
+ * is this package's own version claim, so a bump rewrites it. A phrase
+ * naming any other version is left alone and reported by --check, because
+ * only a human can tell a stale sentence from a deliberate historical one.
+ */
+function claimedVersions(current, readmeText, next) {
+  const claimed = new Set([current]);
+  const status = readmeText.match(README_STATUS_RE);
+  if (status) claimed.add(status[1]);
+  claimed.delete(next);
+  return claimed;
+}
+
+/**
+ * Rewrite the claimed phrases to `Plugin <next>` in one file's text.
+ * Returns null when the file holds none of them.
+ */
+function applyPhrases(text, claimed, next) {
+  let out = text;
+  let count = 0;
+  for (const old of claimed) {
+    const re = new RegExp(`\\bPlugin ${escapeRe(old)}\\b`, 'g');
+    const found = out.match(re);
+    if (!found) continue;
+    count += found.length;
+    out = out.replace(re, `Plugin ${next}`);
+  }
+  return count === 0 ? null : { contents: out, count };
+}
+
 function changelogErrors(root, version) {
   const errors = [];
   let text;
@@ -355,6 +442,7 @@ function checkAgreement(root, expectedVersion) {
   errors.push(...pluginCopyErrors(root));
   errors.push(...changelogErrors(root, expectedVersion));
   errors.push(...readmeStatusErrors(root, expectedVersion));
+  errors.push(...phraseErrors(root, expectedVersion));
   return { errors, values };
 }
 
@@ -524,7 +612,27 @@ function writeAll(root, planned) {
   return commitStaged(staged);
 }
 
-function prepareWrites(root, version, previousVersion) {
+/**
+ * Rewrite the version phrases in README.md and docs/*.md, and fold the
+ * README result into the Status-blockquote rewrite: both edits target one
+ * file, and the write pass replaces each file exactly once.
+ */
+function planPhraseWrites(root, planned, claimed, version) {
+  /** @type {{ rel: string, count: number }[]} */
+  const changed = [];
+  for (const rel of proseFiles(root)) {
+    const entry = planned.find((p) => p.rel === rel);
+    const text = entry ? entry.contents : readBuf(root, rel).toString('utf8');
+    const result = applyPhrases(text, claimed, version);
+    if (!result) continue;
+    if (entry) entry.contents = result.contents;
+    else planned.push({ rel, contents: result.contents });
+    changed.push({ rel, count: result.count });
+  }
+  return changed;
+}
+
+function prepareWrites(root, version, previousVersion, current) {
   /** @type {{ rel: string, contents: string }[]} */
   const planned = [];
   const changelogText = readBuf(root, 'CHANGELOG.md').toString('utf8');
@@ -532,6 +640,8 @@ function prepareWrites(root, version, previousVersion) {
   planned.push({ rel: 'CHANGELOG.md', contents: nextChangelog });
   const readmeText = readBuf(root, 'README.md').toString('utf8');
   planned.push({ rel: 'README.md', contents: applyReadmeStatus(readmeText, version) });
+  const claimed = claimedVersions(current, readmeText, version);
+  const phraseChanges = planPhraseWrites(root, planned, claimed, version);
 
   const uniqueFiles = [...new Set(SCALARS.map((s) => s.file))];
   /** @type {Map<string, any>} */
@@ -553,7 +663,7 @@ function prepareWrites(root, version, previousVersion) {
     planned.push({ rel: file, contents: jsonText(parsed.get(file)) });
   }
 
-  return planned;
+  return { planned, phraseChanges };
 }
 
 function printCheck(root, expectedVersion) {
@@ -575,6 +685,7 @@ function printCheck(root, expectedVersion) {
   console.log(`ok: ${PLUGIN_COPIES.join(', ')} are byte-identical`);
   console.log(`ok: CHANGELOG.md has ## [${expectedVersion}] and matching compare links`);
   console.log(`ok: README.md Status is v${expectedVersion}`);
+  console.log('ok: no stale Plugin <version> phrase in README.md or docs/*.md');
   console.log(tagLine);
 }
 
@@ -650,11 +761,15 @@ function main() {
 
   const changelogText = readBuf(root, 'CHANGELOG.md').toString('utf8');
   const previous = previousFromChangelog(changelogText, current);
-  const planned = prepareWrites(root, next, previous);
+  const { planned, phraseChanges } = prepareWrites(root, next, previous, current);
   const written = writeAll(root, planned);
 
   console.log(`Set version metadata to ${next}`);
   console.log(`Updated: ${written.join(', ')}`);
+  for (const { rel, count } of phraseChanges) {
+    const noun = count === 1 ? 'phrase' : 'phrases';
+    console.log(`Rewrote ${count} version ${noun} in ${rel} to Plugin ${next}`);
+  }
   const { errors } = checkAgreement(root, next);
   if (errors.length > 0) {
     throw new Error(
