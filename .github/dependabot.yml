@@ -1,0 +1,17 @@
+# Dependabot keeps the GitHub Actions pins current. The package itself has no
+# runtime or development dependencies and no lockfile, so the npm ecosystem
+# entry only becomes active if a dependency is ever added.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
