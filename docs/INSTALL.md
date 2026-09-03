@@ -133,6 +133,16 @@ cd antigravity-plugin
 node bin/antigravity.mjs review
 ```
 
+## Job state location
+
+Tracked jobs use the first non-empty host data variable in this compatibility
+order: `CLAUDE_PLUGIN_DATA`, `CODEX_PLUGIN_DATA`, then `AGY_PLUGIN_DATA`.
+Standalone runs with none of these variables set use
+`<os-temporary-directory>/antigravity`. Codex and agy installations upgraded
+from a version that ignored their host variable continue to read and write an
+existing workspace state directory at that legacy temporary location. New
+workspaces use their host-owned data directory.
+
 ## Verifying
 
 ```bash

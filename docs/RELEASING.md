@@ -23,15 +23,32 @@ then GitHub Actions. Enter these values:
 
 | Field | Value |
 |---|---|
-| Organization or user | `southcarpet` |
+| Organization or user | `SouthCarpet` |
 | Repository | `antigravity-plugin` |
 | Workflow filename | `release.yml` |
 | Environment name | leave blank |
 | Allowed action | `npm publish` |
 
-The filename must match the file under `.github/workflows/` exactly. Until
-you configure this publisher, the Publish step fails with an authentication
-error. Nothing is published.
+Every field is exact and case-sensitive. npm does not check the record when
+you save it. A mismatch appears on the Publish step as
+`E404 Not Found - PUT`, even after all gates pass. You cannot edit the record.
+Delete it and create it again. Then run `gh run rerun <run-id> --failed` to
+try the publish again on the same tag.
+
+Measured on 2026-09-03, the record used `release.yaml` and `southcarpet`.
+After it was recreated with `release.yml` and `SouthCarpet`, the rerun
+published 1.1.0 with provenance.
+
+## GitHub Packages mirror
+
+`.github/workflows/github-packages.yml` runs on every `v*` tag. You can also
+run it by hand for an existing tag. It republishes the same tarball to
+`npm.pkg.github.com` with the job's `GITHUB_TOKEN` and
+`--provenance=false`.
+
+npmjs.org stays the primary registry and includes the provenance attestation.
+GitHub Packages needs a token to install even a public package. The mirror
+exists for discovery on the repository page.
 
 ## Release flow
 

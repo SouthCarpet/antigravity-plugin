@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub Packages mirror.** A workflow republishes each `v*` release tarball
+  to GitHub Packages and supports a manual run for an existing tag.
+
+### Changed
+
+- **Release documentation.** The README now uses per-host quick starts and
+  includes how the plugin works, release integrity, and contributing guidance.
+  The release runbook now warns that trusted publisher fields must match
+  exactly. The vision reference now includes the measured model guidance.
+
 ### Fixed
 
 - **`update --apply` sent Codex an unqualified plugin name.** The Codex plan's

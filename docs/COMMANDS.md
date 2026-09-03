@@ -174,6 +174,14 @@ awaited/foreground outcome.
 
 ## `vision`
 
+`agy --print` has no native image input. Its `read_file` tool sends file bytes
+as text, and `@file` does not create image parts. The CLI has no attachment
+flag, and the internal send-message request uses `media=0`.
+
+The local MCP server at `scripts/mcp/vision-server.mjs` returns an MCP image
+content block. `vision` tells agy to call its `view_image` tool for every
+named image.
+
 ```text
 vision <image-path> [<image-path>...]
        [--prompt <text>]
@@ -192,6 +200,13 @@ current directory and must name existing regular files.
   10 MiB maximum per source file. It rejects symlink/junction resolution and
   every path not named by this invocation.
 
+Measured on 2026-09-02 with agy 1.1.24, `gemini-3.6-flash-high` transcribed
+`ZETA-4471`, `Bežné účty`, and `1 435,50 €` exactly in three of four runs;
+one run wrote `Běžné`. The `gemini-3.7-flash-high` model transcribed all
+three strings exactly in one run and used about twice the input tokens,
+65k compared with 33k, so the default stays; pass
+`--model gemini-3.7-flash-high` when exact diacritics matter.
+
 Run `setup` first to register the MCP server and permission. Failure to obtain
 actual image content is reported through the stable
 `VISION-UNAVAILABLE: <reason>` response described in the compatibility
@@ -205,7 +220,8 @@ the model that `view_image` is the only way to see an image and that
 channel is not evidence. Cross-check the transcript against the source image
 before you use the answer. The cross-checked transcript is the evidence. The
 shape is requested by the prompt. agy does not enforce it, so a model can
-still deviate from it.
+still deviate from it. A model has returned a confident PASS while it
+described UI elements that were not present.
 
 On agy 1.1.24 a large image does not arrive inline. agy writes the MCP result
 to a file in its own conversation directory and gives the model the note
