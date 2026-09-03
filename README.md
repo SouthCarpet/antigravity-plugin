@@ -12,7 +12,7 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Node >=22.3.0](https://img.shields.io/badge/node-%3E%3D22.3.0-339933?logo=node.js&logoColor=white)](./package.json)
 [![Known issues](https://img.shields.io/github/issues/SouthCarpet/antigravity-plugin/known%20issue?label=known%20issues&color=D93F0B)](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22)
-[![Socket Badge](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin/1.1.0)](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin/1.1.0)
+[![Socket Badge](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin/)](https://socket.dev/npm/package/@southcarpet/antigravity-plugin/overview/)
 </div>
 
 ## What it is
