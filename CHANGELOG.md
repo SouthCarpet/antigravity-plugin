@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-09-03
+
 ### Added
 
 - **`docs/` and `CHANGELOG.md` in the package.** The npm tarball now ships the
@@ -496,7 +498,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.0.0...v1.0.1

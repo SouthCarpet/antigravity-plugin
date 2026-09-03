@@ -5,7 +5,7 @@ later 1.x releases. The implementation at 0.2.4 is the baseline from which
 the contract was frozen. A behavior is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 1.1.1 is this package's version number. agy 1.1.15, 1.1.17, and
+Plugin 1.1.2 is this package's version number. agy 1.1.15, 1.1.17, and
 1.1.24 are versions of Google's Antigravity CLI, which is an external
 program. The two version lines advance independently. A new agy release does
 not change the plugin version.
