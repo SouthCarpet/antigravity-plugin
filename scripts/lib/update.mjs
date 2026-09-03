@@ -59,7 +59,7 @@ export const HOSTS = [
     name: "Codex CLI",
     binary: "codex",
     instruction:
-      "codex plugin remove antigravity, then codex plugin add antigravity@antigravity " +
+      "codex plugin remove antigravity@antigravity, then codex plugin add antigravity@antigravity " +
       "(Codex has no plugin update subcommand)",
   },
   {

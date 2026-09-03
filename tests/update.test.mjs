@@ -203,7 +203,7 @@ describe('update: report', () => {
     assert.match(text, /update available: yes/);
     assert.match(text, /npx: nothing to do/);
     assert.match(text, /Claude Code: claude plugin update antigravity@antigravity/);
-    assert.match(text, /Codex CLI: codex plugin remove antigravity, then codex plugin add antigravity@antigravity/);
+    assert.match(text, /Codex CLI: codex plugin remove antigravity@antigravity, then codex plugin add antigravity@antigravity/);
     assert.match(text, /agy: agy plugin uninstall antigravity, then agy plugin install/);
     assert.match(text, /never changes an installed copy by itself/);
     assert.match(text, /antigravity-plugin update --apply/);
