@@ -20,6 +20,12 @@
  *      (`vision-config` resolves `vision-server.mjs` at runtime).
  *   5. The static import graph of (3), (4), and `bin/antigravity.mjs`, plus
  *      relative `.mjs` string literals in those files (`new URL("…")`).
+ *   6. `CHANGELOG.md`, and every markdown file the README links to with a
+ *      relative link that resolves inside the package. An installed copy
+ *      shows the README first: a link from it to a file the tarball omits
+ *      is a dead link, and the Troubleshooting table cannot be read offline.
+ *      The list comes from the README, so a new documentation link tightens
+ *      this gate by itself.
  *
  * The walk follows static `from`/`import` specifiers and literal
  * `import("…")` / `import('…')`. It cannot see a computed specifier
@@ -123,7 +129,31 @@ function walkImportGraph(entryRels) {
   return reachable;
 }
 
-function deriveRequired() {
+/**
+ * Every markdown file the README links to with a relative link, as package
+ * relative posix paths. A fragment (`#section`) is stripped, a link that
+ * escapes the package root is dropped, and a target that is not on disk is
+ * dropped: this gate is about the tarball, not about broken links.
+ */
+export function listReadmeLinkedDocs(readmeRel = 'README.md') {
+  const abs = join(root, readmeRel);
+  if (!existsSync(abs)) return [];
+  const src = readFileSync(abs, 'utf8');
+  const LINK_RE = /\]\(\s*(\.{0,2}\/[^)\s#]+|[A-Za-z0-9_][^):\s#]*)\s*(?:#[^)\s]*)?\)/g;
+  const out = new Set();
+  let match;
+  while ((match = LINK_RE.exec(src))) {
+    const target = match[1];
+    if (!target.endsWith('.md')) continue;
+    const resolved = toPosix(relative(root, normalize(join(root, dirname(readmeRel), target))));
+    if (resolved.startsWith('../') || resolved === '..') continue;
+    if (!existsSync(join(root, resolved))) continue;
+    out.add(resolved);
+  }
+  return [...out].sort();
+}
+
+export function deriveRequired() {
   const required = new Map();
 
   add(required, 'package.json', 'standalone package identity');
@@ -153,6 +183,12 @@ function deriveRequired() {
   const mcpModules = listFiles('scripts/mcp', (name) => name.endsWith('.mjs'));
   for (const rel of mcpModules) {
     add(required, rel, 'MCP server (scripts/mcp/*.mjs)');
+  }
+
+  add(required, 'README.md', 'the first thing an installed copy shows');
+  add(required, 'CHANGELOG.md', 'release history, linked from the README');
+  for (const rel of listReadmeLinkedDocs()) {
+    add(required, rel, 'README link target (a README-linked .md must not be a dead link)');
   }
 
   const graphEntries = ['bin/antigravity.mjs', ...commandModules, ...mcpModules];
@@ -216,7 +252,7 @@ function runCli() {
   console.log(`npm pack would produce ${pack.filename} (${files.size} files)`);
   console.log(
     `derived ${required.size} required entries from host discovery, commands/*.md, ` +
-      `scripts/commands/*.mjs, scripts/mcp/*.mjs, and the import graph`,
+      `scripts/commands/*.mjs, scripts/mcp/*.mjs, the import graph, and the README links`,
   );
 
   const missingRequired = [];

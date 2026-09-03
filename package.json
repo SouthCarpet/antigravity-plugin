@@ -48,12 +48,14 @@
     "scripts",
     "commands",
     "agents",
+    "docs",
     ".agents",
     ".claude-plugin",
     ".codex-plugin",
     "SKILL.md",
     "plugin.json",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "SECURITY.md"
   ]
