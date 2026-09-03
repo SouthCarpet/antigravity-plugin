@@ -22,6 +22,26 @@ const PLUGIN_JSON = JSON.parse(
   fs.readFileSync(path.resolve(REPO_ROOT, 'plugin.json'), 'utf8'),
 );
 
+// A stub command module the bin imports and invokes run() on. Its source is
+// a constant: the marker path arrives through ANTIGRAVITY_TEST_MARKER in the
+// spawned process's env, so no test-built path is ever written into code.
+// Without that variable the stub writes nothing and only reports its exit
+// code.
+const STUB_SOURCE = `
+export async function run(argv, ctx) {
+  const marker = process.env.ANTIGRAVITY_TEST_MARKER;
+  if (marker) {
+    const fs = await import('node:fs');
+    fs.writeFileSync(marker, JSON.stringify({
+      argv,
+      host: ctx.host,
+      cwd: ctx.cwd,
+    }));
+  }
+  return 42;
+}
+`;
+
 function run(args, env = {}) {
   return spawnSync(process.execPath, [BIN, ...args], {
     encoding: 'utf8',
@@ -37,20 +57,7 @@ describe('bin/antigravity.mjs', () => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-bin-test-'));
     probeMarker = path.join(tmpRoot, 'probe.json');
 
-    // Drop a stub command module that writes a marker file then returns
-    // a predictable exit code. The bin should import this and invoke run().
-    const stub = `
-export async function run(argv, ctx) {
-  const fs = await import('node:fs');
-  fs.writeFileSync(${JSON.stringify(probeMarker)}, JSON.stringify({
-    argv,
-    host: ctx.host,
-    cwd: ctx.cwd,
-  }));
-  return 42;
-}
-`;
-    fs.writeFileSync(path.join(tmpRoot, 'review.mjs'), stub);
+    fs.writeFileSync(path.join(tmpRoot, 'review.mjs'), STUB_SOURCE);
     // The dispatcher refuses an override root without this plugin's manifest.
     fs.writeFileSync(path.join(tmpRoot, 'plugin.json'), JSON.stringify({ name: 'antigravity' }));
   });
@@ -104,6 +111,7 @@ export async function run(argv, ctx) {
   it('dispatches to a stub command via ANTIGRAVITY_SCRIPT_ROOT', () => {
     const res = run(['review', '--scope', 'working-tree', 'extra'], {
       ANTIGRAVITY_SCRIPT_ROOT: tmpRoot,
+      ANTIGRAVITY_TEST_MARKER: probeMarker,
     });
     assert.equal(res.status, 42, `stderr=${res.stderr} stdout=${res.stdout}`);
     const probe = JSON.parse(fs.readFileSync(probeMarker, 'utf8'));
@@ -115,11 +123,11 @@ export async function run(argv, ctx) {
     const bareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-bin-bare-'));
     const bareMarker = path.join(bareRoot, 'probe.json');
     try {
-      fs.writeFileSync(
-        path.join(bareRoot, 'review.mjs'),
-        `export async function run() { (await import('node:fs')).writeFileSync(${JSON.stringify(bareMarker)}, 'ran'); return 42; }\n`,
-      );
-      const res = run(['review'], { ANTIGRAVITY_SCRIPT_ROOT: bareRoot });
+      fs.writeFileSync(path.join(bareRoot, 'review.mjs'), STUB_SOURCE);
+      const res = run(['review'], {
+        ANTIGRAVITY_SCRIPT_ROOT: bareRoot,
+        ANTIGRAVITY_TEST_MARKER: bareMarker,
+      });
       assert.equal(res.status, 1, `stderr=${res.stderr} stdout=${res.stdout}`);
       assert.equal(
         res.stderr.trim(),
@@ -145,7 +153,10 @@ export async function run(argv, ctx) {
     const priorProbe = { argv: ['sentinel'], host: 'previous-run', cwd: tmpRoot };
     fs.writeFileSync(probeMarker, JSON.stringify(priorProbe));
 
-    const res = run(['review', '--help'], { ANTIGRAVITY_SCRIPT_ROOT: tmpRoot });
+    const res = run(['review', '--help'], {
+      ANTIGRAVITY_SCRIPT_ROOT: tmpRoot,
+      ANTIGRAVITY_TEST_MARKER: probeMarker,
+    });
     assert.equal(res.status, 0);
     assert.match(res.stdout, /antigravity-plugin review/);
     const probe = JSON.parse(fs.readFileSync(probeMarker, 'utf8'));

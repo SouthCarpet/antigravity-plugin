@@ -26,7 +26,7 @@ import { resolveStateRoot } from "./state.mjs";
 
 export const PACKAGE_NAME = "@southcarpet/antigravity-plugin";
 export const DIST_TAGS_URL =
-  `https://registry.npmjs.org/-/package/${PACKAGE_NAME.replace("/", "%2F")}/dist-tags`;
+  `https://registry.npmjs.org/-/package/${PACKAGE_NAME.replaceAll("/", "%2F")}/dist-tags`;
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const DISABLE_ENV = "ANTIGRAVITY_NO_UPDATE_CHECK";
 export const UPDATE_COMMAND = "antigravity-plugin update";

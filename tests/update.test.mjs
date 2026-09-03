@@ -485,7 +485,7 @@ describe('update is on no host surface', () => {
       env: { ...process.env, PATH: stub.PATH, Path: stub.PATH, ANTIGRAVITY_NO_UPDATE_CHECK: '1' },
     });
     assert.equal(res.status, 0, res.stderr);
-    assert.match(res.stdout, new RegExp(`running: ${PKG_VERSION.replace(/\./g, '\\.')}`));
+    assert.ok(res.stdout.includes(`running: ${PKG_VERSION}`), res.stdout);
     assert.match(res.stdout, /update check disabled/);
     assert.match(res.stdout, /Claude Code: claude plugin update/);
     assert.match(res.stdout, /Codex CLI: not found on PATH/);
