@@ -33,9 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because `plugin add` installs the version the clone holds. After the install
   it prints the installed version, and one more line when that version is not
   the latest. It never pulls or changes your clone.
-- **Socket badge.** The badge image URL lost its trailing slash. The
-  trailing-slash form answers with a redirect, which GitHub renders as a
-  broken image. The unversioned URL needs no change per release.
+- **Socket badge.** The badge now sits in the badge row at the top of the
+  README and links to the Socket overview page. The image URL stays
+  unversioned, so it needs no change per release.
 - **Update instructions.** The README now says that Claude Code needs
   `claude plugin marketplace update antigravity` before `plugin update`, that
   Codex installs from the registered marketplace (pull a local clone first),
