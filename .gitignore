@@ -11,3 +11,7 @@ dist/
 
 # agy / Antigravity CLI local state created by `agy plugin validate` and friends
 .antigravitycli/
+
+# Local vault-ops notes for this machine's knowledge vault; not part of the project
+.vault/
+
