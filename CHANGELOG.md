@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Update instructions.** The README now says that Claude Code needs
+  `claude plugin marketplace update antigravity` before `plugin update`, that
+  Codex installs from the registered marketplace (pull a local clone first),
+  and that `update --apply` does neither step. The README no longer states a
+  test count, the Socket badge sits with the other badges without a version
+  pin, and the compatibility contract notes the wrapper manifest check.
+
 ## [1.1.1] — 2026-09-03
 
 ### Added

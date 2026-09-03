@@ -13,6 +13,7 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 [![Node >=22.3.0](https://img.shields.io/badge/node-%3E%3D22.3.0-339933?logo=node.js&logoColor=white)](./package.json)
 [![Known issues](https://img.shields.io/github/issues/SouthCarpet/antigravity-plugin/known%20issue?label=known%20issues&color=D93F0B)](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22)
 [![Socket Badge](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin/)](https://socket.dev/npm/package/@southcarpet/antigravity-plugin/overview/)
+
 </div>
 
 ## What it is
@@ -43,7 +44,7 @@ by agy version. The plugin does not update itself.
 - **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
 - **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
 - **Verify releases.** npm provenance and signed tags connect a package to its source commit.
-- **Keep the runtime small.** The package has zero runtime dependencies and a suite of 487 tests on Linux and Windows.
+- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux and Windows, with Node 22.3 and Node 24, on every change.
 
 ## Quick start
 
@@ -130,11 +131,11 @@ See [Commands reference](./docs/COMMANDS.md#vision) for formats, limits, flags, 
 
 For the standalone CLI, use an unversioned `npx @southcarpet/antigravity-plugin <command>` invocation to resolve the latest published version. A pinned version does not update.
 
-For Claude Code, run `claude plugin update antigravity@antigravity`, then restart Claude Code. Codex CLI has no plugin update command. Run `codex plugin remove antigravity@antigravity`, then `codex plugin add antigravity@antigravity`.
+For Claude Code, run `claude plugin marketplace update antigravity` first, then `claude plugin update antigravity@antigravity`, then restart Claude Code. Without the marketplace refresh, `plugin update` reports the old version as the latest. Codex CLI has no plugin update command. Run `codex plugin remove antigravity@antigravity`, then `codex plugin add antigravity@antigravity`. Codex installs from the marketplace you registered: if that marketplace is a local clone, pull the clone first.
 
 For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-to-clean-clone>`. A plain reinstall merges with the old copy.
 
-`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
+`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. It does not refresh the Claude Code marketplace and does not pull a local Codex marketplace clone, so run those two steps first. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
 
 ## Requirements
 
@@ -173,9 +174,7 @@ See [Security](./SECURITY.md) for threat boundaries and vulnerability reports.
 
 ## Release integrity
 
-[![Socket](https://badge.socket.dev/npm/package/@southcarpet/antigravity-plugin)](https://socket.dev/npm/package/@southcarpet/antigravity-plugin)
-
-Socket scores the published package. Its supply chain score counts the capabilities this plugin needs: it starts the `agy` process, makes one request to the npm registry in `update`, reads and writes the local job store, and reads host environment variables; [Security](./SECURITY.md) and [Permissions and privacy](#permissions-and-privacy) state exactly what leaves the machine.
+Socket scores the published package (the badge is at the top of this page). Its supply chain score counts the capabilities this plugin needs: it starts the `agy` process, makes one request to the npm registry in `update`, reads and writes the local job store, and reads host environment variables; [Security](./SECURITY.md) and [Permissions and privacy](#permissions-and-privacy) state exactly what leaves the machine.
 
 npmjs.org is the primary registry. Releases use npm trusted publishing and include a provenance attestation. Release tags use SSH signatures from v1.1.0 onward.
 
