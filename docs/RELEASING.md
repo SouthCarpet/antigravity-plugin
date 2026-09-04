@@ -78,6 +78,16 @@ exists for discovery on the repository page.
    npm publish --dry-run
    ```
 
+5. Before you push the tag, open <https://status.npmjs.org>. If an incident
+   names package publishing, wait until it is resolved. Measured on
+   2026-09-03: the publish of 1.1.2 ran fifteen minutes into the incident
+   "Intermittent Failures Impacting npm Publish". npm reported `E401`, wrote
+   no version document and no tarball, and still recorded the number as
+   published, so a rerun answered `E403 cannot publish over the previously
+   published versions`. A version number in that state cannot be reused; the
+   same content shipped as 1.1.3. After a failed publish, run `npm view
+   <package>@<version>` before any rerun.
+
 5. Commit: `git commit -am "release: X.Y.Z"`.
 6. Tag with a signature. See [Tag signing](#tag-signing).
    `git tag -s vX.Y.Z -m "vX.Y.Z"`, then `git tag -v vX.Y.Z`.
