@@ -7,6 +7,8 @@ import fs from "node:fs";
 import process from "node:process";
 
 export const GIT_TIMEOUT_MS = 120_000;
+const PROCESS_START_CACHE_TTL_MS = 5_000;
+const processStartCache = new Map();
 
 /**
  * Run a command synchronously and return the result.
@@ -114,23 +116,45 @@ export function isProcessAlive(pid, killImpl = process.kill) {
  * Live process start time in milliseconds, or null when identity is unavailable.
  * Used only for stale-lock recovery: a reused PID must not keep an old lock.
  * Permission/query failures are inconclusive, never evidence of a dead owner.
+ *
+ * Windows has no equivalent Node API, so the query starts PowerShell. Cache
+ * briefly per PID to keep a stale live lock's 25 ms retry loop from starting a
+ * shell on every attempt. The cache expires so a PID reused later is queried
+ * again rather than inheriting the former process's identity indefinitely.
  */
-export function processStartedAt(pid) {
+export function processStartedAt(pid, {
+  now = Date.now,
+  platform = process.platform,
+  spawnSyncImpl = spawnSync,
+} = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
-  if (pid === process.pid) return Date.now() - process.uptime() * 1000;
+  if (pid === process.pid) return now() - process.uptime() * 1000;
+
+  const checkedAt = now();
+  const cached = processStartCache.get(pid);
+  const cacheAge = cached ? checkedAt - cached.checkedAt : Infinity;
+  if (cacheAge >= 0 && cacheAge < PROCESS_START_CACHE_TTL_MS) {
+    return cached.startedAt;
+  }
+
+  let startedAt = null;
   try {
-    const result = process.platform === "win32"
-      ? spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+    const result = platform === "win32"
+      ? spawnSyncImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
           `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`],
         { encoding: "utf8", windowsHide: true, timeout: 2000, stdio: ["ignore", "pipe", "pipe"] })
-      : spawnSync("ps", ["-p", String(pid), "-o", "lstart="],
+      : spawnSyncImpl("ps", ["-p", String(pid), "-o", "lstart="],
         { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] });
-    if (result.status !== 0 || result.error) return null;
-    const startedAt = Date.parse(String(result.stdout).trim());
-    return Number.isFinite(startedAt) ? startedAt : null;
+    if (result.status === 0 && !result.error) {
+      const parsed = Date.parse(String(result.stdout).trim());
+      if (Number.isFinite(parsed)) startedAt = parsed;
+    }
   } catch {
-    return null;
+    // Query failures remain inconclusive and are cached briefly like nulls.
   }
+
+  processStartCache.set(pid, { checkedAt, startedAt });
+  return startedAt;
 }
 
 function wait(ms) {

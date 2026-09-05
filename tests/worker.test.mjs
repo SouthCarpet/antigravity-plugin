@@ -17,13 +17,12 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { removeTestDir } from './helpers/tmp.mjs';
+import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 
-const TMPROOT = os.tmpdir();
+const TMPROOT = portableTmpRoot();
 
 const runtime = {
   next: {
@@ -142,7 +141,7 @@ it('uses the stored 50 ms budget and persists failed after terminating a sleepin
       env: { ...process.env, CLAUDE_PLUGIN_DATA: path.join(workspaceRoot, 'data') },
     });
     assert.equal(result.status, 0, result.stderr);
-  } finally { fs.rmSync(workspaceRoot, { recursive: true, force: true }); }
+  } finally { removeTestDir(workspaceRoot); }
 });
 
 describe('worker persisted-request allowlist', () => {
@@ -191,7 +190,7 @@ describe('worker persisted-request allowlist', () => {
         assert.equal(stored.status, 'failed');
         assert.equal(stored.healthStatus, 'failed');
         assert.equal(stored.errorMessage, 'stored request carries an unsupported agy flag: ' + flag);
-      } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+      } finally { removeTestDir(workspace); }
     });
   }
 });

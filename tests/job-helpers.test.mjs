@@ -20,7 +20,7 @@ import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { portableTmpRoot } from './helpers/tmp.mjs';
+import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 import { SESSION_ID_ENV } from '../scripts/lib/job-control.mjs';
 
 const TMPROOT = portableTmpRoot();
@@ -85,7 +85,7 @@ function freshWorkspace() {
 
 after(() => {
   for (const p of tmpToCleanup) {
-    try { fs.rmSync(p, { recursive: true, force: true }); } catch {}
+    removeTestDir(p);
   }
   delete process.env.CLAUDE_PLUGIN_DATA;
   delete process.env[SESSION_ID_ENV];

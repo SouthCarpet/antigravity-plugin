@@ -41,6 +41,30 @@ it('can read the start time of a live child for stale-lock identity checks', asy
   }
 });
 
+it('caches a process start query during retries and refreshes it after five seconds', () => {
+  // Oracle: fix brief F1 requires no shell per stale-lock retry while later
+  // PID reuse must still become observable after the bounded cache expires.
+  let now = 0;
+  let calls = 0;
+  let stdout = '2026-09-05T12:00:00.000Z';
+  const spawnSyncImpl = () => {
+    calls += 1;
+    return { status: 0, error: null, stdout };
+  };
+  const options = { now: () => now, platform: 'win32', spawnSyncImpl };
+
+  const first = processStartedAt(3_145_729, options);
+  now = 4_999;
+  const cached = processStartedAt(3_145_729, options);
+  stdout = '2026-09-05T12:01:00.000Z';
+  now = 5_000;
+  const refreshed = processStartedAt(3_145_729, options);
+
+  assert.equal(calls, 2);
+  assert.equal(cached, first);
+  assert.notEqual(refreshed, first);
+});
+
 it('returns a one-line timeout error for a child sleeping beyond an injected 50 ms bound', () => {
   // Oracle: brief 076-T3 R1. The real synchronous child would run for 2 s.
   const result = runCommand(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { timeoutMs: 50 });
@@ -107,11 +131,7 @@ describe('terminateProcessTree', () => {
     });
   }
 
-  it('SIGTERMs a real child process group', {
-    skip: process.platform === 'win32' && process.env.CODEX_CI === '1'
-      ? 'real taskkill is blocked inside the Codex Windows sandbox; CI covers this case'
-      : false,
-  }, async () => {
+  it('SIGTERMs a real child process group', async () => {
     // Launch a detached long-lived child. node itself is the one binary
     // guaranteed present (we are running under it) and spawns identically
     // on every platform — no shell needed.

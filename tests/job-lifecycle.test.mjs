@@ -15,12 +15,14 @@ import { createTrackedJob, patchJob, startBackgroundJob } from "../scripts/lib/j
 import { canonicalComparePath, expandShortPath } from "../scripts/lib/paths.mjs";
 import { appendJobLog, ensureStateDir, listJobs, readJobFile, readJobLog, resolveJobFile, resolveStateDir, resolveStateRoot, saveState } from "../scripts/lib/state.mjs";
 import { writeFakeAgy } from "./helpers/fake-agy.mjs";
+import { portableTmpRoot, removeTestDir } from "./helpers/tmp.mjs";
 
 const cleanup = [];
+const TMPROOT = portableTmpRoot();
 
 function freshWorkspace() {
-  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-lifecycle-work-"));
-  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-lifecycle-data-"));
+  const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, "antigravity-lifecycle-work-"));
+  const dataRoot = fs.mkdtempSync(path.join(TMPROOT, "antigravity-lifecycle-data-"));
   cleanup.push(workspaceRoot, dataRoot);
   return { workspaceRoot, dataRoot };
 }
@@ -55,7 +57,7 @@ async function waitFor(predicate, timeoutMs = 5000) {
 
 after(() => {
   for (const target of cleanup) {
-    try { fs.rmSync(target, { recursive: true, force: true }); } catch {}
+    removeTestDir(target);
   }
 });
 
