@@ -151,7 +151,7 @@ export function compareVersions(a, b) {
 }
 
 function isSemver(value) {
-  return typeof value === "string" && SEMVER_RE.test(value) && !/[\r\n]/.test(value);
+  return typeof value === "string" && SEMVER_RE.test(value);
 }
 
 export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {

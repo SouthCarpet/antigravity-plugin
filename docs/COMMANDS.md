@@ -123,6 +123,9 @@ rescue <prompt...>
 All positional tokens are joined with spaces to form the prompt. A prompt is
 required unless `--resume`, `--continue`, or `--conversation` is supplied.
 
+The `rescue` wrapper's host model composes the shell call and must quote the
+task text as one argument to preserve its boundaries.
+
 - Fresh conversation is the default. `--fresh` makes it explicit.
 - `--resume` and `--continue` are equivalent and resume the most recent
   conversation. They may be supplied together.

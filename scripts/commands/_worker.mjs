@@ -18,6 +18,13 @@ import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
 import { AGY_MODES, applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
 
+function unsupportedStoredFlag(extraArgs) {
+  if (!Array.isArray(extraArgs)) return String(extraArgs);
+  if (extraArgs.length === 0) return null;
+  if (extraArgs[0] !== "--mode" || !AGY_MODES.includes(extraArgs[1])) return String(extraArgs[0]);
+  return extraArgs.length === 2 ? null : String(extraArgs[2]);
+}
+
 async function main() {
   const [jobId] = process.argv.slice(2);
   if (!jobId) {
@@ -61,12 +68,8 @@ async function main() {
   let result;
   try {
     const extraArgs = request.extraArgs === undefined ? [] : request.extraArgs;
-    if (!Array.isArray(extraArgs) ||
-        (extraArgs.length !== 0 &&
-         (extraArgs.length !== 2 || extraArgs[0] !== "--mode" || !AGY_MODES.includes(extraArgs[1])))) {
-      const flag = Array.isArray(extraArgs)
-        ? extraArgs[0] === "--mode" && AGY_MODES.includes(extraArgs[1]) ? extraArgs[2] : extraArgs[0]
-        : extraArgs;
+    const flag = unsupportedStoredFlag(extraArgs);
+    if (flag !== null) {
       throw new Error(`stored request carries an unsupported agy flag: ${flag}`);
     }
     result = await runAgyPrint({

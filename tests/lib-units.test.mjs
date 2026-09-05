@@ -78,8 +78,6 @@ describe('args.parseCommandInput', () => {
     assert.equal(out.options.json, true);
     assert.deepEqual(out.positionals, ['plain']);
   });
-
-
 });
 
 // ───────────────────────────── fs ─────────────────────────────

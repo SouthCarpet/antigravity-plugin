@@ -104,7 +104,7 @@ check knows a newer version; `status` itself never calls the network.
 
 The following are not promised command surface:
 
-- unknown flags that the permissive parser happens to accept or ignore;
+- unknown flags (they return exit 1 with one stderr line; the exact prose is not promised);
 - extra positional arguments on commands that do not document them;
 - direct imports from `scripts/`, including function signatures and exports;
 - internal worker entry points such as `scripts/commands/_worker.mjs`;
