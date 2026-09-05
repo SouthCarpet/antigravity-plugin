@@ -86,7 +86,7 @@ export async function run(argv = [], ctx = {}) {
       addDirs,
       extraArgs,
       cwd: workspaceRoot,
-      request: { mode, addDirs },
+      request: { prompt, mode, addDirs },
       onText: (delta) => process.stderr.write(delta),
     });
 

@@ -30,6 +30,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
     },
     spawnAgyDetached: () => ({ pid: 1 }),
     resolveAgyBin: () => 'agy',
+    assertAgyBinSpawnable: () => {},
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },
@@ -311,7 +312,7 @@ describe('command: vision rejects --add-dir', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
-    assert.match(cap.err.join(''), /antigravity:vision — vision does not take --add-dir/);
+    assert.match(cap.err.join(''), /antigravity:vision — unknown flag --add-dir; put prompt text after --/);
     assert.equal(agyRuntime.calls.length, 0);
   });
 });
@@ -430,4 +431,27 @@ describe('command: conflicting execution flags', () => {
     assert.match(cap.err.join(''), /--conversation/);
     assert.equal(agyRuntime.calls.length, 0);
   });
+});
+
+describe('unknown flags fail before command side effects', () => {
+  it('parseArgs throws ArgsError with guidance for prompt text', () => {
+    assert.throws(() => parseArgs(['--verbose'], {}), {
+      name: 'ArgsError', message: 'unknown flag --verbose; put prompt text after --',
+    });
+  });
+
+  for (const verb of ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel']) {
+    it(verb + ' prints one unknown-flag line and exits 1', async () => {
+      const { run } = await import('../scripts/commands/' + verb + '.mjs');
+      const cap = captureStdio();
+      let exit;
+      try {
+        exit = await run(['--verbose'], { cwd: tempDir });
+      } finally { cap.restore(); }
+      assert.equal(exit, 1);
+      assert.equal(cap.err.join(''), 'antigravity:' + verb + ' — unknown flag --verbose; put prompt text after --\n');
+      assert.equal(cap.out.join(''), '');
+      assert.deepEqual(agyRuntime.calls, []);
+    });
+  }
 });

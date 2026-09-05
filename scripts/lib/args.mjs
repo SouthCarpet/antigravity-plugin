@@ -83,14 +83,7 @@ export function parseArgs(argv, schema = {}) {
       } else if (booleanSet.has(key)) {
         options[key] = true;
       } else {
-        // Unknown flags with a following value that doesn't look like a flag.
-        const next = argv[i + 1];
-        if (next !== undefined && !next.startsWith("--")) {
-          options[key] = next;
-          i += 1;
-        } else {
-          options[key] = true;
-        }
+        throw new ArgsError(`unknown flag --${key}; put prompt text after --`);
       }
     } else {
       positionals.push(arg);
@@ -116,85 +109,9 @@ export function parseArgs(argv, schema = {}) {
   return { options, positionals };
 }
 
-/**
- * Split a raw CLI argument string (as passed by Claude Code's $ARGUMENTS) into
- * an argv-style array, respecting single and double quotes.
- *
- * Backslash is ALWAYS a literal character — there is no escape mechanism, so
- * Windows paths such as `C:\Program Files\shot.png` survive intact whether or
- * not they're quoted. Quotes toggle a "currently quoted" state as usual; to
- * include a literal quote character inside an argument, wrap the argument in
- * the OTHER quote type (e.g. `'say "hi"'` yields the single token `say "hi"`,
- * and `"it's fine"` yields `it's fine`).
- *
- * @param {string} raw
- * @returns {string[]}
- */
-export function splitRawArgumentString(raw) {
-  if (!raw || typeof raw !== "string") {
-    return [];
-  }
-
-  /** @type {string[]} */
-  const tokens = [];
-  let current = "";
-  let inSingle = false;
-  let inDouble = false;
-
-  for (const ch of raw) {
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      continue;
-    }
-
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      continue;
-    }
-
-    if ((ch === " " || ch === "\t") && !inSingle && !inDouble) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-
-    current += ch;
-  }
-
-  if (current.length > 0) {
-    tokens.push(current);
-  }
-
-  return tokens;
-}
-
-/**
- * Convenience wrapper used by command handlers. Splits a raw argument string
- * and then parses it.
- *
- * @param {string[]} argv
- * @param {ArgSchema} schema
- * @returns {ParsedArgs}
- */
+/** Parse tokenized command argv without reinterpreting argument boundaries. */
 export function parseCommandInput(argv, schema = {}) {
-  const normalizedArgv = argv.flatMap((arg) => {
-    if (!arg || typeof arg !== "string") {
-      return [];
-    }
-
-    // A lone token with no whitespace has nothing to split (no quotes, no
-    // spaces to tokenize) — skip splitRawArgumentString entirely rather than
-    // walking it character by character for no reason.
-    const hasRawOptionBoundary = /\s/.test(arg) && /(^|\s)--\S/.test(arg);
-    if ((argv.length === 1 && /\s/.test(arg)) || hasRawOptionBoundary) {
-      return splitRawArgumentString(arg);
-    }
-
-    return [arg];
-  });
-  return parseArgs(normalizedArgv, schema);
+  return parseArgs(argv, schema);
 }
 
 /**

@@ -18,7 +18,7 @@ import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 
 import { portableTmpRoot, assertNotGitWorkTree } from './helpers/tmp.mjs';
 import { canonicalComparePath } from '../scripts/lib/paths.mjs';
@@ -268,4 +268,36 @@ describe('git.collectReviewContext', () => {
     const { scope } = collectReviewContext(repo, { scope: 'working-tree' });
     assert.equal(scope, 'working-tree');
   });
+});
+
+describe('review validates base refs before merge-base', () => {
+  for (const base of ['-x', 'missing-branch']) {
+    it('rejects ' + base + ' with one line and no merge-base call through the owned git runner', () => {
+      const script = `
+        import assert from 'node:assert/strict';
+        import { mock } from 'node:test';
+        const processUrl = ${JSON.stringify(new URL('../scripts/lib/process.mjs', import.meta.url).href)};
+        const real = await import(processUrl);
+        const calls = [];
+        mock.module(processUrl, { namedExports: { ...real, runCommand(command, args) {
+          assert.equal(command, 'git');
+          calls.push(args);
+          if (args[1] === '--show-toplevel') return { status: 0, stdout: process.cwd() };
+          return { status: 128, stdout: '', stderr: 'invalid revision' };
+        } } });
+        const { run } = await import(${JSON.stringify(new URL('../scripts/commands/review.mjs', import.meta.url).href)});
+        process.exitCode = await run(['--base', ${JSON.stringify(base)}]);
+        process.stdout.write(JSON.stringify(calls));
+      `;
+      const result = spawnSync(process.execPath, ['--no-warnings', '--experimental-test-module-mocks', '--input-type=module', '-e', script], {
+        encoding: 'utf8', cwd: TMPROOT,
+      });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(result.stderr, 'antigravity:review — unknown base ref ' + base + '\n');
+      assert.deepEqual(JSON.parse(result.stdout), [
+        ['rev-parse', '--show-toplevel'],
+        ['rev-parse', '--verify', '--end-of-options', base + '^{commit}'],
+      ]);
+    });
+  }
 });

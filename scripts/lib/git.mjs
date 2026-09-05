@@ -290,6 +290,15 @@ export function buildWorkingTreeSummary(branch, headSha, changedFiles, untracked
   return lines.join("\n");
 }
 
+function resolveBaseCommit(cwd, baseRef) {
+  const result = git(cwd, ["rev-parse", "--verify", "--end-of-options", `${baseRef}^{commit}`]);
+  if (result.error) throw gitSpawnError(result.error);
+  if (result.status !== 0 || baseRef.startsWith("-")) {
+    throw new Error(`unknown base ref ${baseRef}`);
+  }
+  return result.stdout.trim();
+}
+
 /**
  * Build a branch comparison for review (current branch vs base).
  *
@@ -298,7 +307,11 @@ export function buildWorkingTreeSummary(branch, headSha, changedFiles, untracked
  * @returns {{ mergeBase: string, diff: string, commits: string, fileList: string[], summary: string }}
  */
 export function buildBranchComparison(cwd, baseRef) {
-  const mergeBase = gitChecked(cwd, ["merge-base", "HEAD", baseRef]).trim();
+  return compareBaseCommit(cwd, baseRef, resolveBaseCommit(cwd, baseRef));
+}
+
+function compareBaseCommit(cwd, baseRef, baseCommit) {
+  const mergeBase = gitChecked(cwd, ["merge-base", "HEAD", baseCommit]).trim();
   const diff = gitChecked(cwd, ["diff", `${mergeBase}...HEAD`]);
   const commits = gitChecked(cwd, ["log", "--oneline", `${mergeBase}...HEAD`]);
   const fileListRaw = gitChecked(cwd, ["diff", "--name-only", `${mergeBase}...HEAD`]);
@@ -334,10 +347,11 @@ export function collectReviewContext(cwd, options = {}) {
     );
   }
 
+  const baseCommit = options.base ? resolveBaseCommit(cwd, options.base) : null;
   if (scope === "branch" && options.base) {
     return {
       scope: "branch",
-      context: buildBranchComparison(cwd, options.base)
+      context: compareBaseCommit(cwd, options.base, baseCommit)
     };
   }
 

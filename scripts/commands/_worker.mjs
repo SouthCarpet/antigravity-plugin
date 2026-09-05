@@ -16,7 +16,7 @@
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
-import { applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
+import { AGY_MODES, applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
 
 async function main() {
   const [jobId] = process.argv.slice(2);
@@ -60,12 +60,21 @@ async function main() {
 
   let result;
   try {
+    const extraArgs = request.extraArgs === undefined ? [] : request.extraArgs;
+    if (!Array.isArray(extraArgs) ||
+        (extraArgs.length !== 0 &&
+         (extraArgs.length !== 2 || extraArgs[0] !== "--mode" || !AGY_MODES.includes(extraArgs[1])))) {
+      const flag = Array.isArray(extraArgs)
+        ? extraArgs[0] === "--mode" && AGY_MODES.includes(extraArgs[1]) ? extraArgs[2] : extraArgs[0]
+        : extraArgs;
+      throw new Error(`stored request carries an unsupported agy flag: ${flag}`);
+    }
     result = await runAgyPrint({
       prompt,
       mode: request.mode ?? "print",
       conversationId: request.conversationId,
       addDirs: request.addDirs ?? [],
-      extraArgs: request.extraArgs ?? [],
+      extraArgs,
       cwd: request.cwd ?? workspaceRoot,
       onText,
       onSpawn: async ({ pid }) => {
@@ -93,7 +102,7 @@ async function main() {
       errorMessage: err?.message ?? String(err),
       healthStatus: "failed",
     });
-    process.exit(1);
+    return process.exit(1);
   }
 
   const status =

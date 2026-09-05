@@ -35,6 +35,7 @@ export const MARKETPLACE_NAME = "antigravity";
 
 const CACHE_FILE_NAME = "update-check.json";
 const FETCH_TIMEOUT_MS = 10_000;
+const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const TARBALL_PLACEHOLDER = "<tarball>";
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -99,7 +100,7 @@ export function resolveUpdateCacheFile() {
 export function readUpdateCache(file) {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (typeof parsed?.latest !== "string" || typeof parsed?.checkedAt !== "string") return null;
+    if (!isSemver(parsed?.latest) || typeof parsed?.checkedAt !== "string") return null;
     return { latest: parsed.latest, checkedAt: parsed.checkedAt };
   } catch {
     return null;
@@ -149,6 +150,10 @@ export function compareVersions(a, b) {
   return left.pre < right.pre ? -1 : 1;
 }
 
+function isSemver(value) {
+  return typeof value === "string" && SEMVER_RE.test(value) && !/[\r\n]/.test(value);
+}
+
 export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== "function") {
     throw new Error("fetch is not available in this Node runtime");
@@ -159,7 +164,9 @@ export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {
   });
   if (!response.ok) throw new Error(`registry answered HTTP ${response.status}`);
   const body = await response.json();
-  if (typeof body?.latest !== "string") throw new Error("registry answer has no dist-tags.latest");
+  if (!isSemver(body?.latest)) {
+    throw new Error(`registry answer has no semver dist-tags.latest (${JSON.stringify(body?.latest)})`);
+  }
   return body.latest;
 }
 
@@ -208,8 +215,8 @@ export async function resolveLatest({
 export function findOnPath(name, { env = process.env, platform = process.platform } = {}) {
   const raw = env.PATH ?? env.Path ?? "";
   const extensions = platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
-  for (const dir of raw.split(path.delimiter).filter(Boolean)) {
-    for (const ext of extensions) {
+  for (const ext of extensions) {
+    for (const dir of raw.split(path.delimiter).filter(Boolean)) {
       const candidate = path.join(dir, `${name}${ext}`);
       try {
         if (fs.statSync(candidate).isFile()) return candidate;
@@ -443,10 +450,19 @@ export function applyPlan(steps, { runner, write, cwd }) {
   return { ok: true, steps: done, message: null };
 }
 
-function defaultRunner({ command, args, cwd, capture, childStdoutFd }) {
-  // A .cmd/.bat shim (npm-installed CLIs on Windows) only runs through the
-  // shell; quote what carries whitespace because the shell path does not.
+export function defaultRunner({ command, args, cwd, capture, childStdoutFd = 1 }) {
+  // Batch shims need cmd.exe; reject shell syntax before quoting whitespace.
   const shell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
+  if (shell) {
+    const unsafe = [command, ...args].find((operand) => /[&|<>^%!"\r\n]/.test(operand));
+    if (unsafe !== undefined) {
+      return {
+        status: 1,
+        stdout: "",
+        error: new Error(`refusing to pass ${JSON.stringify(unsafe)} through cmd.exe`),
+      };
+    }
+  }
   const quote = (value) => (shell && /\s/.test(value) ? `"${value}"` : value);
   const result = spawnSync(quote(command), args.map(quote), {
     cwd,

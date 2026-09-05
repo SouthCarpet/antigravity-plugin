@@ -248,6 +248,15 @@ describe('review collects the diff first', () => {
 });
 
 describe('git missing: review prints one plain line', () => {
+  it('review --base preserves the missing-git error during ref validation', async () => {
+    keepOnlyNodeOnPath();
+    const res = await runVerb('review', ['--base', 'main']);
+    assert.equal(res.exit, 1);
+    assert.equal(res.err, 'antigravity:review — git is not on PATH (spawnSync git ENOENT).\n');
+    assert.deepEqual(runtime.calls, []);
+    assert.deepEqual(dataFiles(), []);
+  });
+
   it('review: `git is not on PATH (spawnSync git ENOENT).`, exit 1, no job record', async () => {
     runtime.probe = { ok: true, version: 'test' };
     keepOnlyNodeOnPath();

@@ -23,11 +23,14 @@ import {
   buildHostPlan,
   compareVersions,
   detectHosts,
+  defaultRunner,
+  fetchLatestVersion,
   findOnPath,
   parseInstalledRoot,
   parseMarketplaceSource,
   readInstalledPluginVersion,
   readUpdateNotice,
+  readUpdateCache,
   resolveLatest,
   runUpdate,
   tarballFromPackOutput,
@@ -152,7 +155,7 @@ describe('update: registry cache', () => {
     const http = await resolveLatest({ env: {}, now: NOW, fetchImpl: fakeFetch({}, { ok: false, status: 503 }), cacheFile });
     assert.match(http.message, /HTTP 503/);
     const shape = await resolveLatest({ env: {}, now: NOW, fetchImpl: fakeFetch({ nope: true }), cacheFile });
-    assert.match(shape.message, /no dist-tags\.latest/);
+    assert.match(shape.message, /no semver dist-tags\.latest/);
   });
 });
 
@@ -680,4 +683,81 @@ describe('update is on no host surface', () => {
     assert.match(res.stdout, /Claude Code: claude plugin marketplace update antigravity, then claude plugin update/);
     assert.match(res.stdout, /Codex CLI: not found on PATH/);
   });
+});
+
+describe('update rejects untrusted shell operands', () => {
+  for (const latest of ['1.2.0&calc', 'x', '', '1.2.0\n', null, 123]) {
+    it('rejects registry latest ' + JSON.stringify(latest), async () => {
+      await assert.rejects(fetchLatestVersion(fakeFetch({ latest })), {
+        message: 'registry answer has no semver dist-tags.latest (' + JSON.stringify(latest) + ')',
+      });
+    });
+  }
+
+  it('accepts prerelease and build metadata in a registry version', async () => {
+    assert.equal(await fetchLatestVersion(fakeFetch({ latest: '1.2.0-rc.1+build.2' })), '1.2.0-rc.1+build.2');
+  });
+
+  it('ignores a cached latest that is not semver', () => {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify({ latest: 'x', checkedAt: new Date(NOW).toISOString() }));
+    assert.equal(readUpdateCache(cacheFile), null);
+  });
+
+  it('prefers a native exe over a cmd in the same PATH directory', () => {
+    stubPath(tmp, ['codex.cmd', 'codex.exe']);
+    assert.equal(findOnPath('codex', { env: { PATH: tmp }, platform: 'win32' }), path.join(tmp, 'codex.exe'));
+  });
+
+  it('prefers a native exe even when a cmd occurs earlier on PATH', () => {
+    const native = path.join(tmp, 'native');
+    fs.mkdirSync(native);
+    stubPath(tmp, ['codex.cmd']);
+    stubPath(native, ['codex.exe']);
+    assert.equal(findOnPath('codex', { env: { PATH: tmp + path.delimiter + native }, platform: 'win32' }), path.join(native, 'codex.exe'));
+  });
+
+  it('fails an injected cmd argument without spawning or emitting DEP0190', { skip: process.platform !== 'win32' }, async () => {
+    const command = path.join(tmp, 'harmless.cmd');
+    const marker = path.join(tmp, 'injected.txt');
+    fs.writeFileSync(command, '@echo off\r\nexit /b 0\r\n');
+    const operand = '1.2.0&echo injected>' + marker;
+    const warnings = [];
+    const onWarning = warning => warnings.push(warning.code);
+    process.on('warning', onWarning);
+    let outcome;
+    const output = [];
+    try {
+      outcome = applyPlan([{ command, args: [operand] }, { command, args: [] }], {
+        runner: defaultRunner, write: text => output.push(text), cwd: tmp,
+      });
+      await new Promise(resolve => setImmediate(resolve));
+    } finally { process.off('warning', onWarning); }
+    assert.equal(outcome.ok, false);
+    assert.deepEqual(outcome.steps, [{ command, args: [operand], status: 1 }]);
+    assert.equal(outcome.message, command + ': refusing to pass ' + JSON.stringify(operand) + ' through cmd.exe; stopped, nothing after this step was run.');
+    assert.equal(output.length, 1);
+    assert.equal(fs.existsSync(marker), false);
+    assert.ok(!warnings.includes('DEP0190'));
+  });
+
+  it('refuses shell syntax in a batch command path', { skip: process.platform !== 'win32' }, () => {
+    const dir = path.join(tmp, 'bin&echo.TOKEN&rem');
+    fs.mkdirSync(dir);
+    const command = path.join(dir, 'harmless.cmd');
+    fs.writeFileSync(command, '@echo off\r\nexit /b 0\r\n');
+    const result = defaultRunner({ command, args: [], cwd: tmp, capture: true });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(result.error.message, 'refusing to pass ' + JSON.stringify(command) + ' through cmd.exe');
+  });
+
+  for (const operand of ['a&b', 'a|b', 'a<b', 'a>b', 'a^b', 'a%b', 'a!b', 'a"b', 'a\rb', 'a\nb']) {
+    it('refuses batch operand ' + JSON.stringify(operand), { skip: process.platform !== 'win32' }, () => {
+      const result = defaultRunner({ command: path.join(tmp, 'unused.bat'), args: [operand], cwd: tmp, capture: true });
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.equal(result.error.message, 'refusing to pass ' + JSON.stringify(operand) + ' through cmd.exe');
+    });
+  }
 });

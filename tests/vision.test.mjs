@@ -5,11 +5,8 @@
  * imported, following the pattern in tests/job-helpers.test.mjs) so no real
  * `agy` binary is ever spawned.
  *
- * Note: args.parseCommandInput splits a LONE argv element through the
- * raw-string heuristic (for Claude Code's single-blob $ARGUMENTS) only when
- * it contains whitespace; a lone whitespace-free token — e.g. a bare Windows
- * image path — passes through intact. Regression coverage for that lives in
- * tests/args-lone-element.test.mjs.
+ * Argument boundaries, including lone image paths with spaces, are covered
+ * by tests/args-lone-element.test.mjs.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';

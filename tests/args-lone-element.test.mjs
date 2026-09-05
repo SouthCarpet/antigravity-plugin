@@ -1,64 +1,54 @@
-/**
- * Regression tests for parseCommandInput's lone-element handling.
- *
- * A single argv element with no whitespace must NOT be routed through
- * splitRawArgumentString: its backslash-escape grammar would corrupt
- * Windows paths (`C:\shots\a.png` → `C:shotsa.png`), which is exactly the
- * simplest real invocation `/antigravity:vision <path>`.
- */
+/** Argument boundaries supplied by a host or shell are authoritative. */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-
 import { parseCommandInput } from "../scripts/lib/args.mjs";
 
-describe("parseCommandInput lone-element handling", () => {
-  it("preserves backslashes in a lone whitespace-free Windows path", () => {
-    const { options, positionals } = parseCommandInput(
-      ["C:\\Users\\Public\\shot.png"],
-      { valueOptions: ["prompt", "model", "cwd"], booleanOptions: ["json"] },
-    );
-    assert.deepEqual(positionals, ["C:\\Users\\Public\\shot.png"]);
-    assert.deepEqual(options, {});
+const schema = {
+  valueOptions: ["prompt", "mode"],
+  repeatableOptions: ["add-dir"],
+  booleanOptions: ["foreground", "json"],
+};
+
+describe("parseCommandInput preserves argv boundaries", () => {
+  it("keeps flag-like words in a lone prompt", () => {
+    assert.deepEqual(parseCommandInput(["Explain --mode accept-edits"], schema), {
+      positionals: ["Explain --mode accept-edits"], options: {},
+    });
   });
 
-  it("still splits a lone raw string that contains whitespace and flags", () => {
-    const { options, positionals } = parseCommandInput(
-      ['shot.png --prompt "what is this"'],
-      { valueOptions: ["prompt"], booleanOptions: ["json"] },
-    );
-    assert.deepEqual(positionals, ["shot.png"]);
-    assert.equal(options.prompt, "what is this");
+  it("keeps embedded mode and directory flags in a two-element argv prompt", () => {
+    assert.deepEqual(parseCommandInput([
+      "Explain --mode accept-edits --add-dir C:/x", "--foreground",
+    ], schema), {
+      positionals: ["Explain --mode accept-edits --add-dir C:/x"],
+      options: { foreground: true },
+    });
   });
 
-  it("still splits a lone multi-positional raw string", () => {
-    const { positionals } = parseCommandInput(["before.png after.png"], {});
-    assert.deepEqual(positionals, ["before.png", "after.png"]);
+  it("keeps a shell-quoted Windows image path with spaces as one positional", () => {
+    assert.deepEqual(parseCommandInput(["C:\\Program Files\\shot.png"], schema), {
+      positionals: ["C:\\Program Files\\shot.png"], options: {},
+    });
   });
 
-  it("passes multi-element argv through untouched (existing behavior)", () => {
-    const { options, positionals } = parseCommandInput(
-      ["C:\\a\\b.png", "--json"],
-      { booleanOptions: ["json"] },
-    );
-    assert.deepEqual(positionals, ["C:\\a\\b.png"]);
-    assert.equal(options.json, true);
+  it("keeps two shell-quoted image paths intact alongside flags", () => {
+    assert.deepEqual(parseCommandInput([
+      "C:\\before shots\\a.png", "C:\\after shots\\b.png", "--json",
+    ], schema), {
+      positionals: ["C:\\before shots\\a.png", "C:\\after shots\\b.png"],
+      options: { json: true },
+    });
   });
 
-  it("keeps a quoted space-bearing Windows path byte-intact as one positional", () => {
-    const { options, positionals } = parseCommandInput(
-      ['"C:\\Program Files\\shot.png"'],
-      { valueOptions: ["prompt"], booleanOptions: ["json"] },
-    );
-    assert.deepEqual(positionals, ["C:\\Program Files\\shot.png"]);
-    assert.deepEqual(options, {});
+  it("preserves empty argv elements and literal quote characters", () => {
+    assert.deepEqual(parseCommandInput(["", 'say "hi"'], schema), {
+      positionals: ["", 'say "hi"'], options: {},
+    });
   });
 
-  it("keeps a quoted space-bearing Windows path intact alongside a following flag", () => {
-    const { options, positionals } = parseCommandInput(
-      ['"C:\\Program Files\\a.png" --prompt "two words"'],
-      { valueOptions: ["prompt"], booleanOptions: ["json"] },
-    );
-    assert.deepEqual(positionals, ["C:\\Program Files\\a.png"]);
-    assert.equal(options.prompt, "two words");
+  it("preserves flag-like words after the terminator", () => {
+    assert.deepEqual(parseCommandInput(["--", "explain", "--verbose"], schema), {
+      positionals: ["explain", "--verbose"], options: {},
+    });
   });
 });

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Updates reject invalid registry/cache versions and unsafe Windows batch
+  command paths or arguments; native executables take precedence over shims.
+- Background jobs reject stored agy flags other than the supported mode
+  pair before starting agy, marking tampered requests as failed.
+
+### Changed
+
+- Quoted prompts and image paths retain their argument boundaries, so prompt
+  words cannot select permission modes or extra directories; unknown flags
+  now exit 1 with guidance to put prompt text after `--`, and review rejects
+  unknown or option-like base refs before comparing commits.
+
 ## [1.1.3] — 2026-09-04
 
 ### Changed

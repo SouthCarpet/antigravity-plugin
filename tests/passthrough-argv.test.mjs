@@ -27,6 +27,7 @@ const BIN = path.join(REPO_ROOT, 'bin', 'antigravity.mjs');
 
 let stubDir;
 let echoAgy;
+let successAgy;
 const cleanup = [];
 
 before(() => {
@@ -34,6 +35,10 @@ before(() => {
   // versionOk: the verbs probe `agy --version` first; this fake must pass
   // that probe and fail only the run.
   echoAgy = writeFakeAgy(stubDir, 'agy-echo', { echoArgsStderr: true, exitCode: 1, versionOk: true });
+  successAgy = writeFakeAgy(stubDir, 'agy-success', {
+    stdout: '{"event":"result","result":{"status":"SUCCESS","response":"done"}}\n',
+    echoArgsStderr: true, exitCode: 0, versionOk: true,
+  });
 });
 
 after(() => {
@@ -159,7 +164,43 @@ describe('vision --add-dir is rejected before any spawn', () => {
     fs.writeFileSync(img, 'not-a-real-png');
     const res = runVerb(['vision', img, '--add-dir', 'C:\\scope'], makeEnv(data), work);
     assert.equal(res.status, 1, res.stderr);
-    assert.match(res.stderr, /antigravity:vision — vision does not take --add-dir/);
+    assert.match(res.stderr, /antigravity:vision — unknown flag --add-dir; put prompt text after --/);
     assert.deepEqual(argvOf(res.stderr), [], 'agy must not be spawned');
+  });
+});
+
+describe('standalone argv boundaries', () => {
+  it('persists a quoted prompt containing --mode without granting that mode', () => {
+    const { work, data } = freshDirs();
+    const env = { ...makeEnv(data), AGY_BIN: successAgy };
+    const res = runVerb(['task', 'Explain --mode accept-edits', '--foreground', '--json'], env, work);
+    assert.equal(res.status, 0, res.stderr);
+    const { jobId } = JSON.parse(res.stdout);
+    const records = fs.readdirSync(data, { recursive: true }).filter(file => file.endsWith(jobId + '.json'));
+    assert.equal(records.length, 1);
+    const stored = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
+    assert.equal(stored.request.prompt, 'Explain --mode accept-edits');
+    assert.ok(!argvOf(stored.result.stderr).includes('--mode'));
+  });
+
+  it('vision accepts a shell-quoted image path with spaces', () => {
+    const { work, data } = freshDirs();
+    const img = path.join(work, 'screen shot.png');
+    fs.writeFileSync(img, 'not-a-real-png');
+    const res = runVerb(['vision', img, '--json'], { ...makeEnv(data), AGY_BIN: successAgy }, work);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(JSON.parse(res.stdout).command, 'vision');
+    assert.deepEqual(JSON.parse(res.stdout).imagePaths, [img]);
+  });
+
+  it('keeps flag-like prompt words after -- through the standalone CLI', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['task', '--foreground', '--json', '--', 'explain', '--verbose'], { ...makeEnv(data), AGY_BIN: successAgy }, work);
+    assert.equal(res.status, 0, res.stderr);
+    const { jobId } = JSON.parse(res.stdout);
+    const records = fs.readdirSync(data, { recursive: true }).filter(file => file.endsWith(jobId + '.json'));
+    assert.equal(records.length, 1);
+    const stored = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
+    assert.equal(stored.request.prompt, 'explain --verbose');
   });
 });

@@ -22,9 +22,10 @@ invocation. After install the binary name remains `antigravity-plugin`.
 
 Documented value flags require a following token. `--` ends flag parsing.
 Repeating a scalar value flag uses its last value; repeating `--add-dir`
-preserves all values. Unknown flags and undocumented extra positionals may be
-ignored by the current parser, but are not public behavior and may become
-errors in 1.x.
+preserves all values. Unknown flags return exit 1 with
+`antigravity:<verb> — unknown flag --<name>; put prompt text after --`.
+Put prompt words that begin with `--` after the `--` terminator. Undocumented
+extra positionals may be ignored and may become errors in 1.x.
 
 `--cwd <path>` changes the working directory used to resolve the workspace on
 every verb except `setup`. A Git repository root is used when one can be
@@ -87,7 +88,9 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
 - `auto` chooses the working tree when staged, unstaged, or untracked files
   are detected. Otherwise it compares HEAD with local `main`, then local
   `master`; if neither exists, it falls back to the working tree.
-- `--base <ref>` is currently honored only with `--scope branch`.
+- `--base <ref>` must resolve to a commit; an unknown ref (including one
+  starting with `-`) returns exit 1 with `antigravity:review — unknown base ref <ref>`.
+  The comparison uses the base only with `--scope branch`.
   `--scope branch` without `--base` falls back to a working-tree review.
   This is current implementation behavior, despite the shorter standalone
   help text implying that `--base` alone selects a branch diff.
@@ -333,7 +336,9 @@ reads the running version, asks the npm registry for the latest version
 
 `--apply` runs those commands for the hosts that are present, and prints each
 command before it runs it. It stops a host at the first failing step and
-exits 1.
+exits 1. On Windows, `update --apply` refuses a `.cmd`/`.bat` step before
+spawning when its command path or any argument contains `&`, `|`, `<`, `>`,
+`^`, `%`, `!`, `"`, or a carriage return/newline.
 
 Per host, `--apply` does this:
 

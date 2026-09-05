@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { portableTmpRoot, assertNotGitWorkTree } from './helpers/tmp.mjs';
-import { parseArgs, splitRawArgumentString, parseCommandInput } from '../scripts/lib/args.mjs';
+import { parseArgs, parseCommandInput } from '../scripts/lib/args.mjs';
 import { readJsonFile, isProbablyText, readFileSafe } from '../scripts/lib/fs.mjs';
 import { runCommand, runCommandChecked, formatCommandFailure } from '../scripts/lib/process.mjs';
 import {
@@ -64,13 +64,6 @@ describe('args.parseArgs', () => {
     assert.deepEqual(out.positionals, ['pos1', '--literal', 'pos2']);
   });
 
-  it('infers value vs boolean for unknown flags', () => {
-    const explicit = parseArgs(['--unknown', 'value', '--bool', '--next'], {});
-    assert.equal(explicit.options.unknown, 'value');
-    assert.equal(explicit.options.bool, true);
-    assert.equal(explicit.options.next, true);
-  });
-
   it('rejects a value flag with no following arg, naming the flag', () => {
     assert.throws(
       () => parseArgs(['--scope'], { valueOptions: ['scope'] }),
@@ -79,47 +72,14 @@ describe('args.parseArgs', () => {
   });
 });
 
-describe('args.splitRawArgumentString', () => {
-  it('returns [] for empty / non-string input', () => {
-    assert.deepEqual(splitRawArgumentString(''), []);
-    assert.deepEqual(splitRawArgumentString(null), []);
-    assert.deepEqual(splitRawArgumentString(42), []);
-  });
-
-  it('respects single and double quotes', () => {
-    assert.deepEqual(splitRawArgumentString('a "b c" d'), ['a', 'b c', 'd']);
-    assert.deepEqual(splitRawArgumentString("'x y' z"), ['x y', 'z']);
-  });
-
-  it('treats backslash as a literal character (no escape mechanism)', () => {
-    assert.deepEqual(splitRawArgumentString('a\\ b c'), ['a\\', 'b', 'c']);
-    assert.deepEqual(splitRawArgumentString('"C:\\Program Files\\shot.png"'), [
-      'C:\\Program Files\\shot.png',
-    ]);
-  });
-
-  it('handles trailing token and consecutive spaces', () => {
-    assert.deepEqual(splitRawArgumentString('  one   two  '), ['one', 'two']);
-  });
-});
-
 describe('args.parseCommandInput', () => {
-  it('splits a single quoted argv element', () => {
-    const out = parseCommandInput(['--json "hello world"'], { booleanOptions: ['json'] });
-    assert.equal(out.options.json, true);
-    assert.deepEqual(out.positionals, ['hello world']);
-  });
-
   it('passes plain argv through unchanged', () => {
     const out = parseCommandInput(['--json', 'plain'], { booleanOptions: ['json'] });
     assert.equal(out.options.json, true);
     assert.deepEqual(out.positionals, ['plain']);
   });
 
-  it('skips falsy or non-string entries', () => {
-    const out = parseCommandInput(['', null, undefined, 42, 'foo'], {});
-    assert.deepEqual(out.positionals, ['foo']);
-  });
+
 });
 
 // ───────────────────────────── fs ─────────────────────────────

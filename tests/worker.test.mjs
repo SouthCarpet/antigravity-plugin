@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
 const TMPROOT = os.tmpdir();
@@ -52,65 +53,118 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
 const { ensureStateDir, upsertJob, writeJobFile, readJobFile } = await import('../scripts/lib/state.mjs');
 
 describe('_worker.mjs background job completion', () => {
-  it('persists usage, durationSeconds, and agyConversationId on the job record', async () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-'));
-    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+  for (const extraArgs of [undefined, [], ['--mode', 'plan'], ['--mode', 'accept-edits']]) {
+    it('accepts stored ' + JSON.stringify(extraArgs) + ' and persists completion metadata', async () => {
+      const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-'));
+      const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-data-'));
+      const jobId = 'job' + randomBytes(3).toString('hex');
 
-    const origCwd = process.cwd();
-    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
-    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
-    const origArgv = process.argv;
+      const origCwd = process.cwd();
+      const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+      const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+      const origArgv = process.argv;
 
-    process.env.CLAUDE_PLUGIN_DATA = dataDir;
-    process.chdir(workspaceRoot);
+      process.env.CLAUDE_PLUGIN_DATA = dataDir;
+      process.chdir(workspaceRoot);
 
-    ensureStateDir(workspaceRoot);
-    await upsertJob(workspaceRoot, {
-      id: jobId,
-      kind: 'task',
-      status: 'queued',
-      phase: 'queued',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      ensureStateDir(workspaceRoot);
+      await upsertJob(workspaceRoot, {
+        id: jobId,
+        kind: 'task',
+        status: 'queued',
+        phase: 'queued',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await writeJobFile(workspaceRoot, jobId, {
+        id: jobId,
+        status: 'queued',
+        request: { prompt: 'hello', mode: 'print', addDirs: [], extraArgs },
+        result: null,
+      });
+
+      let resolveExit;
+      const exited = new Promise((resolve) => {
+        resolveExit = resolve;
+      });
+      const exitMock = mock.method(process, 'exit', (code) => {
+        resolveExit(code);
+      });
+      process.argv = [origArgv[0], origArgv[1], jobId];
+
+      let stored;
+      try {
+        await import('../scripts/commands/_worker.mjs?args=' + encodeURIComponent(JSON.stringify(extraArgs)));
+        await exited;
+        // Read back while CLAUDE_PLUGIN_DATA still points at the throwaway
+        // dataDir — readJobFile resolves the state root from that env var.
+        stored = readJobFile(workspaceRoot, jobId);
+      } finally {
+        process.chdir(origCwd);
+        process.argv = origArgv;
+        if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+        else delete process.env.CLAUDE_PLUGIN_DATA;
+        exitMock.mock.restore();
+      }
+
+      assert.ok(stored, 'job file should exist after worker completion');
+      assert.equal(stored.status, 'completed');
+      assert.equal(stored.workerPid, process.pid);
+      assert.equal(stored.agyPid, 7331);
+      assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
+      assert.equal(stored.result.durationSeconds, 3.5);
+      assert.equal(stored.result.agyConversationId, 'conv-123');
     });
-    await writeJobFile(workspaceRoot, jobId, {
-      id: jobId,
-      status: 'queued',
-      request: { prompt: 'hello', mode: 'print', addDirs: [] },
-      result: null,
-    });
+  }
+});
 
-    let resolveExit;
-    const exited = new Promise((resolve) => {
-      resolveExit = resolve;
+describe('worker persisted-request allowlist', () => {
+  const cases = [
+    { extraArgs: ['--dangerously-skip-permissions'], flag: '--dangerously-skip-permissions' },
+    { extraArgs: ['--mode', 'yolo'], flag: '--mode' },
+    { extraArgs: ['--mode'], flag: '--mode' },
+    { extraArgs: ['--mode', 'plan', '--add-dir', 'C:/extra'], flag: '--add-dir' },
+    { extraArgs: ['--mode', 'plan', '--mode', 'accept-edits'], flag: '--mode' },
+    { extraArgs: '--dangerously-skip-permissions', flag: '--dangerously-skip-permissions' },
+    { extraArgs: null, flag: 'null' },
+    { extraArgs: {}, flag: '[object Object]' },
+  ];
+  for (const { extraArgs, flag } of cases) {
+    it('fails stored ' + JSON.stringify(extraArgs) + ' before the owned process adapter spawns', () => {
+      const workspace = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-reject-'));
+      const data = path.join(workspace, 'data');
+      const script = `
+        import { mock } from 'node:test';
+        const state = await import(${JSON.stringify(new URL('../scripts/lib/state.mjs', import.meta.url).href)});
+        let spawns = 0;
+        mock.module(${JSON.stringify(new URL('../scripts/lib/process-adapter.mjs', import.meta.url).href)}, {
+          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); } },
+        });
+        const workspace = process.cwd();
+        const jobId = 'stored-request';
+        state.ensureStateDir(workspace);
+        await state.upsertJob(workspace, { id: jobId, kind: 'task', status: 'queued' });
+        await state.writeJobFile(workspace, jobId, {
+          id: jobId, kind: 'task', status: 'queued',
+          request: { prompt: 'hello', extraArgs: ${JSON.stringify(extraArgs)} },
+        });
+        process.argv[2] = jobId;
+        process.on('exit', () => {
+          process.stdout.write(JSON.stringify({ spawns, stored: state.readJobFile(workspace, jobId) }));
+        });
+        await import(${JSON.stringify(new URL('../scripts/commands/_worker.mjs', import.meta.url).href)});
+      `;
+      try {
+        const result = spawnSync(process.execPath, ['--no-warnings', '--experimental-test-module-mocks', '--input-type=module', '-e', script], {
+          encoding: 'utf8', cwd: workspace, env: { ...process.env, CLAUDE_PLUGIN_DATA: data },
+        });
+        assert.equal(result.status, 1, result.stderr);
+        const { stored, spawns } = JSON.parse(result.stdout);
+        assert.equal(spawns, 0);
+        assert.equal(stored.status, 'failed');
+        assert.equal(stored.healthStatus, 'failed');
+        assert.equal(stored.errorMessage, 'stored request carries an unsupported agy flag: ' + flag);
+      } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
     });
-    const exitMock = mock.method(process, 'exit', (code) => {
-      resolveExit(code);
-    });
-    process.argv = [origArgv[0], origArgv[1], jobId];
-
-    let stored;
-    try {
-      await import('../scripts/commands/_worker.mjs');
-      await exited;
-      // Read back while CLAUDE_PLUGIN_DATA still points at the throwaway
-      // dataDir — readJobFile resolves the state root from that env var.
-      stored = readJobFile(workspaceRoot, jobId);
-    } finally {
-      process.chdir(origCwd);
-      process.argv = origArgv;
-      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
-      else delete process.env.CLAUDE_PLUGIN_DATA;
-      exitMock.mock.restore();
-    }
-
-    assert.ok(stored, 'job file should exist after worker completion');
-    assert.equal(stored.status, 'completed');
-    assert.equal(stored.workerPid, process.pid);
-    assert.equal(stored.agyPid, 7331);
-    assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
-    assert.equal(stored.result.durationSeconds, 3.5);
-    assert.equal(stored.result.agyConversationId, 'conv-123');
-  });
+  }
 });

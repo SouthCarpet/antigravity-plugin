@@ -98,6 +98,12 @@ absolute paths named on that command, then starts agy. The MCP server:
 
 Users should not set `ANTIGRAVITY_VISION_ALLOWED_PATHS` globally.
 
+### `update --apply`
+
+On Windows, the update runner refuses a `.cmd`/`.bat` step before spawning
+when its command path or any argument contains `&`, `|`, `<`, `>`, `^`, `%`,
+`!`, `"`, or a carriage return/newline.
+
 ### What this plugin passes to agy, and when
 
 This plugin does not talk to Google itself. Delegated verbs spawn `agy` and
