@@ -92,16 +92,32 @@ function setPluginDataEnv(dir) {
   process.env.ANTIGRAVITY_PLUGIN_SESSION_ID = 'test-session-' + randomBytes(3).toString('hex');
 }
 
-function captureStdio() {
+function captureStdio({ pluginOnly = false } = {}) {
   const out = [];
   const err = [];
   const origStdout = process.stdout.write.bind(process.stdout);
   const origStderr = process.stderr.write.bind(process.stderr);
   process.stdout.write = (chunk, ...rest) => {
+    if (pluginOnly) {
+      // While a command yields, node:test reports binary frames on stdout.
+      // Forward those frames so the runner still receives every test result.
+      try {
+        const payload = JSON.parse(chunk.toString());
+        if (payload?.schemaVersion !== 1 || typeof payload.command !== 'string') {
+          return origStdout(chunk, ...rest);
+        }
+      } catch {
+        return origStdout(chunk, ...rest);
+      }
+    }
     out.push(typeof chunk === 'string' ? chunk : chunk.toString());
     return true;
   };
   process.stderr.write = (chunk, ...rest) => {
+    // Forward Node's asynchronous warnings; retain the plugin's diagnostics.
+    if (pluginOnly && !chunk.toString().startsWith('antigravity:')) {
+      return origStderr(chunk, ...rest);
+    }
     err.push(typeof chunk === 'string' ? chunk : chunk.toString());
     return true;
   };
@@ -701,7 +717,7 @@ describe('/antigravity:task argv parsing', () => {
     const { run } = await import('../scripts/commands/task.mjs');
     const { startBackgroundJob } = await import('../scripts/lib/job-helpers.mjs');
     let alive = true;
-    const cap = captureStdio();
+    const cap = captureStdio({ pluginOnly: true });
     let code;
     try {
       code = await run(['--json', 'do work'], {
@@ -720,7 +736,7 @@ describe('/antigravity:task argv parsing', () => {
     } finally { cap.restore(); }
     assert.equal(code, 1);
     assert.equal(alive, false);
-    assert.equal(cap.out.join(''), '');
+    assert.deepEqual(cap.out, []);
     assert.equal(cap.err.join(''), 'antigravity:task — failed: Worker launch failed: PID write failed\n');
   });
   it('--json wraps the foreground model answer', async () => {
