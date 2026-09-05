@@ -21,12 +21,10 @@ import {
   resolveAgyBin,
   probeAgy,
   runAgyPrint,
-  spawnAgyDetached,
   DEFAULT_AGY_BIN,
 } from '../scripts/lib/agent-runtime.mjs';
 import { writeFakeAgy } from './helpers/fake-agy.mjs';
 import { removeTestDir } from './helpers/tmp.mjs';
-import { once } from 'node:events';
 
 const TMPROOT = os.tmpdir();
 let stubDir;
@@ -230,30 +228,5 @@ describe('runAgyPrint', () => {
     assert.match(conv.stdout, /arg=--add-dir/);
     assert.match(conv.stdout, /arg=\/extra/);
     assert.doesNotMatch(conv.stdout, /arg=p2$/m);
-  });
-});
-
-describe('spawnAgyDetached', () => {
-  it('returns a child process and supports continue/conversation modes', async () => {
-    const bin = writeFakeAgy(stubDir, 'agy-detached', {});
-    const c1 = spawnAgyDetached({ prompt: 'p', bin });
-    assert.ok(c1.pid);
-    c1.ref();
-    const done1 = once(c1, 'close');
-
-    const c2 = spawnAgyDetached({ prompt: 'p', mode: 'continue', bin });
-    assert.ok(c2.pid);
-    c2.ref();
-    const done2 = once(c2, 'close');
-
-    const c3 = spawnAgyDetached({ prompt: 'p', mode: 'conversation', conversationId: 'x', addDirs: ['/d'], bin });
-    assert.ok(c3.pid);
-    c3.ref();
-    const done3 = once(c3, 'close');
-    await Promise.all([done1, done2, done3]);
-  });
-
-  it('throws when conversation mode lacks an id', () => {
-    assert.throws(() => spawnAgyDetached({ prompt: 'p', mode: 'conversation' }), /conversationId required/);
   });
 });

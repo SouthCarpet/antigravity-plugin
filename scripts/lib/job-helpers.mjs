@@ -2,18 +2,17 @@
  * job-helpers — shared helpers for command modules.
  *
  * Provides job id minting, foreground/background tracking glue, and stdout
- * persistence around `runAgyPrint` / `spawnAgyDetached`. The prompt travels
- * to `agy` over stdin as a single stream-json line, not argv (see
- * agent-runtime.mjs); the response streams back as NDJSON events, and
- * readable text arrives incrementally via `step_update.text_delta` events
- * (surfaced here through the `onText` callback) rather than as one final
- * blob.
+ * persistence around `runAgyPrint`. The prompt travels to `agy` over stdin
+ * as a single stream-json line, not argv (see agent-runtime.mjs); the
+ * response streams back as NDJSON events, and readable text arrives
+ * incrementally via `step_update.text_delta` events (surfaced here through
+ * the `onText` callback) rather than as one final blob.
  */
 
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { runAgyPrint, spawnAgyDetached, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
+import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
@@ -24,6 +23,7 @@ import {
 import { SESSION_ID_ENV } from "./job-control.mjs";
 import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
+import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "./render.mjs";
 
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
 export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -146,9 +146,17 @@ export function applyDenialHint(result, kind) {
  * Map a `runAgyPrint` result.status onto a job status persisted on disk.
  *
  * `auth_required` and `timeout` are surfaced as `failed` with a diagnostic
- * `healthStatus` set so the status command can render the OAuth URL.
+ * `healthStatus` set so the status command can render the OAuth URL. The
+ * one mapping used by both the foreground path (below) and the background
+ * worker (`_worker.mjs`) — before 076-T6 the worker had its own simpler
+ * copy that skipped the `timeout` case's retry hint (item 16).
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {string} kind
+ * @returns {{ status: import('./types.mjs').JobStatus, healthStatus?: import('./types.mjs').HealthStatus,
+ *   healthMessage?: string, recommendedAction?: string | null }}
  */
-function deriveJobStatus(result, kind) {
+export function deriveJobStatus(result, kind) {
   switch (result.status) {
     case "completed":
       return { status: "completed" };
@@ -192,6 +200,11 @@ function deriveJobStatus(result, kind) {
  *
  * Returns the job index entry. The detailed payload (request, result,
  * stdout) lives in the per-job file written via `writeJobFile`.
+ *
+ * @param {{ workspaceRoot: string, kind: import('./types.mjs').JobKind,
+ *   title?: string | null, request?: import('./types.mjs').JobRequest | null,
+ *   conversationId?: string | null, env?: NodeJS.ProcessEnv }} options
+ * @returns {Promise<import('./types.mjs').JobIndexEntry>}
  */
 export async function createTrackedJob({
   workspaceRoot,
@@ -230,7 +243,14 @@ export async function createTrackedJob({
   return job;
 }
 
-/** Patch and persist a job index + file. */
+/**
+ * Patch and persist a job index + file.
+ *
+ * @param {string} workspaceRoot the resolved workspace root
+ * @param {string} jobId
+ * @param {Partial<import('./types.mjs').JobRecord>} patch
+ * @returns {Promise<import('./types.mjs').JobRecord>}
+ */
 export async function patchJob(workspaceRoot, jobId, patch) {
   return patchJobState(workspaceRoot, jobId, patch, stripDetail(patch));
 }
@@ -247,7 +267,10 @@ function stripDetail(patch) {
  * The job is created with status=queued, transitioned to running, and
  * resolved to completed/failed/cancelled based on the runAgyPrint result.
  *
- * @returns {Promise<{ job: any, result: any }>}
+ * @param {import('./types.mjs').ProcessRequest & { workspaceRoot: string,
+ *   kind: string, title?: string | null, request?: object | null,
+ *   env?: NodeJS.ProcessEnv }} options
+ * @returns {Promise<{ job: import('./types.mjs').JobRecord, result: import('./types.mjs').RuntimeResult }>}
  */
 export async function runForegroundJob({
   workspaceRoot,
@@ -341,16 +364,7 @@ export async function runForegroundJob({
     healthStatus: derived.healthStatus ?? null,
     healthMessage: derived.healthMessage ?? null,
     recommendedAction: derived.recommendedAction ?? null,
-    result: {
-      rawOutput: result.stdout,
-      stderr: result.stderr,
-      status: result.status,
-      exitCode: result.exitCode,
-      oauthUrl: result.oauthUrl ?? null,
-      usage: result.usage ?? null,
-      durationSeconds: result.durationSeconds ?? null,
-      warnings: result.warnings ?? [],
-    },
+    result: buildStoredResult(result),
   });
   appendJobLog(
     workspaceRoot,
@@ -358,6 +372,82 @@ export async function runForegroundJob({
     `[job] ${derived.status} exit=${result.exitCode} status=${result.status}`,
   );
   return { job: { ...job, status: derived.status }, result };
+}
+
+/**
+ * The `result` field persisted on a job record once a run reaches a
+ * terminal state — the one stored-result projection used by both the
+ * foreground path above and the background worker (`_worker.mjs`); before
+ * 076-T6 each hand-wrote its own copy and only the worker's stored
+ * `agyConversationId` (item 16).
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {import('./types.mjs').JobResult}
+ */
+export function buildStoredResult(result) {
+  return {
+    rawOutput: result.stdout,
+    stderr: result.stderr,
+    status: result.status,
+    exitCode: result.exitCode,
+    oauthUrl: result.oauthUrl ?? null,
+    usage: result.usage ?? null,
+    durationSeconds: result.durationSeconds ?? null,
+    agyConversationId: result.agyConversationId ?? null,
+    warnings: result.warnings ?? [],
+  };
+}
+
+/**
+ * The shared foreground tail: auth-required print, failure print, warnings,
+ * the stable `--json` envelope, and the exit code. `review.mjs`,
+ * `rescue.mjs`, `task.mjs` and `vision.mjs` each hand-wrote this same
+ * sequence after `runForegroundJob` resolves, differing only in their
+ * `details`/top-level envelope fields (item 16).
+ *
+ * `extraDetails` is merged before `warningDetails(result)` so a caller's
+ * own keys keep their original position and a warning can never shadow
+ * one; `extraFields` covers additional stable top-level envelope fields
+ * (only `vision`'s `imagePaths`/`model`, docs/COMPATIBILITY.md); a
+ * `beforeAnswer` callback runs right after `reportWarnings` and before the
+ * envelope is built, for `vision`'s measured-usage trailer print, which no
+ * other verb has.
+ *
+ * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
+ * @param {{ id: string }} job
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void }} [options]
+ * @returns {number} the verb's exit code
+ */
+export function finishForeground(kind, job, result, { json, extraDetails = {}, extraFields = {}, beforeAnswer } = {}) {
+  if (result.status === "auth_required") {
+    process.stderr.write(
+      `\nantigravity:${kind} — Antigravity is not authenticated.\n` +
+        `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
+    );
+    if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
+    return 1;
+  }
+  if (result.status !== "completed") {
+    process.stderr.write(`\n${foregroundFailureLine(kind, result)}\n`);
+    if (result.stderr) process.stderr.write(result.stderr);
+    return result.status === "cancelled" ? 2 : 1;
+  }
+
+  reportWarnings(kind, result);
+  beforeAnswer?.();
+  outputCommandResult(
+    createJsonEnvelope(kind, {
+      status: "completed",
+      jobId: job.id,
+      answer: result.stdout,
+      ...extraFields,
+      details: { ...extraDetails, ...warningDetails(result) },
+    }),
+    result.stdout,
+    Boolean(json),
+  );
+  return 0;
 }
 
 /**
@@ -382,6 +472,13 @@ export function resolveWorkerPath() {
  *
  * The worker script lives at scripts/commands/_worker.mjs and is invoked as
  * `node <worker.mjs> <jobId>`.
+ *
+ * @param {import('./types.mjs').ProcessRequest & { workspaceRoot: string,
+ *   kind: import('./types.mjs').JobKind, title?: string | null,
+ *   request?: object | null, env?: NodeJS.ProcessEnv,
+ *   spawnWorker?: typeof spawn, persistWorkerPid?: typeof patchJob,
+ *   terminateTree?: typeof terminateProcessTree }} options
+ * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
  */
 export async function startBackgroundJob({
   workspaceRoot,
@@ -460,6 +557,12 @@ export async function startBackgroundJob({
  * Polls at `pollMs` (default 1000ms). Returns the latest job record. The
  * default 30-minute deadline prevents an unbounded wait; pass 0 explicitly
  * only when another supervisor owns the deadline.
+ *
+ * @param {string} workspaceRoot the resolved workspace root
+ * @param {string} jobId
+ * @param {{ pollMs?: number, timeoutMs?: number, isProcessAlive?: typeof processIsAlive,
+ *   now?: () => number, sleep?: (ms: number) => Promise<void> }} [options]
+ * @returns {Promise<import('./types.mjs').JobRecord | null>}
  */
 export async function waitForJob(
   workspaceRoot,
@@ -497,18 +600,34 @@ export async function waitForJob(
   }
 }
 
-function deriveSummary(result) {
+/**
+ * First non-blank line of a run's stdout, truncated to 120 chars — the one
+ * summary derivation used by both the foreground path and the background
+ * worker (item 16).
+ *
+ * @param {{ stdout?: string | null }} result
+ * @returns {string | null}
+ */
+export function deriveSummary(result) {
   if (!result?.stdout) return null;
   const firstLine = result.stdout.split("\n").map((s) => s.trim()).find(Boolean);
   if (!firstLine) return null;
   return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
 }
 
-function trim(value) {
+/**
+ * The one trimming helper used by both the foreground path and the
+ * background worker to turn a possibly-blank stderr into an
+ * `errorMessage` (item 16).
+ *
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+export function trim(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 
 /** Re-export so command modules can pull everything from one place. */
-export { runAgyPrint, spawnAgyDetached, resolveAgyBin };
+export { runAgyPrint, resolveAgyBin };

@@ -43,3 +43,14 @@ export function resolveWorkspaceRoot(cwd, { ensureGitRepository: ensure = ensure
   workspaceRootCache.set(key, root);
   return root;
 }
+
+/**
+ * Test-only: clear the per-cwd cache so a launch-count assertion starts
+ * cold instead of inheriting a hit from an earlier test's cwd (076-T6 R4;
+ * the missing reset was flagged as a test-isolation footgun in the T4 fix
+ * round 2 re-review). Never called from production code — every real
+ * process starts with an empty cache already.
+ */
+export function resetWorkspaceRootCache() {
+  workspaceRootCache.clear();
+}

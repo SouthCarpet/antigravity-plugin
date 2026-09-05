@@ -1,7 +1,6 @@
 /**
  * Tests added for the vision work: resolveAgyBin platform-shaped resolution,
- * and runAgyPrint / spawnAgyDetached `model` + `extraArgs` spawn-arg
- * placement.
+ * and runAgyPrint `model` + `extraArgs` spawn-arg placement.
  *
  * `scripts/lib/process-adapter.mjs` — the owned seam agent-runtime.mjs
  * spawns through — is faked (installed before agent-runtime.mjs is
@@ -27,8 +26,8 @@ function makeFakeChild() {
   child.stderr = new EventEmitter();
   child.stderr.setEncoding = () => {};
   child.kill = () => {};
-  // stream-json transport: runAgyPrint/spawnAgyDetached always write the
-  // prompt to stdin — a fake child without one throws immediately.
+  // stream-json transport: runAgyPrint always writes the prompt to stdin —
+  // a fake child without one throws immediately.
   child.stdin = new EventEmitter();
   child.stdin.written = '';
   child.stdin.write = (chunk) => { child.stdin.written += chunk; return true; };
@@ -53,7 +52,6 @@ mock.module('../scripts/lib/process-adapter.mjs', {
 const {
   resolveAgyBin,
   runAgyPrint,
-  spawnAgyDetached,
   probeAgy,
   DEFAULT_AGY_BIN,
   assertAgyBinSpawnable,
@@ -187,12 +185,6 @@ describe('assertAgyBinSpawnable — refuse Windows batch shims', () => {
     });
     assert.equal(spawnCalls.length, 0, 'must not spawn a .cmd shim');
 
-    assert.throws(
-      () => spawnAgyDetached({ prompt: 'p', bin: resolved }),
-      /AGY_BIN/,
-    );
-    assert.equal(spawnCalls.length, 0, 'must not spawn a .cmd shim');
-
     const probe = await probeAgy({ bin: resolved });
     assert.equal(probe.ok, false);
     assert.match(probe.reason, /AGY_BIN/);
@@ -257,24 +249,5 @@ describe('runAgyPrint — model + extraArgs spawn-arg placement', () => {
     const { args } = spawnCalls[0];
     assert.equal(args.includes('--model'), false);
     assert.ok(args.indexOf('--flag') < args.indexOf('--print'));
-  });
-});
-
-describe('spawnAgyDetached — model + extraArgs symmetry', () => {
-  it('pushes --model and extraArgs before --print, mirroring runAgyPrint', () => {
-    spawnCalls.length = 0;
-    spawnAgyDetached({ prompt: 'p', bin: 'agy', model: 'm2', extraArgs: ['--flag'] });
-    const { args } = spawnCalls[0];
-    const modelIdx = args.indexOf('--model');
-    const flagIdx = args.indexOf('--flag');
-    const printIdx = args.indexOf('--print');
-    assert.ok(modelIdx > -1 && modelIdx < flagIdx);
-    assert.ok(flagIdx < printIdx);
-  });
-
-  it('omits --model when not given', () => {
-    spawnCalls.length = 0;
-    spawnAgyDetached({ prompt: 'p', bin: 'agy' });
-    assert.equal(spawnCalls[0].args.includes('--model'), false);
   });
 });

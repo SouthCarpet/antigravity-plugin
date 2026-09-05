@@ -15,15 +15,14 @@ import path from 'node:path';
 
 import { portableTmpRoot, assertNotGitWorkTree } from './helpers/tmp.mjs';
 import { parseArgs, parseCommandInput } from '../scripts/lib/args.mjs';
-import { readJsonFile, isProbablyText, readFileSafe } from '../scripts/lib/fs.mjs';
-import { runCommand, runCommandChecked, formatCommandFailure } from '../scripts/lib/process.mjs';
+import { isProbablyText } from '../scripts/lib/fs.mjs';
+import { runCommand, formatCommandFailure } from '../scripts/lib/process.mjs';
 import {
   buildReviewPrompt,
   buildRescuePrompt,
   buildTaskPrompt,
 } from '../scripts/lib/prompt-templates.mjs';
 import {
-  withJobMutex,
   withWorkspaceMutex,
   writeJsonAtomic,
 } from '../scripts/lib/atomic-state.mjs';
@@ -43,7 +42,7 @@ import {
   readJobFile,
   writeJobFile,
   appendJobLog,
-  readJobLog,
+  readLogTail,
   patchJobState,
   validateJobRecord,
 } from '../scripts/lib/state.mjs';
@@ -91,28 +90,10 @@ describe('fs helpers', () => {
   before(() => { tmp = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-fs-')); });
   after(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });
 
-  it('readJsonFile returns parsed object or null on missing/invalid', () => {
-    const valid = path.join(tmp, 'ok.json');
-    fs.writeFileSync(valid, JSON.stringify({ a: 1 }));
-    assert.deepEqual(readJsonFile(valid), { a: 1 });
-
-    const bad = path.join(tmp, 'bad.json');
-    fs.writeFileSync(bad, '{not json');
-    assert.equal(readJsonFile(bad), null);
-    assert.equal(readJsonFile(path.join(tmp, 'missing.json')), null);
-  });
-
   it('isProbablyText flags NULL bytes as binary', () => {
     assert.equal(isProbablyText(Buffer.from('hello world')), true);
     assert.equal(isProbablyText(Buffer.from([0x48, 0x00, 0x69])), false);
     assert.equal(isProbablyText(Buffer.alloc(0)), true);
-  });
-
-  it('readFileSafe returns "" for missing files and contents otherwise', () => {
-    const f = path.join(tmp, 'safe.txt');
-    fs.writeFileSync(f, 'safe');
-    assert.equal(readFileSafe(f), 'safe');
-    assert.equal(readFileSafe(path.join(tmp, 'nope.txt')), '');
   });
 });
 
@@ -130,12 +111,6 @@ describe('process helpers', () => {
     const r = runCommand('definitely-not-a-real-binary-xyz', ['arg']);
     assert.notEqual(r.status, 0);
     assert.ok(r.error || r.status !== 0);
-  });
-
-  it('runCommandChecked throws on non-zero exit and returns stdout otherwise', () => {
-    assert.throws(() => runCommandChecked(process.execPath, ['-e', 'process.exit(2)']));
-    const out = runCommandChecked(process.execPath, ['-e', 'console.log("hi")']);
-    assert.match(out, /hi/);
   });
 
   it('formatCommandFailure includes status and stderr', () => {
@@ -230,22 +205,6 @@ describe('prompt-templates', () => {
 // ───────────────────────────── atomic-state ─────────────────────────────
 
 describe('atomic-state', () => {
-  it('withJobMutex serializes concurrent callers FIFO', async () => {
-    const order = [];
-    const start = (id, ms) =>
-      withJobMutex('/w', 'k', async () => {
-        order.push(`start:${id}`);
-        await new Promise((r) => setTimeout(r, ms));
-        order.push(`end:${id}`);
-      });
-    await Promise.all([start('a', 5), start('b', 1), start('c', 1)]);
-    assert.deepEqual(order, [
-      'start:a', 'end:a',
-      'start:b', 'end:b',
-      'start:c', 'end:c',
-    ]);
-  });
-
   it('withWorkspaceMutex proves no overlap: different keys never block each other', async () => {
     const order = [];
     // Explicit deferred gates instead of a real sleep (TotT R12): 'a' pushes
@@ -379,12 +338,47 @@ describe('state — persistence + reconciliation', () => {
 
     appendJobLog(workCwd, 'j1', 'line one');
     appendJobLog(workCwd, 'j1', 'line two');
-    const log = readJobLog(workCwd, 'j1');
+    const log = readLogTail(resolveJobLogFile(workCwd, 'j1'));
     assert.match(log, /line one/);
     assert.match(log, /line two/);
 
     // readJobFile on missing returns null.
     assert.equal(readJobFile(workCwd, 'no-such'), null);
+  });
+
+  // 076-T6 R4: a status snapshot used to load a whole multi-megabyte job log
+  // to show four lines. Assert through the fs seam (the length `readLogTail`
+  // asks `fs.readSync` for) rather than timing, so the bound is exact and
+  // does not depend on how fast this machine's disk happens to be.
+  it('readLogTail reads under 64 KB from a 5 MB log file', (t) => {
+    const dir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-logtail-'));
+    const file = path.join(dir, 'big.log');
+    try {
+      const fd = fs.openSync(file, 'w');
+      const chunk = `${'x'.repeat(200)}\n`;
+      let written = 0;
+      const target = 5 * 1024 * 1024;
+      while (written < target) {
+        fs.writeSync(fd, chunk);
+        written += chunk.length;
+      }
+      fs.writeSync(fd, 'final tail line\n');
+      fs.closeSync(fd);
+
+      let requestedLength = 0;
+      const realReadSync = fs.readSync.bind(fs);
+      t.mock.method(fs, 'readSync', (fdArg, buffer, offset, length, position) => {
+        requestedLength = length;
+        return realReadSync(fdArg, buffer, offset, length, position);
+      });
+
+      const tail = readLogTail(file, { lines: 4, maxBytes: 65536 });
+      assert.ok(requestedLength > 0 && requestedLength <= 65536,
+        `expected a read bounded to 64 KB, got ${requestedLength}`);
+      assert.match(tail, /final tail line/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('saveState prunes jobs beyond MAX_JOBS=50 and removes per-job files', async () => {
@@ -484,8 +478,8 @@ describe('state retention and recovery', () => {
     assert.equal(jobs.filter((job) => job.status === 'completed').length, 50);
     assert.equal(readJobFile(cwd, queued.id).status, 'queued');
     assert.equal(readJobFile(cwd, running.id).status, 'running');
-    assert.match(readJobLog(cwd, queued.id), /keep my progress/);
-    assert.match(readJobLog(cwd, running.id), /keep my progress/);
+    assert.match(readLogTail(resolveJobLogFile(cwd, queued.id)), /keep my progress/);
+    assert.match(readLogTail(resolveJobLogFile(cwd, running.id)), /keep my progress/);
     assert.equal(fs.existsSync(resolveJobFile(cwd, '000000000000')), false);
     assert.equal(fs.existsSync(resolveJobLogFile(cwd, '000000000000')), false);
   });

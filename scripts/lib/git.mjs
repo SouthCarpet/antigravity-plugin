@@ -9,8 +9,6 @@ import { isProbablyText } from "./fs.mjs";
 import { formatCommandFailure, runCommand } from "./process.mjs";
 
 const MAX_UNTRACKED_BYTES = 24 * 1024;
-const DEFAULT_INLINE_DIFF_MAX_FILES = 2;
-const DEFAULT_INLINE_DIFF_MAX_BYTES = 256 * 1024;
 // Never send a file whose name alone marks it as a secret (item 13): dotenv
 // variants, private-key/keystore extensions, and the default SSH key names.
 const SECRET_SHAPED_NAME_RE = /^\.env(\..*)?$|\.(pem|key|p12|pfx)$|^id_(rsa|ed25519|ecdsa)$/i;
@@ -47,36 +45,6 @@ function gitChecked(cwd, args, options = {}) {
 
 function listUniqueFiles(...groups) {
   return [...new Set(groups.flat().filter(Boolean))].sort();
-}
-
-function normalizeMaxInlineFiles(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return DEFAULT_INLINE_DIFF_MAX_FILES;
-  }
-  return Math.floor(parsed);
-}
-
-function normalizeMaxInlineDiffBytes(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return DEFAULT_INLINE_DIFF_MAX_BYTES;
-  }
-  return Math.floor(parsed);
-}
-
-function measureGitOutputBytes(cwd, args, maxBytes) {
-  const result = git(cwd, args, { maxBuffer: maxBytes + 1 });
-  if (result.error && /** @type {NodeJS.ErrnoException} */ (result.error).code === "ENOBUFS") {
-    return maxBytes + 1;
-  }
-  if (result.error) {
-    throw gitSpawnError(result.error);
-  }
-  if (result.status !== 0) {
-    throw new Error(formatCommandFailure(result));
-  }
-  return Buffer.byteLength(result.stdout, "utf8");
 }
 
 /**
@@ -161,26 +129,6 @@ export function getWorkingTreeFiles(cwd) {
 }
 
 /**
- * Get the unified diff for staged changes.
- *
- * @param {string} cwd
- * @returns {string}
- */
-export function getStagedDiff(cwd) {
-  return gitChecked(cwd, ["diff", "--cached"]);
-}
-
-/**
- * Get the unified diff for unstaged changes.
- *
- * @param {string} cwd
- * @returns {string}
- */
-export function getUnstagedDiff(cwd) {
-  return gitChecked(cwd, ["diff"]);
-}
-
-/**
  * Get the combined working-tree diff (staged + unstaged against HEAD).
  *
  * @param {string} cwd
@@ -257,7 +205,10 @@ export function readUntrackedFiles(cwd, files, options = {}) {
  * Collect complete working-tree context for a code review.
  *
  * @param {string} cwd
- * @param {{ maxInlineFiles?: number, maxInlineDiffBytes?: number, realpathSync?: typeof fs.realpathSync }} [options]
+ * @param {{ realpathSync?: typeof fs.realpathSync }} [options] only
+ *   `realpathSync` is read; an earlier revision of this JSDoc also listed
+ *   `maxInlineFiles`/`maxInlineDiffBytes`, options this function has never
+ *   read (076-T6 R3)
  * @returns {{ branch: string | null, headSha: string, diff: string, files: { staged: string[], unstaged: string[], untracked: string[] }, untrackedContents: Array<any>, summary: string }}
  */
 export function collectWorkingTreeContext(cwd, options = {}) {

@@ -3,13 +3,12 @@
  *
  * Lean port from gemini-plugin-cc — ACP / broker references removed because
  * agy 1.0.1 has no ACP. Health classifier still tracks `auth_required`,
- * `rate_limited`, `failed`, and `worker_missing` (the four signals we can
- * still capture from stdout / process state).
+ * `failed`, `worker_missing`, and `cancel_failed` (the signals a writer in
+ * this codebase actually persists; `rate_limited` was removed 076-T6 R2 —
+ * no writer ever sets it, so `status <id>` could never render it).
  */
 
-import fs from "node:fs";
-
-import { getConfig, listJobs, readJobFile } from "./state.mjs";
+import { getConfig, listJobs, readJobFile, readLogTail } from "./state.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 import { isProcessAlive } from "./process.mjs";
 
@@ -17,10 +16,10 @@ export const SESSION_ID_ENV = "ANTIGRAVITY_PLUGIN_SESSION_ID";
 
 export const DEFAULT_MAX_STATUS_JOBS = 8;
 export const DEFAULT_MAX_PROGRESS_LINES = 4;
-export const DEFAULT_MAX_RECENT_EVENTS = 5;
 export const QUIET_AFTER_MS = 2 * 60 * 1000;
 export const POSSIBLY_STALLED_AFTER_MS = 10 * 60 * 1000;
 
+/** @param {import('./types.mjs').JobIndexEntry[]} jobs @returns {import('./types.mjs').JobIndexEntry[]} */
 export function sortJobsNewestFirst(jobs) {
   return [...jobs].sort((a, b) =>
     String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))
@@ -59,7 +58,6 @@ function parseTime(value) {
 // Persisted diagnostic statuses that must survive time-based reclassification
 // until an explicit recovery event clears them.
 const DIAGNOSTIC_HEALTH_STATUSES = new Set([
-  "rate_limited",
   "auth_required",
   "failed",
   "worker_missing",
@@ -133,9 +131,14 @@ export function mergeJobDetail(job, storedJob) {
     : job;
 }
 
+/**
+ * @param {string} workspaceRoot the resolved workspace root
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {{ maxProgressLines?: number, now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
+ * @returns {import('./types.mjs').JobRecord}
+ */
 function enrichJob(workspaceRoot, job, options = {}) {
   const maxProgressLines = options.maxProgressLines ?? DEFAULT_MAX_PROGRESS_LINES;
-  const maxRecentEvents = options.maxRecentEvents ?? DEFAULT_MAX_RECENT_EVENTS;
   const storedJob = readJobFile(workspaceRoot, job.id);
   const source = mergeJobDetail(job, storedJob);
   const elapsed = computeElapsed(source, options.now);
@@ -147,12 +150,9 @@ function enrichJob(workspaceRoot, job, options = {}) {
     result: undefined,
     rendered: undefined,
     elapsed,
-    threadId: source.threadId ?? null,
-    turnId: source.turnId ?? null,
     conversationId: source.conversationId ?? null,
     summary: sanitizeSummaryForTable(source.summary),
     errorMessage: source.errorMessage ?? null,
-    events: Array.isArray(source.events) ? source.events.slice(-maxRecentEvents) : [],
     healthStatus: runtimeHealth.healthStatus ?? source.healthStatus ?? null,
     healthMessage: runtimeHealth.healthMessage ?? source.healthMessage ?? null,
     recommendedAction:
@@ -164,14 +164,9 @@ function enrichJob(workspaceRoot, job, options = {}) {
     lastDiagnosticAt: source.lastDiagnosticAt ?? null,
   };
 
-  if (source?.logFile && fs.existsSync(source.logFile)) {
-    try {
-      const log = fs.readFileSync(source.logFile, "utf8");
-      const lines = log.trim().split("\n").slice(-maxProgressLines);
-      enriched.recentProgress = lines;
-    } catch {
-      enriched.recentProgress = [];
-    }
+  if (source?.logFile) {
+    const tail = readLogTail(source.logFile, { lines: maxProgressLines });
+    enriched.recentProgress = tail ? tail.split("\n") : [];
   }
 
   return enriched;
@@ -204,6 +199,15 @@ function computeElapsed(job, now = new Date().toISOString()) {
   return `${Math.round(ms / 60000)}m`;
 }
 
+/**
+ * @param {string} cwd unresolved cwd; resolved once here and passed to every
+ *   downstream `state.mjs` call (076-T6 R4)
+ * @param {{ env?: NodeJS.ProcessEnv, maxJobs?: number, maxProgressLines?: number,
+ *   now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
+ * @returns {{ workspaceRoot: string, config: object,
+ *   running: import('./types.mjs').JobRecord[], latestFinished: import('./types.mjs').JobIndexEntry | null,
+ *   recent: import('./types.mjs').JobIndexEntry[], needsReview: boolean }}
+ */
 export function buildStatusSnapshot(cwd, options = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const config = getConfig(workspaceRoot);
@@ -217,7 +221,6 @@ export function buildStatusSnapshot(cwd, options = {}) {
     .map((j) =>
       enrichJob(workspaceRoot, j, {
         maxProgressLines: options.maxProgressLines,
-        maxRecentEvents: options.maxRecentEvents,
         now: options.now,
         isProcessAlive: options.isProcessAlive,
       })
@@ -237,6 +240,13 @@ export function buildStatusSnapshot(cwd, options = {}) {
   };
 }
 
+/**
+ * @param {string} cwd unresolved cwd; resolved once here and passed to every
+ *   downstream `state.mjs` call (076-T6 R4)
+ * @param {string | null} reference job id, unique prefix, or 1-based index
+ * @param {{ maxProgressLines?: number, now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
+ * @returns {{ workspaceRoot: string, job: import('./types.mjs').JobRecord }}
+ */
 export function buildSingleJobSnapshot(cwd, reference, options = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
@@ -251,13 +261,18 @@ export function buildSingleJobSnapshot(cwd, reference, options = {}) {
     workspaceRoot,
     job: enrichJob(workspaceRoot, selected, {
       maxProgressLines: options.maxProgressLines,
-      maxRecentEvents: options.maxRecentEvents,
       now: options.now,
       isProcessAlive: options.isProcessAlive,
     }),
   };
 }
 
+/**
+ * @param {string} cwd unresolved cwd; resolved once here
+ * @param {string | null} reference
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ workspaceRoot: string, job: import('./types.mjs').JobIndexEntry }}
+ */
 export function resolveResultJob(cwd, reference, env = process.env) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobsWithDetails = listJobs(workspaceRoot)
@@ -297,6 +312,11 @@ export function resolveResultJob(cwd, reference, env = process.env) {
   throw new Error("No finished antigravity jobs found for this repository yet.");
 }
 
+/**
+ * @param {string} cwd unresolved cwd; resolved once here
+ * @param {string | null} reference
+ * @returns {{ workspaceRoot: string, job: import('./types.mjs').JobIndexEntry }}
+ */
 export function resolveCancelableJob(cwd, reference) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));

@@ -94,14 +94,13 @@ describe('renderSingleJobStatus', () => {
     assert.match(out, /Status.*queued/);
   });
 
-  it('handles a wrapper { job } and includes error + progress + events', () => {
+  it('handles a wrapper { job } and includes error + progress', () => {
     const job = {
       id: 'job2',
       kind: 'task',
       status: 'failed',
       phase: 'failed',
       title: 'demo',
-      threadId: 'thr_1',
       summary: 'broke',
       healthStatus: 'failed',
       healthMessage: 'oom',
@@ -112,56 +111,36 @@ describe('renderSingleJobStatus', () => {
       completedAt: '2024-01-01T00:00:02Z',
       errorMessage: 'segfault',
       recentProgress: ['line a', 'line b'],
-      runtime: { transport: 'stdio' },
-      events: [
-        { type: 'model_text_chunk', chars: 10, timestamp: '2024-01-01T00:00:01Z' },
-        { type: 'model_thought_chunk', chars: 4, timestamp: '2024-01-01T00:00:01Z' },
-        { type: 'tool_call', toolName: 'bash', timestamp: '2024-01-01T00:00:01Z' },
-        { type: 'file_change', action: 'edit', path: 'a.js', timestamp: '2024-01-01T00:00:01Z' },
-        { type: 'phase', message: 'thinking', timestamp: '2024-01-01T00:00:01Z' },
-        { type: 'phase_changed', phase: 'tooling', timestamp: '2024-01-01T00:00:01Z' },
-        { type: 'diagnostic', source: 'lsp', message: 'warn', timestamp: '2024-01-01T00:00:01Z' },
-        { type: 'mystery', timestamp: '2024-01-01T00:00:01Z' },
-      ],
     };
     const out = renderSingleJobStatus({ workspaceRoot: '/w', job }, { now: Date.parse('2024-01-01T00:00:05Z') });
     assert.match(out, /Antigravity Job: job2/);
-    assert.match(out, /Session ID.*thr_1/);
     assert.match(out, /## Error/);
     assert.match(out, /segfault/);
     assert.match(out, /## Recent Progress/);
     assert.match(out, /line a/);
-    assert.match(out, /## Recent Events/);
-    assert.match(out, /chunks=1/);
-    assert.match(out, /thoughts=1/);
-    assert.match(out, /tools=1/);
-    assert.match(out, /files=1/);
-    assert.match(out, /Transport.*stdio/);
   });
 });
 
 describe('renderResultOutput', () => {
-  it('renders raw stdout with conversation footer', () => {
+  it('renders raw stdout', () => {
     const out = renderResultOutput(
       '/cwd',
-      { id: 'j', threadId: 'thr_x' },
+      { id: 'j' },
       { result: { rawOutput: 'final answer' } }
     );
     assert.match(out, /final answer/);
-    assert.match(out, /Conversation ID: thr_x/);
-    assert.match(out, /Resume conversation: agy --conversation thr_x/);
+    assert.doesNotMatch(out, /Conversation ID/);
   });
 
-  it('renders raw stdout without thread footer when no threadId', () => {
+  it('renders raw stdout from the legacy agy.stdout shape', () => {
     const out = renderResultOutput('/cwd', { id: 'j' }, { result: { agy: { stdout: 'hi' } } });
     assert.match(out, /hi/);
     assert.doesNotMatch(out, /Conversation ID/);
   });
 
   it('renders pre-rendered markdown when present', () => {
-    const out = renderResultOutput('/cwd', { id: 'j', threadId: 't' }, { rendered: '## Done' });
+    const out = renderResultOutput('/cwd', { id: 'j' }, { rendered: '## Done' });
     assert.match(out, /## Done/);
-    assert.match(out, /Resume conversation/);
   });
 
   it('falls back to metadata when no raw output and no rendered', () => {

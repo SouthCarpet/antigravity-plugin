@@ -123,6 +123,20 @@ describe('runForegroundJob — terminal status mapping', () => {
     assert.equal(stored.summary, null);
   });
 
+  // 076-T6 R1: one stored-result projection for both paths — the drifted
+  // foreground copy never stored this field before (worker.test.mjs already
+  // covers the background path).
+  it('completed → a foreground run stores agyConversationId', async () => {
+    freshWorkspace();
+    runtime.next = {
+      status: 'completed', exitCode: 0, stdout: 'answer', stderr: '',
+      agyConversationId: 'conv-fg-1',
+    };
+    const { job } = await runForegroundJob({ workspaceRoot, kind: 'rescue', title: 't', prompt: 'p' });
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.result.agyConversationId, 'conv-fg-1');
+  });
+
   it('streamed foreground output records lastProgressAt and lastModelOutputAt', async () => {
     freshWorkspace();
     runtime.next = { status: 'completed', exitCode: 0, stdout: 'done', stderr: '' };

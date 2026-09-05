@@ -27,8 +27,6 @@ import {
   getCurrentBranch,
   getHeadSha,
   getWorkingTreeFiles,
-  getStagedDiff,
-  getUnstagedDiff,
   getWorkingTreeDiff,
   readUntrackedFiles,
   collectWorkingTreeContext,
@@ -131,8 +129,6 @@ describe('git.getWorkingTreeFiles / diffs', () => {
     assert.ok(out.staged.includes('b.txt'), 'b.txt staged');
     assert.ok(out.untracked.includes('c.txt'), 'c.txt untracked');
 
-    assert.ok(getStagedDiff(repo).includes('b.txt'));
-    assert.ok(getUnstagedDiff(repo).includes('a.txt'));
     assert.ok(getWorkingTreeDiff(repo).length > 0);
   });
 

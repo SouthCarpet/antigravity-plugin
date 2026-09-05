@@ -81,6 +81,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Unknown flags.** Unknown flags exit 1 with guidance to put prompt text
   after `--`.
+- **Workspace root resolved once per command.** Each verb resolves its
+  workspace root once and passes it down; `status`, `result`, and `cancel`
+  no longer re-resolve it once per stored job they read.
+- **Bounded log tails.** `status` and the single-job view now read at most
+  64 KB from the end of a job log to show its last lines, instead of loading
+  the whole file.
+- **Foreground runs now store their conversation id.** A foreground
+  `rescue`, `review`, `task`, or `vision` run stores `agyConversationId` in
+  its job record the same way a background run always did. This is an
+  internal record field; it is not part of the `--json` output.
+
+### Removed
+
+- **Unused `scripts/lib` exports.** Nothing in the plugin called these, and
+  `docs/COMPATIBILITY.md` states direct imports of `scripts/lib` modules are
+  not promised in 1.x: `spawnAgyDetached`, `spawnDetached`, `binaryAvailable`,
+  `runCommandChecked`, `readJsonFile`, `readFileSafe`, `withJobMutex`,
+  `readJobLog` (its bounded replacement is `readLogTail`), `getStagedDiff`,
+  `getUnstagedDiff`, `measureGitOutputBytes`, `normalizeMaxInlineFiles`,
+  `normalizeMaxInlineDiffBytes`.
+- **Never-populated fields in `status <id>`.** `Session ID`, `Transport`,
+  and `Recent Events` never appeared (nothing ever recorded a conversation
+  thread id, a runtime transport, or ACP-era events on a job), and
+  `Last Tool Call` always read `-`. All four lines are gone from the
+  single-job status view.
 
 ## [1.1.3] — 2026-09-04
 

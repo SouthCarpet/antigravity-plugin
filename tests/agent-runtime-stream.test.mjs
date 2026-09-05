@@ -1,7 +1,7 @@
 /**
- * Tests for the stdin stream-json transport added to runAgyPrint /
- * spawnAgyDetached — the prompt now travels over stdin as a single NDJSON
- * line instead of `--print <prompt>` on argv, because Windows'
+ * Tests for the stdin stream-json transport added to runAgyPrint — the
+ * prompt now travels over stdin as a single NDJSON line instead of
+ * `--print <prompt>` on argv, because Windows'
  * `CreateProcess` caps a spawned command line at ~32K chars and fails
  * outright above that (Win32 error 206 / Node `ENAMETOOLONG`); review/
  * rescue/task briefs routinely exceed it.
@@ -64,7 +64,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
   },
 });
 
-const { runAgyPrint, spawnAgyDetached, parseAgyStream, probeAgy } = await import(
+const { runAgyPrint, parseAgyStream, probeAgy } = await import(
   '../scripts/lib/agent-runtime.mjs'
 );
 
@@ -610,27 +610,5 @@ describe('runAgyPrint — onText (step_update.text_delta) callback', () => {
     nextExitCode = 0;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'completed');
-  });
-});
-
-describe('spawnAgyDetached — stdin stream-json transport', () => {
-  it('spawns with stdio [pipe, pipe, pipe] and writes the NDJSON prompt to stdin', () => {
-    spawnCalls.length = 0;
-    const prompt = 'detached prompt';
-    const child = spawnAgyDetached({ prompt, bin: 'agy' });
-    assert.equal(spawnCalls[0].opts.stdio[0], 'pipe');
-    const line = JSON.parse(spawnCalls[0].child.stdin.written.trim());
-    assert.equal(line.message.content[0].text, prompt);
-    assert.ok(child);
-  });
-
-  it('spawns with the same always-on stream-json tail as runAgyPrint', () => {
-    spawnCalls.length = 0;
-    spawnAgyDetached({ prompt: 'p', bin: 'agy' });
-    const { args } = spawnCalls[0];
-    assert.deepEqual(
-      args.slice(-6),
-      ['--input-format', 'stream-json', '--output-format', 'stream-json', '--print', ''],
-    );
   });
 });

@@ -453,6 +453,9 @@ export function detectAutoDenial(stderr) {
  *       is not a failure, but it is never swallowed either.
  * A SUCCESS with an empty response and NO denial line stays `completed`: a
  * model may legitimately say nothing.
+ *
+ * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
+ * @returns {Promise<import('./types.mjs').RuntimeResult>}
  */
 export async function runAgyPrint({
   prompt,
@@ -759,52 +762,3 @@ export async function runAgyPrint({
   };
 }
 
-/**
- * Tiny helper for callers that want to fire-and-forget into the background.
- * Returns the child handle without awaiting, so the caller is responsible
- * for capturing exit + stdout in a separate file (see job-control.mjs).
- *
- * Same stream-json transport as `runAgyPrint` (see its doc comment above):
- * the prompt travels as a single NDJSON line on stdin, so `stdin` is always
- * `'pipe'` even though the caller never reads anything back from it.
- */
-export function spawnAgyDetached({
-  prompt,
-  mode = 'print',
-  conversationId,
-  cwd = process.cwd(),
-  addDirs = [],
-  model,
-  extraArgs = [],
-  bin = resolveAgyBin(),
-  env = process.env,
-  stdout = 'pipe',
-  stderr = 'pipe',
-} = {}) {
-  const args = [];
-  if (mode === 'continue') args.push('--continue');
-  if (mode === 'conversation') {
-    if (!conversationId) throw new TypeError('spawnAgyDetached: conversationId required for mode=conversation');
-    args.push('--conversation', conversationId);
-  }
-  for (const dir of addDirs) args.push('--add-dir', dir);
-  if (model) args.push('--model', model);
-  args.push(...extraArgs);
-  args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
-
-  const child = spawnAgy(bin, args, {
-    cwd,
-    env,
-    detached: true,
-    stdio: ['pipe', stdout, stderr],
-  });
-
-  // Fire-and-forget: nobody awaits this child, so an EPIPE on stdin (agy
-  // dying before we finish writing the prompt line) must not throw an
-  // unhandled 'error' event.
-  child.stdin.on('error', () => {});
-  child.stdin.write(buildStreamJsonLine(prompt) + '\n');
-  child.stdin.end();
-
-  return child;
-}

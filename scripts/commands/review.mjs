@@ -22,13 +22,14 @@ import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   agyUnavailableLine,
+  finishForeground,
   foregroundFailureLine,
   runForegroundJob,
   startBackgroundJob,
   waitForJob,
   waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 export async function run(argv = [], ctx = {}) {
@@ -130,29 +131,10 @@ export async function run(argv = [], ctx = {}) {
     onText: (delta) => process.stderr.write(delta),
   });
 
-  if (result.status === "auth_required") {
-    process.stderr.write(
-      `\nantigravity:review — Antigravity is not authenticated.\n` +
-        `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
-    );
-    if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
-    return 1;
-  }
-  if (result.status !== "completed") {
-    process.stderr.write(`\n${foregroundFailureLine("review", result)}\n`);
-    if (result.stderr) process.stderr.write(result.stderr);
-    return result.status === "cancelled" ? 2 : 1;
-  }
-
-  reportWarnings("review", result);
-  const payload = createJsonEnvelope("review", {
-    status: "completed",
-    jobId: job.id,
-    answer: result.stdout,
-    details: { scope: envelope.scope, ...warningDetails(result) },
+  return finishForeground("review", job, result, {
+    json: options.json,
+    extraDetails: { scope: envelope.scope },
   });
-  outputCommandResult(payload, result.stdout, Boolean(options.json));
-  return 0;
 }
 
 /**

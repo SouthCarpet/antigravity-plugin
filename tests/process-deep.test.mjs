@@ -1,26 +1,19 @@
 /**
- * Deep tests for scripts/lib/process.mjs covering terminateProcessTree,
- * binaryAvailable, and spawnDetached. Uses short-lived `sleep` children so
- * the suite stays well within the 30-second budget.
+ * Deep tests for scripts/lib/process.mjs covering terminateProcessTree. Uses
+ * short-lived `sleep` children so the suite stays well within the 30-second
+ * budget.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 import {
-  binaryAvailable,
   terminateProcessTree,
-  spawnDetached,
   runCommand,
   isProcessAlive,
   processStartedAt,
 } from '../scripts/lib/process.mjs';
-
-const TMPROOT = os.tmpdir();
 
 it('treats an EPERM probe as an existing process, as required by R3', () => {
   assert.equal(isProcessAlive(123, () => { throw Object.assign(new Error('not ours'), { code: 'EPERM' }); }), true);
@@ -126,22 +119,6 @@ function waitUntilPidGone(pid, timeoutMs) {
   });
 }
 
-// A binary that exists on PATH in EVERY environment this suite runs in:
-// `sh` is absent from a plain PowerShell PATH on Windows, so these tests
-// must not assume it (they passed or failed depending on which shell ran
-// them — the exact environment-dependence issue #3 was about).
-const SHELL_BIN = process.platform === 'win32' ? 'cmd' : 'sh';
-
-describe('binaryAvailable', () => {
-  it(`returns true for an executable that exists on PATH (${SHELL_BIN})`, () => {
-    assert.equal(binaryAvailable(SHELL_BIN), true);
-  });
-
-  it('returns false for a binary that does not exist', () => {
-    assert.equal(binaryAvailable('definitely-not-a-real-binary-xyz'), false);
-  });
-});
-
 /** Named cases, generated once at module scope — each becomes its own `it`. */
 const INVALID_PIDS = [
   { label: 'zero', pid: 0 },
@@ -223,57 +200,5 @@ describe('terminateProcessTree', () => {
     });
     assert.equal(result.outcome, 'failed');
     assert.equal(result.status, 7);
-  });
-});
-
-/**
- * spawnDetached() unrefs the child so a fire-and-forget worker does not keep
- * the parent event loop alive. node:test treats a Promise that outlives the
- * loop as cancelledByParent. Re-ref and wait for the real `exit`/`error`
- * signal — never a timeout.
- *
- * @param {import('node:child_process').ChildProcess} child
- * @returns {Promise<{ code: number | null, signal: NodeJS.Signals | null }>}
- */
-function waitForExit(child) {
-  if (typeof child.ref === 'function') child.ref();
-  return new Promise((resolve, reject) => {
-    const done = (code, signal) => resolve({ code, signal });
-    if (child.exitCode !== null || child.signalCode !== null) {
-      done(child.exitCode, child.signalCode);
-      return;
-    }
-    child.once('exit', done);
-    child.once('error', reject);
-  });
-}
-
-describe('spawnDetached', () => {
-  it('spawns with stdio=ignore and unrefs when no log file is provided', async () => {
-    const child = spawnDetached(process.execPath, ['-e', 'process.exit(0)']);
-    assert.ok(child.pid);
-    await waitForExit(child);
-  });
-
-  it('redirects stderr to a log file when logFile is provided', async () => {
-    const dir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-spawn-'));
-    const log = path.join(dir, 'out.log');
-    // spawnDetached inherits its stderr fd straight into the child (no
-    // shell involved) — that works for a genuine native executable, but
-    // Git-for-Windows' `sh.exe` re-execs through its own MSYS runtime and
-    // the inherited fd does not survive that hop, so on win32 this uses
-    // cmd.exe (a real, directly-spawnable PE binary) instead of sh.
-    const [command, args] = process.platform === 'win32'
-      ? ['cmd.exe', ['/c', 'echo line-to-stderr 1>&2']]
-      : ['sh', ['-c', 'echo line-to-stderr 1>&2; exit 0']];
-    try {
-      const child = spawnDetached(command, args, { logFile: log });
-      assert.ok(child.pid);
-      await waitForExit(child);
-      const body = fs.readFileSync(log, 'utf8');
-      assert.match(body, /line-to-stderr/);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
   });
 });

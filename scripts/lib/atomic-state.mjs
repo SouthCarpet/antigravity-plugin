@@ -1,9 +1,9 @@
 /**
  * Cross-process mutex helpers and atomic JSON write helper.
  *
- * `withJobMutex` and `withWorkspaceMutex` use one workspace-wide lock. A
- * local FIFO avoids self-contention; an atomic lock directory under the OS
- * temp root serializes the same key across independent Node processes.
+ * `withWorkspaceMutex` uses one workspace-wide lock. A local FIFO avoids
+ * self-contention; an atomic lock directory under the OS temp root
+ * serializes the same key across independent Node processes.
  *
  * `writeJsonAtomic` writes the serialized JSON payload to a unique temporary
  * sibling file and then renames it into place. If serialization or the write
@@ -59,10 +59,6 @@ async function runWithMutex(map, key, fn) {
       });
     }
   }
-}
-
-export function withJobMutex(workspaceRoot, _jobId, fn) {
-  return runWithMutex(mutexes, String(workspaceRoot), fn);
 }
 
 export function withWorkspaceMutex(workspaceRoot, fn) {

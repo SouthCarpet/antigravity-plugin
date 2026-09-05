@@ -27,8 +27,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { agyUnavailableLine, foregroundFailureLine, runForegroundJob } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
+import { agyUnavailableLine, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
   encodeVisionAllowlist,
@@ -129,45 +128,22 @@ export async function run(argv = [], ctx = {}) {
     onText: (delta) => process.stderr.write(delta),
   });
 
-  if (result.status === "auth_required") {
-    process.stderr.write(
-      `\nantigravity:vision — Antigravity is not authenticated.\n` +
-        `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
-    );
-    if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
-    return 1;
-  }
-  if (result.status !== "completed") {
-    process.stderr.write(`\n${foregroundFailureLine("vision", result)}\n`);
-    if (result.stderr) process.stderr.write(result.stderr);
-    return result.status === "cancelled" ? 2 : 1;
-  }
-
-  reportWarnings("vision", result);
   const usage = result.usage ?? null;
-  if (usage && typeof usage.total_tokens === "number") {
-    // Measured by agy itself (json envelope). The ledger rule requires
-    // recording measured totals — this trailer is what the orchestrator reads.
-    process.stderr.write(
-      `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
-        `out=${usage.output_tokens ?? "?"}\n`,
-    );
-  }
-
-  const payload = createJsonEnvelope("vision", {
-    status: "completed",
-    jobId: job.id,
-    answer: result.stdout,
-    imagePaths,
-    model,
-    details: {
-      usage,
-      durationSeconds: result.durationSeconds ?? null,
-      ...warningDetails(result),
+  return finishForeground("vision", job, result, {
+    json: options.json,
+    extraFields: { imagePaths, model },
+    extraDetails: { usage, durationSeconds: result.durationSeconds ?? null },
+    beforeAnswer: () => {
+      if (usage && typeof usage.total_tokens === "number") {
+        // Measured by agy itself (json envelope). The ledger rule requires
+        // recording measured totals — this trailer is what the orchestrator reads.
+        process.stderr.write(
+          `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
+            `out=${usage.output_tokens ?? "?"}\n`,
+        );
+      }
     },
   });
-  outputCommandResult(payload, result.stdout, Boolean(options.json));
-  return 0;
 }
 
 export default run;
