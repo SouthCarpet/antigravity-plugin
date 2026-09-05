@@ -111,6 +111,30 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
     });
   });
 
+  it("reaps a stale lock when its live owner PID has been reused", async () => {
+    const { dataRoot } = freshWorkspace();
+    const lockPath = path.join(dataRoot, "reused-pid.lock");
+    fs.mkdirSync(lockPath);
+    fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
+      pid: process.pid,
+      token: "stale-owner",
+      startedAt: "2000-01-01T00:00:00.000Z",
+    }));
+    const staleTime = new Date("2000-01-01T00:00:00.000Z");
+    fs.utimesSync(lockPath, staleTime, staleTime);
+
+    let replacementOwner;
+    await withFileLock(lockPath, async () => {
+      replacementOwner = JSON.parse(
+        fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"),
+      );
+    }, { staleLockMs: 100, lockTimeoutMs: 1000, waitMs: 1 });
+
+    assert.equal(replacementOwner.pid, process.pid);
+    assert.notEqual(replacementOwner.token, "stale-owner");
+    assert.equal(fs.existsSync(lockPath), false);
+  });
+
   it("cancels during the worker's first locked state update", async () => {
     const { workspaceRoot, dataRoot } = freshWorkspace();
     const originalClaudeData = process.env.CLAUDE_PLUGIN_DATA;

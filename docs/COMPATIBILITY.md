@@ -283,10 +283,16 @@ sanitized directory basename plus a 12-character hash of the resolved path:
 ```text
 <state-root>/<workspace-slug>-<path-hash>/
   state.json
+  state.json.corrupt-<ISO-timestamp-with-colons-replaced-by-dashes>
   jobs/
     <job-id>.json
     <job-id>.log
 ```
+
+The `state.json.corrupt-*` sibling is additive and appears only when
+`state.json` cannot be read or parsed. The damaged index is renamed there and
+kept while the plugin rebuilds `state.json` from valid `jobs/*.json` records;
+the persistent state and job locations themselves do not move.
 
 The state root is selected from the first non-empty variable in this exact
 order:

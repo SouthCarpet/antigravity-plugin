@@ -146,6 +146,25 @@ function parseEnvelope(chunks, expected) {
   return payload;
 }
 
+async function timedOutWaitContext(cwd) {
+  const { createTrackedJob, waitForJob } = await import('../scripts/lib/job-helpers.mjs');
+  return {
+    cwd,
+    startBackgroundJob: async (options) => ({
+      job: await createTrackedJob(options),
+      pid: null,
+    }),
+    waitForJob: async (workspaceRoot, jobId) => {
+      let now = 0;
+      return waitForJob(workspaceRoot, jobId, {
+        timeoutMs: 50,
+        now: () => now,
+        sleep: async () => { now = 100; },
+      });
+    },
+  };
+}
+
 let tempDir;
 beforeEach(() => {
   tempDir = makeTempCwd();
@@ -596,6 +615,29 @@ describe('/antigravity:review', () => {
     assert.equal(typeof payload.details.scope, 'string');
   });
 
+  it('--background --wait reports a queued timeout and keeps the queued JSON envelope', async () => {
+    initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'pending-review.txt'), 'review me\n');
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(
+        ['--background', '--wait', '--json'],
+        await timedOutWaitContext(tempDir),
+      );
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'review', status: 'queued' });
+    assert.equal(
+      cap.err.join(''),
+      `antigravity:review — wait timed out; job ${payload.jobId} is still queued. Run /antigravity:status ${payload.jobId}.\n`,
+    );
+  });
+
   it('returns 0 with "no changes" when collectReviewContext finds nothing', async () => {
     // Empty git repo in tempDir so the working-tree diff is genuinely empty.
     initEmptyGitRepo(tempDir);
@@ -701,6 +743,27 @@ describe('/antigravity:review', () => {
 // ───────────────────────────── rescue + task argv parsing ─────────────────────────────
 
 describe('/antigravity:rescue argv parsing', () => {
+  it('--background --wait reports a queued timeout and keeps the queued JSON envelope', async () => {
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(
+        ['help me', '--background', '--wait', '--json'],
+        await timedOutWaitContext(tempDir),
+      );
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'rescue', status: 'queued' });
+    assert.equal(
+      cap.err.join(''),
+      `antigravity:rescue — wait timed out; job ${payload.jobId} is still queued. Run /antigravity:status ${payload.jobId}.\n`,
+    );
+  });
+
   it('--json wraps the foreground model answer', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
     const { run } = await import('../scripts/commands/rescue.mjs');
@@ -769,6 +832,27 @@ describe('/antigravity:rescue argv parsing', () => {
 });
 
 describe('/antigravity:task argv parsing', () => {
+  it('--wait reports a queued timeout and keeps the queued JSON envelope', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(
+        ['do the thing', '--wait', '--json'],
+        await timedOutWaitContext(tempDir),
+      );
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'task', status: 'queued' });
+    assert.equal(
+      cap.err.join(''),
+      `antigravity:task — wait timed out; job ${payload.jobId} is still queued. Run /antigravity:status ${payload.jobId}.\n`,
+    );
+  });
+
   it('prints a worker launch failure and exits 1 with no queued JSON on PID-patch failure', async () => {
     // Oracle: 076-T3 R3 and the existing stderr-only failure contract.
     const { run } = await import('../scripts/commands/task.mjs');

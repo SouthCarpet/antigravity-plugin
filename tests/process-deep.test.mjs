@@ -107,7 +107,11 @@ describe('terminateProcessTree', () => {
     });
   }
 
-  it('SIGTERMs a real child process group', async () => {
+  it('SIGTERMs a real child process group', {
+    skip: process.platform === 'win32' && process.env.CODEX_CI === '1'
+      ? 'real taskkill is blocked inside the Codex Windows sandbox; CI covers this case'
+      : false,
+  }, async () => {
     // Launch a detached long-lived child. node itself is the one binary
     // guaranteed present (we are running under it) and spawns identically
     // on every platform — no shell needed.
