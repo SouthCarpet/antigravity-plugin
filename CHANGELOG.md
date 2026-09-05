@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments. Native executables take precedence over shims.
 - **Background job arguments.** Background jobs reject stored agy flags other
   than the supported mode pair before they start agy. Tampered requests fail.
+- **Review context labeling.** Review skips untracked files with secret-shaped
+  names (`.env*`, `.pem`/`.key`/`.p12`/`.pfx`, default SSH key names) instead
+  of sending them. Diffs, commits, and untracked file bodies sent to agy are
+  wrapped in a labeled, self-escaping data block with one sentence telling the
+  model that content is untrusted, not instructions. Every `commands/*.md`
+  wrapper repeats that rule for the model output it hands back.
+- **Git path parsing.** Untracked, staged, unstaged, and branch-comparison
+  file lists are parsed the way git prints them (`-z`, no quoting), so a
+  non-ASCII or space-containing name, or a rename, is no longer skipped or
+  garbled.
+- **Shared temp directory trust (POSIX only).** The job state root, its lock
+  directory, and the update-check cache now refuse a pre-existing directory
+  they do not own or that is group/other-writable, and refuse a symlinked
+  root, instead of writing into it silently.
 
 ### Fixed
 
@@ -54,6 +68,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directories.
 - **Review base references.** Review rejects unknown and option-like base
   references before it compares commits.
+- **Auth classification false positive.** A completed review that quotes the
+  Google sign-in URL inside its answer (for example, a change that touches
+  the sign-in flow) no longer reports `auth_required`. That classification
+  now applies only when the run did not succeed, or the answer looks like
+  agy's own short auth sentinel.
 
 ### Changed
 

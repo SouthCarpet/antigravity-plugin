@@ -11,6 +11,9 @@ import { formatCommandFailure, runCommand } from "./process.mjs";
 const MAX_UNTRACKED_BYTES = 24 * 1024;
 const DEFAULT_INLINE_DIFF_MAX_FILES = 2;
 const DEFAULT_INLINE_DIFF_MAX_BYTES = 256 * 1024;
+// Never send a file whose name alone marks it as a secret (item 13): dotenv
+// variants, private-key/keystore extensions, and the default SSH key names.
+const SECRET_SHAPED_NAME_RE = /^\.env(\..*)?$|\.(pem|key|p12|pfx)$|^id_(rsa|ed25519|ecdsa)$/i;
 
 function git(cwd, args, options = {}) {
   return runCommand("git", args, { cwd, ...options });
@@ -118,18 +121,29 @@ export function getHeadSha(cwd) {
  * @returns {{ staged: string[], unstaged: string[], untracked: string[] }}
  */
 export function getWorkingTreeFiles(cwd) {
-  const statusOutput = gitChecked(cwd, ["status", "--porcelain", "-u"]);
+  // `-z` disables git's default quoting/octal-escaping of non-ASCII and
+  // whitespace-containing paths and NUL-terminates each record instead of
+  // newline-terminating it, so a path is taken verbatim from offset 3 with
+  // no trim/dequote step to get wrong (item 12). A rename/copy record
+  // carries one extra NUL-terminated field (the original path) right after
+  // the current path; it is consumed and dropped since only the current
+  // path is tracked here.
+  const statusOutput = gitChecked(cwd, ["status", "--porcelain=v1", "-z", "-u"]);
   const staged = [];
   const unstaged = [];
   const untracked = [];
 
-  for (const line of statusOutput.split("\n")) {
-    if (!line || line.length < 3) {
-      continue;
+  const records = statusOutput.split("\0");
+  for (let i = 0; i < records.length; i++) {
+    const entry = records[i];
+    if (!entry) continue;
+    const indexStatus = entry[0];
+    const workingStatus = entry[1];
+    const filePath = entry.slice(3);
+
+    if (indexStatus === "R" || indexStatus === "C" || workingStatus === "R" || workingStatus === "C") {
+      i += 1; // consume the rename/copy original-path field
     }
-    const indexStatus = line[0];
-    const workingStatus = line[1];
-    const filePath = line.slice(3).trim();
 
     if (indexStatus === "?") {
       untracked.push(filePath);
@@ -191,6 +205,10 @@ export function readUntrackedFiles(cwd, files, options = {}) {
   const results = [];
 
   for (const file of files) {
+    if (SECRET_SHAPED_NAME_RE.test(path.basename(file))) {
+      results.push({ path: file, skipped: "secret-shaped name" });
+      continue;
+    }
     const fullPath = path.join(cwd, file);
     try {
       // Use lstat to detect symlinks without following them.
@@ -314,8 +332,11 @@ function compareBaseCommit(cwd, baseRef, baseCommit) {
   const mergeBase = gitChecked(cwd, ["merge-base", "HEAD", baseCommit]).trim();
   const diff = gitChecked(cwd, ["diff", `${mergeBase}...HEAD`]);
   const commits = gitChecked(cwd, ["log", "--oneline", `${mergeBase}...HEAD`]);
-  const fileListRaw = gitChecked(cwd, ["diff", "--name-only", `${mergeBase}...HEAD`]);
-  const fileList = fileListRaw.trim().split("\n").filter(Boolean);
+  // `-z` NUL-terminates each name instead of newline-terminating and quoting
+  // it, so a non-ASCII or space-containing filename survives verbatim
+  // (item 12), matching the `-z` porcelain parsing in getWorkingTreeFiles.
+  const fileListRaw = gitChecked(cwd, ["diff", "--name-only", "-z", `${mergeBase}...HEAD`]);
+  const fileList = fileListRaw.split("\0").filter(Boolean);
 
   const summary = [
     `Comparing HEAD to ${baseRef} (merge-base: ${mergeBase.slice(0, 8)})`,

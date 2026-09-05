@@ -105,6 +105,26 @@ replies wait for stdout drain before the next request is processed.
 
 Users should not set `ANTIGRAVITY_VISION_ALLOWED_PATHS` globally.
 
+### `review` context sent to agy
+
+An untracked file whose basename looks like a secret (`.env` and its
+variants, `.pem`/`.key`/`.p12`/`.pfx`, or a default SSH private-key name) is
+never read or sent; it is listed to agy only as skipped, with that reason.
+Diffs, commit messages, and untracked file contents that are sent are wrapped
+in a labeled data block that tells the model the content is untrusted
+repository data, not instructions — this narrows, but does not eliminate,
+prompt injection from repository content (see "Out of scope").
+
+### Shared temporary directories (POSIX)
+
+The job state root, its cross-process lock directory, and the update-check
+cache each refuse to use a directory that already exists with a different
+owner, that is writable by the directory's group or by anyone else, or that
+is a symlink. This matters only on a shared multi-user Linux host, where
+another local user could otherwise pre-create or replace one of these paths
+under the OS temp directory before this plugin runs. Windows and macOS are
+unaffected: `%TEMP%`/`$TMPDIR` are already per-user there.
+
 ### `update --apply`
 
 On Windows, the update runner refuses a `.cmd`/`.bat` step before spawning

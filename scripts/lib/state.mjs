@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { recoverWorkspaceMutex, withWorkspaceMutex, withWorkspaceMutexSync, writeJsonAtomic } from "./atomic-state.mjs";
+import { assertPrivateDir } from "./fs.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 
 const STATE_VERSION = 1;
@@ -96,7 +97,9 @@ export function resolveJobLogFile(cwd, jobId) {
 }
 
 export function ensureStateDir(cwd) {
-  fs.mkdirSync(resolveJobsDir(cwd), { recursive: true, mode: 0o700 });
+  const dir = resolveJobsDir(cwd);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  assertPrivateDir(dir);
 }
 
 export function recoverStateLock(cwd, ownerPids) {

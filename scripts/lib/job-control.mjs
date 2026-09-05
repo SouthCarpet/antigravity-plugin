@@ -150,7 +150,7 @@ function enrichJob(workspaceRoot, job, options = {}) {
     threadId: source.threadId ?? null,
     turnId: source.turnId ?? null,
     conversationId: source.conversationId ?? null,
-    summary: source.summary ?? null,
+    summary: sanitizeSummaryForTable(source.summary),
     errorMessage: source.errorMessage ?? null,
     events: Array.isArray(source.events) ? source.events.slice(-maxRecentEvents) : [],
     healthStatus: runtimeHealth.healthStatus ?? source.healthStatus ?? null,
@@ -175,6 +175,22 @@ function enrichJob(workspaceRoot, job, options = {}) {
   }
 
   return enriched;
+}
+
+/**
+ * Sanitize a job summary for embedding in a markdown table cell (F14/item
+ * 13c): a raw `|` would split the cell, and a raw CR/LF would break the row
+ * across lines. Both are neutralized before the existing 120-character cut.
+ *
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function sanitizeSummaryForTable(value) {
+  if (typeof value !== "string") return null;
+  const collapsed = value.replace(/[\r\n]+/g, " ").trim();
+  if (!collapsed) return null;
+  const escaped = collapsed.replace(/\|/g, "\\|");
+  return escaped.length > 120 ? `${escaped.slice(0, 117)}...` : escaped;
 }
 
 function computeElapsed(job, now = new Date().toISOString()) {

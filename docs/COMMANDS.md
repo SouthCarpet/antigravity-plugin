@@ -143,6 +143,15 @@ An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
 agy. A working tree of only untracked files is reviewed.
 
+Untracked file bodies are capped at 24 KB total (not per file); once the cap
+is reached, remaining files are skipped whole rather than truncated. A file
+whose basename looks like a secret (`.env` and its variants,
+`.pem`/`.key`/`.p12`/`.pfx`, or a default SSH private-key name) is always
+skipped, regardless of the cap. Every skipped file is still listed in the
+prompt sent to agy, by path and skip reason (`secret-shaped name`, `exceeds
+byte limit`, `binary file`, `symlink`, `outside workspace`, or `read error`);
+it is never sent as content.
+
 Exit status is 0 for a completed foreground review, a successfully queued
 background review, or no changes; 1 for validation, Git, authentication, agy,
 or state failure; and 2 when an awaited/foreground agy outcome is cancelled.

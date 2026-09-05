@@ -21,6 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readCommandInput } from "./args.mjs";
+import { assertPrivateDir, UnsafeStateDirError } from "./fs.mjs";
 import { createJsonEnvelope } from "./render.mjs";
 import { resolveStateRoot } from "./state.mjs";
 
@@ -114,11 +115,16 @@ export function isCacheFresh(entry, now = Date.now(), ttlMs = CACHE_TTL_MS) {
 
 function writeUpdateCache(file, entry) {
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const dir = path.dirname(file);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    assertPrivateDir(dir);
     fs.writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 });
-  } catch {
-    // The answer was already obtained; a cache that cannot be written only
-    // costs one more registry request next time.
+  } catch (error) {
+    // A trust violation (another local user pre-created or replaced this
+    // directory, item 15) must not be swallowed the way an ordinary write
+    // failure is: propagate it. The answer was already obtained, so an
+    // ordinary I/O error only costs one more registry request next time.
+    if (error instanceof UnsafeStateDirError) throw error;
   }
 }
 

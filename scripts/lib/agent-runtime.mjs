@@ -671,14 +671,46 @@ export async function runAgyPrint({
 
   const parsed = parseAgyStream(stdout);
 
-  // Auth prompts may arrive as raw stdout text (checked per-chunk above) OR
-  // folded into the result event's response field — check both.
-  if (!status && typeof parsed.response === 'string') {
-    const m = parsed.response.match(AUTH_URL_PATTERN);
-    if (m) {
-      oauthUrl = oauthUrl ?? m[1];
-      status = 'auth_required';
-    } else if (AUTH_LINE_PATTERNS.some((p) => p.test(parsed.response))) {
+  // A SUCCESS result quoting the OAuth URL mid-answer is not an auth
+  // failure (item 14): a completed review of a change that touches Google
+  // sign-in can legitimately echo that URL. `eligible` decides whether a
+  // response is trustworthy as an auth signal at all: never for a legitimate
+  // long SUCCESS answer that merely contains the URL text, only when it
+  // looks like agy's own short sentinel line (under 512 chars, first line
+  // matching AUTH_LINE_PATTERNS) or the run did not succeed — agy's own
+  // failure text has no length promise.
+  // NOTE: this SUCCESS-response path is exercised only against recorded
+  // fixtures — the live auth response shape on agy 1.1.24 (whether a prompt
+  // ever actually arrives inside a SUCCESS result, or only ever as raw
+  // stdout) was not re-probed for this change. See
+  // tests/agent-runtime-stream.test.mjs "flags auth_required for a short
+  // SUCCESS sentinel matching AUTH_LINE_PATTERNS" for the shapes this pins
+  // today.
+  const responseText = typeof parsed.response === 'string' ? parsed.response : '';
+  const responseFirstLine = responseText.split('\n', 1)[0];
+  const looksLikeAuthSentinel = AUTH_LINE_PATTERNS.some((p) => p.test(responseFirstLine));
+  const eligible = parsed.resultStatus !== 'SUCCESS' ||
+    (responseText.length < 512 && looksLikeAuthSentinel);
+
+  // The per-chunk raw-stdout scan above runs while the stream is still
+  // arriving, before parsing can know whether this text will turn out to be
+  // a SUCCESS result's response field — so it can speculatively set
+  // `auth_required` on exactly the long-answer-mentions-the-URL case this
+  // fix targets. Undo that speculative call once the full result is parsed
+  // and it turns out not to be eligible; the raw-stdout detection itself
+  // (the chunk scan) is unchanged.
+  if (status === 'auth_required' && parsed.sawResult && !eligible) {
+    status = undefined;
+    oauthUrl = undefined;
+  }
+
+  // Auth prompts may also arrive folded into the result event's response
+  // field without ever matching at the raw-chunk level (e.g. reassembled
+  // only after a chunk boundary split the URL) — check it here too.
+  if (!status && eligible) {
+    const m = responseText.match(AUTH_URL_PATTERN);
+    if (m || looksLikeAuthSentinel) {
+      oauthUrl = oauthUrl ?? m?.[1];
       status = 'auth_required';
     }
   }

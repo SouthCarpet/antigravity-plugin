@@ -120,6 +120,12 @@ describe('buildSingleJobSnapshot', () => {
     assert.throws(() => buildSingleJobSnapshot(workCwd, 'missing'), /No job found/);
   });
 
+  it('sanitizes a summary containing a pipe and an embedded newline for the status table (F14)', async () => {
+    const job = await seedJob({ id: 'summary-escape', status: 'completed', summary: 'a | b\nc' });
+    const snap = buildSingleJobSnapshot(workCwd, job.id);
+    assert.equal(snap.job.summary, 'a \\| b c');
+  });
+
   it('enriches a running job with computed elapsed and reads tail of the log file', async () => {
     const created = new Date(Date.now() - 3000).toISOString();
     const job = await seedJob({

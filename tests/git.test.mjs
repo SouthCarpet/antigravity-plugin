@@ -136,7 +136,7 @@ describe('git.getWorkingTreeFiles / diffs', () => {
     assert.ok(getWorkingTreeDiff(repo).length > 0);
   });
 
-  it('parses a renamed entry (R index status)', () => {
+  it('parses a renamed entry (R index status), listing only the destination', () => {
     const repo = freshRepo();
     fs.writeFileSync(path.join(repo, 'b.txt'), 'second\n');
     sh('git add b.txt', repo);
@@ -144,12 +144,28 @@ describe('git.getWorkingTreeFiles / diffs', () => {
 
     sh('git mv b.txt b-renamed.txt', repo);
     const out = getWorkingTreeFiles(repo);
-    // git status --porcelain renders renames as "old -> new"; the parser
-    // records the full token as a staged entry.
-    assert.ok(
-      out.staged.some((f) => f.includes('b-renamed.txt')),
-      `expected b-renamed.txt in staged, got ${JSON.stringify(out.staged)}`
-    );
+    // -z parsing consumes the original-path field that follows a rename
+    // record, so only the destination name is recorded — no " -> " token,
+    // no leftover source path.
+    assert.deepEqual(out.staged, ['b-renamed.txt']);
+  });
+
+  it('preserves non-ASCII and space-containing untracked names verbatim (item 12)', () => {
+    const repo = freshRepo();
+    fs.writeFileSync(path.join(repo, 'máj.txt'), 'ahoj\n');
+    fs.writeFileSync(path.join(repo, 'new file.txt'), 'hello\n');
+    fs.writeFileSync(path.join(repo, ' leading-space.txt'), 'space\n');
+
+    const out = getWorkingTreeFiles(repo);
+    assert.ok(out.untracked.includes('máj.txt'), JSON.stringify(out.untracked));
+    assert.ok(out.untracked.includes('new file.txt'), JSON.stringify(out.untracked));
+    assert.ok(out.untracked.includes(' leading-space.txt'), JSON.stringify(out.untracked));
+
+    const results = readUntrackedFiles(repo, out.untracked);
+    const byPath = Object.fromEntries(results.map((r) => [r.path, r]));
+    assert.equal(byPath['máj.txt'].content.trim(), 'ahoj');
+    assert.equal(byPath['new file.txt'].content.trim(), 'hello');
+    assert.equal(byPath[' leading-space.txt'].content.trim(), 'space');
   });
 });
 
@@ -181,6 +197,19 @@ describe('git.readUntrackedFiles', () => {
     // First file fits; second triggers budget skip.
     const skipped = results.filter((r) => r.skipped);
     assert.ok(skipped.length >= 1);
+  });
+
+  it('skips secret-shaped names before ever touching the filesystem', () => {
+    const root = tmpDir('antigravity-secrets-');
+    // No files are actually created: the basename check runs first, so a
+    // secret-shaped name is skipped even if it does not exist on disk.
+    const results = readUntrackedFiles(root, ['.env', '.env.local', 'id_rsa', 'server.pem', 'keep.txt']);
+    const byPath = Object.fromEntries(results.map((r) => [r.path, r]));
+    assert.equal(byPath['.env'].skipped, 'secret-shaped name');
+    assert.equal(byPath['.env.local'].skipped, 'secret-shaped name');
+    assert.equal(byPath['id_rsa'].skipped, 'secret-shaped name');
+    assert.equal(byPath['server.pem'].skipped, 'secret-shaped name');
+    assert.equal(byPath['keep.txt'].skipped, 'read error', 'keep.txt is not secret-shaped, only missing');
   });
 
   it('skips files outside the cwd via realpath check', () => {
@@ -231,6 +260,19 @@ describe('git.buildBranchComparison', () => {
     assert.ok(cmp.diff.includes('feat.txt'));
     assert.match(cmp.summary, /Changed files: 1/);
     assert.match(cmp.summary, /Comparing HEAD to main/);
+  });
+
+  it('preserves a non-ASCII file name in the branch file list (item 12)', () => {
+    const repo = freshRepo();
+    sh('git checkout -q -b feature', repo);
+    fs.writeFileSync(path.join(repo, 'plán.txt'), 'plan\n');
+    sh('git add plán.txt', repo);
+    sh('git commit -q -m plan', repo);
+    sh('git checkout -q main', repo);
+    sh('git checkout -q feature', repo);
+
+    const cmp = buildBranchComparison(repo, 'main');
+    assert.ok(cmp.fileList.includes('plán.txt'), JSON.stringify(cmp.fileList));
   });
 });
 

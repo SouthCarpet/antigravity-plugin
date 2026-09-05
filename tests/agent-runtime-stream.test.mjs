@@ -471,10 +471,38 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     assert.match(res.stderr, /ERROR/);
   });
 
-  it('flags auth_required when the OAuth URL is embedded in a completed result.response', async () => {
+  // item 14: a SUCCESS result is only classified auth_required from
+  // result.response when it looks like agy's own short sentinel line, never
+  // merely because a completed answer happens to mention the URL.
+  it('flags auth_required for a short SUCCESS sentinel matching AUTH_LINE_PATTERNS', async () => {
     spawnCalls.length = 0;
     const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
-    nextEvents = [resultLine({ response: `Authentication required. Please visit ${authUrl}` }) + '\n'];
+    nextEvents = [
+      resultLine({ response: `Authentication required. Please visit the URL to log in.\n${authUrl}` }) + '\n',
+    ];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'auth_required');
+    assert.equal(res.oauthUrl, authUrl);
+  });
+
+  it('a SUCCESS result quoting the OAuth URL mid-answer is completed, not auth_required', async () => {
+    spawnCalls.length = 0;
+    const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
+    const padding = 'This review discusses the sign-in flow at length. '.repeat(20);
+    const response = `${padding}The endpoint is ${authUrl} and here is more analysis text to pad it out further.`;
+    assert.ok(response.length >= 900, `fixture too short: ${response.length}`);
+    nextEvents = [resultLine({ response }) + '\n'];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.stdout, response);
+  });
+
+  it('a non-SUCCESS result quoting the OAuth URL still yields auth_required', async () => {
+    spawnCalls.length = 0;
+    const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
+    nextEvents = [resultLine({ status: 'CANCELED', response: `See ${authUrl} to continue.` }) + '\n'];
     nextExitCode = 0;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'auth_required');

@@ -11,6 +11,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { assertPrivateDir } from "./fs.mjs";
 import { isProcessAlive, processStartedAt } from "./process.mjs";
 
 const DEFAULT_WAIT_MS = 25;
@@ -142,7 +143,9 @@ export async function withFileLock(
   fn,
   { lockTimeoutMs = 5000, staleLockMs = 60_000, waitMs = DEFAULT_WAIT_MS } = {},
 ) {
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  const lockRoot = path.dirname(lockPath);
+  fs.mkdirSync(lockRoot, { recursive: true, mode: 0o700 });
+  assertPrivateDir(lockRoot);
   const deadline = Date.now() + lockTimeoutMs;
   let token;
   while (!(token = tryAcquire(lockPath, staleLockMs))) {
@@ -166,7 +169,9 @@ export function withFileLockSync(
   fn,
   { lockTimeoutMs = 2000, staleLockMs = 60_000, waitMs = DEFAULT_WAIT_MS, now = Date.now, sleep = sleepSync } = {},
 ) {
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  const lockRoot = path.dirname(lockPath);
+  fs.mkdirSync(lockRoot, { recursive: true, mode: 0o700 });
+  assertPrivateDir(lockRoot);
   const deadline = now() + lockTimeoutMs;
   let token;
   while (!(token = tryAcquire(lockPath, staleLockMs))) {
