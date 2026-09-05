@@ -305,6 +305,10 @@ describe('agy execution budget environment', () => {
     { value: '2147483648', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=2147483648 (not a positive integer of milliseconds)\n' },
     { value: '', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS= (not a positive integer of milliseconds)\n' },
     { value: '1.5', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=1.5 (not a positive integer of milliseconds)\n' },
+    // Numeric to `Number()`, rejected by the decimal shape: without the regex
+    // a hex literal and a padded value would silently become a budget.
+    { value: '0x10', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=0x10 (not a positive integer of milliseconds)\n' },
+    { value: ' 5', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS= 5 (not a positive integer of milliseconds)\n' },
   ];
   for (const { value, expected, warning } of cases) {
     it(`uses ${expected} ms for ${JSON.stringify(value)} and emits the specified warning`, (t) => {
@@ -393,6 +397,11 @@ describe('background worker acknowledgement', () => {
   });
 });
 
+// The helper writes a job store on a real disk; its measured baseline on the
+// reference machine is 5-6 s alone and grows under a loaded full-suite run,
+// so the bound is that order plus a safety factor, not a tight 10 s.
+const HELPER_TIMEOUT_MS = 30000;
+
 describe('foreground runtime bounds integration', () => {
   // Oracle: 076-T3 R1. The helper uses a real sleeping Node child through the
   // owned adapter and verifies its PID is gone, without invoking taskkill.
@@ -402,7 +411,9 @@ describe('foreground runtime bounds integration', () => {
       const result = spawnSync(process.execPath, [
         '--experimental-test-module-mocks',
         path.join(import.meta.dirname, 'helpers', 'runtime-budget.mjs'), mode,
-      ], { cwd: workspaceRoot, encoding: 'utf8', timeout: 10000, env: { ...process.env } });
+      ], { cwd: workspaceRoot, encoding: 'utf8', timeout: HELPER_TIMEOUT_MS, env: { ...process.env } });
+      assert.equal(result.error?.code, undefined,
+        `helper did not finish within ${HELPER_TIMEOUT_MS} ms: ${result.error?.message}`);
       assert.equal(result.status, 0, result.stderr);
     });
   }

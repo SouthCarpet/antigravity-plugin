@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   budget, or `0` to disable it. Excess output (16 MiB stdout or 4 MiB stderr)
   also fails the job with a diagnostic; timeout and output failures terminate
   the agy process tree. Git commands and update steps now have timeouts.
+- **Interrupted foreground runs.** Ctrl+C during a foreground verb terminates
+  agy and its child processes before the command exits.
 - **Final output capture.** Answers and permission denials arriving as agy
   exits are retained until its streams close. Pipes that stay open five
   seconds after exit are closed with a warning.

@@ -54,6 +54,9 @@ stores a failed job with `agy did not finish within <ms> ms`. Output above
 `agy output exceeded <n> bytes`. Only output received before the offending
 chunk is retained; a partial answer is never reported as success.
 
+A foreground verb interrupted with Ctrl+C terminates agy and its child
+processes before it exits, on every platform.
+
 Final output is collected until stdio closes. Inherited pipes that remain
 open five seconds after exit are closed with the stored warning
 `agy stdio did not close within 5000 ms after exit`.

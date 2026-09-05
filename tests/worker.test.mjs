@@ -123,17 +123,27 @@ describe('_worker.mjs background job completion', () => {
 
 it('uses the stored 50 ms budget and persists failed after terminating a sleeping fake agy', () => {
   // Oracle: brief 076-T3 R1; the process seam avoids taskkill and verifies death.
+  // The helper writes a real job store; its baseline is 5-6 s alone and grows
+  // under a loaded full-suite run, so the bound is that order plus a safety
+  // factor. Cleanup never throws past the assertions: a killed helper can
+  // still hold a handle, and an EPERM here used to replace the real failure.
   const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-budget-'));
+  const timeoutMs = 30000;
+  let result;
   try {
-    const result = spawnSync(process.execPath, [
+    result = spawnSync(process.execPath, [
       '--experimental-test-module-mocks',
       path.join(import.meta.dirname, 'helpers', 'runtime-budget.mjs'), 'worker',
     ], {
-      cwd: workspaceRoot, encoding: 'utf8', timeout: 10000,
+      cwd: workspaceRoot, encoding: 'utf8', timeout: timeoutMs,
       env: { ...process.env, CLAUDE_PLUGIN_DATA: path.join(workspaceRoot, 'data') },
     });
-    assert.equal(result.status, 0, result.stderr);
-  } finally { fs.rmSync(workspaceRoot, { recursive: true, force: true }); }
+  } finally {
+    try { fs.rmSync(workspaceRoot, { recursive: true, force: true }); } catch { /* temp dir */ }
+  }
+  assert.equal(result.error?.code, undefined,
+    `helper did not finish within ${timeoutMs} ms: ${result.error?.message}`);
+  assert.equal(result.status, 0, result.stderr);
 });
 
 describe('worker persisted-request allowlist', () => {

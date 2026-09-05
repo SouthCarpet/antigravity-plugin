@@ -3,6 +3,7 @@
 import { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import os from 'node:os';
 import * as processes from '../../scripts/lib/process.mjs';
 
 const mode = process.argv[2];
@@ -14,7 +15,11 @@ mock.module('../../scripts/lib/process-adapter.mjs', {
       const script = mode === 'output-cap'
         ? "process.stdout.write('12345'); setTimeout(() => {}, 2000)"
         : 'setTimeout(() => {}, 2000)';
-      child = spawn(process.execPath, ['-e', script], options);
+      // The sleeping fake agy runs outside the workspace on purpose: if this
+      // helper is ever killed by its own launcher's timeout, the surviving
+      // child must not hold the workspace directory open, or the caller's
+      // cleanup fails with EPERM instead of reporting the real failure.
+      child = spawn(process.execPath, ['-e', script], { ...options, cwd: os.tmpdir() });
       return child;
     },
   },

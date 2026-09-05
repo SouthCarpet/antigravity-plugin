@@ -97,6 +97,38 @@ function spawnAgy(bin, args, opts) {
   return spawn(bin, args, opts);
 }
 
+/** Terminal signals a foreground run has to pass on to a detached child. */
+const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+
+/**
+ * Bridge the terminal's interactive signals to `onSignal` while a detached
+ * child is alive; the returned function removes the handlers again.
+ *
+ * agy is spawned `detached` on POSIX so `terminateProcessTree` can signal the
+ * whole group with `kill(-pid)`. `detached` makes the child a session leader,
+ * so it no longer belongs to the terminal's foreground process group: without
+ * this bridge, Ctrl+C (or SIGHUP on a closing terminal) would kill the plugin
+ * and its execution budget while agy kept running unbounded. Callers must
+ * remove the handlers when the child settles, otherwise a later Ctrl+C would
+ * no longer terminate the process.
+ *
+ * Only installed on the detached path — on win32 the child stays in the
+ * console's process group and Ctrl+C reaches it as before.
+ *
+ * @param {(signal: string) => void} onSignal
+ * @returns {() => void}
+ */
+function forwardTerminationSignals(onSignal) {
+  const installed = FORWARDED_SIGNALS.map((name) => {
+    const handler = () => onSignal(name);
+    process.on(name, handler);
+    return [name, handler];
+  });
+  return () => {
+    for (const [name, handler] of installed) process.off(name, handler);
+  };
+}
+
 /**
  * Resolve the `agy` binary path.
  *
@@ -146,28 +178,39 @@ export function resolveAgyBin(env = process.env, platform = process.platform) {
  * Probe `agy --version`. Resolves to `{ ok: true, version }` or
  * `{ ok: false, reason }`.
  */
-export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000, terminateTree = terminateProcessTree } = {}) {
+export async function probeAgy({
+  bin = resolveAgyBin(),
+  timeoutMs = 5000,
+  terminateTree = terminateProcessTree,
+  platform = process.platform,
+} = {}) {
   try {
     assertAgyBinSpawnable(bin);
   } catch (err) {
     return { ok: false, reason: err?.message ?? String(err) };
   }
+  const detached = platform !== 'win32';
   let timer;
   let termination;
+  let removeSignalHandlers = null;
   try {
     return await new Promise((resolve) => {
       const child = spawnAgy(bin, ['--version'], {
-        detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+        detached, stdio: ['ignore', 'pipe', 'pipe'],
       });
       let stdout = '';
-      // The existing total probe deadline also bounds pipes inherited after exit.
-      timer = setTimeout(() => {
+      const abandon = (reason) => {
         termination = terminateTree(child.pid).catch(() => {});
         child.stdout.destroy?.();
         child.stderr.destroy?.();
         child.unref?.();
-        resolve({ ok: false, reason: 'timeout' });
-      }, timeoutMs);
+        resolve({ ok: false, reason });
+      };
+      // The existing total probe deadline also bounds pipes inherited after exit.
+      timer = setTimeout(() => abandon('timeout'), timeoutMs);
+      // A detached probe leaves the terminal's process group, so Ctrl+C has to
+      // be passed on explicitly (see forwardTerminationSignals).
+      if (detached) removeSignalHandlers = forwardTerminationSignals(() => abandon('cancelled'));
       child.stdout.on('data', (c) => {
         // A version needs only its first token; drain the rest without retaining it.
         if (stdout.length < 4096) stdout += c.toString('utf8').slice(0, 4096 - stdout.length);
@@ -185,6 +228,7 @@ export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000, termin
     });
   } finally {
     clearTimeout(timer);
+    removeSignalHandlers?.();
     await termination;
   }
 }
@@ -358,6 +402,12 @@ export function detectAutoDenial(stderr) {
  * appended (in order) after `--model`. Both land before the always-on
  * `--input-format`/`--output-format`/`--print` tail.
  *
+ * Outside win32 the child is spawned `detached` (its own process group, so
+ * `terminateProcessTree` can signal the group) and `SIGINT`/`SIGTERM`/`SIGHUP`
+ * are forwarded to the same cancellation for as long as the child runs, so
+ * Ctrl+C still takes agy and its children down. `platform` overrides the
+ * detection for tests.
+ *
  * `outputFormat` is accepted for backward compat but is now a no-op — agy
  * always runs in stream-json mode, which carries the same envelope fields
  * regardless of what (if anything) this is set to.
@@ -427,6 +477,7 @@ export async function runAgyPrint({
   maxStderrBytes = MAX_STDERR_BYTES,
   stdioDrainTimeoutMs = STDIO_DRAIN_TIMEOUT_MS,
   terminateTree = terminateProcessTree,
+  platform = process.platform,
 } = {}) {
   if (typeof prompt !== 'string' || !prompt.length) {
     throw new TypeError('runAgyPrint: prompt must be a non-empty string');
@@ -442,10 +493,11 @@ export async function runAgyPrint({
   args.push(...extraArgs);
   args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
 
+  const detached = platform !== 'win32';
   const child = spawnAgy(bin, args, {
     cwd,
     env,
-    detached: process.platform !== 'win32',
+    detached,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -466,10 +518,16 @@ export async function runAgyPrint({
   let stdoutBytes = 0;
   let stderrBytes = 0;
   const warnings = [];
+  // Destroying is not enough to let this process exit: the pending shutdown
+  // of the stdin pipe (from `stdin.end()`) stays an active handle while a
+  // grandchild that inherited the descriptors keeps it open, so the handles
+  // are also unreferenced. Without the unref, a library caller settles at the
+  // drain deadline but only exits when that grandchild does.
   const destroyStdio = () => {
-    child.stdin.destroy?.();
-    child.stdout.destroy?.();
-    child.stderr.destroy?.();
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      stream?.destroy?.();
+      stream?.unref?.();
+    }
   };
 
   const exitCodePromise = new Promise((resolve) => {
@@ -574,6 +632,13 @@ export async function runAgyPrint({
     ? setTimeout(() => initiateTermination('timeout', `agy did not finish within ${timeoutMs} ms`), timeoutMs)
     : null;
 
+  // A detached agy no longer dies with the terminal's foreground process
+  // group, so the interactive signals are forwarded to the same bounded
+  // cancellation an abort uses (see forwardTerminationSignals).
+  const removeSignalHandlers = detached
+    ? forwardTerminationSignals(() => initiateTermination('cancelled'))
+    : null;
+
   let abortListener;
   if (signal) {
     abortListener = () => initiateTermination('cancelled');
@@ -599,6 +664,7 @@ export async function runAgyPrint({
     clearTimeout(timer);
     clearTimeout(drainTimer);
     clearTimeout(giveUpTimer);
+    removeSignalHandlers?.();
     if (signal && abortListener) signal.removeEventListener('abort', abortListener);
     await terminationTask;
   }

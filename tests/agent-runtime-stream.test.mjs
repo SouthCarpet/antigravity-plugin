@@ -226,6 +226,57 @@ describe('bounded stdio draining', () => {
   });
 });
 
+// Oracle: 076-T3 fix round 2, finding F2. A detached child leaves the
+// terminal's foreground process group, so the interactive signals have to be
+// forwarded explicitly. Windows cannot raise them, so the wiring is checked
+// through the `platform` seam: the handler this run installed is located by
+// difference and invoked directly, which never disturbs other listeners.
+describe('foreground cancellation on the detached path', () => {
+  const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const handlerCounts = () => SIGNALS.map((name) => process.listenerCount(name));
+
+  it('forwards a terminal signal to termination and removes the handlers on settle', async () => {
+    autoExit = false;
+    const before = handlerCounts();
+    const beforeSigint = process.listeners('SIGINT');
+    try {
+      let terminated = false;
+      const pending = runAgyPrint({
+        prompt: 'p', bin: 'agy', platform: 'linux',
+        terminateTree: async () => { terminated = true; },
+      });
+      const child = spawnCalls.at(-1).child;
+      assert.equal(spawnCalls.at(-1).opts.detached, true);
+      assert.deepEqual(handlerCounts(), before.map((count) => count + 1));
+
+      const installed = process.listeners('SIGINT').filter((fn) => !beforeSigint.includes(fn));
+      assert.equal(installed.length, 1);
+      installed[0]();
+      assert.equal(terminated, true);
+
+      child.emit('exit', null, 'SIGTERM');
+      child.emit('close', null, 'SIGTERM');
+      const result = await pending;
+      assert.equal(result.status, 'cancelled');
+      assert.deepEqual(handlerCounts(), before);
+    } finally { autoExit = true; }
+  });
+
+  it('installs no handlers on win32, where the child stays in the console group', async () => {
+    const before = handlerCounts();
+    await runAgyPrint({ prompt: 'p', bin: 'agy', platform: 'win32' });
+    assert.equal(spawnCalls.at(-1).opts.detached, false);
+    assert.deepEqual(handlerCounts(), before);
+  });
+
+  it('removes the probe handlers once the probe settles', async () => {
+    const before = handlerCounts();
+    assert.deepEqual(await probeAgy({ bin: 'agy', platform: 'linux' }), { ok: true, version: 'unknown' });
+    assert.equal(spawnCalls.at(-1).opts.detached, true);
+    assert.deepEqual(handlerCounts(), before);
+  });
+});
+
 // Oracle: brief 076-T3 R1 caps bytes, retains only pre-breach output, and
 // fails even if a SUCCESS event preceded the oversized chunk.
 describe('agy output caps', () => {
