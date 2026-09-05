@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Vision refuses images whose file identity changes during access and keeps
+  the 10 MiB limit enforced when a file grows after its initial check.
+- Malformed vision MCP requests no longer stop the server; oversized input
+  frames are rejected and paused clients cannot queue unlimited replies.
 - Updates reject invalid registry/cache versions and unsafe Windows batch
   command paths or arguments; native executables take precedence over shims.
 - Background jobs reject stored agy flags other than the supported mode

@@ -14,8 +14,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { once } from 'node:events';
+import { Readable, Writable } from 'node:stream';
+import { setTimeout } from 'node:timers/promises';
 
-import { loadImageResult } from '../scripts/mcp/vision-server.mjs';
+import { loadImageResult, MAX_FRAME_BYTES, serveVision } from '../scripts/mcp/vision-server.mjs';
 import { canonicalComparePath } from '../scripts/lib/paths.mjs';
 import { VISION_ALLOWLIST_ENV } from '../scripts/lib/vision-capability.mjs';
 import { fakeVolume, LONG_DIR, SHORT_DIR, TINY_PNG_BASE64 } from './helpers/fake-volume.mjs';
@@ -40,8 +43,11 @@ function aliasedFs(aliasDir, longDir) {
     lstatSync: (p) => fs.lstatSync(rewrite(p)),
     readdirSync: (p) => fs.readdirSync(rewrite(p)),
     realpathSync: { native: (p) => fs.realpathSync.native(rewrite(p)) },
-    statSync: (p) => fs.statSync(rewrite(p)),
-    readFileSync: (p) => fs.readFileSync(rewrite(p)),
+    statSync: (p, options) => fs.statSync(rewrite(p), options),
+    openSync: (p, flags) => fs.openSync(rewrite(p), flags),
+    fstatSync: (fd, options) => fs.fstatSync(fd, options),
+    readSync: (fd, buffer, offset, length, position) => fs.readSync(fd, buffer, offset, length, position),
+    closeSync: (fd) => fs.closeSync(fd),
   };
 }
 
@@ -72,6 +78,9 @@ describe('vision-server.loadImageResult', () => {
     assert.ok(imagePart, 'expected an image content block');
     assert.equal(imagePart.mimeType, 'image/png');
     assert.ok(imagePart.data.length > 0);
+    // Brief R1: retain the documented text-then-image success shape and pixels.
+    assert.deepEqual(out.content.map((part) => part.type), ['text', 'image']);
+    assert.equal(imagePart.data, TINY_PNG_BASE64);
   });
 
   it('resolves relative paths against the provided cwd', () => {
@@ -214,6 +223,132 @@ describe('vision-server.loadImageResult', () => {
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /too large/);
   });
+
+  // Oracle for the race, cap and descriptor cases: binding brief 076-T2 R1.
+  it('refuses a real junction/symlink substitution scheduled after the pre-open stat', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-race-'));
+    tmpDirs.push(dir);
+    const allowedDir = path.join(dir, 'allowed');
+    const outsideDir = path.join(dir, 'unlisted');
+    fs.mkdirSync(allowedDir);
+    fs.mkdirSync(outsideDir);
+    const allowedPath = path.join(allowedDir, 'probe.png');
+    const secretPath = path.join(outsideDir, 'probe.png');
+    fs.writeFileSync(allowedPath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    fs.writeFileSync(secretPath, 'unlisted secret');
+    const seam = { fs: { ...fs, statSync(p, options) {
+      const stat = fs.statSync(p, options);
+      fs.unlinkSync(allowedPath);
+      if (process.platform === 'win32') {
+        fs.rmdirSync(allowedDir);
+        fs.symlinkSync(outsideDir, allowedDir, 'junction');
+      } else {
+        fs.symlinkSync(secretPath, allowedPath);
+      }
+      return stat;
+    } } };
+
+    const out = loadImageResult(allowedPath, dir, [allowedPath], seam);
+    assert.equal(out.isError, true);
+    assert.equal(out.content[0].text, 'ERROR: image identity changed; refusing access');
+    assert.equal(out.content.length, 1);
+  });
+
+  for (const [condition, change] of [
+    ['non-file handle', { isFile: () => false }],
+    ['changed device', { dev: -1 }],
+    ['changed inode', { ino: -1 }],
+  ]) {
+    it(`refuses and closes a ${condition}`, () => {
+      let closes = 0;
+      const seam = { fs: { ...fs,
+        fstatSync: (fd, options) => Object.assign(fs.fstatSync(fd, options), change),
+        closeSync(fd) { closes++; fs.closeSync(fd); },
+      } };
+      const out = loadImageResult(pngPath, tmpDir, [pngPath], seam);
+      assert.equal(out.isError, true);
+      assert.equal(out.content[0].text, 'ERROR: image identity changed; refusing access');
+      assert.equal(closes, 1);
+    });
+  }
+
+  it('refuses distinct 64-bit inode indexes that round to the same Number', () => {
+    // Brief fix1 F2: these adjacent file indexes collide as doubles.
+    const seam = { fs: { ...fs,
+      statSync(p, options) {
+        return Object.assign(fs.statSync(p, options), {
+          ino: options?.bigint ? 9007199254740992n : Number(9007199254740992n),
+        });
+      },
+      fstatSync(fd, options) {
+        return Object.assign(fs.fstatSync(fd, options), {
+          ino: options?.bigint ? 9007199254740993n : Number(9007199254740993n),
+        });
+      },
+    } };
+    const out = loadImageResult(pngPath, tmpDir, [pngPath], seam);
+    assert.equal(out.isError, true);
+    assert.equal(out.content[0].text, 'ERROR: image identity changed; refusing access');
+  });
+
+  it('refuses a changed canonical path even when the opened identity matches', () => {
+    let opened = false;
+    let closes = 0;
+    const seam = { fs: { ...fs,
+      openSync(p, flags) { const fd = fs.openSync(p, flags); opened = true; return fd; },
+      realpathSync: { native: (p) => opened ? path.join(tmpDir, 'unlisted.png') : fs.realpathSync.native(p) },
+      closeSync(fd) { closes++; fs.closeSync(fd); },
+    } };
+    const out = loadImageResult(pngPath, tmpDir, [pngPath], seam);
+    assert.equal(out.isError, true);
+    assert.equal(out.content[0].text, 'ERROR: image identity changed; refusing access');
+    assert.equal(closes, 1);
+  });
+
+  it('refuses growth past 10 MiB after stat and closes the handle', () => {
+    const growingPath = path.join(tmpDir, 'growing.png');
+    fs.writeFileSync(growingPath, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    let closes = 0;
+    const seam = { fs: { ...fs,
+      statSync(p, options) { const stat = fs.statSync(p, options); fs.truncateSync(p, 10 * 1024 * 1024 + 1); return stat; },
+      closeSync(fd) { closes++; fs.closeSync(fd); },
+    } };
+    const out = loadImageResult(growingPath, tmpDir, [growingPath], seam);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /too large.*byte cap/);
+    assert.equal(out.content.length, 1);
+    assert.equal(closes, 1);
+  });
+
+  it('accepts an image exactly at the 10 MiB cap', () => {
+    const exactPath = path.join(tmpDir, 'exact.png');
+    fs.writeFileSync(exactPath, Buffer.alloc(10 * 1024 * 1024, 42));
+    const out = loadImageResult(exactPath, tmpDir, [exactPath]);
+    assert.equal(out.isError, undefined);
+    assert.deepEqual(out.content.map((part) => part.type), ['text', 'image']);
+    assert.equal(Buffer.from(out.content[1].data, 'base64').length, 10 * 1024 * 1024);
+  });
+
+  it('returns all image bytes when handle reads are short', () => {
+    const seam = { fs: { ...fs,
+      readSync: (fd, buffer, offset, length, position) =>
+        fs.readSync(fd, buffer, offset, Math.min(length, 7), position),
+    } };
+    const out = loadImageResult(pngPath, tmpDir, [pngPath], seam);
+    assert.equal(out.content[1].data, TINY_PNG_BASE64);
+  });
+
+  it('closes the handle exactly once and hides details when reading throws', () => {
+    let closes = 0;
+    const seam = { fs: { ...fs,
+      readSync() { throw new Error(`sensitive read failure at ${SERVER}`); },
+      closeSync(fd) { closes++; fs.closeSync(fd); },
+    } };
+    const out = loadImageResult(pngPath, tmpDir, [pngPath], seam);
+    assert.equal(out.isError, true);
+    assert.equal(out.content[0].text, 'ERROR: unable to read image');
+    assert.equal(closes, 1);
+  });
 });
 
 // ───────────────────────────── real server round-trip ─────────────────────────────
@@ -253,6 +388,26 @@ function startServer(cwd, allowedPaths = []) {
 }
 
 describe('vision-server (real MCP stdio process)', () => {
+  // Brief fix1 F3: only strings may be echoed as protocolVersion.
+  for (const [label, value, expected] of [
+    ['string', '2024-11-05', '2024-11-05'],
+    ['object', { nested: [1, 2] }, '2025-06-18'],
+    ['number', 123, '2025-06-18'],
+    ['boolean', false, '2025-06-18'],
+    ['null', null, '2025-06-18'],
+    ['missing value', undefined, '2025-06-18'],
+  ]) {
+    it(`initializes with the expected protocol version for a ${label}`, { timeout: 10000 }, async () => {
+      const srv = startServer(tmpDir);
+      try {
+        const res = await srv.send('initialize', { protocolVersion: value });
+        assert.equal(res.result.protocolVersion, expected);
+      } finally {
+        srv.close();
+      }
+    });
+  }
+
   it('initialize → tools/list → tools/call round-trips real image content', async () => {
     const srv = startServer(tmpDir, [pngPath]);
     try {
@@ -349,5 +504,204 @@ describe('vision-server (real MCP stdio process)', () => {
     } finally {
       srv.close();
     }
+  });
+});
+
+// A complete stdin session proves recovery and a clean exit, rather than
+// killing the server as soon as a response arrives. Oracle: brief 076-T2 R2.
+async function exchangeFrames(t, input) {
+  const child = spawn(process.execPath, [SERVER], {
+    cwd: tmpDir,
+    env: { ...process.env, [VISION_ALLOWLIST_ENV]: '[]' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  t.after(() => child.kill());
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+  child.stdin.on('error', () => {}); // A premature exit is asserted below.
+  const closed = once(child, 'close');
+  child.stdin.end(input);
+  const [code, signal] = await closed;
+  assert.equal(code, 0, stderr);
+  assert.equal(signal, null);
+  assert.equal(stderr, '');
+  return stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+}
+
+describe('vision-server malformed input recovery (brief R2)', () => {
+  const ping = '{"jsonrpc":"2.0","id":99,"method":"ping"}\n';
+  const invalidRequests = [
+    ['null', 'null', null],
+    ['array', '[1,2]', null],
+    ['string', '"str"', null],
+    ['wrong version', '{"jsonrpc":"1.0","id":1,"method":"ping"}', 1],
+    ['missing version', '{"id":1,"method":"ping"}', 1],
+    ['non-string method', '{"jsonrpc":"2.0","id":1,"method":{}}', 1],
+    ['unusable id', '{"jsonrpc":"2.0","id":{},"method":"ping"}', null],
+  ];
+  for (const [label, frame, id] of invalidRequests) {
+    it(`answers ${label} with invalid request, then ping, and exits 0`, { timeout: 10000 }, async (t) => {
+      const replies = await exchangeFrames(t, `${frame}\n${ping}`);
+      assert.equal(replies.length, 2);
+      assert.deepEqual(replies[0], {
+        jsonrpc: '2.0', id, error: { code: -32600, message: 'invalid request' },
+      });
+      assert.deepEqual(replies[1], { jsonrpc: '2.0', id: 99, result: {} });
+    });
+  }
+
+  for (const [label, args] of [
+    ['object with non-callable toString', { path: { toString: 1 } }],
+    ['empty path', { path: '' }],
+    ['missing path', {}],
+  ]) {
+    it(`rejects ${label} without leaking details and still answers ping`, { timeout: 10000 }, async (t) => {
+      // Deliberately omit name: path validation must catch the brief's exact payload.
+      const frame = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { arguments: args } });
+      const replies = await exchangeFrames(t, `${frame}\n${ping}`);
+      assert.equal(replies.length, 2);
+      assert.deepEqual(replies[0].error, { code: -32602, message: 'path must be a non-empty string' });
+      assert.doesNotMatch(JSON.stringify(replies[0]), /\bat\s+\S+|vision-server\.mjs|toString/);
+      assert.ok(!JSON.stringify(replies[0]).includes(SERVER));
+      assert.deepEqual(replies[1], { jsonrpc: '2.0', id: 99, result: {} });
+    });
+  }
+
+  it('does not echo an object supplied as an unknown tool name', { timeout: 10000 }, async (t) => {
+    const replies = await exchangeFrames(t,
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":{"toString":1},"arguments":{"path":"probe.png"}}}\n' + ping);
+    assert.equal(replies.length, 2);
+    assert.deepEqual(replies[0].error, { code: -32602, message: 'unknown tool' });
+    assert.equal(replies[1].id, 99);
+  });
+
+  it('never answers notifications, including malformed and unknown ones', { timeout: 10000 }, async (t) => {
+    const input = [
+      '{"jsonrpc":"2.0","method":"ping"}',
+      '{"jsonrpc":"2.0","method":"tools/call","params":{"arguments":{"path":{}}}}',
+      '{"jsonrpc":"2.0","method":"unknown"}',
+      '{"jsonrpc":"1.0","method":42}',
+      '{}',
+    ].join('\n');
+    const replies = await exchangeFrames(t, `${input}\n${ping}`);
+    assert.deepEqual(replies, [{ jsonrpc: '2.0', id: 99, result: {} }]);
+  });
+
+  it('answers invalid JSON with a parse error and continues at the next line', { timeout: 10000 }, async (t) => {
+    const replies = await exchangeFrames(t, `{broken\n${ping}`);
+    assert.equal(replies.length, 2);
+    assert.deepEqual(replies[0].error, { code: -32700, message: 'parse error' });
+    assert.equal(replies[1].id, 99);
+  });
+
+  it('drops a frame over the byte cap with one error, then answers ping and exits 0', { timeout: 10000 }, async (t) => {
+    const replies = await exchangeFrames(t, `${'x'.repeat(MAX_FRAME_BYTES * 3)}\n${ping}`);
+    assert.equal(replies.length, 2);
+    assert.deepEqual(replies[0], {
+      jsonrpc: '2.0', id: null, error: { code: -32600, message: 'request frame exceeds byte cap' },
+    });
+    assert.deepEqual(replies[1], { jsonrpc: '2.0', id: 99, result: {} });
+  });
+
+  it('caps UTF-8 bytes rather than characters', { timeout: 10000 }, async (t) => {
+    const replies = await exchangeFrames(t, `"${'é'.repeat(MAX_FRAME_BYTES / 2)}"\n${ping}`);
+    assert.equal(replies.length, 2);
+    assert.equal(replies[0].error.message, 'request frame exceeds byte cap');
+    assert.equal(replies[1].id, 99);
+  });
+
+  it('accepts a frame exactly at the byte cap and a final line without a newline', { timeout: 10000 }, async (t) => {
+    const exactFrame = ping.trimEnd().padEnd(MAX_FRAME_BYTES, ' ');
+    const replies = await exchangeFrames(t, `${exactFrame}\n${ping.trimEnd()}`);
+    assert.deepEqual(replies, [
+      { jsonrpc: '2.0', id: 99, result: {} },
+      { jsonrpc: '2.0', id: 99, result: {} },
+    ]);
+  });
+});
+
+describe('vision-server transport bounds and handler failures (brief R2)', () => {
+  it('drops an oversized frame across chunks and preserves a split UTF-8 id on the next request', async () => {
+    const chunks = [
+      Buffer.alloc(MAX_FRAME_BYTES, 120), Buffer.from('x'), Buffer.from('discarded\n'),
+      Buffer.from('{"jsonrpc":"2.0","method":"ping","id":"'),
+      Buffer.from([0xc3]), Buffer.from([0xa9]), Buffer.from('"}\n'),
+    ];
+    const replies = [];
+    const output = new Writable({ write(chunk, encoding, callback) {
+      replies.push(JSON.parse(chunk.toString())); callback();
+    } });
+    await serveVision(Readable.from(chunks), output, []);
+    assert.equal(replies.length, 2);
+    assert.equal(replies[0].error.message, 'request frame exceeds byte cap');
+    assert.deepEqual(replies[1], { jsonrpc: '2.0', id: 'é', result: {} });
+  });
+
+  it('turns an unexpected loader exception into one fixed internal error and keeps serving', async () => {
+    const input = Readable.from([Buffer.from(
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"view_image","arguments":{"path":"probe.png"}}}\n'
+      + '{"jsonrpc":"2.0","id":2,"method":"ping"}\n',
+    )]);
+    const replies = [];
+    const output = new Writable({ write(chunk, encoding, callback) {
+      replies.push(JSON.parse(chunk.toString())); callback();
+    } });
+    await serveVision(input, output, [], () => { throw new Error(`secret path ${SERVER}\n    at handler`); });
+    assert.deepEqual(replies, [
+      { jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'internal error' } },
+      { jsonrpc: '2.0', id: 2, result: {} },
+    ]);
+  });
+
+  it('turns an unexpected serialization exception into one fixed internal error and keeps serving', async () => {
+    const input = Readable.from([Buffer.from(
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"view_image","arguments":{"path":"probe.png"}}}\n'
+      + '{"jsonrpc":"2.0","id":2,"method":"ping"}\n',
+    )]);
+    const replies = [];
+    const output = new Writable({ write(chunk, encoding, callback) {
+      replies.push(JSON.parse(chunk.toString())); callback();
+    } });
+    // Force serialization failure independently of V8's recursion limits.
+    await serveVision(input, output, [], () => ({ toJSON() {
+      throw new Error(`secret path ${SERVER}\n    at serializer`);
+    } }));
+    assert.deepEqual(replies, [
+      { jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'internal error' } },
+      { jsonrpc: '2.0', id: 2, result: {} },
+    ]);
+  });
+
+  it('waits for output drain before loading another requested image', { timeout: 10000 }, async () => {
+    const request = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"view_image","arguments":{"path":"probe.png"}}}\n';
+    let release;
+    let signalWrite;
+    const firstWrite = new Promise((resolve) => { signalWrite = resolve; });
+    const replies = [];
+    const output = new Writable({ highWaterMark: 1, write(chunk, encoding, callback) {
+      replies.push(JSON.parse(chunk.toString()));
+      if (replies.length === 1) { release = callback; signalWrite(); }
+      else callback();
+    } });
+    let loads = 0;
+    const serving = serveVision(Readable.from([Buffer.from(request + request)]), output, [pngPath], () => {
+      loads++;
+      return loadImageResult(pngPath, tmpDir, [pngPath]);
+    });
+    await firstWrite;
+    try {
+      // Brief fix1 F1: let the request loop advance while output stays stalled;
+      // the firstWrite microtask alone runs too early to expose a missing wait.
+      await setTimeout(50);
+      assert.equal(loads, 1, 'a paused client must stop subsequent image reads');
+      assert.equal(replies.length, 1);
+    } finally {
+      release();
+    }
+    await serving;
+    assert.equal(loads, 2);
+    assert.equal(replies.length, 2);
   });
 });

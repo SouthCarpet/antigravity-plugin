@@ -48,7 +48,8 @@ function keyOf(input) {
 }
 
 /**
- * @returns {{ lstatSync, readdirSync, realpathSync: { native }, statSync, readFileSync }}
+ * @returns {{ lstatSync, readdirSync, realpathSync: { native }, statSync,
+ *   openSync, fstatSync, readSync, closeSync }}
  */
 export function fakeVolume() {
   const png = Buffer.from(TINY_PNG_BASE64, "base64");
@@ -93,6 +94,13 @@ export function fakeVolume() {
     isSymbolicLink: () => node.kind === "junction",
   });
 
+  const handles = new Map();
+  let nextFd = 1;
+  const fromHandle = (fd) => {
+    if (!handles.has(fd)) throw fsError("EBADF", fd);
+    return handles.get(fd);
+  };
+
   return {
     lstatSync: (input) => statOf(lookup(input)),
     readdirSync: (input) => {
@@ -102,10 +110,20 @@ export function fakeVolume() {
     },
     realpathSync: { native: realpath },
     statSync: (input) => statOf(lookup(realpath(input))),
-    readFileSync: (input) => {
-      const node = lookup(realpath(input));
-      if (node.kind !== "file") throw fsError("EISDIR", input);
-      return Buffer.from(node.data);
+    openSync: (input) => {
+      const fd = nextFd++;
+      handles.set(fd, lookup(realpath(input)));
+      return fd;
+    },
+    fstatSync: (fd) => statOf(fromHandle(fd)),
+    readSync: (fd, buffer, offset, length, position) => {
+      const node = fromHandle(fd);
+      if (node.kind !== "file") throw fsError("EISDIR", fd);
+      return node.data.copy(buffer, offset, position, position + length);
+    },
+    closeSync: (fd) => {
+      fromHandle(fd);
+      handles.delete(fd);
     },
   };
 }
