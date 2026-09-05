@@ -27,6 +27,7 @@ import {
   appendJobLog,
   resolveJobLogFile,
   ensureStateDir,
+  resolveJobFile,
 } from '../scripts/lib/state.mjs';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -243,6 +244,62 @@ describe('/antigravity:status', () => {
 // ───────────────────────────── result ─────────────────────────────
 
 describe('/antigravity:result', () => {
+  // R2: unreadable details must never produce a success envelope.
+  for (const [label, detail] of [
+    ['missing', undefined], ['non-object', 'null'], ['array', '[]'],
+    ['invalid JSON', '{ broken'],
+    ['invalid record', '{"id":"123456abcdef","status":"completed","pid":0}'],
+  ]) {
+    for (const json of [false, true]) {
+      it(`returns 1 and no stdout for ${label} detail${json ? ' under --json' : ''}`, async () => {
+        const id = '123456abcdef';
+        await upsertJob(tempDir, { id, status: 'completed' });
+        if (detail !== undefined) fs.writeFileSync(resolveJobFile(tempDir, id), detail);
+        const { run } = await import('../scripts/commands/result.mjs');
+        const cap = captureStdio();
+        let exit;
+        try { exit = await run([id, ...(json ? ['--json'] : [])], { cwd: tempDir }); }
+        finally { cap.restore(); }
+        assert.equal(exit, 1);
+        assert.equal(cap.out.join(''), '');
+        assert.equal(cap.err.join(''), `antigravity:result — stored job ${id} is unreadable.\n`);
+      });
+    }
+  }
+
+  it('uses completed detail over a running index in status and result', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, status: 'running', sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'committed answer' } });
+    const { buildStatusSnapshot, buildSingleJobSnapshot } = await import('../scripts/lib/job-control.mjs');
+    assert.equal(buildSingleJobSnapshot(tempDir, id).job.status, 'completed');
+    const snapshot = buildStatusSnapshot(tempDir);
+    assert.equal(snapshot.running.length, 0);
+    assert.equal(snapshot.latestFinished.status, 'completed');
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'committed answer\n' });
+  });
+
+  it('keeps the metadata fallback and exit 0 for a valid completed empty answer', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, status: 'completed' });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: '' } });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed' });
+    assert.match(payload.answer, /Status: completed/);
+    assert.equal(cap.err.join(''), '');
+  });
+
   it('returns 1 with a friendly error when no jobs exist', async () => {
     const { run } = await import('../scripts/commands/result.mjs');
     const cap = captureStdio();
@@ -276,7 +333,7 @@ describe('/antigravity:result', () => {
   });
 
   it('renders a completed job and exits 0', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -307,7 +364,7 @@ describe('/antigravity:result', () => {
   });
 
   it('--json wraps a completed result and its opaque answer', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -343,7 +400,7 @@ describe('/antigravity:result', () => {
   });
 
   it('returns 2 for cancelled jobs', async () => {
-    const id = 'cancelledjob';
+    const id = 'ca11ce11ed00';
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -368,7 +425,7 @@ describe('/antigravity:result', () => {
   });
 
   it('prints a usage trailer on stderr when the stored job carries measured usage', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -402,7 +459,7 @@ describe('/antigravity:result', () => {
   });
 
   it('prints no usage trailer when the stored job has no usage', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,

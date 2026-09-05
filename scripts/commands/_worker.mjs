@@ -17,6 +17,7 @@ import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
 import { AGY_MODES, DEFAULT_AGY_TIMEOUT_MS, applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
+import { createJobActivityRecorder } from "../lib/job-activity.mjs";
 
 function unsupportedStoredFlag(extraArgs) {
   if (!Array.isArray(extraArgs)) return String(extraArgs);
@@ -56,8 +57,10 @@ async function main() {
 
   const logPath = resolveJobLogFile(workspaceRoot, jobId);
   const fs = await import("node:fs");
+  const activity = createJobActivityRecorder(workspaceRoot, jobId, { heartbeat: true });
 
   const onText = (delta) => {
+    activity.onText();
     try {
       fs.appendFileSync(logPath, delta, { encoding: "utf8", mode: 0o600 });
     } catch {
@@ -97,7 +100,9 @@ async function main() {
         appendJobLog(workspaceRoot, jobId, `[worker] agy spawned pid=${pid ?? "unknown"}`);
       },
     });
+    await activity.finish();
   } catch (err) {
+    await activity.finish().catch(() => {});
     appendJobLog(workspaceRoot, jobId, `[worker] error: ${err?.message ?? err}`);
     await patchJob(workspaceRoot, jobId, {
       status: "failed",
@@ -106,7 +111,9 @@ async function main() {
       errorMessage: err?.message ?? String(err),
       healthStatus: "failed",
     });
-    return process.exit(1);
+    return 1;
+  } finally {
+    await activity.finish();
   }
 
   const status =
@@ -154,7 +161,7 @@ async function main() {
     },
   });
   appendJobLog(workspaceRoot, jobId, `[worker] ${status} exit=${result.exitCode}`);
-  process.exit(status === "completed" ? 0 : 1);
+  return status === "completed" ? 0 : 1;
 }
 
 function deriveSummary(stdout) {
@@ -170,7 +177,7 @@ function trim(value) {
   return trimmed.length ? trimmed : null;
 }
 
-main().catch((err) => {
+main().then((code) => process.exit(code)).catch((err) => {
   process.stderr.write(`worker: fatal: ${err?.message ?? err}\n`);
   process.exit(1);
 });

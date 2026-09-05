@@ -74,6 +74,14 @@ function candidateRoots() {
 
 let cachedRoot = null;
 
+/** Remove an owned test directory, retrying transient Windows file locks. */
+export function removeTestDir(dir) {
+  const root = path.resolve(portableTmpRoot());
+  const target = path.resolve(dir);
+  if (!target.startsWith(root + path.sep)) throw new Error(`Not a test temp directory: ${target}`);
+  fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
 /**
  * A writable directory that exists and is not inside a git work tree.
  *

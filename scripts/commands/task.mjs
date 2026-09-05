@@ -27,6 +27,7 @@ import {
   runForegroundJob,
   startBackgroundJob,
   waitForJob,
+  waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
@@ -150,6 +151,8 @@ export async function run(argv = [], ctx = {}) {
 
   if (options.wait) {
     const final = await wait(workspaceRoot, job.id);
+    const line = waitOutcomeLine("task", final);
+    if (line) process.stderr.write(`${line}\n`);
     if (!final) return 1;
     if (!options.json && final.status === "completed" && final.result?.rawOutput) {
       process.stdout.write(final.result.rawOutput);

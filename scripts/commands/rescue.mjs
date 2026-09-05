@@ -26,6 +26,7 @@ import {
   runForegroundJob,
   startBackgroundJob,
   waitForJob,
+  waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
@@ -86,7 +87,7 @@ export async function run(argv = [], ctx = {}) {
   }
 
   if (options.background) {
-    const { job } = await startBackgroundJob({
+    const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
       workspaceRoot,
       kind: "rescue",
       title,
@@ -115,7 +116,9 @@ export async function run(argv = [], ctx = {}) {
       Boolean(options.json),
     );
     if (options.wait) {
-      const final = await waitForJob(workspaceRoot, job.id);
+      const final = await (ctx.waitForJob ?? waitForJob)(workspaceRoot, job.id);
+      const line = waitOutcomeLine("rescue", final);
+      if (line) process.stderr.write(`${line}\n`);
       return final?.status === "completed" ? 0 : final?.status === "cancelled" ? 2 : 1;
     }
     return 0;

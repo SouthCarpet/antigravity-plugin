@@ -8,13 +8,13 @@
  * quiet / possibly_stalled / worker_missing / persisted_diagnostic).
  */
 
-import { describe, it, before, after, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { portableTmpRoot } from './helpers/tmp.mjs';
+import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 import {
   upsertJob,
   writeJobFile,
@@ -49,12 +49,14 @@ beforeEach(() => {
   process.env[SESSION_ID_ENV] = 'sess-' + randomBytes(2).toString('hex');
 });
 
-after(() => {
+afterEach(() => {
   // Best-effort restore.
   if (savedEnv.CLAUDE_PLUGIN_DATA === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
   else process.env.CLAUDE_PLUGIN_DATA = savedEnv.CLAUDE_PLUGIN_DATA;
   if (savedEnv[SESSION_ID_ENV] === undefined) delete process.env[SESSION_ID_ENV];
   else process.env[SESSION_ID_ENV] = savedEnv[SESSION_ID_ENV];
+  removeTestDir(workCwd);
+  removeTestDir(dataDir);
 });
 
 async function seedJob(overrides = {}) {
@@ -136,6 +138,16 @@ describe('buildSingleJobSnapshot', () => {
 });
 
 describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => {
+  // R3: legacy jobs use startedAt until observations exist, with unchanged thresholds.
+  for (const [ageSeconds, expected] of [[30, 'active'], [121, 'quiet'], [601, 'possibly_stalled']]) {
+    it(`classifies a live legacy worker started ${ageSeconds} seconds ago as ${expected}`, async () => {
+      const now = Date.UTC(2026, 0, 1, 12);
+      const job = await seedJob({ status: 'running', pid: process.pid, startedAt: new Date(now - ageSeconds * 1000).toISOString() });
+      const snapshot = buildSingleJobSnapshot(workCwd, job.id, { now });
+      assert.equal(snapshot.job.healthStatus, expected);
+    });
+  }
+
   it('active when lastProgressAt is recent', async () => {
     const job = await seedJob({
       id: 'h-active',

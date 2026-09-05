@@ -11,6 +11,7 @@ import fs from "node:fs";
 
 import { getConfig, listJobs, readJobFile } from "./state.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
+import { isProcessAlive } from "./process.mjs";
 
 export const SESSION_ID_ENV = "ANTIGRAVITY_PLUGIN_SESSION_ID";
 
@@ -50,18 +51,6 @@ function matchJobReference(jobs, reference, filter) {
   return null;
 }
 
-export function defaultIsProcessAlive(pid) {
-  if (!pid) return true;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    // ESRCH (no such process) or EPERM (PID belongs to another user — recycled).
-    // Either way, our worker is gone.
-    return false;
-  }
-}
-
 function parseTime(value) {
   const ms = new Date(value ?? "").getTime();
   return Number.isFinite(ms) ? ms : null;
@@ -81,8 +70,9 @@ function classifyRuntimeHealth(job, options = {}) {
   if (job.status !== "running" && job.status !== "queued") return {};
 
   const nowMs = parseTime(options.now) ?? Date.now();
-  const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
-  if (job.pid && !isProcessAlive(job.pid)) {
+  const probe = options.isProcessAlive ?? isProcessAlive;
+  const workerPid = job.workerPid ?? job.pid;
+  if (workerPid && !probe(workerPid)) {
     return {
       healthStatus: "worker_missing",
       healthMessage: "Worker process is no longer running.",
@@ -99,7 +89,10 @@ function classifyRuntimeHealth(job, options = {}) {
     };
   }
 
-  const lastProgressMs = parseTime(job.lastProgressAt);
+  const progressMs = parseTime(job.lastProgressAt) ?? parseTime(job.lastModelOutputAt);
+  const heartbeatMs = parseTime(job.lastHeartbeatAt);
+  const fallback = progressMs === null && heartbeatMs === null ? parseTime(job.startedAt) : null;
+  const lastProgressMs = progressMs ?? fallback;
   if (lastProgressMs !== null && nowMs - lastProgressMs <= QUIET_AFTER_MS) {
     return {
       healthStatus: "active",
@@ -108,12 +101,14 @@ function classifyRuntimeHealth(job, options = {}) {
     };
   }
 
-  const lastHeartbeatMs = parseTime(job.lastHeartbeatAt);
-  if (lastHeartbeatMs !== null && nowMs - lastHeartbeatMs <= POSSIBLY_STALLED_AFTER_MS) {
+  const lastHeartbeatMs = heartbeatMs ?? fallback;
+  const lastActivityMs = Math.max(lastHeartbeatMs ?? -Infinity, lastProgressMs ?? -Infinity);
+  if (nowMs - lastActivityMs <= POSSIBLY_STALLED_AFTER_MS) {
     return {
       healthStatus: "quiet",
       healthMessage:
-        "Worker heartbeat is recent, but no progress was recorded recently.",
+        heartbeatMs !== null ? "Worker heartbeat is recent, but no progress was recorded recently."
+          : "The job started or made progress recently; waiting for more output.",
       recommendedAction:
         "Check status again shortly or inspect the detailed job status.",
     };
@@ -131,11 +126,18 @@ function classifyRuntimeHealth(job, options = {}) {
   return {};
 }
 
-function enrichJob(job, options = {}) {
+/** Detail is committed first and wins if its index projection is stale. */
+export function mergeJobDetail(job, storedJob) {
+  return storedJob && typeof storedJob === "object" && !Array.isArray(storedJob) && storedJob.id === job.id
+    ? { ...job, ...storedJob }
+    : job;
+}
+
+function enrichJob(workspaceRoot, job, options = {}) {
   const maxProgressLines = options.maxProgressLines ?? DEFAULT_MAX_PROGRESS_LINES;
   const maxRecentEvents = options.maxRecentEvents ?? DEFAULT_MAX_RECENT_EVENTS;
-  const storedJob = readJobFile(job.workspaceRoot ?? process.cwd(), job.id);
-  const source = storedJob ? { ...job, ...storedJob } : job;
+  const storedJob = readJobFile(workspaceRoot, job.id);
+  const source = mergeJobDetail(job, storedJob);
   const elapsed = computeElapsed(source, options.now);
   const runtimeHealth = classifyRuntimeHealth(source, options);
 
@@ -189,14 +191,15 @@ function computeElapsed(job, now = new Date().toISOString()) {
 export function buildStatusSnapshot(cwd, options = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const config = getConfig(workspaceRoot);
-  const allJobs = sortJobsNewestFirst(listJobs(workspaceRoot));
+  const allJobs = sortJobsNewestFirst(listJobs(workspaceRoot)
+    .map((job) => mergeJobDetail(job, readJobFile(workspaceRoot, job.id))));
   const sessionJobs = filterJobsForCurrentSession(allJobs, options.env);
   const maxJobs = options.maxJobs ?? DEFAULT_MAX_STATUS_JOBS;
 
   const running = sessionJobs
     .filter((j) => j.status === "running" || j.status === "queued")
     .map((j) =>
-      enrichJob(j, {
+      enrichJob(workspaceRoot, j, {
         maxProgressLines: options.maxProgressLines,
         maxRecentEvents: options.maxRecentEvents,
         now: options.now,
@@ -230,7 +233,7 @@ export function buildSingleJobSnapshot(cwd, reference, options = {}) {
 
   return {
     workspaceRoot,
-    job: enrichJob(selected, {
+    job: enrichJob(workspaceRoot, selected, {
       maxProgressLines: options.maxProgressLines,
       maxRecentEvents: options.maxRecentEvents,
       now: options.now,
@@ -241,10 +244,12 @@ export function buildSingleJobSnapshot(cwd, reference, options = {}) {
 
 export function resolveResultJob(cwd, reference, env = process.env) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
+  const jobsWithDetails = listJobs(workspaceRoot)
+    .map((job) => mergeJobDetail(job, readJobFile(workspaceRoot, job.id)));
   const jobs = sortJobsNewestFirst(
     reference
-      ? listJobs(workspaceRoot)
-      : filterJobsForCurrentSession(listJobs(workspaceRoot), env)
+      ? jobsWithDetails
+      : filterJobsForCurrentSession(jobsWithDetails, env)
   );
   const selected = matchJobReference(
     jobs,

@@ -15,7 +15,7 @@ const original = fs.writeFileSync;
 fs.writeFileSync = function writeFileSync(file, data, options) {
   const needle = process.env.ANTIGRAVITY_TEST_FAIL_WRITE;
   const dest = typeof file === 'string' ? file : String(file);
-  if (needle && dest.includes(needle) && dest.endsWith('.tmp')) {
+  if (needle && dest.includes(needle) && (dest.endsWith('.tmp') || dest.includes('.tmp.'))) {
     const err = new Error(`injected write failure: ${dest}`);
     err.code = 'EACCES';
     throw err;

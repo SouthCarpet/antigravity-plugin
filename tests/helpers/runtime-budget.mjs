@@ -27,7 +27,7 @@ mock.module('../../scripts/lib/process.mjs', {
       // Exercise the real bounded tree helper; use its signal adapter on
       // Windows too, since the sandbox bans taskkill. POSIX kills the group.
       await processes.terminateProcessTree(pid, { ...options, platform: 'linux' });
-      assert.equal(processes.isProcessRunning(pid), false);
+      assert.equal(processes.isProcessAlive(pid), false);
       treeTerminated = true;
     },
   },
@@ -54,7 +54,7 @@ function verify(jobId) {
     ? 'agy output exceeded 4 bytes' : 'agy did not finish within 50 ms');
   assert.equal(stored.result.rawOutput, '');
   assert.equal(treeTerminated, true);
-  assert.equal(processes.isProcessRunning(child.pid), false);
+  assert.equal(processes.isProcessAlive(child.pid), false);
 }
 
 if (mode === 'worker') {

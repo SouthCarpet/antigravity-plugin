@@ -100,13 +100,36 @@ export function binaryAvailable(name) {
  *
  * @param {number} pid
  */
-export function isProcessRunning(pid, killImpl = process.kill) {
+export function isProcessAlive(pid, killImpl = process.kill) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     killImpl(pid, 0);
     return true;
   } catch (err) {
     return err?.code === "EPERM";
+  }
+}
+
+/**
+ * Live process start time in milliseconds, or null when identity is unavailable.
+ * Used only for stale-lock recovery: a reused PID must not keep an old lock.
+ * Permission/query failures are inconclusive, never evidence of a dead owner.
+ */
+export function processStartedAt(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (pid === process.pid) return Date.now() - process.uptime() * 1000;
+  try {
+    const result = process.platform === "win32"
+      ? spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+          `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`],
+        { encoding: "utf8", windowsHide: true, timeout: 2000, stdio: ["ignore", "pipe", "pipe"] })
+      : spawnSync("ps", ["-p", String(pid), "-o", "lstart="],
+        { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] });
+    if (result.status !== 0 || result.error) return null;
+    const startedAt = Date.parse(String(result.stdout).trim());
+    return Number.isFinite(startedAt) ? startedAt : null;
+  } catch {
+    return null;
   }
 }
 
@@ -151,7 +174,7 @@ export async function terminateProcessTree(pid, options = {}) {
   const platform = options.platform ?? process.platform;
   const killImpl = options.killImpl ?? process.kill;
   const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
-  const probe = options.probe ?? ((candidate) => isProcessRunning(candidate, killImpl));
+  const probe = options.probe ?? ((candidate) => isProcessAlive(candidate, killImpl));
   const graceMs = options.graceMs ?? 500;
   const forceGraceMs = options.forceGraceMs ?? 500;
   const attempts = [];

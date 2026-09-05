@@ -22,7 +22,8 @@ import {
   readJobFile,
 } from "./state.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
-import { isProcessRunning, terminateProcessTree } from "./process.mjs";
+import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
+import { createJobActivityRecorder } from "./job-activity.mjs";
 
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
 export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -87,6 +88,13 @@ export function foregroundFailureLine(kind, result) {
   return result.spawnError
     ? `antigravity:${kind} — failed: ${result.spawnError}`
     : `antigravity:${kind} — failed (${result.status}).`;
+}
+
+/** Explain an unfinished --wait without changing its exit code or envelope. */
+export function waitOutcomeLine(kind, job) {
+  if (!job) return `antigravity:${kind} — job record vanished while waiting.`;
+  if (job.status !== "running" && job.status !== "queued") return null;
+  return `antigravity:${kind} — wait timed out; job ${job.id} is still ${job.status}. Run /antigravity:status ${job.id}.`;
 }
 
 /** Resolve the current session id (or `null` if unset). */
@@ -279,6 +287,7 @@ export async function runForegroundJob({
   appendJobLog(workspaceRoot, job.id, `[job] running (foreground) pid=${process.pid}`);
 
   let result;
+  const activity = createJobActivityRecorder(workspaceRoot, job.id);
   try {
     result = await runAgyPrint({
       prompt,
@@ -293,12 +302,17 @@ export async function runForegroundJob({
       timeoutMs: agyTimeoutMs(env),
       onStdout,
       onStderr,
-      onText,
+      onText: (delta) => {
+        activity.onText();
+        onText?.(delta);
+      },
       onSpawn: async ({ pid }) => {
         await patchJob(workspaceRoot, job.id, { agyPid: pid ?? null });
       },
     });
+    await activity.finish();
   } catch (err) {
+    await activity.finish().catch(() => {});
     const completedAt = new Date().toISOString();
     appendJobLog(workspaceRoot, job.id, `[job] crashed: ${err?.message ?? err}`);
     await patchJob(workspaceRoot, job.id, {
@@ -309,6 +323,8 @@ export async function runForegroundJob({
       healthStatus: "failed",
     });
     throw err;
+  } finally {
+    await activity.finish();
   }
 
   const completedAt = new Date().toISOString();
@@ -451,7 +467,7 @@ export async function waitForJob(
   {
     pollMs = 1000,
     timeoutMs = 30 * 60 * 1000,
-    isProcessAlive = isProcessRunning,
+    isProcessAlive = processIsAlive,
     now = () => Date.now(),
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   } = {},
@@ -460,7 +476,7 @@ export async function waitForJob(
   const TERMINAL = new Set(["completed", "failed", "cancelled"]);
   while (true) {
     const job = readJobFile(workspaceRoot, jobId);
-    if (job && TERMINAL.has(job.status)) return job;
+    if (!job || TERMINAL.has(job.status)) return job;
     const workerPid = Number(job?.workerPid ?? job?.pid);
     if (job && (job.status === "running" || job.status === "queued") &&
         Number.isInteger(workerPid) && workerPid > 0 && !isProcessAlive(workerPid)) {
@@ -476,7 +492,7 @@ export async function waitForJob(
       appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
       return failed;
     }
-    if (deadline && now() > deadline) return job ?? null;
+    if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);
   }
 }

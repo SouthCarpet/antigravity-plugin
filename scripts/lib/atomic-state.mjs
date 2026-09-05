@@ -18,7 +18,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { reapFileLockOwnedBy, withFileLock } from "./file-lock.mjs";
+import { reapFileLockOwnedBy, withFileLock, withFileLockSync } from "./file-lock.mjs";
 import { canonicalComparePath, expandShortPath } from "./paths.mjs";
 
 const mutexes = new Map();
@@ -67,6 +67,13 @@ export function withJobMutex(workspaceRoot, _jobId, fn) {
 
 export function withWorkspaceMutex(workspaceRoot, fn) {
   return runWithMutex(mutexes, String(workspaceRoot), fn);
+}
+
+/** Synchronous recovery uses the same cross-process lock as state writers. */
+export function withWorkspaceMutexSync(workspaceRoot, fn) {
+  return withFileLockSync(lockPathFor(String(workspaceRoot)), fn, {
+    lockTimeoutMs: STATE_LOCK_TIMEOUT_MS,
+  });
 }
 
 export function recoverWorkspaceMutex(workspaceRoot, ownerPids) {

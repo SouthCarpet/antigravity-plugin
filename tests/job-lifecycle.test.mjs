@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { FileLockTimeoutError, withFileLock } from "../scripts/lib/file-lock.mjs";
 import { createTrackedJob, patchJob, startBackgroundJob } from "../scripts/lib/job-helpers.mjs";
 import { canonicalComparePath, expandShortPath } from "../scripts/lib/paths.mjs";
-import { readJobFile, resolveStateDir, resolveStateRoot } from "../scripts/lib/state.mjs";
+import { appendJobLog, ensureStateDir, listJobs, readJobFile, readJobLog, resolveJobFile, resolveStateDir, resolveStateRoot, saveState } from "../scripts/lib/state.mjs";
 import { writeFakeAgy } from "./helpers/fake-agy.mjs";
 
 const cleanup = [];
@@ -60,6 +60,46 @@ after(() => {
 });
 
 describe("cross-process job lifecycle", { concurrency: false }, () => {
+  // R1 acceptance: retention must leave an old live job reachable by cancel.
+  it("keeps one active job cancellable after 50 terminal jobs and one more completion", async () => {
+    const { workspaceRoot, dataRoot } = freshWorkspace();
+    const savedData = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_PLUGIN_DATA = dataRoot;
+    try {
+      const active = { id: 'aaaaaaaaaaaa', status: 'running', workerPid: 1234, updatedAt: '2000-01-01T00:00:00.000Z' };
+      const history = Array.from({ length: 50 }, (_, i) => ({
+        id: i.toString(16).padStart(12, '0'), status: 'completed',
+        updatedAt: new Date(Date.UTC(2024, 0, 1, 0, 0, i)).toISOString(),
+      }));
+      ensureStateDir(workspaceRoot);
+      for (const job of [active, ...history]) {
+        fs.writeFileSync(resolveJobFile(workspaceRoot, job.id), JSON.stringify(job));
+        appendJobLog(workspaceRoot, job.id, 'retained progress');
+      }
+      await saveState(workspaceRoot, { jobs: [active, ...history] });
+      await patchJob(workspaceRoot, 'bbbbbbbbbbbb', { status: 'completed' });
+      assert.equal(listJobs(workspaceRoot).length, 51);
+      assert.equal(readJobFile(workspaceRoot, active.id).status, 'running');
+      assert.match(readJobLog(workspaceRoot, active.id), /retained progress/);
+      assert.equal(readJobFile(workspaceRoot, '000000000000'), null);
+      const { run } = await import('../scripts/commands/cancel.mjs');
+      const exitCode = await run([active.id, '--json'], {
+        cwd: workspaceRoot,
+        terminateProcessTree: async (pid) => {
+          assert.equal(pid, 1234);
+          return { outcome: 'killed', killed: true, pid, status: 0, attempts: [] };
+        },
+        outputCommandResult: () => {},
+      });
+      assert.equal(exitCode, 0);
+      assert.equal(readJobFile(workspaceRoot, active.id).status, 'cancelled');
+      assert.equal(listJobs(workspaceRoot).filter((job) => job.status !== 'running').length, 50);
+    } finally {
+      if (savedData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+      else process.env.CLAUDE_PLUGIN_DATA = savedData;
+    }
+  });
+
   it("records the actual holding process in the lock owner file", async () => {
     const { dataRoot } = freshWorkspace();
     const lockPath = path.join(dataRoot, "owner-test.lock");
