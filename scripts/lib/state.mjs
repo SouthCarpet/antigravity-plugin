@@ -17,7 +17,6 @@ import path from "node:path";
 
 import { recoverWorkspaceMutex, withWorkspaceMutex, withWorkspaceMutexSync, writeJsonAtomic } from "./atomic-state.mjs";
 import { assertPrivateDir } from "./fs.mjs";
-import { resolveWorkspaceRoot } from "./workspace.mjs";
 
 const STATE_VERSION = 1;
 const PLUGIN_DATA_ENVS = ["CLAUDE_PLUGIN_DATA", "CODEX_PLUGIN_DATA", "AGY_PLUGIN_DATA"];
@@ -54,6 +53,9 @@ function defaultState() {
  * Resolve the host-owned state root. Claude retains first priority for
  * backward compatibility if a caller unusually supplies multiple host vars.
  * Standalone use (no host variable) is documented to use the OS temp root.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ root: string, source: string }}
  */
 export function resolveStateRoot(env = process.env) {
   for (const name of PLUGIN_DATA_ENVS) {
@@ -62,8 +64,20 @@ export function resolveStateRoot(env = process.env) {
   return { root: FALLBACK_STATE_ROOT_DIR, source: "standalone-temp" };
 }
 
+/**
+ * Resolve the state directory for a workspace. `cwd` must already be the
+ * resolved workspace root (076-T6 R4) — callers resolve it once via
+ * `resolveWorkspaceRoot` and pass it down; this function no longer
+ * re-resolves it, so a status snapshot over several stored jobs spawns at
+ * most the one `git` call its caller already made, not one per state
+ * access.
+ *
+ * @param {string} cwd the resolved workspace root
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
 export function resolveStateDir(cwd, env = process.env) {
-  const root = resolveWorkspaceRoot(cwd);
+  const root = String(cwd);
   const slug = slugify(path.basename(root));
   const hash = hashPath(root);
   const leaf = `${slug}-${hash}`;
@@ -80,18 +94,22 @@ export function resolveStateDir(cwd, env = process.env) {
   return preferred;
 }
 
+/** @param {string} cwd the resolved workspace root @returns {string} */
 export function resolveStateFile(cwd) {
   return path.join(resolveStateDir(cwd), STATE_FILE_NAME);
 }
 
+/** @param {string} cwd the resolved workspace root @returns {string} */
 export function resolveJobsDir(cwd) {
   return path.join(resolveStateDir(cwd), JOBS_DIR_NAME);
 }
 
+/** @param {string} cwd the resolved workspace root @param {string} jobId @returns {string} */
 export function resolveJobFile(cwd, jobId) {
   return path.join(resolveJobsDir(cwd), `${jobId}.json`);
 }
 
+/** @param {string} cwd the resolved workspace root @param {string} jobId @returns {string} */
 export function resolveJobLogFile(cwd, jobId) {
   return path.join(resolveJobsDir(cwd), `${jobId}.log`);
 }
@@ -103,6 +121,7 @@ export function resolveJobLogFile(cwd, jobId) {
 // it actually creates. `stateDir`'s parent is the state root regardless of
 // whether `resolveStateDir` picked the preferred or the legacy path, since
 // both are `<root>/<leaf>`.
+/** @param {string} cwd the resolved workspace root @returns {void} */
 export function ensureStateDir(cwd) {
   const stateDir = resolveStateDir(cwd);
   const jobsDir = path.join(stateDir, JOBS_DIR_NAME);
@@ -114,11 +133,21 @@ export function ensureStateDir(cwd) {
   return jobsDir;
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @param {number[]} ownerPids
+ * @returns {boolean} true when a lock owned by one of `ownerPids` was reaped
+ */
 export function recoverStateLock(cwd, ownerPids) {
   return recoverWorkspaceMutex(resolveStateDir(cwd), ownerPids);
 }
 
-/** Validate persisted jobs without rejecting legacy records or extra fields. */
+/**
+ * Validate persisted jobs without rejecting legacy records or extra fields.
+ *
+ * @param {unknown} record
+ * @returns {record is import('./types.mjs').JobRecord}
+ */
 export function validateJobRecord(record) {
   return record !== null && typeof record === "object" && !Array.isArray(record) &&
     typeof record.id === "string" && /^[a-f0-9]{12}$/.test(record.id) &&
@@ -200,6 +229,10 @@ function loadStateUnlocked(cwd) {
   return state;
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @returns {{ version: number, config: { stopReviewGate: boolean }, jobs: import('./types.mjs').JobIndexEntry[] }}
+ */
 export function loadState(cwd) {
   try {
     return readStateIndex(cwd);
@@ -276,16 +309,27 @@ function saveStateUnlocked(cwd, state) {
   }
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @param {{ config?: object, jobs?: import('./types.mjs').JobIndexEntry[] }} state
+ * @returns {Promise<void>}
+ */
 export async function saveState(cwd, state) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
     saveStateUnlocked(cwd, state);
   });
 }
 
+/** @param {string} cwd the resolved workspace root @returns {{ stopReviewGate: boolean }} */
 export function getConfig(cwd) {
   return loadState(cwd).config;
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @param {object} patch
+ * @returns {Promise<void>}
+ */
 export async function setConfig(cwd, patch) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
     const state = loadStateUnlocked(cwd);
@@ -294,10 +338,16 @@ export async function setConfig(cwd, patch) {
   });
 }
 
+/** @param {string} cwd the resolved workspace root @returns {import('./types.mjs').JobIndexEntry[]} */
 export function listJobs(cwd) {
   return loadState(cwd).jobs;
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @returns {Promise<void>}
+ */
 export async function upsertJob(cwd, job) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
     upsertJobUnlocked(cwd, job);
@@ -316,6 +366,11 @@ function upsertJobUnlocked(cwd, job) {
   saveStateUnlocked(cwd, state);
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @param {string} jobId
+ * @returns {import('./types.mjs').JobRecord | null}
+ */
 export function readJobFile(cwd, jobId) {
   const filePath = resolveJobFile(cwd, jobId);
   try {
@@ -329,6 +384,11 @@ export function readJobFile(cwd, jobId) {
  * Internal atomic write. Callers are responsible for holding the per-job
  * mutex; exposed so higher-level helpers that already hold the mutex (e.g.
  * `recordJobEvent`) can persist without re-acquiring.
+ *
+ * @param {string} cwd the resolved workspace root
+ * @param {string} jobId
+ * @param {import('./types.mjs').JobRecord} data
+ * @returns {void}
  */
 export function writeJobFileUnlocked(cwd, jobId, data) {
   ensureStateDir(cwd);
@@ -336,13 +396,27 @@ export function writeJobFileUnlocked(cwd, jobId, data) {
   writeJsonAtomic(filePath, data);
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @param {string} jobId
+ * @param {import('./types.mjs').JobRecord} data
+ * @returns {Promise<void>}
+ */
 export async function writeJobFile(cwd, jobId, data) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
     writeJobFileUnlocked(cwd, jobId, data);
   });
 }
 
-/** Commit the detail first, then its index projection, under one mutex. */
+/**
+ * Commit the detail first, then its index projection, under one mutex.
+ *
+ * @param {string} cwd the resolved workspace root
+ * @param {string} jobId
+ * @param {Partial<import('./types.mjs').JobRecord>} detailPatch
+ * @param {Partial<import('./types.mjs').JobIndexEntry>} [indexPatch]
+ * @returns {Promise<import('./types.mjs').JobRecord>}
+ */
 export async function patchJobState(cwd, jobId, detailPatch, indexPatch = detailPatch) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
     const existing = readJobFile(cwd, jobId) ?? { id: jobId };
@@ -353,6 +427,12 @@ export async function patchJobState(cwd, jobId, detailPatch, indexPatch = detail
   });
 }
 
+/**
+ * @param {string} cwd the resolved workspace root
+ * @param {string} jobId
+ * @param {string} line
+ * @returns {void}
+ */
 export function appendJobLog(cwd, jobId, line) {
   ensureStateDir(cwd);
   const logPath = resolveJobLogFile(cwd, jobId);
@@ -360,11 +440,71 @@ export function appendJobLog(cwd, jobId, line) {
   fs.appendFileSync(logPath, `[${timestamp}] ${line}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
-export function readJobLog(cwd, jobId) {
-  const logPath = resolveJobLogFile(cwd, jobId);
+const DEFAULT_LOG_TAIL_LINES = 4;
+const DEFAULT_LOG_TAIL_MAX_BYTES = 64 * 1024;
+
+/**
+ * True when the byte immediately before `position` is a `\n`, i.e. `position`
+ * is the start of a line rather than a point mid-line. `position === 0` is
+ * always a line start (there is no preceding byte).
+ *
+ * @param {number} fd open file descriptor
+ * @param {number} position
+ * @returns {boolean}
+ */
+function precededByNewline(fd, position) {
+  if (position <= 0) return true;
+  const one = Buffer.alloc(1);
+  const read = fs.readSync(fd, one, 0, 1, position - 1);
+  return read === 1 && one[0] === 0x0a;
+}
+
+/**
+ * Read at most `maxBytes` from the end of a file and return its last
+ * `lines` lines, without ever loading the whole file into memory (076-T6
+ * R4/item 20: a `status` snapshot used to read a whole multi-megabyte job
+ * log to show four lines). The one log reader for both `job-control.mjs`'s
+ * progress tail and any other caller that used to go through the retired
+ * `readJobLog(cwd, jobId)` (same bounded-read job, a general file path
+ * instead of a job id so `job-control.mjs` can pass its already-resolved
+ * `logFile`). Missing file or any read error returns `""`, matching the old
+ * `readJobLog` contract.
+ *
+ * @param {string} filePath absolute path to the log file
+ * @param {{ lines?: number, maxBytes?: number }} [options]
+ * @returns {string} the tail, newline-joined, oldest kept line first
+ */
+export function readLogTail(filePath, { lines = DEFAULT_LOG_TAIL_LINES, maxBytes = DEFAULT_LOG_TAIL_MAX_BYTES } = {}) {
+  // Fix round 1 F9: `slice(-0)` is `slice(0)` (the whole array), so an
+  // unguarded `lines: 0` would return everything instead of nothing.
+  if (!(lines > 0)) return "";
+  let fd;
   try {
-    return fs.readFileSync(logPath, "utf8");
+    fd = fs.openSync(filePath, "r");
+    const { size } = fs.fstatSync(fd);
+    const readSize = Math.min(size, maxBytes);
+    const start = size - readSize;
+    const buffer = Buffer.alloc(readSize);
+    if (readSize > 0) fs.readSync(fd, buffer, 0, readSize, start);
+    let text = buffer.toString("utf8");
+    // Fix round 1 F4: a window that starts exactly at a line boundary holds
+    // no truncated fragment, so dropping its first line unconditionally
+    // discarded a complete one. Only drop when the byte before `start` is
+    // NOT `\n` — i.e. `start` really does land mid-line.
+    if (start > 0 && !precededByNewline(fd, start)) {
+      const firstNewline = text.indexOf("\n");
+      text = firstNewline === -1 ? "" : text.slice(firstNewline + 1);
+    }
+    return text.trim().split("\n").slice(-lines).join("\n");
   } catch {
     return "";
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Best-effort close.
+      }
+    }
   }
 }

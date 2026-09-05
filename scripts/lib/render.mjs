@@ -12,7 +12,7 @@ export const JSON_ENVELOPE_VERSION = 1;
  * @param {string} command
  * @param {{ status: string, jobId?: string|null, answer?: string|null,
  *   details?: object, [key: string]: any }} fields
- * @returns {object}
+ * @returns {import('./types.mjs').JsonEnvelopeV1}
  */
 export function createJsonEnvelope(command, fields = {}) {
   const {
@@ -72,6 +72,7 @@ export function warningDetails(result) {
  *
  * @param {string} command
  * @param {{ warnings?: string[] }} result
+ * @returns {void}
  */
 export function reportWarnings(command, result) {
   for (const warning of warningDetails(result).warnings ?? []) {
@@ -99,7 +100,9 @@ function summaryForTableCell(value) {
 /**
  * Render a status snapshot as markdown.
  *
- * @param {{ workspaceRoot: string, config: any, runtimeStatus: any, running: any[], latestFinished: any, recent: any[], needsReview: boolean }} snapshot
+ * @param {{ workspaceRoot: string, config: object,
+ *   running: import('./types.mjs').JobRecord[], latestFinished: import('./types.mjs').JobIndexEntry | null,
+ *   recent: import('./types.mjs').JobIndexEntry[], needsReview: boolean }} snapshot
  * @returns {string}
  */
 export function renderStatusSnapshot(snapshot) {
@@ -149,56 +152,12 @@ export function renderStatusSnapshot(snapshot) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-const TAIL_N = 5;
-
-function formatEventLineBrief(event) {
-  switch (event.type) {
-    case "model_text_chunk":
-    case "model_thought_chunk":
-      return `[${event.type}] ${event.chars ?? 0} chars`;
-    case "tool_call":
-      return `[tool_call] ${event.toolName ?? "unknown"}`;
-    case "file_change":
-      return `[file_change] ${event.action ?? "modify"} ${event.path ?? ""}`;
-    case "phase":
-      return `[phase] ${event.message ?? ""}`;
-    case "phase_changed":
-      return `[phase_changed] ${event.phase ?? event.message ?? ""}`;
-    case "diagnostic":
-    case "error":
-    case "stderr":
-      return event.source
-        ? `[${event.type}] ${event.source}: ${event.message ?? ""}`
-        : `[${event.type}] ${event.message ?? ""}`;
-    default:
-      return `[${event.type ?? "event"}]`;
-  }
-}
-
-function formatAgo(nowMs, timestamp) {
-  const tsMs = Date.parse(timestamp ?? "");
-  if (Number.isNaN(tsMs)) return "";
-  const delta = Math.max(0, nowMs - tsMs);
-  if (delta < 1000) return `${delta}ms ago`;
-  return `${(delta / 1000).toFixed(1)}s ago`;
-}
-
-function rollupCounters(events) {
-  const c = { chunks: 0, thoughts: 0, tools: 0, files: 0 };
-  for (const e of events) {
-    if (e.type === "model_text_chunk") c.chunks += 1;
-    else if (e.type === "model_thought_chunk") c.thoughts += 1;
-    else if (e.type === "tool_call") c.tools += 1;
-    else if (e.type === "file_change") c.files += 1;
-  }
-  return c;
-}
-
 /**
  * Render a single job's detailed status.
  *
- * @param {{ job: any } | any} snapshotOrJob - Either a { job } wrapper (legacy) or a bare job object.
- * @param {{ now?: number }} [options]
+ * @param {{ workspaceRoot: string, job: import('./types.mjs').JobRecord } | import('./types.mjs').JobRecord} snapshotOrJob
+ *   Either a { job } wrapper (legacy) or a bare job object.
+ * @param {{ now?: number }} [options] unused; kept for call-site compatibility
  * @returns {string}
  */
 export function renderSingleJobStatus(snapshotOrJob, options = {}) {
@@ -215,9 +174,6 @@ export function renderSingleJobStatus(snapshotOrJob, options = {}) {
   lines.push(`- **Status:** ${job.status}`);
   lines.push(`- **Phase:** ${job.phase ?? "-"}`);
   lines.push(`- **Title:** ${job.title ?? "-"}`);
-  if (job.threadId) {
-    lines.push(`- **Session ID:** ${job.threadId}`);
-  }
   if (job.summary) {
     lines.push(`- **Summary:** ${job.summary}`);
   }
@@ -233,9 +189,6 @@ export function renderSingleJobStatus(snapshotOrJob, options = {}) {
   lines.push("## Runtime");
   lines.push("");
   lines.push(`- **Elapsed:** ${job.elapsed ?? "-"}`);
-  if (job.runtime?.transport) {
-    lines.push(`- **Transport:** ${job.runtime.transport}`);
-  }
   lines.push(`- **PID:** ${job.pid ?? "-"}`);
   lines.push(`- **Created:** ${job.createdAt ?? "-"}`);
   lines.push(`- **Started:** ${job.startedAt ?? "-"}`);
@@ -244,7 +197,6 @@ export function renderSingleJobStatus(snapshotOrJob, options = {}) {
   lines.push(`- **Last Heartbeat:** ${job.lastHeartbeatAt ?? "-"}`);
   lines.push(`- **Last Progress:** ${job.lastProgressAt ?? "-"}`);
   lines.push(`- **Last Model Output:** ${job.lastModelOutputAt ?? "-"}`);
-  lines.push(`- **Last Tool Call:** ${job.lastToolCallAt ?? "-"}`);
   lines.push(`- **Last Diagnostic:** ${job.lastDiagnosticAt ?? "-"}`);
 
   if (job.errorMessage) {
@@ -263,59 +215,30 @@ export function renderSingleJobStatus(snapshotOrJob, options = {}) {
     }
   }
 
-  if (Array.isArray(job.events) && job.events.length > 0) {
-    const nowMs = options?.now ?? Date.now();
-    const allEvents = job.events;
-    const tail = allEvents.slice(-TAIL_N);
-    const last = allEvents[allEvents.length - 1];
-    const counters = rollupCounters(allEvents);
-
-    lines.push("");
-    lines.push("## Recent Events");
-    lines.push("");
-    lines.push(`  last event: ${formatEventLineBrief(last)} - ${formatAgo(nowMs, last.timestamp)}`);
-    lines.push("  recent:");
-    for (const event of tail) {
-      lines.push(`    ${formatEventLineBrief(event)}  ${formatAgo(nowMs, event.timestamp)}`);
-    }
-    lines.push(`  totals: chunks=${counters.chunks}  thoughts=${counters.thoughts}  tools=${counters.tools}  files=${counters.files}`);
-  }
-
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
 /**
  * Render a stored job result for the /antigravity:result command.
  *
- * @param {string} cwd
- * @param {any} job - The job index entry.
- * @param {any} storedJob - The full stored job file data.
+ * @param {string} cwd unused; kept for call-site compatibility
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {import('./types.mjs').JobRecord | null} storedJob the full stored job file data
  * @returns {string}
  */
 export function renderResultOutput(cwd, job, storedJob) {
-  const threadId = storedJob?.threadId ?? job.threadId ?? null;
-  const resumeCommand = threadId ? `agy --conversation ${threadId}` : null;
-
   // If there's raw text output, return it.
   const rawOutput =
     (typeof storedJob?.result?.rawOutput === "string" && storedJob.result.rawOutput) ||
     (typeof storedJob?.result?.agy?.stdout === "string" && storedJob.result.agy.stdout) ||
     "";
   if (rawOutput) {
-    const output = rawOutput.endsWith("\n") ? rawOutput : `${rawOutput}\n`;
-    if (!threadId) {
-      return output;
-    }
-    return `${output}\nConversation ID: ${threadId}\nResume conversation: ${resumeCommand}\n`;
+    return rawOutput.endsWith("\n") ? rawOutput : `${rawOutput}\n`;
   }
 
   // If there's pre-rendered output, return it.
   if (storedJob?.rendered) {
-    const output = storedJob.rendered.endsWith("\n") ? storedJob.rendered : `${storedJob.rendered}\n`;
-    if (!threadId) {
-      return output;
-    }
-    return `${output}\nConversation ID: ${threadId}\nResume conversation: ${resumeCommand}\n`;
+    return storedJob.rendered.endsWith("\n") ? storedJob.rendered : `${storedJob.rendered}\n`;
   }
 
   // Fallback: build from job metadata.
@@ -325,11 +248,6 @@ export function renderResultOutput(cwd, job, storedJob) {
     `Job: ${job.id}`,
     `Status: ${job.status}`
   ];
-
-  if (threadId) {
-    lines.push(`Conversation ID: ${threadId}`);
-    lines.push(`Resume conversation: ${resumeCommand}`);
-  }
 
   if (job.summary) {
     lines.push(`Summary: ${job.summary}`);
@@ -349,7 +267,7 @@ export function renderResultOutput(cwd, job, storedJob) {
 /**
  * Render a cancel report.
  *
- * @param {any} job
+ * @param {import('./types.mjs').JobIndexEntry} job
  * @returns {string}
  */
 export function renderCancelReport(job) {
@@ -414,9 +332,10 @@ export function renderSetupReport(report) {
 /**
  * Output either JSON or rendered markdown based on the --json flag.
  *
- * @param {any} payload - The structured data.
+ * @param {import('./types.mjs').JsonEnvelopeV1} payload - The structured data.
  * @param {string} rendered - The markdown rendering.
  * @param {boolean} json - Whether to output JSON.
+ * @returns {void}
  */
 export function outputCommandResult(payload, rendered, json) {
   if (json) {
@@ -426,6 +345,10 @@ export function outputCommandResult(payload, rendered, json) {
   }
 }
 
+/**
+ * @param {{ startedAt?: string | null, createdAt?: string | null, completedAt?: string | null }} job
+ * @returns {string}
+ */
 function computeElapsedDisplay(job) {
   const start = job.startedAt ?? job.createdAt;
   const end = job.completedAt ?? new Date().toISOString();
@@ -440,34 +363,4 @@ function computeElapsedDisplay(job) {
     return `${Math.round(ms / 1000)}s`;
   }
   return `${Math.round(ms / 60000)}m`;
-}
-
-function formatEventLine(event) {
-  const parts = [
-    event.timestamp ?? "-",
-    event.type ?? "event"
-  ];
-  const details = [];
-  if (event.phase) {
-    details.push(`phase=${event.phase}`);
-  }
-  if (event.toolName) {
-    details.push(`tool=${event.toolName}`);
-  }
-  if (event.path) {
-    details.push(`path=${event.path}`);
-  }
-  if (event.action) {
-    details.push(`action=${event.action}`);
-  }
-  if (event.source) {
-    details.push(`source=${event.source}`);
-  }
-  if (event.transport) {
-    details.push(`transport=${event.transport}`);
-  }
-  if (event.message) {
-    details.push(event.message);
-  }
-  return details.length > 0 ? `${parts.join(" ")} - ${details.join("; ")}` : parts.join(" ");
 }

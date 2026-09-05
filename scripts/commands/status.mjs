@@ -26,6 +26,13 @@ import { readUpdateNotice } from "../lib/update.mjs";
 const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
 
+/**
+ * @param {string[]} [argv] CLI arguments after the verb (an optional job reference and flags)
+ * @param {{ cwd?: string, buildStatusSnapshot?: typeof buildStatusSnapshot,
+ *   buildSingleJobSnapshot?: typeof buildSingleJobSnapshot,
+ *   readUpdateNotice?: typeof readUpdateNotice }} [ctx] dependency overrides for tests, plus `cwd`
+ * @returns {Promise<number>} process exit code
+ */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["timeout-ms", "cwd"],

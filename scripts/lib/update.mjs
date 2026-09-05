@@ -80,6 +80,10 @@ export const HOSTS = [
   },
 ];
 
+/**
+ * @param {string} [root] plugin root directory
+ * @returns {string | null}
+ */
 export function readRunningVersion(root = PLUGIN_ROOT) {
   try {
     const parsed = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -93,11 +97,17 @@ export function readRunningVersion(root = PLUGIN_ROOT) {
  * The cache is machine-wide on purpose: it sits in the standalone state root
  * (no host variable consulted), so `status` inside Claude Code, Codex, or
  * agy sees a check that was made from any shell.
+ *
+ * @returns {string}
  */
 export function resolveUpdateCacheFile() {
   return path.join(resolveStateRoot({}).root, CACHE_FILE_NAME);
 }
 
+/**
+ * @param {string} file
+ * @returns {{ latest: string, checkedAt: string } | null}
+ */
 export function readUpdateCache(file) {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -108,6 +118,12 @@ export function readUpdateCache(file) {
   }
 }
 
+/**
+ * @param {{ checkedAt?: string } | null | undefined} entry
+ * @param {number} [now]
+ * @param {number} [ttlMs]
+ * @returns {boolean}
+ */
 export function isCacheFresh(entry, now = Date.now(), ttlMs = CACHE_TTL_MS) {
   const age = now - Date.parse(entry?.checkedAt ?? "");
   return Number.isFinite(age) && age >= 0 && age < ttlMs;
@@ -128,6 +144,10 @@ function writeUpdateCache(file, entry, assertPrivateDirImpl = defaultAssertPriva
   }
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {boolean}
+ */
 export function isCheckDisabled(env = process.env) {
   const value = env[DISABLE_ENV];
   return Boolean(value) && value !== "0";
@@ -143,7 +163,13 @@ function parseVersion(value) {
   return { core, pre: dash === -1 ? "" : text.slice(dash + 1) };
 }
 
-/** Semver-shaped compare: -1, 0, 1. A prerelease sorts below its release. */
+/**
+ * Semver-shaped compare: -1, 0, 1. A prerelease sorts below its release.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {-1 | 0 | 1}
+ */
 export function compareVersions(a, b) {
   const left = parseVersion(a);
   const right = parseVersion(b);
@@ -160,6 +186,10 @@ function isSemver(value) {
   return typeof value === "string" && SEMVER_RE.test(value);
 }
 
+/**
+ * @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<string>} the latest published semver
+ */
 export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== "function") {
     throw new Error("fetch is not available in this Node runtime");
@@ -183,6 +213,11 @@ export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {
  * packs a version that a later release has already replaced. A disabled
  * check is still checked first, since forcing a refresh cannot make a
  * network request happen.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, now?: number, fetchImpl?: typeof fetch,
+ *   cacheFile?: string, forceRefresh?: boolean }} [options]
+ * @returns {Promise<{ latest: string | null, source: "disabled" | "cache" | "registry" | "unreachable",
+ *   checkedAt: string | null, message: string | null }>}
  */
 export async function resolveLatest({
   env = process.env,
@@ -226,6 +261,11 @@ export async function resolveLatest({
   }
 }
 
+/**
+ * @param {string} name
+ * @param {{ env?: NodeJS.ProcessEnv, platform?: string }} [options]
+ * @returns {string | null}
+ */
 export function findOnPath(name, { env = process.env, platform = process.platform } = {}) {
   const raw = env.PATH ?? env.Path ?? "";
   const extensions = platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
@@ -242,6 +282,10 @@ export function findOnPath(name, { env = process.env, platform = process.platfor
   return null;
 }
 
+/**
+ * @param {{ env?: NodeJS.ProcessEnv, platform?: string }} [options]
+ * @returns {{ id: string, name: string, present: boolean, binary: string | null, instruction: string }[]}
+ */
 export function detectHosts({ env = process.env, platform = process.platform } = {}) {
   return HOSTS.map((host) => {
     const binary = host.binary ? findOnPath(host.binary, { env, platform }) : null;
@@ -255,7 +299,13 @@ export function detectHosts({ env = process.env, platform = process.platform } =
   });
 }
 
-/** The commands `--apply` runs for one present host, in order. */
+/**
+ * The commands `--apply` runs for one present host, in order.
+ *
+ * @param {{ id: string, binary: string }} host
+ * @param {{ latest?: string | null, tmpDir: string, tools?: { npm?: string, tar?: string } }} options
+ * @returns {{ command: string, args: string[], capture?: string, echo?: boolean }[]}
+ */
 export function buildHostPlan(host, { latest, tmpDir, tools = {} }) {
   const step = (command, args, extra = {}) => ({ command, args, ...extra });
   switch (host.id) {
@@ -325,6 +375,9 @@ const LOCAL_SOURCE_RE = /(?:file:\/\/\/?\S+|\b[A-Za-z]:[\\/]\S*|(?:^|\s)(?:\.{1,
 /**
  * The source of one marketplace, and whether it is a local clone.
  * A remote source wins: a GitHub URL holds slashes that read as a path.
+ *
+ * @param {string} stdout `codex plugin marketplace list` output
+ * @param {string} [name]
  * @returns {{ source: string, local: boolean } | null}
  */
 export function parseMarketplaceSource(stdout, name = MARKETPLACE_NAME) {
@@ -337,7 +390,12 @@ export function parseMarketplaceSource(stdout, name = MARKETPLACE_NAME) {
   return null;
 }
 
-/** `codex plugin add` prints `Installed plugin root: <path>`. */
+/**
+ * `codex plugin add` prints `Installed plugin root: <path>`.
+ *
+ * @param {string} stdout
+ * @returns {string | null}
+ */
 export function parseInstalledRoot(stdout) {
   const match = /Installed plugin root:\s*(.+)/.exec(String(stdout ?? ""));
   if (!match) return null;
@@ -345,7 +403,12 @@ export function parseInstalledRoot(stdout) {
   return root === "" ? null : root;
 }
 
-/** The `version` of the `plugin.json` an installed plugin root holds. */
+/**
+ * The `version` of the `plugin.json` an installed plugin root holds.
+ *
+ * @param {string} root
+ * @returns {string | null}
+ */
 export function readInstalledPluginVersion(root) {
   try {
     const parsed = JSON.parse(fs.readFileSync(path.join(root, "plugin.json"), "utf8"));
@@ -407,7 +470,13 @@ const CAPTURE_HANDLERS = {
   install: captureInstall,
 };
 
-/** `npm pack --json` prints `[{ filename }]`; plain `npm pack` prints the file name last. */
+/**
+ * `npm pack --json` prints `[{ filename }]`; plain `npm pack` prints the file name last.
+ *
+ * @param {string} stdout
+ * @param {string} destination directory the tarball was packed into
+ * @returns {string} absolute path to the tarball
+ */
 export function tarballFromPackOutput(stdout, destination) {
   let filename = null;
   try {
@@ -432,6 +501,10 @@ function formatStep(step) {
 /**
  * Run one host's steps in order, printing each command first. Stops at the
  * first failure; the caller reports it. `runner` is injectable for tests.
+ *
+ * @param {{ command: string, args: string[], capture?: string, echo?: boolean }[]} steps
+ * @param {{ runner: Function, write: (text: string) => void, cwd?: string }} options
+ * @returns {{ ok: boolean, steps: object[], message: string | null }}
  */
 export function applyPlan(steps, { runner, write, cwd }) {
   const done = [];
@@ -466,6 +539,11 @@ export function applyPlan(steps, { runner, write, cwd }) {
 
 export const UPDATE_STEP_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * @param {{ command: string, args: string[], cwd?: string, capture?: boolean,
+ *   childStdoutFd?: number, timeoutMs?: number }} options
+ * @returns {{ status: number | null, stdout: string, error: Error | null }}
+ */
 export function defaultRunner({ command, args, cwd, capture, childStdoutFd = 1, timeoutMs = UPDATE_STEP_TIMEOUT_MS }) {
   // Batch shims need cmd.exe; reject shell syntax before quoting whitespace.
   const shell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
@@ -544,6 +622,11 @@ function describeAvailability(value) {
   return value ? "yes" : "no";
 }
 
+/**
+ * @param {{ running: string | null, latest: string | null, updateAvailable: boolean | null,
+ *   source: string, checkedAt: string | null, message: string | null, hosts: object[] }} report
+ * @returns {string}
+ */
 export function renderUpdateReport(report) {
   const lines = [
     "# antigravity-plugin update",
@@ -590,6 +673,9 @@ function updateEnvelope(report, applied, ok) {
 /**
  * One line for `status` when the cache already knows a newer version. Reads
  * the cache only; `status` must never touch the network.
+ *
+ * @param {{ cacheFile?: string, running?: string | null }} [options]
+ * @returns {string | null}
  */
 export function readUpdateNotice({ cacheFile = resolveUpdateCacheFile(), running = readRunningVersion() } = {}) {
   const cached = readUpdateCache(cacheFile);

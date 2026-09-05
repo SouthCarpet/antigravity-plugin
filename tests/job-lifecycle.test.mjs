@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { FileLockTimeoutError, withFileLock } from "../scripts/lib/file-lock.mjs";
 import { createTrackedJob, patchJob, startBackgroundJob } from "../scripts/lib/job-helpers.mjs";
 import { canonicalComparePath, expandShortPath } from "../scripts/lib/paths.mjs";
-import { appendJobLog, ensureStateDir, listJobs, readJobFile, readJobLog, resolveJobFile, resolveStateDir, resolveStateRoot, saveState } from "../scripts/lib/state.mjs";
+import { appendJobLog, ensureStateDir, listJobs, readJobFile, readLogTail, resolveJobFile, resolveJobLogFile, resolveStateDir, resolveStateRoot, saveState } from "../scripts/lib/state.mjs";
 import { writeFakeAgy } from "./helpers/fake-agy.mjs";
 import { portableTmpRoot, removeTestDir } from "./helpers/tmp.mjs";
 
@@ -82,7 +82,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       await patchJob(workspaceRoot, 'bbbbbbbbbbbb', { status: 'completed' });
       assert.equal(listJobs(workspaceRoot).length, 51);
       assert.equal(readJobFile(workspaceRoot, active.id).status, 'running');
-      assert.match(readJobLog(workspaceRoot, active.id), /retained progress/);
+      assert.match(readLogTail(resolveJobLogFile(workspaceRoot, active.id)), /retained progress/);
       assert.equal(readJobFile(workspaceRoot, '000000000000'), null);
       const { run } = await import('../scripts/commands/cancel.mjs');
       const exitCode = await run([active.id, '--json'], {

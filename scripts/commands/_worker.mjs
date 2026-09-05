@@ -16,7 +16,16 @@
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
-import { AGY_MODES, DEFAULT_AGY_TIMEOUT_MS, applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
+import {
+  AGY_MODES,
+  DEFAULT_AGY_TIMEOUT_MS,
+  applyDenialHint,
+  buildStoredResult,
+  deriveJobStatus,
+  deriveSummary,
+  patchJob,
+  trim,
+} from "../lib/job-helpers.mjs";
 import { createJobActivityRecorder } from "../lib/job-activity.mjs";
 
 function unsupportedStoredFlag(extraArgs) {
@@ -116,65 +125,39 @@ async function main() {
     await activity.finish();
   }
 
-  const status =
-    result.status === "completed"
-      ? "completed"
-      : result.status === "cancelled"
-      ? "cancelled"
-      : "failed";
-  const oauth = result.oauthUrl ?? null;
+  // One stored-result projection for both paths (076-T6 R1): the same
+  // status mapping, summary derivation, and trimming helper `runForegroundJob`
+  // uses, so a background run stores `agyConversationId` and the same
+  // timeout retry hint the foreground path already had.
   applyDenialHint(result, stored.kind);
-  const summary = deriveSummary(result.stdout);
+  const derived = deriveJobStatus(result, stored.kind);
 
   await patchJob(workspaceRoot, jobId, {
-    status,
-    phase: status,
+    status: derived.status,
+    phase: derived.status,
     completedAt: new Date().toISOString(),
     exitCode: result.exitCode,
-    summary,
-    oauthUrl: oauth,
-    healthStatus:
-      result.status === "auth_required" ? "auth_required" : status === "failed" ? "failed" : null,
-    healthMessage:
-      result.status === "auth_required"
-        ? "Antigravity is not authenticated. Complete OAuth and retry."
-        : result.denial && status === "failed"
-        ? `agy auto-denied the "${result.denial.tool}" tool (headless mode cannot prompt) and produced no output.`
-        : null,
-    recommendedAction:
-      result.status === "auth_required"
-        ? "Run /antigravity:setup to complete the OAuth flow."
-        : result.denial && status === "failed"
-        ? headlessDenialHint(stored.kind)
-        : null,
-    errorMessage: result.errorMessage ?? (status === "failed" ? trim(result.stderr) : null),
-    result: {
-      rawOutput: result.stdout,
-      stderr: result.stderr,
-      status: result.status,
-      exitCode: result.exitCode,
-      oauthUrl: oauth,
-      usage: result.usage ?? null,
-      durationSeconds: result.durationSeconds ?? null,
-      agyConversationId: result.agyConversationId ?? null,
-      warnings: result.warnings ?? [],
-    },
+    summary: deriveSummary(result),
+    oauthUrl: result.oauthUrl ?? null,
+    healthStatus: derived.healthStatus ?? null,
+    healthMessage: derived.healthMessage ?? null,
+    recommendedAction: derived.recommendedAction ?? null,
+    // Fix round 1 F3: keyed off the raw `result.status` this dropped agy's
+    // stderr for `auth_required`/`timeout` jobs, since neither raw status is
+    // literally "failed" (only `derived.status`, job-helpers.mjs's mapping
+    // of both onto a persisted job status, is). `derived.status === "failed"`
+    // restores the pre-T6 behaviour for every status this fallback applies
+    // to; `result.errorMessage` (set for a timeout/output-limit termination)
+    // still wins when present.
+    errorMessage: result.errorMessage ?? (derived.status === "failed" ? trim(result.stderr) : null),
+    result: buildStoredResult(result),
   });
-  appendJobLog(workspaceRoot, jobId, `[worker] ${status} exit=${result.exitCode}`);
-  return status === "completed" ? 0 : 1;
-}
-
-function deriveSummary(stdout) {
-  if (typeof stdout !== "string") return null;
-  const firstLine = stdout.split("\n").map((s) => s.trim()).find(Boolean);
-  if (!firstLine) return null;
-  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
-}
-
-function trim(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
+  // Fix round 1 F5: pre-T6 this line read `[worker] ${status} exit=${result.exitCode}`
+  // with no ` status=` suffix; nothing reads that suffix as a structured
+  // field (it only ever surfaced verbatim in `status`'s Recent Progress), so
+  // restore the exact pre-T6 wording rather than declare an undeclared change.
+  appendJobLog(workspaceRoot, jobId, `[worker] ${derived.status} exit=${result.exitCode}`);
+  return derived.status === "completed" ? 0 : 1;
 }
 
 main().then((code) => process.exit(code)).catch((err) => {

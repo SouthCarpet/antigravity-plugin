@@ -2,8 +2,7 @@
  * Process spawning and management utilities.
  */
 
-import { execFileSync, spawnSync, spawn as nodeSpawn } from "node:child_process";
-import fs from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
 import process from "node:process";
 
 export const GIT_TIMEOUT_MS = 120_000;
@@ -59,25 +58,6 @@ export function runCommand(command, args, options = {}) {
 }
 
 /**
- * Run a command synchronously and throw on non-zero exit.
- *
- * @param {string} command
- * @param {string[]} args
- * @param {{ cwd?: string, maxBuffer?: number, env?: NodeJS.ProcessEnv }} [options]
- * @returns {string} stdout
- */
-export function runCommandChecked(command, args, options = {}) {
-  const result = runCommand(command, args, options);
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(formatCommandFailure(result));
-  }
-  return result.stdout;
-}
-
-/**
  * Format a failed command result into a human-readable error message.
  *
  * @param {{ stdout: string, stderr: string, status: number | null }} result
@@ -93,26 +73,12 @@ export function formatCommandFailure(result) {
 }
 
 /**
- * Check whether a binary is available on PATH.
- *
- * @param {string} name
- * @returns {boolean}
- */
-export function binaryAvailable(name) {
-  try {
-    const command = process.platform === "win32" ? "where" : "which";
-    const result = spawnSync(command, [name], { encoding: "utf8", stdio: "pipe", timeout: 10_000 });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Return whether a PID currently refers to a process. EPERM means the process
  * exists but belongs to another principal, so it is considered running.
  *
  * @param {number} pid
+ * @param {typeof process.kill} [killImpl]
+ * @returns {boolean}
  */
 export function isProcessAlive(pid, killImpl = process.kill) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -133,6 +99,10 @@ export function isProcessAlive(pid, killImpl = process.kill) {
  * briefly per PID to keep a stale live lock's 25 ms retry loop from starting a
  * shell on every attempt. The cache expires so a PID reused later is queried
  * again rather than inheriting the former process's identity indefinitely.
+ *
+ * @param {number} pid
+ * @param {{ now?: () => number, platform?: string, spawnSyncImpl?: typeof spawnSync }} [options]
+ * @returns {number | null}
  */
 export function processStartedAt(pid, {
   now = Date.now,
@@ -202,8 +172,11 @@ function publicAttempt(kind, result) {
  * Terminate a process tree, verify that the root PID disappeared, and
  * escalate from a polite request to a forced kill when needed.
  *
- * @returns {Promise<{ outcome: "killed"|"not_found"|"denied"|"failed",
- *   killed: boolean, pid: number, status: number|null, attempts: object[], message: string }>}
+ * @param {number | string} pid
+ * @param {{ platform?: string, killImpl?: typeof process.kill,
+ *   spawnSyncImpl?: typeof spawnSync, probe?: (pid: number) => boolean,
+ *   graceMs?: number, forceGraceMs?: number }} [options]
+ * @returns {Promise<import('./types.mjs').TerminationResult>}
  */
 export async function terminateProcessTree(pid, options = {}) {
   const numericPid = Number(pid);
@@ -288,36 +261,4 @@ export async function terminateProcessTree(pid, options = {}) {
     return finish("denied", `Permission denied while terminating process tree ${numericPid}.`);
   }
   return finish("failed", `Process tree ${numericPid} is still running after SIGKILL escalation.`);
-}
-
-/**
- * Spawn a detached child process that outlives the parent.
- *
- * @param {string} command
- * @param {string[]} args
- * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, logFile?: string }} [options]
- * @returns {import("node:child_process").ChildProcess}
- */
-export function spawnDetached(command, args, options = {}) {
-  let logFd = null;
-  try {
-    logFd = options.logFile ? fs.openSync(options.logFile, "a") : null;
-    const stdio = options.logFile
-      ? ["ignore", "ignore", logFd]
-      : ["ignore", "ignore", "ignore"];
-
-    const child = nodeSpawn(command, args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      detached: true,
-      stdio
-    });
-
-    child.unref();
-    return child;
-  } finally {
-    if (typeof logFd === "number") {
-      fs.closeSync(logFd);
-    }
-  }
 }

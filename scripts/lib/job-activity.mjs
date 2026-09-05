@@ -7,6 +7,12 @@ export const HEARTBEAT_MIN_GAP_MS = 5_000;
  * Coalesce observed output and heartbeats through one write budget. The
  * synchronous runtime callbacks never leave a rejected write unhandled;
  * finish() drains that write before the caller commits a terminal state.
+ *
+ * @param {string} workspaceRoot the resolved workspace root
+ * @param {string} jobId
+ * @param {{ heartbeat?: boolean, now?: () => number, patch?: typeof patchJobState,
+ *   setIntervalImpl?: typeof setInterval, clearIntervalImpl?: typeof clearInterval }} [options]
+ * @returns {{ onText: () => void, finish: () => Promise<void> }}
  */
 export function createJobActivityRecorder(workspaceRoot, jobId, {
   heartbeat = false,

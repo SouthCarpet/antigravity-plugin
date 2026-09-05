@@ -1,9 +1,9 @@
 /**
  * Cross-process mutex helpers and atomic JSON write helper.
  *
- * `withJobMutex` and `withWorkspaceMutex` use one workspace-wide lock. A
- * local FIFO avoids self-contention; an atomic lock directory under the OS
- * temp root serializes the same key across independent Node processes.
+ * `withWorkspaceMutex` uses one workspace-wide lock. A local FIFO avoids
+ * self-contention; an atomic lock directory under the OS temp root
+ * serializes the same key across independent Node processes.
  *
  * `writeJsonAtomic` writes the serialized JSON payload to a unique temporary
  * sibling file and then renames it into place. If serialization or the write
@@ -61,25 +61,42 @@ async function runWithMutex(map, key, fn) {
   }
 }
 
-export function withJobMutex(workspaceRoot, _jobId, fn) {
-  return runWithMutex(mutexes, String(workspaceRoot), fn);
-}
-
+/**
+ * @param {string} workspaceRoot
+ * @param {() => any} fn
+ * @returns {Promise<any>} `fn`'s resolved value
+ */
 export function withWorkspaceMutex(workspaceRoot, fn) {
   return runWithMutex(mutexes, String(workspaceRoot), fn);
 }
 
-/** Synchronous recovery uses the same cross-process lock as state writers. */
+/**
+ * Synchronous recovery uses the same cross-process lock as state writers.
+ *
+ * @param {string} workspaceRoot
+ * @param {() => any} fn
+ * @returns {any} `fn`'s return value
+ */
 export function withWorkspaceMutexSync(workspaceRoot, fn) {
   return withFileLockSync(lockPathFor(String(workspaceRoot)), fn, {
     lockTimeoutMs: STATE_LOCK_TIMEOUT_MS,
   });
 }
 
+/**
+ * @param {string} workspaceRoot
+ * @param {number[]} ownerPids
+ * @returns {boolean} true when a lock owned by one of `ownerPids` was reaped
+ */
 export function recoverWorkspaceMutex(workspaceRoot, ownerPids) {
   return reapFileLockOwnedBy(lockPathFor(String(workspaceRoot)), ownerPids);
 }
 
+/**
+ * @param {string} targetPath
+ * @param {unknown} value JSON-serializable payload
+ * @returns {void}
+ */
 export function writeJsonAtomic(targetPath, value) {
   const dir = path.dirname(targetPath);
   const base = path.basename(targetPath);

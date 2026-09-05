@@ -59,6 +59,7 @@ function firstExisting(dirs, names) {
  * spawnable.
  *
  * @param {string} bin
+ * @returns {boolean}
  */
 export function isWindowsBatchFile(bin) {
   const ext = extname(String(bin ?? '')).toLowerCase();
@@ -70,6 +71,7 @@ export function isWindowsBatchFile(bin) {
  * the user pointed `AGY_BIN` at one.
  *
  * @param {string} bin
+ * @returns {string}
  */
 export function batchShimRefusalMessage(bin) {
   return (
@@ -85,6 +87,7 @@ export function batchShimRefusalMessage(bin) {
  * instead of letting a raw EINVAL escape.
  *
  * @param {string} bin
+ * @returns {void}
  */
 export function assertAgyBinSpawnable(bin) {
   if (isWindowsBatchFile(bin)) {
@@ -147,6 +150,7 @@ function forwardTerminationSignals(onSignal) {
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @param {string} [platform] - defaults to `process.platform`; injectable for tests.
+ * @returns {string} an absolute path when found, else the bare `agy` name
  */
 export function resolveAgyBin(env = process.env, platform = process.platform) {
   if (env.AGY_BIN && existsSync(env.AGY_BIN)) return env.AGY_BIN;
@@ -177,6 +181,10 @@ export function resolveAgyBin(env = process.env, platform = process.platform) {
 /**
  * Probe `agy --version`. Resolves to `{ ok: true, version }` or
  * `{ ok: false, reason }`.
+ *
+ * @param {{ bin?: string, timeoutMs?: number,
+ *   terminateTree?: typeof terminateProcessTree, platform?: string }} [options]
+ * @returns {Promise<{ ok: true, version: string } | { ok: false, reason: string }>}
  */
 export async function probeAgy({
   bin = resolveAgyBin(),
@@ -453,6 +461,9 @@ export function detectAutoDenial(stderr) {
  *       is not a failure, but it is never swallowed either.
  * A SUCCESS with an empty response and NO denial line stays `completed`: a
  * model may legitimately say nothing.
+ *
+ * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
+ * @returns {Promise<import('./types.mjs').RuntimeResult>}
  */
 export async function runAgyPrint({
   prompt,
@@ -786,54 +797,4 @@ export async function runAgyPrint({
     denial,
     spawnError,
   };
-}
-
-/**
- * Tiny helper for callers that want to fire-and-forget into the background.
- * Returns the child handle without awaiting, so the caller is responsible
- * for capturing exit + stdout in a separate file (see job-control.mjs).
- *
- * Same stream-json transport as `runAgyPrint` (see its doc comment above):
- * the prompt travels as a single NDJSON line on stdin, so `stdin` is always
- * `'pipe'` even though the caller never reads anything back from it.
- */
-export function spawnAgyDetached({
-  prompt,
-  mode = 'print',
-  conversationId,
-  cwd = process.cwd(),
-  addDirs = [],
-  model,
-  extraArgs = [],
-  bin = resolveAgyBin(),
-  env = process.env,
-  stdout = 'pipe',
-  stderr = 'pipe',
-} = {}) {
-  const args = [];
-  if (mode === 'continue') args.push('--continue');
-  if (mode === 'conversation') {
-    if (!conversationId) throw new TypeError('spawnAgyDetached: conversationId required for mode=conversation');
-    args.push('--conversation', conversationId);
-  }
-  for (const dir of addDirs) args.push('--add-dir', dir);
-  if (model) args.push('--model', model);
-  args.push(...extraArgs);
-  args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
-
-  const child = spawnAgy(bin, args, {
-    cwd,
-    env,
-    detached: true,
-    stdio: ['pipe', stdout, stderr],
-  });
-
-  // Fire-and-forget: nobody awaits this child, so an EPIPE on stdin (agy
-  // dying before we finish writing the prompt line) must not throw an
-  // unhandled 'error' event.
-  child.stdin.on('error', () => {});
-  child.stdin.write(buildStreamJsonLine(prompt) + '\n');
-  child.stdin.end();
-
-  return child;
 }

@@ -16,6 +16,11 @@ import { resolveAgyBin, probeAgy, assertAgyBinSpawnable } from '../lib/agent-run
 import { ensureVisionConfig, removeVisionConfig, VISION_PERMISSION } from '../lib/vision-config.mjs';
 import { runIfMain } from '../lib/cli-entry.mjs';
 
+/**
+ * @param {string[]} [argv] CLI arguments after the verb (`--skip-vision`, `--remove-vision`)
+ * @param {{ cwd?: string }} [ctx] `cwd` override for tests
+ * @returns {Promise<number>} process exit code
+ */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     booleanOptions: ['skip-vision', 'remove-vision'],

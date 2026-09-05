@@ -8,22 +8,41 @@
  * quiet / possibly_stalled / worker_missing / persisted_diagnostic).
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
-import {
+
+// The owned git seam (076-T6 R4): `workspace.mjs`'s `resolveWorkspaceRoot`
+// imports `ensureGitRepository` from here, so mocking it before `state.mjs`/
+// `job-control.mjs` are ever imported (mocks registered after a module has
+// already been loaded do not retroactively apply) lets the launch-count case
+// below count real "git" calls without spawning a process. `workCwd` in this
+// file is never a real git repository, so returning it unchanged mirrors the
+// existing non-git fallback exactly — no other test's behaviour changes.
+let gitCalls = 0;
+mock.module('../scripts/lib/git.mjs', {
+  namedExports: {
+    ensureGitRepository: (cwd) => {
+      gitCalls += 1;
+      return cwd;
+    },
+  },
+});
+
+const {
   upsertJob,
   writeJobFile,
   appendJobLog,
   ensureStateDir,
   saveState,
   resolveJobLogFile,
-} from '../scripts/lib/state.mjs';
-import {
+} = await import('../scripts/lib/state.mjs');
+const { resetWorkspaceRootCache, getResolveWorkspaceRootCallCount } = await import('../scripts/lib/workspace.mjs');
+const {
   buildStatusSnapshot,
   buildSingleJobSnapshot,
   resolveResultJob,
@@ -31,7 +50,7 @@ import {
   SESSION_ID_ENV,
   QUIET_AFTER_MS,
   POSSIBLY_STALLED_AFTER_MS,
-} from '../scripts/lib/job-control.mjs';
+} = await import('../scripts/lib/job-control.mjs');
 
 const TMPROOT = portableTmpRoot();
 
@@ -100,6 +119,35 @@ describe('buildStatusSnapshot', () => {
     delete process.env[SESSION_ID_ENV];
     const snap = buildStatusSnapshot(workCwd, { env: { /* no session */ } });
     assert.ok(snap.running.some((j) => j.id === 'q'));
+  });
+
+  // 076-T6 R4: state.mjs no longer re-resolves an already-resolved workspace
+  // root, so a snapshot over several stored jobs calls `resolveWorkspaceRoot`
+  // (and so launches "git", the owned seam mocked at the top of this file) at
+  // most once. The cache is reset right before the assertion so a warm hit
+  // from a cache the seeding calls may have populated cannot mask a
+  // regression (test-isolation footgun flagged on the T4 fix round 2
+  // re-review).
+  //
+  // Fix round 1 F1: asserting on `gitCalls` alone does not discriminate a
+  // regression where `resolveStateDir` re-resolves the SAME already-resolved
+  // cwd string — the per-cwd cache absorbs that redundant call before it
+  // ever reaches the mocked `ensureGitRepository`, so `gitCalls` stays 1
+  // either way (reproduced: reverting `resolveStateDir` to
+  // `resolveWorkspaceRoot(cwd)` left `gitCalls` at 1 while
+  // `getResolveWorkspaceRootCallCount()` rose to 6). Asserting on the entry
+  // counter as well closes that gap; `gitCalls` stays as a secondary,
+  // independent measurement of the same win.
+  it('resolves the workspace root at most once for a status snapshot over three stored jobs', async () => {
+    await seedJob({ id: 'g1', status: 'completed' });
+    await seedJob({ id: 'g2', status: 'completed' });
+    await seedJob({ id: 'g3', status: 'completed' });
+
+    resetWorkspaceRootCache();
+    gitCalls = 0;
+    buildStatusSnapshot(workCwd, { env: process.env });
+    assert.equal(getResolveWorkspaceRootCallCount(), 1);
+    assert.equal(gitCalls, 1);
   });
 });
 
