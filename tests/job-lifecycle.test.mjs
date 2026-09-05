@@ -169,6 +169,19 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         },
       });
       fs.writeFileSync(startGate, "go", "utf8");
+      // Fix brief 076-T4-fix1 F1: measured with a scratch script that imports
+      // the real worktree modules and timestamps each stage (see the fix
+      // report). On this machine the worker child's own process start, plus
+      // its first real child-process spawn (the fake-agy stub), is what
+      // takes seconds. The stale-lock identity check never runs on a fresh
+      // lock, so it is not the cause here. Observed 20-48 s across isolated
+      // repro runs, and even a same-file test with no worker spawn at all
+      // took 48 s once under the same load. That is machine-wide
+      // fs/process-spawn latency (heavy antivirus scanning of every freshly
+      // spawned/copied binary, worsened by an untrimmed temp tree; see F2's
+      // cleanup fix), not a product defect. The budget below carries margin
+      // over the worst measured run instead of staying tight against a
+      // timing this machine cannot reliably deliver.
       const owner = await waitFor(() => {
         try {
           if (!fs.existsSync(holdMarker)) return null;
@@ -176,7 +189,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         } catch {
           return null;
         }
-      }, 30_000);
+      }, 60_000);
       assert.ok(owner, "worker should acquire the state lock during startup");
       assert.equal(owner.pid, pid, "the worker itself should own its startup lock");
       const agyPid = readJobFile(workspaceRoot, job.id)?.agyPid;
