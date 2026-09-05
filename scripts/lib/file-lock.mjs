@@ -11,6 +11,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isProcessAlive, processStartedAt } from "./process.mjs";
 
 const DEFAULT_WAIT_MS = 25;
 
@@ -32,23 +33,19 @@ function ownerPath(lockPath) {
   return path.join(lockPath, "owner.json");
 }
 
-function processExists(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err?.code === "EPERM";
-  }
-}
-
 function staleLockCanBeReaped(lockPath, staleLockMs) {
   const ageMs = Date.now() - fs.statSync(lockPath).mtimeMs;
   if (ageMs <= staleLockMs) return false;
   try {
     const owner = JSON.parse(fs.readFileSync(ownerPath(lockPath), "utf8"));
     if (!Number.isInteger(owner.pid) || owner.pid <= 0) return true;
-    return !processExists(owner.pid);
+    if (!isProcessAlive(owner.pid)) return true;
+    const acquiredAt = Date.parse(owner.startedAt);
+    if (!Number.isFinite(acquiredAt)) return false;
+    const liveStartedAt = processStartedAt(owner.pid);
+    // startedAt records lock acquisition, so the original process must have
+    // existed by then. Allow one second for OS timestamp precision/rounding.
+    return liveStartedAt !== null && liveStartedAt > acquiredAt + 1000;
   } catch (err) {
     if (err?.code === "ENOENT" || err instanceof SyntaxError) return true;
     // Windows can briefly deny opening owner.json while another process is

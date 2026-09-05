@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Live job retention.** Queued and running jobs no longer disappear when
+  terminal history reaches its 50-job cap. Their job records and logs remain
+  available for status, result, and cancellation.
+- **Recoverable job state.** Job details are committed before their index
+  entries. An unreadable state index is kept as a timestamped corrupt copy and
+  rebuilt from valid job files; `result` now exits 1 instead of reporting
+  success when a selected job file is missing or unreadable.
+- **Observed worker health and waits.** Background workers now persist
+  heartbeats and model-output progress, legacy running jobs use their start
+  time until observations arrive, and every worker-liveness check follows the
+  same permission-denied policy. Timed-out background waits now say that the
+  job is still queued or running and point to `status`. Stale locks no longer
+  survive merely because their recorded PID was reused by another process.
 - **Bounded agy runs.** Foreground and background jobs fail after 30 minutes
   instead of waiting forever. Set `ANTIGRAVITY_AGY_TIMEOUT_MS` to change the
   budget, or `0` to disable it. Excess output (16 MiB stdout or 4 MiB stderr)

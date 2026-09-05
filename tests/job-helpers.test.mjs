@@ -20,7 +20,7 @@ import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { portableTmpRoot } from './helpers/tmp.mjs';
+import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 import { SESSION_ID_ENV } from '../scripts/lib/job-control.mjs';
 
 const TMPROOT = portableTmpRoot();
@@ -30,12 +30,14 @@ const runtime = {
   next: { status: 'completed', exitCode: 0, stdout: '', stderr: '' },
   throws: null,
   spawnPid: 4242,
+  textDeltas: [],
 };
 
 mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
-    runAgyPrint: async () => {
+    runAgyPrint: async (options) => {
       if (runtime.throws) throw runtime.throws;
+      for (const delta of runtime.textDeltas) options.onText?.(delta);
       return { ...runtime.next };
     },
     spawnAgyDetached: () => ({ pid: runtime.spawnPid }),
@@ -59,8 +61,13 @@ mock.module('../scripts/lib/process-adapter.mjs', {
 // job-helpers below will pick them up.
 const {
   runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId,
-  resolveWorkerPath, agyTimeoutMs,
+  resolveWorkerPath, agyTimeoutMs, waitOutcomeLine,
 } = await import('../scripts/lib/job-helpers.mjs');
+const {
+  createJobActivityRecorder,
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_MIN_GAP_MS,
+} = await import('../scripts/lib/job-activity.mjs');
 const { readJobFile, listJobs } = await import('../scripts/lib/state.mjs');
 
 let workspaceRoot;
@@ -78,7 +85,7 @@ function freshWorkspace() {
 
 after(() => {
   for (const p of tmpToCleanup) {
-    try { fs.rmSync(p, { recursive: true, force: true }); } catch {}
+    removeTestDir(p);
   }
   delete process.env.CLAUDE_PLUGIN_DATA;
   delete process.env[SESSION_ID_ENV];
@@ -114,6 +121,22 @@ describe('runForegroundJob — terminal status mapping', () => {
     const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
     const stored = readJobFile(workspaceRoot, job.id);
     assert.equal(stored.summary, null);
+  });
+
+  it('streamed foreground output records lastProgressAt and lastModelOutputAt', async () => {
+    freshWorkspace();
+    runtime.next = { status: 'completed', exitCode: 0, stdout: 'done', stderr: '' };
+    runtime.textDeltas = ['first delta', 'second delta'];
+    try {
+      const { job } = await runForegroundJob({
+        workspaceRoot, kind: 'task', title: 'observed', prompt: 'p',
+      });
+      const stored = readJobFile(workspaceRoot, job.id);
+      assert.ok(Number.isFinite(Date.parse(stored.lastProgressAt)));
+      assert.equal(stored.lastModelOutputAt, stored.lastProgressAt);
+    } finally {
+      runtime.textDeltas = [];
+    }
   });
 
   it('auth_required → failed + healthStatus=auth_required + OAuth URL', async () => {
@@ -274,6 +297,62 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     assert.equal(a.length, 12);
     assert.equal(currentSessionId({ [SESSION_ID_ENV]: 'sess' }), 'sess');
     assert.equal(currentSessionId({}), null);
+  });
+});
+
+describe('observed job activity', () => {
+  it('shares one five-second patch budget between output and heartbeat sources', async () => {
+    let now = 0;
+    let timerCallback;
+    let clearedTimer = null;
+    let unrefCalled = false;
+    const patches = [];
+    const timer = { unref: () => { unrefCalled = true; } };
+    const activity = createJobActivityRecorder('workspace', 'job', {
+      heartbeat: true,
+      now: () => now,
+      patch: async (_workspaceRoot, _jobId, fields) => { patches.push(fields); },
+      setIntervalImpl: (callback, intervalMs) => {
+        assert.equal(intervalMs, HEARTBEAT_INTERVAL_MS);
+        timerCallback = callback;
+        return timer;
+      },
+      clearIntervalImpl: (value) => { clearedTimer = value; },
+    });
+
+    activity.onText();
+    activity.onText();
+    await new Promise((resolve) => setImmediate(resolve));
+    now = HEARTBEAT_MIN_GAP_MS - 1;
+    activity.onText();
+    timerCallback();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(patches.length, 1);
+
+    now = HEARTBEAT_MIN_GAP_MS;
+    timerCallback();
+    await activity.finish();
+
+    assert.equal(patches.length, 2);
+    assert.equal(patches[0].lastHeartbeatAt, '1970-01-01T00:00:00.000Z');
+    assert.equal(patches[0].lastProgressAt, '1970-01-01T00:00:00.000Z');
+    assert.equal(patches[0].lastModelOutputAt, patches[0].lastProgressAt);
+    assert.equal(patches[1].lastHeartbeatAt, '1970-01-01T00:00:05.000Z');
+    assert.equal(patches[1].lastProgressAt, '1970-01-01T00:00:04.999Z');
+    assert.equal(unrefCalled, true);
+    assert.equal(clearedTimer, timer);
+  });
+
+  it('describes timed-out and vanished wait outcomes exactly', () => {
+    assert.equal(
+      waitOutcomeLine('task', { id: 'abcdef123456', status: 'running' }),
+      'antigravity:task — wait timed out; job abcdef123456 is still running. Run /antigravity:status abcdef123456.',
+    );
+    assert.equal(
+      waitOutcomeLine('rescue', null),
+      'antigravity:rescue — job record vanished while waiting.',
+    );
+    assert.equal(waitOutcomeLine('review', { id: 'abcdef123456', status: 'completed' }), null);
   });
 });
 

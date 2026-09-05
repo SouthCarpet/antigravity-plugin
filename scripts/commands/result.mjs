@@ -8,8 +8,8 @@
  */
 
 import { readCommandInput } from "../lib/args.mjs";
-import { resolveResultJob } from "../lib/job-control.mjs";
-import { readJobFile } from "../lib/state.mjs";
+import { mergeJobDetail, resolveResultJob } from "../lib/job-control.mjs";
+import { readJobFile, validateJobRecord } from "../lib/state.mjs";
 import { createJsonEnvelope, outputCommandResult, renderResultOutput } from "../lib/render.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
@@ -48,6 +48,12 @@ export async function run(argv = [], ctx = {}) {
     process.stderr.write(`antigravity:result — ${message}\n`);
     return 1;
   }
+
+  if (!validateJobRecord(stored) || stored.id !== job.id) {
+    process.stderr.write(`antigravity:result — stored job ${job.id} is unreadable.\n`);
+    return 1;
+  }
+  job = mergeJobDetail(job, stored);
 
   const usage = stored?.result?.usage ?? null;
   if (usage && typeof usage.total_tokens === "number") {

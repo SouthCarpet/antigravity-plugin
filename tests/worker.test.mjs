@@ -17,12 +17,12 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 
-const TMPROOT = os.tmpdir();
+const TMPROOT = portableTmpRoot();
 
 const runtime = {
   next: {
@@ -42,6 +42,8 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
     runAgyPrint: async (options) => {
       runtime.options = options;
       await options.onSpawn?.({ pid: 7331 });
+      options.onText?.('first delta');
+      options.onText?.('second delta');
       return { ...runtime.next };
     },
     spawnAgyDetached: () => ({ pid: 1 }),
@@ -106,12 +108,18 @@ describe('_worker.mjs background job completion', () => {
         if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
         else delete process.env.CLAUDE_PLUGIN_DATA;
         exitMock.mock.restore();
+        removeTestDir(workspaceRoot);
+        removeTestDir(dataDir);
       }
 
       assert.ok(stored, 'job file should exist after worker completion');
       assert.equal(stored.status, 'completed');
       assert.equal(stored.workerPid, process.pid);
       assert.equal(stored.agyPid, 7331);
+      // R3: observed streamed output records all three activity timestamps.
+      assert.ok(Number.isFinite(Date.parse(stored.lastProgressAt)));
+      assert.ok(Number.isFinite(Date.parse(stored.lastModelOutputAt)));
+      assert.ok(Number.isFinite(Date.parse(stored.lastHeartbeatAt)));
       assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
       assert.equal(stored.result.durationSeconds, 3.5);
       assert.equal(stored.result.agyConversationId, 'conv-123');
@@ -139,7 +147,9 @@ it('uses the stored 50 ms budget and persists failed after terminating a sleepin
       env: { ...process.env, CLAUDE_PLUGIN_DATA: path.join(workspaceRoot, 'data') },
     });
   } finally {
-    try { fs.rmSync(workspaceRoot, { recursive: true, force: true }); } catch { /* temp dir */ }
+    // The retrying helper can still throw on a handle a killed helper holds;
+    // cleanup must never replace the assertions below.
+    try { removeTestDir(workspaceRoot); } catch { /* temp dir */ }
   }
   assert.equal(result.error?.code, undefined,
     `helper did not finish within ${timeoutMs} ms: ${result.error?.message}`);
@@ -192,7 +202,7 @@ describe('worker persisted-request allowlist', () => {
         assert.equal(stored.status, 'failed');
         assert.equal(stored.healthStatus, 'failed');
         assert.equal(stored.errorMessage, 'stored request carries an unsupported agy flag: ' + flag);
-      } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+      } finally { removeTestDir(workspace); }
     });
   }
 });

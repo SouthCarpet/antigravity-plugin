@@ -13,14 +13,16 @@ import { pathToFileURL } from "node:url";
 import { FileLockTimeoutError, withFileLock } from "../scripts/lib/file-lock.mjs";
 import { createTrackedJob, patchJob, startBackgroundJob } from "../scripts/lib/job-helpers.mjs";
 import { canonicalComparePath, expandShortPath } from "../scripts/lib/paths.mjs";
-import { readJobFile, resolveStateDir, resolveStateRoot } from "../scripts/lib/state.mjs";
+import { appendJobLog, ensureStateDir, listJobs, readJobFile, readJobLog, resolveJobFile, resolveStateDir, resolveStateRoot, saveState } from "../scripts/lib/state.mjs";
 import { writeFakeAgy } from "./helpers/fake-agy.mjs";
+import { portableTmpRoot, removeTestDir } from "./helpers/tmp.mjs";
 
 const cleanup = [];
+const TMPROOT = portableTmpRoot();
 
 function freshWorkspace() {
-  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-lifecycle-work-"));
-  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-lifecycle-data-"));
+  const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, "antigravity-lifecycle-work-"));
+  const dataRoot = fs.mkdtempSync(path.join(TMPROOT, "antigravity-lifecycle-data-"));
   cleanup.push(workspaceRoot, dataRoot);
   return { workspaceRoot, dataRoot };
 }
@@ -55,11 +57,51 @@ async function waitFor(predicate, timeoutMs = 5000) {
 
 after(() => {
   for (const target of cleanup) {
-    try { fs.rmSync(target, { recursive: true, force: true }); } catch {}
+    removeTestDir(target);
   }
 });
 
 describe("cross-process job lifecycle", { concurrency: false }, () => {
+  // R1 acceptance: retention must leave an old live job reachable by cancel.
+  it("keeps one active job cancellable after 50 terminal jobs and one more completion", async () => {
+    const { workspaceRoot, dataRoot } = freshWorkspace();
+    const savedData = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_PLUGIN_DATA = dataRoot;
+    try {
+      const active = { id: 'aaaaaaaaaaaa', status: 'running', workerPid: 1234, updatedAt: '2000-01-01T00:00:00.000Z' };
+      const history = Array.from({ length: 50 }, (_, i) => ({
+        id: i.toString(16).padStart(12, '0'), status: 'completed',
+        updatedAt: new Date(Date.UTC(2024, 0, 1, 0, 0, i)).toISOString(),
+      }));
+      ensureStateDir(workspaceRoot);
+      for (const job of [active, ...history]) {
+        fs.writeFileSync(resolveJobFile(workspaceRoot, job.id), JSON.stringify(job));
+        appendJobLog(workspaceRoot, job.id, 'retained progress');
+      }
+      await saveState(workspaceRoot, { jobs: [active, ...history] });
+      await patchJob(workspaceRoot, 'bbbbbbbbbbbb', { status: 'completed' });
+      assert.equal(listJobs(workspaceRoot).length, 51);
+      assert.equal(readJobFile(workspaceRoot, active.id).status, 'running');
+      assert.match(readJobLog(workspaceRoot, active.id), /retained progress/);
+      assert.equal(readJobFile(workspaceRoot, '000000000000'), null);
+      const { run } = await import('../scripts/commands/cancel.mjs');
+      const exitCode = await run([active.id, '--json'], {
+        cwd: workspaceRoot,
+        terminateProcessTree: async (pid) => {
+          assert.equal(pid, 1234);
+          return { outcome: 'killed', killed: true, pid, status: 0, attempts: [] };
+        },
+        outputCommandResult: () => {},
+      });
+      assert.equal(exitCode, 0);
+      assert.equal(readJobFile(workspaceRoot, active.id).status, 'cancelled');
+      assert.equal(listJobs(workspaceRoot).filter((job) => job.status !== 'running').length, 50);
+    } finally {
+      if (savedData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+      else process.env.CLAUDE_PLUGIN_DATA = savedData;
+    }
+  });
+
   it("records the actual holding process in the lock owner file", async () => {
     const { dataRoot } = freshWorkspace();
     const lockPath = path.join(dataRoot, "owner-test.lock");
@@ -69,6 +111,30 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       assert.equal(typeof owner.token, "string");
       assert.ok(owner.token.length > 0);
     });
+  });
+
+  it("reaps a stale lock when its live owner PID has been reused", async () => {
+    const { dataRoot } = freshWorkspace();
+    const lockPath = path.join(dataRoot, "reused-pid.lock");
+    fs.mkdirSync(lockPath);
+    fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
+      pid: process.pid,
+      token: "stale-owner",
+      startedAt: "2000-01-01T00:00:00.000Z",
+    }));
+    const staleTime = new Date("2000-01-01T00:00:00.000Z");
+    fs.utimesSync(lockPath, staleTime, staleTime);
+
+    let replacementOwner;
+    await withFileLock(lockPath, async () => {
+      replacementOwner = JSON.parse(
+        fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"),
+      );
+    }, { staleLockMs: 100, lockTimeoutMs: 1000, waitMs: 1 });
+
+    assert.equal(replacementOwner.pid, process.pid);
+    assert.notEqual(replacementOwner.token, "stale-owner");
+    assert.equal(fs.existsSync(lockPath), false);
   });
 
   it("cancels during the worker's first locked state update", async () => {
@@ -103,6 +169,19 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         },
       });
       fs.writeFileSync(startGate, "go", "utf8");
+      // Fix brief 076-T4-fix1 F1: measured with a scratch script that imports
+      // the real worktree modules and timestamps each stage (see the fix
+      // report). On this machine the worker child's own process start, plus
+      // its first real child-process spawn (the fake-agy stub), is what
+      // takes seconds. The stale-lock identity check never runs on a fresh
+      // lock, so it is not the cause here. Observed 20-48 s across isolated
+      // repro runs, and even a same-file test with no worker spawn at all
+      // took 48 s once under the same load. That is machine-wide
+      // fs/process-spawn latency (heavy antivirus scanning of every freshly
+      // spawned/copied binary, worsened by an untrimmed temp tree; see F2's
+      // cleanup fix), not a product defect. The budget below carries margin
+      // over the worst measured run instead of staying tight against a
+      // timing this machine cannot reliably deliver.
       const owner = await waitFor(() => {
         try {
           if (!fs.existsSync(holdMarker)) return null;
@@ -110,7 +189,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         } catch {
           return null;
         }
-      }, 30_000);
+      }, 60_000);
       assert.ok(owner, "worker should acquire the state lock during startup");
       assert.equal(owner.pid, pid, "the worker itself should own its startup lock");
       const agyPid = readJobFile(workspaceRoot, job.id)?.agyPid;

@@ -6,8 +6,10 @@
  * subprocesses.
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -42,6 +44,8 @@ import {
   writeJobFile,
   appendJobLog,
   readJobLog,
+  patchJobState,
+  validateJobRecord,
 } from '../scripts/lib/state.mjs';
 import { resolveWorkspaceRoot } from '../scripts/lib/workspace.mjs';
 
@@ -372,7 +376,8 @@ describe('state — persistence + reconciliation', () => {
     }
     await saveState(workCwd, { version: 1, config: {}, jobs: many });
     const after = listJobs(workCwd);
-    assert.ok(after.length <= 50, `expected <=50 jobs, got ${after.length}`);
+    assert.equal(after.filter((job) => job.status === 'completed').length, 50);
+    assert.equal(after.find((job) => job.id === 'j1').status, 'running');
     // Oldest jobs should be pruned out of the on-disk index.
     assert.equal(after.find((j) => j.id === 'b000'), undefined);
   });
@@ -387,6 +392,7 @@ describe('state — persistence + reconciliation', () => {
       // Seed the index with 50 old jobs (each with a corresponding on-disk file).
       const oldJobs = Array.from({ length: 50 }, (_, i) => ({
         id: `old${String(i).padStart(2, '0')}`,
+        status: 'completed',
         updatedAt: new Date(2024, 0, 1, 0, 0, i).toISOString(),
       }));
       await saveState(isoCwd, { version: 1, config: {}, jobs: oldJobs });
@@ -396,7 +402,7 @@ describe('state — persistence + reconciliation', () => {
       }
       // Save a snapshot that adds a 51st newer job. Reconciliation will keep
       // all 51, then the MAX_JOBS=50 cap drops the oldest ("old00").
-      const newer = { id: 'newest', updatedAt: new Date(2025, 0, 1).toISOString() };
+      const newer = { id: 'newest', status: 'completed', updatedAt: new Date(2025, 0, 1).toISOString() };
       await saveState(isoCwd, { version: 1, config: {}, jobs: [...oldJobs, newer] });
 
       const after = listJobs(isoCwd);
@@ -417,6 +423,127 @@ describe('state — persistence + reconciliation', () => {
 });
 
 // ───────────────────────────── workspace ─────────────────────────────
+
+// Binding brief 076-T4 R1/R2: terminal-only retention and recoverable commits.
+describe('state retention and recovery', () => {
+  let cwd;
+  let savedData;
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-store-'));
+    savedData = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_PLUGIN_DATA = cwd;
+    ensureStateDir(cwd);
+  });
+  afterEach(() => {
+    if (savedData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+    else process.env.CLAUDE_PLUGIN_DATA = savedData;
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('retains old queued and running jobs and their artifacts beyond 50 terminal entries', async () => {
+    const queued = { id: 'aaaaaaaaaaaa', status: 'queued', updatedAt: '2000-01-01T00:00:00.000Z' };
+    const running = { id: 'bbbbbbbbbbbb', status: 'running', updatedAt: '2000-01-01T00:00:00.000Z' };
+    const history = Array.from({ length: 51 }, (_, i) => ({
+      id: i.toString(16).padStart(12, '0'), status: 'completed',
+      updatedAt: new Date(Date.UTC(2024, 0, 1, 0, 0, i)).toISOString(),
+    }));
+    for (const job of [queued, running, ...history]) {
+      fs.writeFileSync(resolveJobFile(cwd, job.id), JSON.stringify(job));
+      appendJobLog(cwd, job.id, 'keep my progress');
+    }
+    await saveState(cwd, { jobs: [queued, running, ...history] });
+    const jobs = listJobs(cwd);
+    assert.equal(jobs.length, 52);
+    assert.equal(jobs.filter((job) => job.status === 'completed').length, 50);
+    assert.equal(readJobFile(cwd, queued.id).status, 'queued');
+    assert.equal(readJobFile(cwd, running.id).status, 'running');
+    assert.match(readJobLog(cwd, queued.id), /keep my progress/);
+    assert.match(readJobLog(cwd, running.id), /keep my progress/);
+    assert.equal(fs.existsSync(resolveJobFile(cwd, '000000000000')), false);
+    assert.equal(fs.existsSync(resolveJobLogFile(cwd, '000000000000')), false);
+  });
+
+  it('rejects a failed detail write without changing the index or detail', async () => {
+    const id = 'aaaaaaaaaaaa';
+    await patchJobState(cwd, id, { status: 'running' });
+    const indexBefore = fs.readFileSync(resolveStateFile(cwd), 'utf8');
+    const detailBefore = fs.readFileSync(resolveJobFile(cwd, id), 'utf8');
+    const child = spawnSync(process.execPath, [
+      '--import', pathToFileURL(path.resolve('tests/helpers/fail-write-sync.mjs')).href,
+      '--input-type=module', '-e', `
+        const { patchJobState } = await import(process.argv[1]);
+        try {
+          await patchJobState(process.argv[2], process.argv[3], { status: 'completed' });
+          process.exitCode = 99;
+        } catch (error) { process.stdout.write(error.code); }
+      `,
+      pathToFileURL(path.resolve('scripts/lib/state.mjs')).href, cwd, id,
+    ], { encoding: 'utf8', timeout: 10_000, env: { ...process.env, ANTIGRAVITY_TEST_FAIL_WRITE: `${id}.json` } });
+    assert.equal(child.status, 0, child.stderr);
+    assert.equal(child.stdout, 'EACCES');
+    assert.equal(fs.readFileSync(resolveStateFile(cwd), 'utf8'), indexBefore);
+    assert.equal(fs.readFileSync(resolveJobFile(cwd, id), 'utf8'), detailBefore);
+  });
+
+  it('quarantines a corrupt index, rebuilds two valid files, and reports the invalid file', (t) => {
+    const first = { id: '111111111111', status: 'completed', custom: { kept: true }, result: { rawOutput: 'answer' } };
+    const legacy = { id: '222222222222', status: 'failed' };
+    fs.writeFileSync(resolveJobFile(cwd, first.id), JSON.stringify(first));
+    fs.writeFileSync(resolveJobFile(cwd, legacy.id), JSON.stringify(legacy));
+    fs.writeFileSync(resolveJobFile(cwd, '333333333333'), JSON.stringify({ id: '../escape', status: 'running' }));
+    fs.writeFileSync(resolveStateFile(cwd), '{ damaged');
+    const lines = [];
+    t.mock.method(process.stderr, 'write', (line) => { lines.push(line); return true; });
+    const state = loadState(cwd);
+    const [kept] = fs.readdirSync(resolveStateDir(cwd)).filter((name) => name.startsWith('state.json.corrupt-'));
+    assert.match(kept, /^state\.json\.corrupt-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d\.\d{3}Z$/);
+    assert.equal(fs.readFileSync(path.join(resolveStateDir(cwd), kept), 'utf8'), '{ damaged');
+    assert.deepEqual(state.jobs.map((job) => job.id).sort(), ['111111111111', '222222222222']);
+    assert.deepEqual(state.jobs.find((job) => job.id === first.id).custom, { kept: true });
+    assert.deepEqual(readJobFile(cwd, legacy.id), legacy);
+    assert.deepEqual(readJobFile(cwd, first.id), first);
+    assert.deepEqual(JSON.parse(fs.readFileSync(resolveStateFile(cwd), 'utf8')), state);
+    assert.deepEqual(lines, [`antigravity: state index was unreadable; rebuilt from 2 job files (damaged copy kept as ${kept}); skipped 1 invalid job files\n`]);
+    loadState(cwd);
+    assert.equal(lines.length, 1);
+  });
+
+  it('silently rebuilds an absent index from legacy job files', (t) => {
+    const legacy = { id: '123456abcdef', status: 'completed', pid: null, custom: 'kept' };
+    fs.writeFileSync(resolveJobFile(cwd, legacy.id), JSON.stringify(legacy));
+    const lines = [];
+    t.mock.method(process.stderr, 'write', (line) => { lines.push(line); return true; });
+    assert.deepEqual(loadState(cwd).jobs, [legacy]);
+    assert.equal(fs.existsSync(resolveStateFile(cwd)), true);
+    assert.deepEqual(lines, []);
+  });
+
+  it('keeps an unreadable index directory as a quarantine instead of overwriting it', (t) => {
+    fs.mkdirSync(resolveStateFile(cwd));
+    fs.writeFileSync(path.join(resolveStateFile(cwd), 'evidence'), 'kept');
+    t.mock.method(process.stderr, 'write', () => true);
+    assert.deepEqual(loadState(cwd).jobs, []);
+    const [kept] = fs.readdirSync(resolveStateDir(cwd)).filter((name) => name.startsWith('state.json.corrupt-'));
+    assert.equal(fs.readFileSync(path.join(resolveStateDir(cwd), kept, 'evidence'), 'utf8'), 'kept');
+  });
+
+  for (const [label, patch] of [
+    ['short id', { id: 'abc' }], ['path separator', { id: '12345/abcdef' }],
+    ['parent path', { id: '..123456abcd' }], ['unknown status', { status: 'done' }],
+    ['zero pid', { pid: 0 }], ['negative worker pid', { workerPid: -1 }],
+    ['fractional agy pid', { agyPid: 1.5 }], ['string pid', { pid: '1' }],
+  ]) {
+    it(`rejects a job record with ${label}`, () => {
+      assert.equal(validateJobRecord({ id: '123456abcdef', status: 'running', ...patch }), false);
+    });
+  }
+  it('rejects non-object records and accepts optional positive or null pids', () => {
+    assert.equal(validateJobRecord(null), false);
+    assert.equal(validateJobRecord([]), false);
+    assert.equal(validateJobRecord('job'), false);
+    assert.equal(validateJobRecord({ id: '123456abcdef', status: 'running', pid: 1, workerPid: null, agyPid: 2 }), true);
+  });
+});
 
 describe('workspace', () => {
   it('resolveWorkspaceRoot returns a string path for cwd', () => {

@@ -16,9 +16,54 @@ import {
   terminateProcessTree,
   spawnDetached,
   runCommand,
+  isProcessAlive,
+  processStartedAt,
 } from '../scripts/lib/process.mjs';
 
 const TMPROOT = os.tmpdir();
+
+it('treats an EPERM probe as an existing process, as required by R3', () => {
+  assert.equal(isProcessAlive(123, () => { throw Object.assign(new Error('not ours'), { code: 'EPERM' }); }), true);
+  assert.equal(isProcessAlive(123, () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }), false);
+});
+
+it('can read the start time of a live child for stale-lock identity checks', async () => {
+  const earliest = Date.now() - 1000;
+  const child = spawn(process.execPath, ['-e', 'process.send("ready"); process.on("message", () => process.exit(0));'], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  try {
+    await new Promise((resolve, reject) => { child.once('message', resolve); child.once('error', reject); });
+    const startedAt = processStartedAt(child.pid);
+    assert.ok(startedAt >= earliest && startedAt <= Date.now(), `start time: ${startedAt}`);
+  } finally {
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.send('exit');
+    await exited;
+  }
+});
+
+it('caches a process start query during retries and refreshes it after five seconds', () => {
+  // Oracle: fix brief F1 requires no shell per stale-lock retry while later
+  // PID reuse must still become observable after the bounded cache expires.
+  let now = 0;
+  let calls = 0;
+  let stdout = '2026-09-05T12:00:00.000Z';
+  const spawnSyncImpl = () => {
+    calls += 1;
+    return { status: 0, error: null, stdout };
+  };
+  const options = { now: () => now, platform: 'win32', spawnSyncImpl };
+
+  const first = processStartedAt(3_145_729, options);
+  now = 4_999;
+  const cached = processStartedAt(3_145_729, options);
+  stdout = '2026-09-05T12:01:00.000Z';
+  now = 5_000;
+  const refreshed = processStartedAt(3_145_729, options);
+
+  assert.equal(calls, 2);
+  assert.equal(cached, first);
+  assert.notEqual(refreshed, first);
+});
 
 it('returns a one-line timeout error for a child sleeping beyond an injected 50 ms bound', () => {
   // Oracle: brief 076-T3 R1. The real synchronous child would run for 2 s.

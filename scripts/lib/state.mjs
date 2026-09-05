@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { recoverWorkspaceMutex, withWorkspaceMutex, writeJsonAtomic } from "./atomic-state.mjs";
+import { recoverWorkspaceMutex, withWorkspaceMutex, withWorkspaceMutexSync, writeJsonAtomic } from "./atomic-state.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 
 const STATE_VERSION = 1;
@@ -24,6 +24,8 @@ const FALLBACK_STATE_ROOT_DIR = path.join(os.tmpdir(), "antigravity");
 const STATE_FILE_NAME = "state.json";
 const JOBS_DIR_NAME = "jobs";
 const MAX_JOBS = 50;
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const JOB_STATUSES = new Set(["queued", "running", ...TERMINAL_STATUSES]);
 
 function slugify(value) {
   return String(value ?? "")
@@ -101,31 +103,101 @@ export function recoverStateLock(cwd, ownerPids) {
   return recoverWorkspaceMutex(resolveStateDir(cwd), ownerPids);
 }
 
-export function loadState(cwd) {
-  const stateFile = resolveStateFile(cwd);
-  if (!fs.existsSync(stateFile)) {
-    return defaultState();
+/** Validate persisted jobs without rejecting legacy records or extra fields. */
+export function validateJobRecord(record) {
+  return record !== null && typeof record === "object" && !Array.isArray(record) &&
+    typeof record.id === "string" && /^[a-f0-9]{12}$/.test(record.id) &&
+    JOB_STATUSES.has(record.status) &&
+    ["pid", "workerPid", "agyPid"].every((field) =>
+      !Object.hasOwn(record, field) || record[field] === null ||
+      (Number.isInteger(record[field]) && record[field] > 0));
+}
+
+function readStateIndex(cwd) {
+  const parsed = JSON.parse(fs.readFileSync(resolveStateFile(cwd), "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.jobs)) {
+    throw new SyntaxError("Invalid state index shape");
+  }
+  return {
+    ...defaultState(),
+    ...parsed,
+    config: { ...defaultState().config, ...(parsed.config ?? {}) },
+  };
+}
+
+function jobIndexProjection(job) {
+  const { request, result, stdout, ...index } = job;
+  return index;
+}
+
+function rebuildStateIndex(cwd) {
+  const jobs = [];
+  let skipped = 0;
+  let names;
+  try {
+    names = fs.readdirSync(resolveJobsDir(cwd));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    names = [];
+  }
+  for (const name of names.filter((name) => name.endsWith(".json"))) {
+    const job = readJobFile(cwd, name.slice(0, -5));
+    if (!validateJobRecord(job) || name !== `${job.id}.json`) {
+      skipped += 1;
+      continue;
+    }
+    jobs.push(jobIndexProjection(job));
+  }
+  return { state: { ...defaultState(), jobs }, skipped };
+}
+
+// Only called while the workspace mutex is held. Re-read after acquisition:
+// another writer may already have repaired or replaced the index.
+function loadStateUnlocked(cwd) {
+  let failure;
+  try {
+    return readStateIndex(cwd);
+  } catch (error) {
+    failure = error;
   }
 
+  let damagedName = null;
+  if (failure.code !== "ENOENT") {
+    let timestamp = Date.now();
+    do {
+      damagedName = `${STATE_FILE_NAME}.corrupt-${new Date(timestamp++).toISOString().replace(/:/g, "-")}`;
+    } while (fs.existsSync(path.join(resolveStateDir(cwd), damagedName)));
+    // If quarantine fails, reject; never overwrite the only damaged copy.
+    fs.renameSync(resolveStateFile(cwd), path.join(resolveStateDir(cwd), damagedName));
+  }
+  const { state, skipped } = rebuildStateIndex(cwd);
+  if (damagedName || state.jobs.length > 0 || skipped > 0) {
+    ensureStateDir(cwd);
+    writeJsonAtomic(resolveStateFile(cwd), state);
+  }
+  if (damagedName) {
+    process.stderr.write(
+      `antigravity: state index was unreadable; rebuilt from ${state.jobs.length} job files ` +
+      `(damaged copy kept as ${damagedName})` +
+      (skipped ? `; skipped ${skipped} invalid job files` : "") + "\n",
+    );
+  }
+  return state;
+}
+
+export function loadState(cwd) {
   try {
-    const parsed = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-    return {
-      ...defaultState(),
-      ...parsed,
-      config: {
-        ...defaultState().config,
-        ...(parsed.config ?? {})
-      }
-    };
+    return readStateIndex(cwd);
   } catch {
-    return defaultState();
+    return withWorkspaceMutexSync(resolveStateDir(cwd), () => loadStateUnlocked(cwd));
   }
 }
 
 function pruneJobs(jobs) {
+  let terminalCount = 0;
   return [...jobs]
     .sort((left, right) => String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? "")))
-    .slice(0, MAX_JOBS);
+    .filter((job) => !TERMINAL_STATUSES.has(job.status) || ++terminalCount <= MAX_JOBS);
 }
 
 function removeFileIfExists(filePath) {
@@ -141,8 +213,8 @@ function removeFileIfExists(filePath) {
  * - Jobs from the current on-disk state are preserved (so a stale caller
  *   snapshot cannot silently drop another writer's in-flight job).
  * - Jobs in the incoming snapshot overwrite fields for matching ids.
- * - The resulting job list is then capped to MAX_JOBS by most-recent
- *   `updatedAt`, matching the previous pruning behavior.
+ * - Terminal history is capped to MAX_JOBS by most-recent `updatedAt`.
+ *   Active jobs are retained regardless of age.
  */
 function reconcileState(current, incoming) {
   const byId = new Map();
@@ -171,7 +243,7 @@ function saveStateUnlocked(cwd, state) {
   ensureStateDir(cwd);
   // Re-load current on-disk state inside the mutex so we reconcile against
   // the freshest snapshot and never unlink another writer's files.
-  const current = loadState(cwd);
+  const current = loadStateUnlocked(cwd);
   const nextState = reconcileState(current, state);
 
   writeJsonAtomic(resolveStateFile(cwd), nextState);
@@ -181,8 +253,8 @@ function saveStateUnlocked(cwd, state) {
   // still present in `current` are retained by `reconcileState`, so they
   // will survive here.
   const retainedIds = new Set(nextState.jobs.map((j) => j.id));
-  for (const prevJob of current.jobs ?? []) {
-    if (!retainedIds.has(prevJob.id)) {
+  for (const prevJob of [...(current.jobs ?? []), ...(state.jobs ?? [])]) {
+    if (TERMINAL_STATUSES.has(prevJob.status) && !retainedIds.has(prevJob.id)) {
       removeFileIfExists(resolveJobFile(cwd, prevJob.id));
       removeFileIfExists(resolveJobLogFile(cwd, prevJob.id));
     }
@@ -201,7 +273,7 @@ export function getConfig(cwd) {
 
 export async function setConfig(cwd, patch) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
-    const state = loadState(cwd);
+    const state = loadStateUnlocked(cwd);
     state.config = { ...state.config, ...patch };
     saveStateUnlocked(cwd, state);
   });
@@ -218,7 +290,7 @@ export async function upsertJob(cwd, job) {
 }
 
 function upsertJobUnlocked(cwd, job) {
-  const state = loadState(cwd);
+  const state = loadStateUnlocked(cwd);
   const index = state.jobs.findIndex((j) => j.id === job.id);
   const now = new Date().toISOString();
   const updated = { ...job, updatedAt: now };
@@ -255,13 +327,13 @@ export async function writeJobFile(cwd, jobId, data) {
   });
 }
 
-/** Atomically patch both the job index entry and its detailed record. */
+/** Commit the detail first, then its index projection, under one mutex. */
 export async function patchJobState(cwd, jobId, detailPatch, indexPatch = detailPatch) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
     const existing = readJobFile(cwd, jobId) ?? { id: jobId };
-    const merged = { ...existing, ...detailPatch, id: jobId };
-    upsertJobUnlocked(cwd, { id: jobId, ...indexPatch });
+    const merged = { ...existing, ...detailPatch, id: jobId, updatedAt: new Date().toISOString() };
     writeJobFileUnlocked(cwd, jobId, merged);
+    upsertJobUnlocked(cwd, { ...jobIndexProjection(merged), ...indexPatch, id: jobId, status: merged.status });
     return merged;
   });
 }

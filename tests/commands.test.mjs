@@ -27,6 +27,7 @@ import {
   appendJobLog,
   resolveJobLogFile,
   ensureStateDir,
+  resolveJobFile,
 } from '../scripts/lib/state.mjs';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -145,6 +146,25 @@ function parseEnvelope(chunks, expected) {
   return payload;
 }
 
+async function timedOutWaitContext(cwd) {
+  const { createTrackedJob, waitForJob } = await import('../scripts/lib/job-helpers.mjs');
+  return {
+    cwd,
+    startBackgroundJob: async (options) => ({
+      job: await createTrackedJob(options),
+      pid: null,
+    }),
+    waitForJob: async (workspaceRoot, jobId) => {
+      let now = 0;
+      return waitForJob(workspaceRoot, jobId, {
+        timeoutMs: 50,
+        now: () => now,
+        sleep: async () => { now = 100; },
+      });
+    },
+  };
+}
+
 let tempDir;
 beforeEach(() => {
   tempDir = makeTempCwd();
@@ -243,6 +263,62 @@ describe('/antigravity:status', () => {
 // ───────────────────────────── result ─────────────────────────────
 
 describe('/antigravity:result', () => {
+  // R2: unreadable details must never produce a success envelope.
+  for (const [label, detail] of [
+    ['missing', undefined], ['non-object', 'null'], ['array', '[]'],
+    ['invalid JSON', '{ broken'],
+    ['invalid record', '{"id":"123456abcdef","status":"completed","pid":0}'],
+  ]) {
+    for (const json of [false, true]) {
+      it(`returns 1 and no stdout for ${label} detail${json ? ' under --json' : ''}`, async () => {
+        const id = '123456abcdef';
+        await upsertJob(tempDir, { id, status: 'completed' });
+        if (detail !== undefined) fs.writeFileSync(resolveJobFile(tempDir, id), detail);
+        const { run } = await import('../scripts/commands/result.mjs');
+        const cap = captureStdio();
+        let exit;
+        try { exit = await run([id, ...(json ? ['--json'] : [])], { cwd: tempDir }); }
+        finally { cap.restore(); }
+        assert.equal(exit, 1);
+        assert.equal(cap.out.join(''), '');
+        assert.equal(cap.err.join(''), `antigravity:result — stored job ${id} is unreadable.\n`);
+      });
+    }
+  }
+
+  it('uses completed detail over a running index in status and result', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, status: 'running', sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'committed answer' } });
+    const { buildStatusSnapshot, buildSingleJobSnapshot } = await import('../scripts/lib/job-control.mjs');
+    assert.equal(buildSingleJobSnapshot(tempDir, id).job.status, 'completed');
+    const snapshot = buildStatusSnapshot(tempDir);
+    assert.equal(snapshot.running.length, 0);
+    assert.equal(snapshot.latestFinished.status, 'completed');
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'committed answer\n' });
+  });
+
+  it('keeps the metadata fallback and exit 0 for a valid completed empty answer', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, status: 'completed' });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: '' } });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed' });
+    assert.match(payload.answer, /Status: completed/);
+    assert.equal(cap.err.join(''), '');
+  });
+
   it('returns 1 with a friendly error when no jobs exist', async () => {
     const { run } = await import('../scripts/commands/result.mjs');
     const cap = captureStdio();
@@ -276,7 +352,7 @@ describe('/antigravity:result', () => {
   });
 
   it('renders a completed job and exits 0', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -307,7 +383,7 @@ describe('/antigravity:result', () => {
   });
 
   it('--json wraps a completed result and its opaque answer', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -343,7 +419,7 @@ describe('/antigravity:result', () => {
   });
 
   it('returns 2 for cancelled jobs', async () => {
-    const id = 'cancelledjob';
+    const id = 'ca11ce11ed00';
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -368,7 +444,7 @@ describe('/antigravity:result', () => {
   });
 
   it('prints a usage trailer on stderr when the stored job carries measured usage', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -402,7 +478,7 @@ describe('/antigravity:result', () => {
   });
 
   it('prints no usage trailer when the stored job has no usage', async () => {
-    const id = 'job' + randomBytes(3).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -539,6 +615,29 @@ describe('/antigravity:review', () => {
     assert.equal(typeof payload.details.scope, 'string');
   });
 
+  it('--background --wait reports a queued timeout and keeps the queued JSON envelope', async () => {
+    initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'pending-review.txt'), 'review me\n');
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(
+        ['--background', '--wait', '--json'],
+        await timedOutWaitContext(tempDir),
+      );
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'review', status: 'queued' });
+    assert.equal(
+      cap.err.join(''),
+      `antigravity:review — wait timed out; job ${payload.jobId} is still queued. Run /antigravity:status ${payload.jobId}.\n`,
+    );
+  });
+
   it('returns 0 with "no changes" when collectReviewContext finds nothing', async () => {
     // Empty git repo in tempDir so the working-tree diff is genuinely empty.
     initEmptyGitRepo(tempDir);
@@ -644,6 +743,27 @@ describe('/antigravity:review', () => {
 // ───────────────────────────── rescue + task argv parsing ─────────────────────────────
 
 describe('/antigravity:rescue argv parsing', () => {
+  it('--background --wait reports a queued timeout and keeps the queued JSON envelope', async () => {
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(
+        ['help me', '--background', '--wait', '--json'],
+        await timedOutWaitContext(tempDir),
+      );
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'rescue', status: 'queued' });
+    assert.equal(
+      cap.err.join(''),
+      `antigravity:rescue — wait timed out; job ${payload.jobId} is still queued. Run /antigravity:status ${payload.jobId}.\n`,
+    );
+  });
+
   it('--json wraps the foreground model answer', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
     const { run } = await import('../scripts/commands/rescue.mjs');
@@ -712,6 +832,27 @@ describe('/antigravity:rescue argv parsing', () => {
 });
 
 describe('/antigravity:task argv parsing', () => {
+  it('--wait reports a queued timeout and keeps the queued JSON envelope', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(
+        ['do the thing', '--wait', '--json'],
+        await timedOutWaitContext(tempDir),
+      );
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'task', status: 'queued' });
+    assert.equal(
+      cap.err.join(''),
+      `antigravity:task — wait timed out; job ${payload.jobId} is still queued. Run /antigravity:status ${payload.jobId}.\n`,
+    );
+  });
+
   it('prints a worker launch failure and exits 1 with no queued JSON on PID-patch failure', async () => {
     // Oracle: 076-T3 R3 and the existing stderr-only failure contract.
     const { run } = await import('../scripts/commands/task.mjs');

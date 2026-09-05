@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {
   sortJobsNewestFirst,
   filterJobsForCurrentSession,
-  defaultIsProcessAlive,
   SESSION_ID_ENV,
 } from '../scripts/lib/job-control.mjs';
+import { isProcessAlive } from '../scripts/lib/process.mjs';
 
 describe('sortJobsNewestFirst', () => {
   it('sorts by updatedAt descending', () => {
@@ -41,17 +41,17 @@ describe('filterJobsForCurrentSession', () => {
   });
 });
 
-describe('defaultIsProcessAlive', () => {
+describe('shared isProcessAlive', () => {
   it('returns true for own PID', () => {
-    assert.equal(defaultIsProcessAlive(process.pid), true);
+    assert.equal(isProcessAlive(process.pid), true);
   });
-  it('returns true for falsy pid (treat as no-info)', () => {
-    assert.equal(defaultIsProcessAlive(undefined), true);
-    assert.equal(defaultIsProcessAlive(0), true);
-    assert.equal(defaultIsProcessAlive(null), true);
+  it('returns false for values that cannot identify a process', () => {
+    assert.equal(isProcessAlive(undefined), false);
+    assert.equal(isProcessAlive(0), false);
+    assert.equal(isProcessAlive(null), false);
   });
   it('returns false for a PID that does not exist', () => {
     // Very high PID unlikely to exist
-    assert.equal(defaultIsProcessAlive(2 ** 22), false);
+    assert.equal(isProcessAlive(2 ** 22), false);
   });
 });

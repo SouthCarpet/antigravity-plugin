@@ -67,6 +67,13 @@ failed job, and exits 1 without a queued response. Git commands time out
 after 120000 ms and update steps after 600000 ms, reporting
 `<command> timed out after <ms> ms`.
 
+For background `review`, `rescue`, and `task`, the separate `--wait` deadline
+does not cancel an unfinished job or replace the queued JSON response already
+written to stdout. It returns the verb's existing nonzero exit and writes
+`antigravity:<verb> — wait timed out; job <id> is still <status>. Run
+/antigravity:status <id>.` to stderr. If the record disappears while waiting,
+the line is `antigravity:<verb> — job record vanished while waiting.`
+
 ## Summary
 
 | Verb | Positional arguments | Default execution |
@@ -311,6 +318,15 @@ A job reference can be an exact id, a unique id substring, or a 1-based index
 into the newest-first candidate list. Extra positional arguments are not
 public.
 
+For queued and running jobs, health is observed from the worker PID, a
+persisted heartbeat written every 15 seconds, and persisted model-output
+progress. Output and heartbeat updates share a five-second write throttle.
+Until an older job has either observation, its `startedAt` value is used, so a
+live worker is `active` for recent activity, `quiet` after two minutes, and
+only `possibly_stalled` after ten minutes without activity. A missing worker
+is `worker_missing`; persisted diagnostic states such as `auth_required`,
+`failed`, and `cancel_failed` remain authoritative.
+
 - `--wait` waits for the selected job to reach `completed`, `failed`, or
   `cancelled`. Without a reference it waits until the session-filtered active
   list is empty.
@@ -340,6 +356,12 @@ If measured usage was stored, the stable usage trailer is written to stderr.
 Exit status is 0 for a completed job, 1 for a failed, active, missing, or
 unreadable job, and 2 for a cancelled job. A failed or cancelled job can still
 produce a result payload before its nonzero exit.
+
+When the index selects a job whose detail file is missing, malformed, or not a
+valid job record, `result` writes `antigravity:result — stored job <id> is
+unreadable.` to stderr, exits 1, and writes no success envelope even with
+`--json`. A valid completed record whose answer is empty keeps the normal
+completed metadata response.
 
 ## `cancel`
 
