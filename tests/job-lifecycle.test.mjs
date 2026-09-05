@@ -169,19 +169,27 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         },
       });
       fs.writeFileSync(startGate, "go", "utf8");
-      // Fix brief 076-T4-fix1 F1: measured with a scratch script that imports
-      // the real worktree modules and timestamps each stage (see the fix
-      // report). On this machine the worker child's own process start, plus
-      // its first real child-process spawn (the fake-agy stub), is what
-      // takes seconds. The stale-lock identity check never runs on a fresh
-      // lock, so it is not the cause here. Observed 20-48 s across isolated
-      // repro runs, and even a same-file test with no worker spawn at all
-      // took 48 s once under the same load. That is machine-wide
-      // fs/process-spawn latency (heavy antivirus scanning of every freshly
-      // spawned/copied binary, worsened by an untrimmed temp tree; see F2's
-      // cleanup fix), not a product defect. The budget below carries margin
-      // over the worst measured run instead of staying tight against a
-      // timing this machine cannot reliably deliver.
+      // Fix brief 076-T4-fix2 F1: staged timestamps (parent dispatch, spawn
+      // ack, start-gate write, worker's own "[worker] started" log line,
+      // hold marker) plus a resolveWorkspaceRoot call counter showed the
+      // real cost was not the fake-agy stub or the stale-lock identity
+      // check (which never runs on a fresh lock), but `resolveStateDir`
+      // calling `resolveWorkspaceRoot` — a synchronous `git rev-parse` — on
+      // every single state read/write. One worker run spawned it 13 times.
+      // The cost of one such spawn from the freshly started background
+      // worker varies by session on this machine (about 3.4 s in the fix
+      // session, under 0.5 s in the re-review session; the cause of the
+      // per-process gap is not identified, so it is not attributed to
+      // antivirus or anything else unmeasured). The count of spawns, not the
+      // cost of one, is what made this case take up to 50 s and fail a 30 s
+      // budget; with the cache disabled the re-review measured 29 spawns and
+      // 13.3 s. `resolveWorkspaceRoot` now caches
+      // per cwd for the process lifetime (workspace.mjs) — a cwd's git
+      // identity cannot change within one CLI invocation or worker run —
+      // which cuts the worker down to its one unavoidable spawn. Post-fix,
+      // 6 fresh runs on this machine (4 of the case alone, 2 of the whole
+      // file) measured 3966.8-4044.6 ms for this case. Budget: 2x the
+      // highest reading (4044.6 ms), rounded up to a whole ten seconds.
       const owner = await waitFor(() => {
         try {
           if (!fs.existsSync(holdMarker)) return null;
@@ -189,7 +197,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         } catch {
           return null;
         }
-      }, 60_000);
+      }, 10_000);
       assert.ok(owner, "worker should acquire the state lock during startup");
       assert.equal(owner.pid, pid, "the worker itself should own its startup lock");
       const agyPid = readJobFile(workspaceRoot, job.id)?.agyPid;

@@ -8,6 +8,18 @@ import process from "node:process";
 
 export const GIT_TIMEOUT_MS = 120_000;
 const PROCESS_START_CACHE_TTL_MS = 5_000;
+// Fix brief 076-T4-fix2 F3: measured on this machine across 5 freshly
+// spawned node processes (one "cold" call each, immediately followed by 2
+// "warm" calls in the same process, 500 ms apart) — 15 samples of the exact
+// PowerShell command below ranged 548.4-631.8 ms, with no measurable
+// cold/warm gap (every call launches a brand new powershell.exe regardless).
+// A prior reviewer saw this query return null once on a cold run of
+// tests/process-deep.test.mjs (a spike this measurement did not reproduce).
+// Kept at ~3x this run's worst reading over the old 2000 ms bound to absorb
+// that kind of spike without turning a slow tick into a lost stale-lock
+// identity check (a null result here only makes recovery conservative, it
+// is never on the hot lock-acquisition path).
+const PROCESS_START_QUERY_TIMEOUT_MS = 5_000;
 const processStartCache = new Map();
 
 /**
@@ -142,9 +154,9 @@ export function processStartedAt(pid, {
     const result = platform === "win32"
       ? spawnSyncImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
           `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`],
-        { encoding: "utf8", windowsHide: true, timeout: 2000, stdio: ["ignore", "pipe", "pipe"] })
+        { encoding: "utf8", windowsHide: true, timeout: PROCESS_START_QUERY_TIMEOUT_MS, stdio: ["ignore", "pipe", "pipe"] })
       : spawnSyncImpl("ps", ["-p", String(pid), "-o", "lstart="],
-        { encoding: "utf8", timeout: 2000, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] });
+        { encoding: "utf8", timeout: PROCESS_START_QUERY_TIMEOUT_MS, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] });
     if (result.status === 0 && !result.error) {
       const parsed = Date.parse(String(result.stdout).trim());
       if (Number.isFinite(parsed)) startedAt = parsed;

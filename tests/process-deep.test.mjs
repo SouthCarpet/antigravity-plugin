@@ -65,6 +65,32 @@ it('caches a process start query during retries and refreshes it after five seco
   assert.notEqual(refreshed, first);
 });
 
+it('caches a null result (query failure or timeout) for the same TTL as a real value', () => {
+  // Oracle: fix brief 076-T4-fix2 F2. A null is conservative for stale-lock
+  // logic (staleLockCanBeReaped treats it as "cannot conclude dead, do not
+  // reap"), but the 5 s TTL was written to also cover a real value; this
+  // pins that a query failure is cached the same way, not re-queried on
+  // every retry, and still expires like a real value would.
+  let now = 100_000;
+  let calls = 0;
+  const spawnSyncImpl = () => {
+    calls += 1;
+    return { status: 1, error: null, stdout: '' };
+  };
+  const options = { now: () => now, platform: 'win32', spawnSyncImpl };
+
+  const first = processStartedAt(9_999_991, options);
+  now = 104_999;
+  const cachedNull = processStartedAt(9_999_991, options);
+  now = 105_000;
+  const requeried = processStartedAt(9_999_991, options);
+
+  assert.equal(first, null);
+  assert.equal(cachedNull, null);
+  assert.equal(requeried, null);
+  assert.equal(calls, 2, 'the cached null must not trigger a second spawn inside the TTL window');
+});
+
 it('returns a one-line timeout error for a child sleeping beyond an injected 50 ms bound', () => {
   // Oracle: brief 076-T3 R1. The real synchronous child would run for 2 s.
   const result = runCommand(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { timeoutMs: 50 });
