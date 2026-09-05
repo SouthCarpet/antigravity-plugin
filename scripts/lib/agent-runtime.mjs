@@ -722,8 +722,11 @@ export async function runAgyPrint({
   // `auth_required`; the raw-stdout detection itself is unchanged).
   // Known limit (not a regression): this substring check cannot tell a
   // speculative JSON-embedded match apart from a genuine raw auth prompt
-  // whose own URL happens to also appear, verbatim, inside an unrelated
-  // long SUCCESS answer — that case is still undone (A9).
+  // whose own URL, or whose sentinel line, happens to also appear verbatim
+  // inside an unrelated long SUCCESS answer; that case is still undone (A9
+  // for the URL, B11 for the sentinel). It needs a SUCCESS result with a
+  // 512+ character answer in the same run as an unauthenticated prompt,
+  // which the auth path does not produce.
   const rawEvidenceIsSpeculative = rawAuthEvidence !== null && responseText.includes(rawAuthEvidence);
   if (status === 'auth_required' && parsed.sawResult && !eligible && rawEvidenceIsSpeculative) {
     status = undefined;
