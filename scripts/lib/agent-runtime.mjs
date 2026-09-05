@@ -505,6 +505,13 @@ export async function runAgyPrint({
   let stderr = '';
   let oauthUrl;
   let status;
+  // The exact raw-stdout text (a URL, or the whole chunk for a bare sentinel
+  // line) that made the per-chunk scan below set `auth_required`. Kept so
+  // the SUCCESS-response reclassification (see below) can tell a genuine,
+  // independent raw auth signal apart from a raw match that only fired
+  // because the same bytes are also inside the JSON `result.response` field
+  // — F3/item 14: the fix must undo only the latter.
+  let rawAuthEvidence = null;
   let spawnError = null;
   let timer = null;
   let drainTimer = null;
@@ -580,8 +587,10 @@ export async function runAgyPrint({
       if (m) {
         oauthUrl = m[1];
         status ??= 'auth_required';
+        rawAuthEvidence ??= m[1];
       } else if (AUTH_LINE_PATTERNS.some((p) => p.test(chunk))) {
         status ??= 'auth_required';
+        rawAuthEvidence ??= chunk;
       }
     }
     if (lineFeeder) {
@@ -697,9 +706,14 @@ export async function runAgyPrint({
   // a SUCCESS result's response field — so it can speculatively set
   // `auth_required` on exactly the long-answer-mentions-the-URL case this
   // fix targets. Undo that speculative call once the full result is parsed
-  // and it turns out not to be eligible; the raw-stdout detection itself
-  // (the chunk scan) is unchanged.
-  if (status === 'auth_required' && parsed.sawResult && !eligible) {
+  // and it turns out not to be eligible, but ONLY when the raw evidence that
+  // triggered it is itself inside the parsed response text: that is what
+  // marks it as the same speculative JSON-embedded match, not a genuine raw
+  // auth prompt/sentinel printed outside the response field (F3 — a real
+  // raw signal followed by an unrelated SUCCESS result must stay
+  // `auth_required`; the raw-stdout detection itself is unchanged).
+  const rawEvidenceIsSpeculative = rawAuthEvidence !== null && responseText.includes(rawAuthEvidence);
+  if (status === 'auth_required' && parsed.sawResult && !eligible && rawEvidenceIsSpeculative) {
     status = undefined;
     oauthUrl = undefined;
   }

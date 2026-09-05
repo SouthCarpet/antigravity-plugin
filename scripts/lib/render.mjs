@@ -80,6 +80,23 @@ export function reportWarnings(command, result) {
 }
 
 /**
+ * Sanitize a job summary for embedding in a markdown table cell (F5/item
+ * 13c): a raw `|` would split the cell, and a raw CR/LF would break the row
+ * across lines. This runs only where a table row is actually built — the
+ * stored/enriched job field, and therefore `--json`, keeps the raw summary.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function summaryForTableCell(value) {
+  if (typeof value !== "string") return "-";
+  const collapsed = value.replace(/[\r\n]+/g, " ").trim();
+  if (!collapsed) return "-";
+  const escaped = collapsed.replace(/\|/g, "\\|");
+  return escaped.length > 120 ? `${escaped.slice(0, 117)}...` : escaped;
+}
+
+/**
  * Render a status snapshot as markdown.
  *
  * @param {{ workspaceRoot: string, config: any, runtimeStatus: any, running: any[], latestFinished: any, recent: any[], needsReview: boolean }} snapshot
@@ -104,7 +121,7 @@ export function renderStatusSnapshot(snapshot) {
     for (const job of snapshot.running) {
       const elapsed = computeElapsedDisplay(job);
       lines.push(
-        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${job.healthStatus ?? "-"} | ${job.lastProgressAt ?? "-"} | ${elapsed} | ${job.summary ?? "-"} |`
+        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${job.healthStatus ?? "-"} | ${job.lastProgressAt ?? "-"} | ${elapsed} | ${summaryForTableCell(job.summary)} |`
       );
     }
     lines.push("");
@@ -119,7 +136,7 @@ export function renderStatusSnapshot(snapshot) {
     for (const job of snapshot.recent) {
       const duration = computeElapsedDisplay(job);
       const followUp = job.status === "completed" ? `/antigravity:result ${job.id}` : "-";
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${job.summary ?? "-"} | ${followUp} |`);
+      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${summaryForTableCell(job.summary)} | ${followUp} |`);
     }
     lines.push("");
   }

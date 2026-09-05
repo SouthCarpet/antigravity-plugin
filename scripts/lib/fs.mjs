@@ -51,6 +51,24 @@ export function readFileSafe(filePath) {
 }
 
 /**
+ * Render a repository-controlled path for prose that sits outside a fenced
+ * data block (a heading label, a `skipped:` line, a summary file list; item
+ * 12/13, F1). `-z` porcelain parsing (git.mjs) delivers a path verbatim,
+ * including any byte a POSIX filesystem allows, so a raw CR/LF in a path
+ * could forge a markdown heading or list line ahead of the intended content.
+ * Folding both to a visible two-character escape keeps the path on one
+ * output line — the label still identifies the file — and a raw backtick is
+ * neutralized so it cannot help close a fence early.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+export function sanitizeDisplayPath(value) {
+  const text = String(value ?? "");
+  return text.replace(/\r\n|\r|\n/g, "\\n").replace(/`/g, "'");
+}
+
+/**
  * Thrown by `assertPrivateDir` — distinguishable from an ordinary I/O error
  * so a caller with a best-effort catch-all (e.g. an update-cache write) can
  * still let a trust violation propagate instead of swallowing it.

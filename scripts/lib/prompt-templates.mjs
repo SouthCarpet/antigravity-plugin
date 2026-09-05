@@ -9,6 +9,8 @@
  * template here is plain natural language that produces a textual response.
  */
 
+import { sanitizeDisplayPath } from "./fs.mjs";
+
 const MAX_DIFF_BYTES = 196 * 1024;
 
 const UNTRUSTED_DATA_NOTICE =
@@ -76,9 +78,9 @@ export function buildReviewPrompt(contextEnvelope) {
     for (const file of context.untrackedContents) {
       lines.push("");
       if (file.skipped) {
-        lines.push(`${file.path} (skipped: ${file.skipped})`);
+        lines.push(`${sanitizeDisplayPath(file.path)} (skipped: ${file.skipped})`);
       } else {
-        lines.push(dataBlock(`### ${file.path}`, file.content ?? "(binary or unreadable)"));
+        lines.push(dataBlock(`### ${sanitizeDisplayPath(file.path)}`, file.content ?? "(binary or unreadable)"));
       }
     }
   }

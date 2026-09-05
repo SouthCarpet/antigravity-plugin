@@ -35,6 +35,7 @@ import {
   runUpdate,
   tarballFromPackOutput,
 } from '../scripts/lib/update.mjs';
+import { UnsafeStateDirError } from '../scripts/lib/fs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'antigravity.mjs');
@@ -159,6 +160,34 @@ describe('update: registry cache', () => {
     assert.equal(result.latest, null);
     assert.match(result.message, /could not reach the npm registry: getaddrinfo ENOTFOUND/);
     assert.equal(fs.existsSync(cacheFile), false);
+  });
+
+  it('a trust violation while writing the cache is never folded into "unreachable" (F4)', async () => {
+    // Platform seam, not `fs`/uid mocking: `assertPrivateDir` is a no-op on
+    // win32, so this exercises resolveLatest's own error-classification
+    // branch on every OS the same way CI's Ubuntu run would exercise it live.
+    const fetch = fakeFetch({ latest: '1.2.0' });
+    const throwingAssertPrivateDir = () => {
+      throw new UnsafeStateDirError(`${cacheFile} is not a private directory owned by this user`);
+    };
+    await assert.rejects(
+      resolveLatest({ env: {}, now: NOW, fetchImpl: fetch, cacheFile, assertPrivateDir: throwingAssertPrivateDir }),
+      UnsafeStateDirError,
+    );
+    assert.equal(fs.existsSync(cacheFile), false);
+  });
+
+  it('runUpdate lets that trust violation through to the bin\'s one-line failure path (F4)', async () => {
+    const throwingAssertPrivateDir = () => {
+      throw new UnsafeStateDirError(`${cacheFile} is not a private directory owned by this user`);
+    };
+    await assert.rejects(
+      runUpdate([], {
+        env: {}, now: NOW, fetch: fakeFetch({ latest: '1.2.0' }), cacheFile, running: '1.0.1',
+        assertPrivateDir: throwingAssertPrivateDir,
+      }),
+      UnsafeStateDirError,
+    );
   });
 
   it('an HTTP error or a malformed answer is unreachable too', async () => {

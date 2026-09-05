@@ -499,6 +499,19 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     assert.equal(res.stdout, response);
   });
 
+  it('a raw auth prompt followed by a SUCCESS empty-response result stays auth_required (F3 fixture A1)', async () => {
+    spawnCalls.length = 0;
+    const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
+    nextEvents = [
+      `Authentication required. Please visit the URL to log in.\n${authUrl}\n`,
+      resultLine({ response: '' }) + '\n',
+    ];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'auth_required');
+    assert.equal(res.oauthUrl, authUrl);
+  });
+
   it('a non-SUCCESS result quoting the OAuth URL still yields auth_required', async () => {
     spawnCalls.length = 0;
     const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';

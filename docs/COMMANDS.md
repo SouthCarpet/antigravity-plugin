@@ -149,8 +149,8 @@ whose basename looks like a secret (`.env` and its variants,
 `.pem`/`.key`/`.p12`/`.pfx`, or a default SSH private-key name) is always
 skipped, regardless of the cap. Every skipped file is still listed in the
 prompt sent to agy, by path and skip reason (`secret-shaped name`, `exceeds
-byte limit`, `binary file`, `symlink`, `outside workspace`, or `read error`);
-it is never sent as content.
+byte limit`, `binary file`, `symlink`, `not a regular file`, `outside
+workspace`, or `read error`); it is never sent as content.
 
 Exit status is 0 for a completed foreground review, a successfully queued
 background review, or no changes; 1 for validation, Git, authentication, agy,

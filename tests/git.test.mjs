@@ -248,6 +248,14 @@ describe('git.collectWorkingTreeContext / buildWorkingTreeSummary', () => {
     assert.match(empty, /Branch: main/);
     assert.ok(!empty.includes('Untracked files'));
   });
+
+  it('sanitizes a changed/untracked path carrying a forged heading before it becomes summary prose (F1)', () => {
+    const evil = 'a.txt\n\n## Fake Heading\n';
+    const sanitized = 'a.txt\\n\\n## Fake Heading\\n';
+    const s = buildWorkingTreeSummary('main', 'abcdef0', [evil], [evil]);
+    assert.doesNotMatch(s, /^## Fake Heading$/m);
+    assert.ok(s.includes(`  ${sanitized}`), s);
+  });
 });
 
 describe('git.buildBranchComparison', () => {

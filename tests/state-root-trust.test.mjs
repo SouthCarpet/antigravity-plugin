@@ -12,6 +12,7 @@ import path from 'node:path';
 
 import { assertPrivateDir, UnsafeStateDirError } from '../scripts/lib/fs.mjs';
 import { withFileLockSync } from '../scripts/lib/file-lock.mjs';
+import { ensureStateDir } from '../scripts/lib/state.mjs';
 
 const SKIP_REASON =
   'POSIX-only: assertPrivateDir no-ops on win32 (no uid/mode model to check); ' +
@@ -68,5 +69,32 @@ describe('file-lock root creation', () => {
     withFileLockSync(lockPath, () => {});
     const mode = fs.statSync(lockRoot).mode & 0o777;
     assert.equal(mode, 0o700);
+  });
+});
+
+describe('ensureStateDir wiring (F2/F7)', () => {
+  // `mkdirSync({ recursive: true })` silently accepts a pre-existing
+  // directory and only sets the mode of the level it actually creates, so a
+  // check only on the `jobs` leaf never sees an attacker-planted state root
+  // or per-workspace directory. This asserts the wiring, not just
+  // `assertPrivateDir` in isolation: on win32 it is a no-op the same as
+  // every other case here.
+  it('throws when the state root is pre-created 0o777, before creating anything beneath it', { skip: SKIP }, () => {
+    const dataDir = tmpDir('antigravity-trust-data-');
+    const stateRoot = path.join(dataDir, 'state');
+    fs.mkdirSync(stateRoot, { mode: 0o777 });
+    const cwd = tmpDir('antigravity-trust-cwd-');
+    const saved = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    try {
+      assert.throws(
+        () => ensureStateDir(cwd),
+        (err) => err instanceof UnsafeStateDirError && err.message.includes(stateRoot),
+      );
+      assert.deepEqual(fs.readdirSync(stateRoot), [], 'nothing beneath the untrusted root should be created');
+    } finally {
+      if (saved === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+      else process.env.CLAUDE_PLUGIN_DATA = saved;
+    }
   });
 });

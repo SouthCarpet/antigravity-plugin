@@ -21,7 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readCommandInput } from "./args.mjs";
-import { assertPrivateDir, UnsafeStateDirError } from "./fs.mjs";
+import { assertPrivateDir as defaultAssertPrivateDir, UnsafeStateDirError } from "./fs.mjs";
 import { createJsonEnvelope } from "./render.mjs";
 import { resolveStateRoot } from "./state.mjs";
 
@@ -113,11 +113,11 @@ export function isCacheFresh(entry, now = Date.now(), ttlMs = CACHE_TTL_MS) {
   return Number.isFinite(age) && age >= 0 && age < ttlMs;
 }
 
-function writeUpdateCache(file, entry) {
+function writeUpdateCache(file, entry, assertPrivateDirImpl = defaultAssertPrivateDir) {
   try {
     const dir = path.dirname(file);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    assertPrivateDir(dir);
+    assertPrivateDirImpl(dir);
     fs.writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 });
   } catch (error) {
     // A trust violation (another local user pre-created or replaced this
@@ -190,6 +190,9 @@ export async function resolveLatest({
   fetchImpl = globalThis.fetch,
   cacheFile = resolveUpdateCacheFile(),
   forceRefresh = false,
+  // Test-only seam (F4/item 15): a fake that always throws lets the
+  // POSIX-only trust violation be exercised on win32 too.
+  assertPrivateDir = defaultAssertPrivateDir,
 } = {}) {
   if (isCheckDisabled(env)) {
     return {
@@ -206,9 +209,14 @@ export async function resolveLatest({
   try {
     const latest = await fetchLatestVersion(fetchImpl);
     const checkedAt = new Date(now).toISOString();
-    writeUpdateCache(cacheFile, { latest, checkedAt });
+    writeUpdateCache(cacheFile, { latest, checkedAt }, assertPrivateDir);
     return { latest, source: "registry", checkedAt, message: null };
   } catch (err) {
+    // A trust violation (another local user pre-created or replaced the
+    // cache directory) is a security refusal, not a network problem — it
+    // must reach the verb's existing one-line failure path with exit 1, not
+    // get folded into "could not reach the npm registry" (F4).
+    if (err instanceof UnsafeStateDirError) throw err;
     return {
       latest: null,
       source: "unreachable",
@@ -608,6 +616,7 @@ export async function runUpdate(argv = [], deps = {}) {
     fetchImpl: deps.fetch,
     cacheFile: deps.cacheFile,
     forceRefresh: apply,
+    assertPrivateDir: deps.assertPrivateDir,
   });
   const running = deps.running ?? readRunningVersion();
   const report = {

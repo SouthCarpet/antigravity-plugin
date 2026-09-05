@@ -96,10 +96,22 @@ export function resolveJobLogFile(cwd, jobId) {
   return path.join(resolveJobsDir(cwd), `${jobId}.log`);
 }
 
+// The trust check (item 15) must cover every directory this plugin creates
+// on the way down to `jobs`, not only the leaf: `mkdirSync({ recursive: true })`
+// silently accepts a pre-existing state root or per-workspace directory that
+// another local user planted, and only ever sets the mode of the directory
+// it actually creates. `stateDir`'s parent is the state root regardless of
+// whether `resolveStateDir` picked the preferred or the legacy path, since
+// both are `<root>/<leaf>`.
 export function ensureStateDir(cwd) {
-  const dir = resolveJobsDir(cwd);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  assertPrivateDir(dir);
+  const stateDir = resolveStateDir(cwd);
+  const jobsDir = path.join(stateDir, JOBS_DIR_NAME);
+  const stateRoot = path.dirname(stateDir);
+  for (const dir of [stateRoot, stateDir, jobsDir]) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    assertPrivateDir(dir);
+  }
+  return jobsDir;
 }
 
 export function recoverStateLock(cwd, ownerPids) {

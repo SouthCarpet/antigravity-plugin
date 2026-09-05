@@ -84,6 +84,21 @@ describe('renderStatusSnapshot', () => {
     // Failed jobs render "-" as follow-up, not the result command.
     assert.doesNotMatch(out, /\/antigravity:result f1/);
   });
+
+  it('escapes a pipe and folds CR/LF in a summary at the table row, keeping the raw value everywhere else (F5)', () => {
+    const now = new Date().toISOString();
+    const out = renderStatusSnapshot({
+      workspaceRoot: '/tmp',
+      config: {},
+      runtimeStatus: {},
+      running: [{ id: 'r1', kind: 'task', status: 'running', startedAt: now, summary: 'a | b\nc' }],
+      latestFinished: null,
+      recent: [{ id: 'd1', kind: 'task', status: 'completed', startedAt: now, completedAt: now, summary: 'a | b\nc' }],
+      needsReview: false,
+    });
+    assert.match(out, /\| a \\\| b c \|/);
+    assert.doesNotMatch(out, /a \| b\nc/);
+  });
 });
 
 describe('renderSingleJobStatus', () => {

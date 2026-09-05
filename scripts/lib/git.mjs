@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { isProbablyText } from "./fs.mjs";
+import { isProbablyText, sanitizeDisplayPath } from "./fs.mjs";
 import { formatCommandFailure, runCommand } from "./process.mjs";
 
 const MAX_UNTRACKED_BYTES = 24 * 1024;
@@ -295,14 +295,14 @@ export function buildWorkingTreeSummary(branch, headSha, changedFiles, untracked
     lines.push("");
     lines.push("Files:");
     for (const f of changedFiles) {
-      lines.push(`  ${f}`);
+      lines.push(`  ${sanitizeDisplayPath(f)}`);
     }
   }
   if (untrackedFiles.length > 0) {
     lines.push("");
     lines.push("Untracked:");
     for (const f of untrackedFiles) {
-      lines.push(`  ${f}`);
+      lines.push(`  ${sanitizeDisplayPath(f)}`);
     }
   }
   return lines.join("\n");
@@ -344,7 +344,7 @@ function compareBaseCommit(cwd, baseRef, baseCommit) {
     `Commits: ${commits.trim().split("\n").length}`,
     "",
     "Files:",
-    ...fileList.map((f) => `  ${f}`)
+    ...fileList.map((f) => `  ${sanitizeDisplayPath(f)}`)
   ].join("\n");
 
   return { mergeBase, diff, commits, fileList, summary };
