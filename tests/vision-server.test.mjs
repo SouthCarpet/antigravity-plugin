@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { Readable, Writable } from 'node:stream';
+import { setTimeout } from 'node:timers/promises';
 
 import { loadImageResult, MAX_FRAME_BYTES, serveVision } from '../scripts/mcp/vision-server.mjs';
 import { canonicalComparePath } from '../scripts/lib/paths.mjs';
@@ -42,8 +43,11 @@ function aliasedFs(aliasDir, longDir) {
     lstatSync: (p) => fs.lstatSync(rewrite(p)),
     readdirSync: (p) => fs.readdirSync(rewrite(p)),
     realpathSync: { native: (p) => fs.realpathSync.native(rewrite(p)) },
-    statSync: (p) => fs.statSync(rewrite(p)),
-    readFileSync: (p) => fs.readFileSync(rewrite(p)),
+    statSync: (p, options) => fs.statSync(rewrite(p), options),
+    openSync: (p, flags) => fs.openSync(rewrite(p), flags),
+    fstatSync: (fd, options) => fs.fstatSync(fd, options),
+    readSync: (fd, buffer, offset, length, position) => fs.readSync(fd, buffer, offset, length, position),
+    closeSync: (fd) => fs.closeSync(fd),
   };
 }
 
@@ -232,8 +236,8 @@ describe('vision-server.loadImageResult', () => {
     const secretPath = path.join(outsideDir, 'probe.png');
     fs.writeFileSync(allowedPath, Buffer.from(TINY_PNG_BASE64, 'base64'));
     fs.writeFileSync(secretPath, 'unlisted secret');
-    const seam = { fs: { ...fs, statSync(p) {
-      const stat = fs.statSync(p);
+    const seam = { fs: { ...fs, statSync(p, options) {
+      const stat = fs.statSync(p, options);
       fs.unlinkSync(allowedPath);
       if (process.platform === 'win32') {
         fs.rmdirSync(allowedDir);
@@ -258,7 +262,7 @@ describe('vision-server.loadImageResult', () => {
     it(`refuses and closes a ${condition}`, () => {
       let closes = 0;
       const seam = { fs: { ...fs,
-        fstatSync: (fd) => Object.assign(fs.fstatSync(fd), change),
+        fstatSync: (fd, options) => Object.assign(fs.fstatSync(fd, options), change),
         closeSync(fd) { closes++; fs.closeSync(fd); },
       } };
       const out = loadImageResult(pngPath, tmpDir, [pngPath], seam);
@@ -267,6 +271,25 @@ describe('vision-server.loadImageResult', () => {
       assert.equal(closes, 1);
     });
   }
+
+  it('refuses distinct 64-bit inode indexes that round to the same Number', () => {
+    // Brief fix1 F2: these adjacent file indexes collide as doubles.
+    const seam = { fs: { ...fs,
+      statSync(p, options) {
+        return Object.assign(fs.statSync(p, options), {
+          ino: options?.bigint ? 9007199254740992n : Number(9007199254740992n),
+        });
+      },
+      fstatSync(fd, options) {
+        return Object.assign(fs.fstatSync(fd, options), {
+          ino: options?.bigint ? 9007199254740993n : Number(9007199254740993n),
+        });
+      },
+    } };
+    const out = loadImageResult(pngPath, tmpDir, [pngPath], seam);
+    assert.equal(out.isError, true);
+    assert.equal(out.content[0].text, 'ERROR: image identity changed; refusing access');
+  });
 
   it('refuses a changed canonical path even when the opened identity matches', () => {
     let opened = false;
@@ -287,7 +310,7 @@ describe('vision-server.loadImageResult', () => {
     fs.writeFileSync(growingPath, Buffer.from(TINY_PNG_BASE64, 'base64'));
     let closes = 0;
     const seam = { fs: { ...fs,
-      statSync(p) { const stat = fs.statSync(p); fs.truncateSync(p, 10 * 1024 * 1024 + 1); return stat; },
+      statSync(p, options) { const stat = fs.statSync(p, options); fs.truncateSync(p, 10 * 1024 * 1024 + 1); return stat; },
       closeSync(fd) { closes++; fs.closeSync(fd); },
     } };
     const out = loadImageResult(growingPath, tmpDir, [growingPath], seam);
@@ -365,6 +388,26 @@ function startServer(cwd, allowedPaths = []) {
 }
 
 describe('vision-server (real MCP stdio process)', () => {
+  // Brief fix1 F3: only strings may be echoed as protocolVersion.
+  for (const [label, value, expected] of [
+    ['string', '2024-11-05', '2024-11-05'],
+    ['object', { nested: [1, 2] }, '2025-06-18'],
+    ['number', 123, '2025-06-18'],
+    ['boolean', false, '2025-06-18'],
+    ['null', null, '2025-06-18'],
+    ['missing value', undefined, '2025-06-18'],
+  ]) {
+    it(`initializes with the expected protocol version for a ${label}`, { timeout: 10000 }, async () => {
+      const srv = startServer(tmpDir);
+      try {
+        const res = await srv.send('initialize', { protocolVersion: value });
+        assert.equal(res.result.protocolVersion, expected);
+      } finally {
+        srv.close();
+      }
+    });
+  }
+
   it('initialize → tools/list → tools/call round-trips real image content', async () => {
     const srv = startServer(tmpDir, [pngPath]);
     try {
@@ -649,6 +692,9 @@ describe('vision-server transport bounds and handler failures (brief R2)', () =>
     });
     await firstWrite;
     try {
+      // Brief fix1 F1: let the request loop advance while output stays stalled;
+      // the firstWrite microtask alone runs too early to expose a missing wait.
+      await setTimeout(50);
       assert.equal(loads, 1, 'a paused client must stop subsequent image reads');
       assert.equal(replies.length, 1);
     } finally {

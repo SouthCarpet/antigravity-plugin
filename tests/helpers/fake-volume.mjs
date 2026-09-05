@@ -48,7 +48,7 @@ function keyOf(input) {
 }
 
 /**
- * @returns {{ lstatSync, readdirSync, realpathSync: { native }, statSync, readFileSync,
+ * @returns {{ lstatSync, readdirSync, realpathSync: { native }, statSync,
  *   openSync, fstatSync, readSync, closeSync }}
  */
 export function fakeVolume() {
@@ -124,11 +124,6 @@ export function fakeVolume() {
     closeSync: (fd) => {
       fromHandle(fd);
       handles.delete(fd);
-    },
-    readFileSync: (input) => {
-      const node = lookup(realpath(input));
-      if (node.kind !== "file") throw fsError("EISDIR", input);
-      return Buffer.from(node.data);
     },
   };
 }

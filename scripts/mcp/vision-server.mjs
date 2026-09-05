@@ -37,6 +37,7 @@ import {
 // starts agy. One definition, two checks.
 const MIME = VISION_MIME;
 const MAX_BYTES = VISION_MAX_BYTES;
+const IDENTITY_CHANGED = "ERROR: image identity changed; refusing access";
 // MCP requests contain paths, not image bytes. Limit each UTF-8 input frame
 // to 64 KiB before decoding; discard an oversized frame through its newline.
 export const MAX_FRAME_BYTES = 64 * 1024;
@@ -119,9 +120,14 @@ export function loadImageResult(
     );
   }
 
+  return readCheckedImage(p, realPath, canonicalPath, mimeType, seam);
+}
+
+function readCheckedImage(p, realPath, canonicalPath, mimeType, seam) {
+  const { fs: fsImpl } = seam;
   let stat;
   try {
-    stat = fsImpl.statSync(realPath);
+    stat = fsImpl.statSync(realPath, { bigint: true });
   } catch {
     return errorContent("ERROR: file not found");
   }
@@ -138,18 +144,18 @@ export function loadImageResult(
     // file grows. This closes stat-then-read substitution, but is not a proof
     // against every parent-directory race.
     fd = fsImpl.openSync(realPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
-    const opened = fsImpl.fstatSync(fd);
+    const opened = fsImpl.fstatSync(fd, { bigint: true });
     if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
-      return errorContent("ERROR: image identity changed; refusing access");
+      return errorContent(IDENTITY_CHANGED);
     }
     let currentPath;
     try {
       currentPath = canonicalComparePath(fsImpl.realpathSync.native(p), seam);
     } catch {
-      return errorContent("ERROR: image identity changed; refusing access");
+      return errorContent(IDENTITY_CHANGED);
     }
     if (currentPath !== canonicalPath) {
-      return errorContent("ERROR: image identity changed; refusing access");
+      return errorContent(IDENTITY_CHANGED);
     }
 
     const buffer = Buffer.alloc(MAX_BYTES + 1);
@@ -171,7 +177,7 @@ export function loadImageResult(
     };
   } catch (err) {
     return errorContent(err.code === "ELOOP"
-      ? "ERROR: image identity changed; refusing access"
+      ? IDENTITY_CHANGED
       : "ERROR: unable to read image");
   } finally {
     if (fd !== undefined) fsImpl.closeSync(fd);
@@ -209,11 +215,17 @@ async function* inputFrames(input) {
   if (length > 0 && !dropping) yield frame.toString("utf8", 0, length);
 }
 
+function usableId(msg) {
+  if (msg === null || typeof msg !== "object" || !Object.hasOwn(msg, "id")) return null;
+  if (typeof msg.id === "string") return msg.id;
+  if (typeof msg.id === "number" && Number.isFinite(msg.id)) return msg.id;
+  return null;
+}
+
 function handleRequest(msg, allowedPaths, loadImage) {
   const isObject = msg !== null && typeof msg === "object" && !Array.isArray(msg);
   const hasId = isObject && Object.hasOwn(msg, "id");
-  const id = hasId && (msg.id === null || typeof msg.id === "string"
-    || (typeof msg.id === "number" && Number.isFinite(msg.id))) ? msg.id : null;
+  const id = usableId(msg);
   // Non-object JSON is invalid, not a notification. Objects without an id
   // are never answered, including malformed notifications.
   if (isObject && !hasId) return;
@@ -226,7 +238,7 @@ function handleRequest(msg, allowedPaths, loadImage) {
     let result;
     if (method === "initialize") {
       result = {
-        protocolVersion: params?.protocolVersion ?? "2025-06-18",
+        protocolVersion: typeof params?.protocolVersion === "string" ? params.protocolVersion : "2025-06-18",
         capabilities: { tools: {} },
         serverInfo: { name: "vision-server", version: "0.2.0" },
       };
@@ -280,8 +292,8 @@ export async function serveVision(input, output, allowedPaths, loadImage = loadI
     try {
       encoded = JSON.stringify(response) + "\n";
     } catch {
-      // Even a deeply nested initialize value must not make serialization
-      // terminate the server or expose the exception to the client.
+      // A serialization failure must not terminate the server or expose the
+      // exception to the client.
       encoded = JSON.stringify(protocolError(response.id, -32603, "internal error")) + "\n";
     }
     if (!output.write(encoded)) {
