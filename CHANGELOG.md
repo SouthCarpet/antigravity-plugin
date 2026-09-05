@@ -7,23 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Vision image access.** Vision checks file identity while it reads an image.
+  It keeps the 10 MiB limit when a file grows after the first check.
+- **Vision MCP request processing.** Malformed requests do not stop the
+  server. The server rejects oversized input frames. A paused client cannot
+  queue unlimited replies.
+- **Update command execution.** Updates reject invalid registry and cache
+  versions. On Windows, updates reject unsafe batch command paths and
+  arguments. Native executables take precedence over shims.
+- **Background job arguments.** Background jobs reject stored agy flags other
+  than the supported mode pair before they start agy. Tampered requests fail.
+
 ### Fixed
 
-- Vision refuses images whose file identity changes during access and keeps
-  the 10 MiB limit enforced when a file grows after its initial check.
-- Malformed vision MCP requests no longer stop the server; oversized input
-  frames are rejected and paused clients cannot queue unlimited replies.
-- Updates reject invalid registry/cache versions and unsafe Windows batch
-  command paths or arguments; native executables take precedence over shims.
-- Background jobs reject stored agy flags other than the supported mode
-  pair before starting agy, marking tampered requests as failed.
+- **Command argument boundaries.** Quoted prompts and image paths keep their
+  argument boundaries. Prompt words cannot select permission modes or extra
+  directories.
+- **Review base references.** Review rejects unknown and option-like base
+  references before it compares commits.
 
 ### Changed
 
-- Quoted prompts and image paths retain their argument boundaries, so prompt
-  words cannot select permission modes or extra directories; unknown flags
-  now exit 1 with guidance to put prompt text after `--`, and review rejects
-  unknown or option-like base refs before comparing commits.
+- **Unknown flags.** Unknown flags exit 1 with guidance to put prompt text
+  after `--`.
 
 ## [1.1.3] — 2026-09-04
 
