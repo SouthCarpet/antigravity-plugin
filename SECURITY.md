@@ -96,6 +96,13 @@ absolute paths named on that command, then starts agy. The MCP server:
 - rejects symlink/junction resolution to a different file;
 - accepts only `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, ≤ 10 MiB each.
 
+Reading through a checked file handle closes stat-then-read substitution and
+bounds image allocation even if a file grows after the check.
+These checks are not a proof against every parent-directory race.
+Malformed MCP input receives a protocol error without killing the server
+(notifications remain unanswered); input frames are capped at 64 KiB and
+replies wait for stdout drain before the next request is processed.
+
 Users should not set `ANTIGRAVITY_VISION_ALLOWED_PATHS` globally.
 
 ### `update --apply`
