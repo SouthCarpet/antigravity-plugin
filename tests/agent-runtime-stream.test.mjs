@@ -17,6 +17,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
+import { terminateProcessTree } from '../scripts/lib/process.mjs';
 
 const spawnCalls = [];
 let nextEvents = [];
@@ -33,7 +34,10 @@ function makeFakeChild() {
   child.killSignals = [];
   child.kill = (signal) => {
     child.killSignals.push(signal);
-    if (signal === 'SIGKILL' && exitOnSigkill) setImmediate(() => child.emit('exit', null));
+    if (signal === 'SIGKILL' && exitOnSigkill) setImmediate(() => {
+      child.emit('exit', null, 'SIGKILL');
+      child.emit('close', null, 'SIGKILL');
+    });
     return true;
   };
   child.stdin = new EventEmitter();
@@ -52,6 +56,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
         setImmediate(() => {
           for (const chunk of nextEvents) child.stdout.emit('data', chunk);
           child.emit('exit', nextExitCode);
+          child.emit('close', nextExitCode);
         });
       }
       return child;
@@ -59,7 +64,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
   },
 });
 
-const { runAgyPrint, spawnAgyDetached, parseAgyStream } = await import(
+const { runAgyPrint, spawnAgyDetached, parseAgyStream, probeAgy } = await import(
   '../scripts/lib/agent-runtime.mjs'
 );
 
@@ -85,6 +90,197 @@ const INIT_LINE = JSON.stringify({
   event: 'init',
   conversation_id: 'c-abc',
   init: { model: 'gemini-3.6-flash-high', cwd: '/x', tools: [] },
+});
+
+// Oracle: brief 076-T3 R2. Control exit and close independently to reproduce
+// inherited pipes and data delivered after the process has already exited.
+describe('bounded stdio draining', () => {
+  it('keeps a SUCCESS answer delivered between exit and close', async () => {
+    autoExit = false;
+    try {
+      const pending = runAgyPrint({ prompt: 'p', bin: 'agy' });
+      const child = spawnCalls.at(-1).child;
+      child.emit('exit', 0);
+      child.stdout.emit('data', resultLine({ response: 'late answer' }) + '\n');
+      child.emit('close', 0);
+      const result = await pending;
+      assert.equal(result.status, 'completed');
+      assert.equal(result.stdout, 'late answer');
+      assert.deepEqual(result.warnings, []);
+    } finally { autoExit = true; }
+  });
+
+  it('classifies a denial delivered between exit and close', async () => {
+    autoExit = false;
+    try {
+      const pending = runAgyPrint({ prompt: 'p', bin: 'agy' });
+      const child = spawnCalls.at(-1).child;
+      child.stdout.emit('data', resultLine({ response: '' }) + '\n');
+      child.emit('exit', 0);
+      child.stderr.emit('data', 'tool "read_file" was auto-denied\n');
+      child.emit('close', 0);
+      const result = await pending;
+      assert.equal(result.status, 'failed');
+      assert.equal(result.denial.tool, 'read_file');
+    } finally { autoExit = true; }
+  });
+
+  it('destroys inherited pipes at the five-second drain deadline and warns', async (t) => {
+    autoExit = false;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const pending = runAgyPrint({ prompt: 'p', bin: 'agy' });
+      const child = spawnCalls.at(-1).child;
+      const destroyed = [];
+      child.stdin.destroy = () => destroyed.push('stdin');
+      child.stdout.destroy = () => destroyed.push('stdout');
+      child.stderr.destroy = () => destroyed.push('stderr');
+      child.stdout.emit('data', resultLine({ response: 'kept' }) + '\n');
+      child.emit('exit', 0);
+      t.mock.timers.tick(5000);
+      const result = await pending;
+      assert.equal(result.status, 'completed');
+      assert.equal(result.stdout, 'kept');
+      assert.deepEqual(result.warnings, ['agy stdio did not close within 5000 ms after exit']);
+      assert.deepEqual(destroyed, ['stdin', 'stdout', 'stderr']);
+    } finally { autoExit = true; }
+  });
+
+  it('settles a spawn error immediately without exit or close', async () => {
+    autoExit = false;
+    try {
+      const pending = runAgyPrint({ prompt: 'p', bin: 'agy' });
+      spawnCalls.at(-1).child.emit('error', new Error('spawn denied'));
+      const result = await pending;
+      assert.equal(result.status, 'failed');
+      assert.equal(result.spawnError, 'spawn denied');
+    } finally { autoExit = true; }
+  });
+
+  it('keeps the execution timer active after exit while pipes remain open', async (t) => {
+    autoExit = false;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let terminated = false;
+      const pending = runAgyPrint({
+        prompt: 'p', bin: 'agy', timeoutMs: 50,
+        terminateTree: async () => { terminated = true; },
+      });
+      const child = spawnCalls.at(-1).child;
+      child.emit('exit', 0);
+      t.mock.timers.tick(50);
+      assert.equal(terminated, true);
+      child.emit('close', 0);
+      const result = await pending;
+      assert.equal(result.status, 'timeout');
+      assert.equal(result.errorMessage, 'agy did not finish within 50 ms');
+    } finally { autoExit = true; }
+  });
+
+  it('reads a probe version delivered after exit', async () => {
+    autoExit = false;
+    try {
+      const pending = probeAgy({ bin: 'agy' });
+      const child = spawnCalls.at(-1).child;
+      child.emit('exit', 0);
+      child.stdout.emit('data', '1.2.3\n');
+      child.emit('close', 0);
+      assert.deepEqual(await pending, { ok: true, version: '1.2.3' });
+    } finally { autoExit = true; }
+  });
+
+  it('clears both deadlines on close even while onSpawn is still persisting', async (t) => {
+    // Oracle: R2 clears timers on close, not after an unrelated callback finishes.
+    autoExit = false;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let releaseSpawn;
+      const persisting = new Promise((resolve) => { releaseSpawn = resolve; });
+      let terminated = false;
+      const pending = runAgyPrint({
+        prompt: 'p', bin: 'agy', timeoutMs: 50, onSpawn: () => persisting,
+        terminateTree: async () => { terminated = true; },
+      });
+      const child = spawnCalls.at(-1).child;
+      child.stdout.emit('data', resultLine({ response: 'done' }) + '\n');
+      child.emit('exit', 0);
+      child.emit('close', 0);
+      t.mock.timers.tick(6000);
+      releaseSpawn();
+      const result = await pending;
+      assert.equal(result.status, 'completed');
+      assert.equal(terminated, false);
+      assert.deepEqual(result.warnings, []);
+    } finally { autoExit = true; }
+  });
+
+  it('bounds a probe whose inherited pipes never close', async (t) => {
+    autoExit = false;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const pending = probeAgy({ bin: 'agy', terminateTree: async () => {} });
+      spawnCalls.at(-1).child.emit('exit', 0);
+      t.mock.timers.tick(5000);
+      assert.deepEqual(await pending, { ok: false, reason: 'timeout' });
+    } finally { autoExit = true; }
+  });
+});
+
+// Oracle: brief 076-T3 R1 caps bytes, retains only pre-breach output, and
+// fails even if a SUCCESS event preceded the oversized chunk.
+describe('agy output caps', () => {
+  for (const stream of ['stdout', 'stderr']) {
+    it(`fails and terminates when ${stream} exceeds a four-byte cap`, async () => {
+      autoExit = false;
+      try {
+        let terminated = false;
+        const pending = runAgyPrint({
+          prompt: 'p', bin: 'agy', maxStdoutBytes: 4, maxStderrBytes: 4,
+          terminateTree: async () => { terminated = true; },
+        });
+        const child = spawnCalls.at(-1).child;
+        child.stdout.emit('data', 'kept');
+        child[stream].emit('data', 'ééé');
+        child.stdout.emit('data', 'ignored after breach');
+        child.emit('exit', 0);
+        child.emit('close', 0);
+        const result = await pending;
+        assert.equal(terminated, true);
+        assert.equal(result.status, 'failed');
+        assert.equal(result.errorMessage, 'agy output exceeded 4 bytes');
+        assert.equal(result.stdout, 'kept');
+      } finally { autoExit = true; }
+    });
+  }
+
+  it('accepts stdout exactly at the cap', async () => {
+    nextEvents = [resultLine({ response: 'bounded' }) + '\n'];
+    nextExitCode = 0;
+    const result = await runAgyPrint({
+      prompt: 'p', bin: 'agy', maxStdoutBytes: Buffer.byteLength(nextEvents[0]),
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.stdout, 'bounded');
+  });
+
+  it('fails a cap breach after SUCCESS and retains the preceding raw stream', async () => {
+    autoExit = false;
+    try {
+      const answer = resultLine({ response: 'partial answer' }) + '\n';
+      const pending = runAgyPrint({
+        prompt: 'p', bin: 'agy', maxStderrBytes: 4, terminateTree: async () => {},
+      });
+      const child = spawnCalls.at(-1).child;
+      child.stdout.emit('data', answer);
+      child.stderr.emit('data', '12345');
+      child.emit('exit', 0);
+      child.emit('close', 0);
+      const result = await pending;
+      assert.equal(result.status, 'failed');
+      assert.equal(result.errorMessage, 'agy output exceeded 4 bytes');
+      assert.equal(result.stdout, answer);
+    } finally { autoExit = true; }
+  });
 });
 const STEP_LINE = JSON.stringify({
   event: 'step_update',
@@ -243,6 +439,11 @@ describe('runAgyPrint — stdin stream-json transport', () => {
       const res = await runAgyPrint({
         prompt: 'p', bin: 'agy', timeoutMs: 10,
         terminationGraceMs: 10, forceKillGraceMs: 20,
+        terminateTree: (_pid, options) => terminateProcessTree(123, {
+          ...options, platform: 'linux',
+          probe: () => !spawnCalls[0].child.killSignals.includes('SIGKILL'),
+          killImpl: (_target, signal) => spawnCalls[0].child.kill(signal),
+        }),
       });
       assert.equal(res.status, 'timeout');
       assert.ok(Date.now() - started < 500, 'timeout escalation must be bounded');

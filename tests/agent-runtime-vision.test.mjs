@@ -41,7 +41,10 @@ mock.module('../scripts/lib/process-adapter.mjs', {
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();
       spawnCalls.push({ bin, args, opts, child });
-      setImmediate(() => child.emit('exit', 0));
+      setImmediate(() => {
+        child.emit('exit', 0);
+        child.emit('close', 0);
+      });
       return child;
     },
   },

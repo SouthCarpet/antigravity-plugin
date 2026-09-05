@@ -450,7 +450,9 @@ export function applyPlan(steps, { runner, write, cwd }) {
   return { ok: true, steps: done, message: null };
 }
 
-export function defaultRunner({ command, args, cwd, capture, childStdoutFd = 1 }) {
+export const UPDATE_STEP_TIMEOUT_MS = 10 * 60 * 1000;
+
+export function defaultRunner({ command, args, cwd, capture, childStdoutFd = 1, timeoutMs = UPDATE_STEP_TIMEOUT_MS }) {
   // Batch shims need cmd.exe; reject shell syntax before quoting whitespace.
   const shell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
   if (shell) {
@@ -469,8 +471,12 @@ export function defaultRunner({ command, args, cwd, capture, childStdoutFd = 1 }
     shell,
     encoding: "utf8",
     stdio: ["ignore", capture ? "pipe" : childStdoutFd, 2],
+    timeout: timeoutMs,
   });
-  return { status: result.status, stdout: result.stdout ?? "", error: result.error ?? null };
+  const error = result.error?.code === "ETIMEDOUT"
+    ? Object.assign(new Error(`${command} timed out after ${timeoutMs} ms`), { code: "ETIMEDOUT" })
+    : result.error ?? null;
+  return { status: result.status, stdout: result.stdout ?? "", error };
 }
 
 function applyToHosts(report, { deps, env, write, json }) {

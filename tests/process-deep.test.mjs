@@ -15,9 +15,17 @@ import {
   binaryAvailable,
   terminateProcessTree,
   spawnDetached,
+  runCommand,
 } from '../scripts/lib/process.mjs';
 
 const TMPROOT = os.tmpdir();
+
+it('returns a one-line timeout error for a child sleeping beyond an injected 50 ms bound', () => {
+  // Oracle: brief 076-T3 R1. The real synchronous child would run for 2 s.
+  const result = runCommand(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { timeoutMs: 50 });
+  assert.equal(result.error?.code, 'ETIMEDOUT');
+  assert.equal(result.error?.message, `${process.execPath} timed out after 50 ms`);
+});
 
 function pidExists(pid) {
   try {

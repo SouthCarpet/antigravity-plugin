@@ -42,6 +42,16 @@ const PKG_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 
 const NOW = Date.parse('2026-09-02T12:00:00.000Z');
 const HOUR = 60 * 60 * 1000;
 
+it('stops a sleeping update step with a one-line 50 ms timeout error', () => {
+  // Oracle: brief 076-T3 R1; exercise real spawnSync with a short injected bound.
+  const result = defaultRunner({
+    command: process.execPath, args: ['-e', 'setTimeout(() => {}, 2000)'],
+    capture: true, timeoutMs: 50,
+  });
+  assert.equal(result.error?.code, 'ETIMEDOUT');
+  assert.equal(result.error?.message, `${process.execPath} timed out after 50 ms`);
+});
+
 function fakeFetch(body, { ok = true, status = 200, fail = null } = {}) {
   const calls = [];
   const impl = async (url, init) => {

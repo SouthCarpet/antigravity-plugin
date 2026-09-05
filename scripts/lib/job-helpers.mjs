@@ -22,7 +22,21 @@ import {
   readJobFile,
 } from "./state.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
-import { isProcessRunning } from "./process.mjs";
+import { isProcessRunning, terminateProcessTree } from "./process.mjs";
+
+export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
+export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
+
+export function agyTimeoutMs(env = process.env) {
+  const value = env[AGY_TIMEOUT_ENV];
+  if (value === undefined) return DEFAULT_AGY_TIMEOUT_MS;
+  if (value === "0") return 0;
+  const milliseconds = Number(value);
+  if (/^[0-9]+$/.test(value) && Number.isSafeInteger(milliseconds) &&
+      milliseconds > 0 && milliseconds <= 0x7fffffff) return milliseconds;
+  process.stderr.write(`antigravity: ignoring ${AGY_TIMEOUT_ENV}=${String(value).replace(/[\r\n]/g, ' ')} (not a positive integer of milliseconds)\n`);
+  return DEFAULT_AGY_TIMEOUT_MS;
+}
 
 /** Generate a short, URL-safe job id (12 hex chars). */
 export function newJobId() {
@@ -144,8 +158,8 @@ function deriveJobStatus(result, kind) {
       return {
         status: "failed",
         healthStatus: "failed",
-        healthMessage: "agy --print timed out before producing output.",
-        recommendedAction: "Re-run the command, optionally with --background.",
+        healthMessage: result.errorMessage ?? "agy --print timed out before finishing.",
+        recommendedAction: "Re-run the command, optionally with --background. Increase ANTIGRAVITY_AGY_TIMEOUT_MS for a longer run; background work uses the same budget.",
       };
     case "failed":
     default:
@@ -276,6 +290,7 @@ export async function runForegroundJob({
       extraArgs,
       cwd: cwd ?? workspaceRoot,
       env,
+      timeoutMs: agyTimeoutMs(env),
       onStdout,
       onStderr,
       onText,
@@ -306,7 +321,7 @@ export async function runForegroundJob({
     exitCode: result.exitCode,
     summary: deriveSummary(result),
     oauthUrl: result.oauthUrl ?? null,
-    errorMessage: result.status === "failed" ? trim(result.stderr) : null,
+    errorMessage: result.errorMessage ?? (result.status === "failed" ? trim(result.stderr) : null),
     healthStatus: derived.healthStatus ?? null,
     healthMessage: derived.healthMessage ?? null,
     recommendedAction: derived.recommendedAction ?? null,
@@ -364,6 +379,9 @@ export async function startBackgroundJob({
   cwd,
   request = null,
   env = process.env,
+  spawnWorker = spawn,
+  persistWorkerPid = patchJob,
+  terminateTree = terminateProcessTree,
 }) {
   const job = await createTrackedJob({
     workspaceRoot,
@@ -377,24 +395,45 @@ export async function startBackgroundJob({
       extraArgs,
       cwd: cwd ?? workspaceRoot,
       ...(request ?? {}),
+      timeoutMs: agyTimeoutMs(env),
     },
     conversationId,
     env,
   });
 
   const workerPath = resolveWorkerPath();
-  const child = spawn(process.execPath, [workerPath, job.id], {
-    cwd: workspaceRoot,
-    detached: true,
-    stdio: ["ignore", "ignore", "ignore"],
-    env: { ...env, [SESSION_ID_ENV]: env[SESSION_ID_ENV] ?? "" },
-  });
-  child.unref();
-
-  await patchJob(workspaceRoot, job.id, {
-    pid: child.pid ?? null,
-    workerPid: child.pid ?? null,
-  });
+  let child;
+  let spawned = false;
+  try {
+    child = spawnWorker(process.execPath, [workerPath, job.id], {
+      cwd: workspaceRoot,
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
+      env: { ...env, [SESSION_ID_ENV]: env[SESSION_ID_ENV] ?? "" },
+    });
+    await new Promise((resolve, reject) => {
+      // Retain the listener after acknowledgement: late errors must stay handled.
+      child.on("error", reject);
+      child.once("spawn", resolve);
+    });
+    spawned = true;
+    await persistWorkerPid(workspaceRoot, job.id, {
+      pid: child.pid ?? null,
+      workerPid: child.pid ?? null,
+    });
+    child.unref();
+  } catch (error) {
+    if (spawned) await terminateTree(child.pid);
+    child?.unref?.();
+    const failed = await patchJob(workspaceRoot, job.id, {
+      status: "failed",
+      phase: "failed",
+      completedAt: new Date().toISOString(),
+      errorMessage: `Worker launch failed: ${error.message}`,
+      healthStatus: "failed",
+    });
+    return { job: failed, pid: null };
+  }
   appendJobLog(workspaceRoot, job.id, `[job] dispatched worker pid=${child.pid}`);
   return { job, pid: child.pid ?? null };
 }

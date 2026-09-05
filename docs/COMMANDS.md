@@ -39,6 +39,31 @@ nothing to review it prints the `no_changes` result and exits 0 without
 touching `agy`; with changes to send and no `agy` it prints the line and
 exits 1.
 
+## Execution budgets and failure messages
+
+Foreground and background jobs have a 30-minute agy execution budget.
+`ANTIGRAVITY_AGY_TIMEOUT_MS` sets a positive integer number of milliseconds
+(at most 2147483647); exactly `0` disables the budget. Invalid values are
+ignored with a warning. Background jobs store this setting at enqueue and
+use the full stored budget when the worker starts agy, excluding queue time.
+Older job records without the setting use 30 minutes.
+
+When the budget expires, the plugin terminates the agy process tree and
+stores a failed job with `agy did not finish within <ms> ms`. Output above
+16 MiB on stdout or 4 MiB on stderr also terminates the tree and fails with
+`agy output exceeded <n> bytes`. Only output received before the offending
+chunk is retained; a partial answer is never reported as success.
+
+Final output is collected until stdio closes. Inherited pipes that remain
+open five seconds after exit are closed with the stored warning
+`agy stdio did not close within 5000 ms after exit`.
+
+A worker launch failure prints
+`antigravity:<verb> — failed: Worker launch failed: <reason>`, stores a
+failed job, and exits 1 without a queued response. Git commands time out
+after 120000 ms and update steps after 600000 ms, reporting
+`<command> timed out after <ms> ms`.
+
 ## Summary
 
 | Verb | Positional arguments | Default execution |
@@ -101,6 +126,8 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   waits for that job to finish but does not print its final stored result; use
   `result` to retrieve it. Without `--background`, review is foreground and
   `--wait` has no additional effect.
+  The agy execution budget above applies in both cases; the background wait
+  itself has a separate 30-minute deadline.
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
@@ -150,6 +177,8 @@ task text as one argument to preserve its boundaries.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
   foreground and `--wait` has no additional effect.
+  The agy execution budget above applies in both cases; the background wait
+  itself has a separate 30-minute deadline.
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
@@ -174,6 +203,8 @@ required unless `--continue` or `--conversation` is supplied.
   the implementation may append the stored raw result to stdout after the
   initial queued response. On the foreground path, `--wait` has no additional
   effect.
+  The agy execution budget above applies in both cases; the background wait
+  itself has a separate 30-minute deadline.
 - `--continue` resumes the most recent conversation and conflicts with
   `--conversation <id>`.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
@@ -281,7 +312,9 @@ public.
   `cancelled`. Without a reference it waits until the session-filtered active
   list is empty.
 - `--timeout-ms` applies only with `--wait` and defaults to 900000 (15 minutes).
-  Polling is once per second.
+  Polling is once per second. This observation deadline is independent of the
+  agy execution budget; reaching it does not terminate the job and still
+  returns exit 0.
 
 Status returns 0 whenever it successfully produces a snapshot, including
 after the wait timeout and when the observed terminal status is failed or

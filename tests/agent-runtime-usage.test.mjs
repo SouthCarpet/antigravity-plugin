@@ -46,6 +46,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
       setImmediate(() => {
         if (nextStdout) child.stdout.emit('data', nextStdout);
         child.emit('exit', nextExitCode);
+        child.emit('close', nextExitCode);
       });
       return child;
     },

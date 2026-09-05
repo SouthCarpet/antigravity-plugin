@@ -251,6 +251,7 @@ These variables have direct semantics in the shipped code:
 | Variable | Contract |
 |---|---|
 | `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing; direct command-module invocation can fall back to normal discovery. |
+| `ANTIGRAVITY_AGY_TIMEOUT_MS` | Execution budget for foreground and background jobs, in milliseconds; defaults to 1800000 (30 minutes). A positive decimal safe integer up to 2147483647 overrides it; exactly `0` disables it. Invalid values are ignored with one stderr warning. Background jobs store the budget when queued and receive the full budget when the worker starts agy. |
 | `PATH` / `Path` | Searched for `agy`; Windows accepts its conventional `Path` casing when `PATH` is absent. |
 | `HOME` / `USERPROFILE` | Used, in that order, for the fallback `<home>/.local/bin/agy` search. Node's platform home directory also determines the `~/.gemini` paths used by vision setup. |
 | `CLAUDE_PLUGIN_ROOT` | Supplied by Claude Code and used by the shipped slash-command wrappers to locate `scripts/commands/*.mjs`. When unset or empty, the wrappers resolve the plugin root in Node as `path.join(os.homedir(), '.gemini', 'config', 'plugins', 'antigravity')` — the tree `agy plugin install` copies to. That fallback is not a shell `${VAR:-fallback}` expansion. Since 1.1.1 the wrappers read `<root>/plugin.json` first and exit 1 with one line unless it names this plugin. |

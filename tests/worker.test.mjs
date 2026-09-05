@@ -40,6 +40,7 @@ const runtime = {
 mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
     runAgyPrint: async (options) => {
+      runtime.options = options;
       await options.onSpawn?.({ pid: 7331 });
       return { ...runtime.next };
     },
@@ -114,8 +115,25 @@ describe('_worker.mjs background job completion', () => {
       assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
       assert.equal(stored.result.durationSeconds, 3.5);
       assert.equal(stored.result.agyConversationId, 'conv-123');
+      // Oracle: 076-T3 R1, legacy records get the full default budget.
+      assert.equal(runtime.options.timeoutMs, 1800000);
     });
   }
+});
+
+it('uses the stored 50 ms budget and persists failed after terminating a sleeping fake agy', () => {
+  // Oracle: brief 076-T3 R1; the process seam avoids taskkill and verifies death.
+  const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-budget-'));
+  try {
+    const result = spawnSync(process.execPath, [
+      '--experimental-test-module-mocks',
+      path.join(import.meta.dirname, 'helpers', 'runtime-budget.mjs'), 'worker',
+    ], {
+      cwd: workspaceRoot, encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, CLAUDE_PLUGIN_DATA: path.join(workspaceRoot, 'data') },
+    });
+    assert.equal(result.status, 0, result.stderr);
+  } finally { fs.rmSync(workspaceRoot, { recursive: true, force: true }); }
 });
 
 describe('worker persisted-request allowlist', () => {

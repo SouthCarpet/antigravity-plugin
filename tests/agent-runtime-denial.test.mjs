@@ -55,6 +55,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
         for (const chunk of nextStderr) child.stderr.emit('data', chunk);
         for (const chunk of nextStdout) child.stdout.emit('data', chunk);
         child.emit('exit', nextExitCode);
+        child.emit('close', nextExitCode);
       });
       return child;
     },

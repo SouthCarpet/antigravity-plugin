@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bounded agy runs.** Foreground and background jobs fail after 30 minutes
+  instead of waiting forever. Set `ANTIGRAVITY_AGY_TIMEOUT_MS` to change the
+  budget, or `0` to disable it. Excess output (16 MiB stdout or 4 MiB stderr)
+  also fails the job with a diagnostic; timeout and output failures terminate
+  the agy process tree. Git commands and update steps now have timeouts.
+- **Final output capture.** Answers and permission denials arriving as agy
+  exits are retained until its streams close. Pipes that stay open five
+  seconds after exit are closed with a warning.
+- **Background launch failures.** A worker must acknowledge its spawn before
+  a command reports a queued job. Launch or PID-recording failures now fail
+  the job and command; an untracked worker is terminated.
+
 - **Command argument boundaries.** Quoted prompts and image paths keep their
   argument boundaries. Prompt words cannot select permission modes or extra
   directories.

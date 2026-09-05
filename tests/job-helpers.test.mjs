@@ -15,6 +15,8 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
+import { EventEmitter } from 'node:events';
+import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -45,11 +47,11 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
-    spawn: () => ({
-      pid: runtime.spawnPid,
-      unref() {},
-      on() {},
-    }),
+    spawn: () => {
+      const child = Object.assign(new EventEmitter(), { pid: runtime.spawnPid, unref() {} });
+      setImmediate(() => child.emit('spawn'));
+      return child;
+    },
   },
 });
 
@@ -57,7 +59,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
 // job-helpers below will pick them up.
 const {
   runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId,
-  resolveWorkerPath,
+  resolveWorkerPath, agyTimeoutMs,
 } = await import('../scripts/lib/job-helpers.mjs');
 const { readJobFile, listJobs } = await import('../scripts/lib/state.mjs');
 
@@ -287,4 +289,121 @@ describe('resolveWorkerPath', () => {
     assert.equal(fs.existsSync(p), true);
     assert.equal(path.basename(p), '_worker.mjs');
   });
+});
+
+// Oracle: 076-T3 R1. Decimal safe millisecond integers up to the Node timer
+// ceiling are accepted; invalid values warn once and retain the 30-minute default.
+describe('agy execution budget environment', () => {
+  const cases = [
+    { value: undefined, expected: 1800000, warning: '' },
+    { value: '0', expected: 0, warning: '' },
+    { value: '1500', expected: 1500, warning: '' },
+    { value: '2147483647', expected: 2147483647, warning: '' },
+    { value: 'abc', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=abc (not a positive integer of milliseconds)\n' },
+    { value: '-5', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=-5 (not a positive integer of milliseconds)\n' },
+    { value: '1e12', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=1e12 (not a positive integer of milliseconds)\n' },
+    { value: '2147483648', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=2147483648 (not a positive integer of milliseconds)\n' },
+    { value: '', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS= (not a positive integer of milliseconds)\n' },
+    { value: '1.5', expected: 1800000, warning: 'antigravity: ignoring ANTIGRAVITY_AGY_TIMEOUT_MS=1.5 (not a positive integer of milliseconds)\n' },
+  ];
+  for (const { value, expected, warning } of cases) {
+    it(`uses ${expected} ms for ${JSON.stringify(value)} and emits the specified warning`, (t) => {
+      let stderr = '';
+      t.mock.method(process.stderr, 'write', (chunk) => { stderr += chunk; return true; });
+      assert.equal(agyTimeoutMs({ ANTIGRAVITY_AGY_TIMEOUT_MS: value }), expected);
+      assert.equal(stderr, warning);
+    });
+  }
+});
+
+// Oracle: 076-T3 R3. Failure paths use owned child fakes or a real spawn
+// with a deleted temporary cwd; none launches the actual worker.
+describe('background worker acknowledgement', () => {
+  it('waits for spawn before returning queued and persists the enqueue budget', async () => {
+    freshWorkspace();
+    const child = Object.assign(new EventEmitter(), { pid: 7331, unref() {} });
+    let acknowledge;
+    const launched = new Promise((resolve) => { acknowledge = resolve; });
+    let returned = false;
+    const pending = startBackgroundJob({
+      workspaceRoot, kind: 'task', prompt: 'p',
+      env: { ANTIGRAVITY_AGY_TIMEOUT_MS: '1500' },
+      spawnWorker: () => { acknowledge(); return child; },
+    }).then((result) => { returned = true; return result; });
+    await launched;
+    assert.equal(returned, false);
+    child.emit('spawn');
+    const { job } = await pending;
+    assert.equal(job.status, 'queued');
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.workerPid, 7331);
+    assert.equal(stored.request.timeoutMs, 1500);
+    assert.doesNotThrow(() => child.emit('error', new Error('late handle error')));
+  });
+
+  it('persists failed when an owned child emits error asynchronously', async () => {
+    freshWorkspace();
+    const { job, pid } = await startBackgroundJob({
+      workspaceRoot, kind: 'task', prompt: 'p',
+      spawnWorker: () => {
+        const child = new EventEmitter();
+        setImmediate(() => child.emit('error', new Error('creation denied')));
+        return child;
+      },
+    });
+    assert.equal(pid, null);
+    assert.equal(job.status, 'failed');
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.phase, 'failed');
+    assert.equal(stored.healthStatus, 'failed');
+    assert.equal(stored.errorMessage, 'Worker launch failed: creation denied');
+    assert.ok(stored.completedAt);
+  });
+
+  it('returns a persisted failure when the actual spawn cwd has been deleted', async () => {
+    freshWorkspace();
+    const deletedCwd = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-deleted-cwd-'));
+    fs.rmdirSync(deletedCwd);
+    const { job } = await startBackgroundJob({
+      workspaceRoot, kind: 'task', prompt: 'p',
+      spawnWorker: (command, args, options) => nodeSpawn(command, args, { ...options, cwd: deletedCwd }),
+    });
+    assert.equal(job.status, 'failed');
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.status, 'failed');
+    assert.match(stored.errorMessage, /^Worker launch failed: spawn .* ENOENT$/);
+  });
+
+  it('terminates an acknowledged worker before returning a PID-patch failure', async () => {
+    freshWorkspace();
+    let alive = true;
+    const { job } = await startBackgroundJob({
+      workspaceRoot, kind: 'task', prompt: 'p',
+      spawnWorker: () => {
+        const child = Object.assign(new EventEmitter(), { pid: 7331, unref() {} });
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+      persistWorkerPid: async () => { throw new Error('PID write failed'); },
+      terminateTree: async (pid) => { assert.equal(pid, 7331); alive = false; },
+    });
+    assert.equal(alive, false);
+    assert.equal(job.status, 'failed');
+    assert.equal(readJobFile(workspaceRoot, job.id).errorMessage, 'Worker launch failed: PID write failed');
+  });
+});
+
+describe('foreground runtime bounds integration', () => {
+  // Oracle: 076-T3 R1. The helper uses a real sleeping Node child through the
+  // owned adapter and verifies its PID is gone, without invoking taskkill.
+  for (const mode of ['foreground', 'output-cap']) {
+    it(`${mode} persists failed and leaves no fake agy process`, () => {
+      freshWorkspace();
+      const result = spawnSync(process.execPath, [
+        '--experimental-test-module-mocks',
+        path.join(import.meta.dirname, 'helpers', 'runtime-budget.mjs'), mode,
+      ], { cwd: workspaceRoot, encoding: 'utf8', timeout: 10000, env: { ...process.env } });
+      assert.equal(result.status, 0, result.stderr);
+    });
+  }
 });

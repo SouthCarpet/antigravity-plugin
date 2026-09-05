@@ -98,6 +98,10 @@ export async function run(argv = [], ctx = {}) {
       cwd: workspaceRoot,
       request: { mode, addDirs },
     });
+    if (job.status === "failed") {
+      process.stderr.write(`${foregroundFailureLine("rescue", { spawnError: job.errorMessage })}\n`);
+      return 1;
+    }
     const payload = createJsonEnvelope("rescue", {
       status: "queued",
       jobId: job.id,

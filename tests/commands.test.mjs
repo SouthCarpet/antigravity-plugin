@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 
 import {
   upsertJob,
@@ -695,6 +696,33 @@ describe('/antigravity:rescue argv parsing', () => {
 });
 
 describe('/antigravity:task argv parsing', () => {
+  it('prints a worker launch failure and exits 1 with no queued JSON on PID-patch failure', async () => {
+    // Oracle: 076-T3 R3 and the existing stderr-only failure contract.
+    const { run } = await import('../scripts/commands/task.mjs');
+    const { startBackgroundJob } = await import('../scripts/lib/job-helpers.mjs');
+    let alive = true;
+    const cap = captureStdio();
+    let code;
+    try {
+      code = await run(['--json', 'do work'], {
+        cwd: tempDir,
+        startBackgroundJob: (options) => startBackgroundJob({
+          ...options,
+          spawnWorker: () => {
+            const child = Object.assign(new EventEmitter(), { pid: 7331, unref() {} });
+            setImmediate(() => child.emit('spawn'));
+            return child;
+          },
+          persistWorkerPid: async () => { throw new Error('PID write failed'); },
+          terminateTree: async () => { alive = false; },
+        }),
+      });
+    } finally { cap.restore(); }
+    assert.equal(code, 1);
+    assert.equal(alive, false);
+    assert.equal(cap.out.join(''), '');
+    assert.equal(cap.err.join(''), 'antigravity:task — failed: Worker launch failed: PID write failed\n');
+  });
   it('--json wraps the foreground model answer', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
     const { run } = await import('../scripts/commands/task.mjs');

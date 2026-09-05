@@ -8,12 +8,18 @@
  *    only) so we never accidentally write code that expects ACP semantics.
  */
 import { spawn } from './process-adapter.mjs';
+import { terminateProcessTree } from './process.mjs';
 import { promises as fs } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { resolve as resolvePath, join, delimiter, extname } from 'node:path';
 
 /** Default binary name. Override via env `AGY_BIN`. */
 export const DEFAULT_AGY_BIN = 'agy';
+
+// Bound retained agy transport output: 16 MiB stdout and 4 MiB stderr.
+export const MAX_STDOUT_BYTES = 16 * 1024 * 1024;
+export const MAX_STDERR_BYTES = 4 * 1024 * 1024;
+export const STDIO_DRAIN_TIMEOUT_MS = 5_000;
 
 /** Sentinel lines surfaced by `agy --print` when the user needs to (re-)auth. */
 const AUTH_LINE_PATTERNS = [
@@ -140,30 +146,47 @@ export function resolveAgyBin(env = process.env, platform = process.platform) {
  * Probe `agy --version`. Resolves to `{ ok: true, version }` or
  * `{ ok: false, reason }`.
  */
-export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000 } = {}) {
+export async function probeAgy({ bin = resolveAgyBin(), timeoutMs = 5000, terminateTree = terminateProcessTree } = {}) {
   try {
     assertAgyBinSpawnable(bin);
   } catch (err) {
     return { ok: false, reason: err?.message ?? String(err) };
   }
-  return new Promise((resolve) => {
-    const child = spawnAgy(bin, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      resolve({ ok: false, reason: 'timeout' });
-    }, timeoutMs);
-    child.stdout.on('data', (c) => (stdout += c.toString('utf8')));
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      resolve({ ok: false, reason: e.code === 'ENOENT' ? 'not-installed' : e.message });
+  let timer;
+  let termination;
+  try {
+    return await new Promise((resolve) => {
+      const child = spawnAgy(bin, ['--version'], {
+        detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      // The existing total probe deadline also bounds pipes inherited after exit.
+      timer = setTimeout(() => {
+        termination = terminateTree(child.pid).catch(() => {});
+        child.stdout.destroy?.();
+        child.stderr.destroy?.();
+        child.unref?.();
+        resolve({ ok: false, reason: 'timeout' });
+      }, timeoutMs);
+      child.stdout.on('data', (c) => {
+        // A version needs only its first token; drain the rest without retaining it.
+        if (stdout.length < 4096) stdout += c.toString('utf8').slice(0, 4096 - stdout.length);
+      });
+      child.stderr.resume?.();
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        resolve({ ok: false, reason: e.code === 'ENOENT' ? 'not-installed' : e.message });
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) return resolve({ ok: false, reason: `exit ${code}` });
+        resolve({ ok: true, version: stdout.trim().split(/\s+/)[0] || 'unknown' });
+      });
     });
-    child.on('exit', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) return resolve({ ok: false, reason: `exit ${code}` });
-      resolve({ ok: true, version: stdout.trim().split(/\s+/)[0] || 'unknown' });
-    });
-  });
+  } finally {
+    clearTimeout(timer);
+    await termination;
+  }
 }
 
 /**
@@ -400,6 +423,10 @@ export async function runAgyPrint({
   signal,
   terminationGraceMs = 500,
   forceKillGraceMs = 500,
+  maxStdoutBytes = MAX_STDOUT_BYTES,
+  maxStderrBytes = MAX_STDERR_BYTES,
+  stdioDrainTimeoutMs = STDIO_DRAIN_TIMEOUT_MS,
+  terminateTree = terminateProcessTree,
 } = {}) {
   if (typeof prompt !== 'string' || !prompt.length) {
     throw new TypeError('runAgyPrint: prompt must be a non-empty string');
@@ -418,6 +445,7 @@ export async function runAgyPrint({
   const child = spawnAgy(bin, args, {
     cwd,
     env,
+    detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -426,24 +454,49 @@ export async function runAgyPrint({
   let oauthUrl;
   let status;
   let spawnError = null;
-  let forceTimer = null;
+  let timer = null;
+  let drainTimer = null;
   let giveUpTimer = null;
+  let terminationTask;
   let terminationReason = null;
+  let errorMessage = null;
   let settleExit;
+  let settled = false;
+  let exited = false;
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  const warnings = [];
+  const destroyStdio = () => {
+    child.stdin.destroy?.();
+    child.stdout.destroy?.();
+    child.stderr.destroy?.();
+  };
 
   const exitCodePromise = new Promise((resolve) => {
-    let settled = false;
     settleExit = (code) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
+      clearTimeout(drainTimer);
+      clearTimeout(giveUpTimer);
       resolve(code);
     };
     child.on('error', (e) => {
+      if (settled) return;
       spawnError = e.message;
       stderr += `\nspawn error: ${e.message}`;
       settleExit(typeof e.errno === 'number' ? e.errno : 1);
     });
-    child.on('exit', (code) => settleExit(code ?? 0));
+    child.on('close', (code, signal) => settleExit(code ?? (signal ? 1 : 0)));
+    child.on('exit', (code, signal) => {
+      exited = true;
+      if (settled) return;
+      drainTimer = setTimeout(() => {
+        warnings.push(`agy stdio did not close within ${stdioDrainTimeoutMs} ms after exit`);
+        destroyStdio();
+        settleExit(code ?? (signal ? 1 : 0));
+      }, stdioDrainTimeoutMs);
+    });
   });
 
   child.stdin.on('error', (e) => {
@@ -457,6 +510,12 @@ export async function runAgyPrint({
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.stdout.on('data', (chunk) => {
+    if (settled || terminationReason === 'output_limit') return;
+    stdoutBytes += Buffer.byteLength(chunk, 'utf8');
+    if (stdoutBytes > maxStdoutBytes) {
+      initiateTermination('output_limit', `agy output exceeded ${maxStdoutBytes} bytes`);
+      return;
+    }
     stdout += chunk;
     if (!oauthUrl) {
       const m = chunk.match(AUTH_URL_PATTERN);
@@ -476,38 +535,43 @@ export async function runAgyPrint({
     onStdout?.(chunk);
   });
   child.stderr.on('data', (chunk) => {
+    if (settled || terminationReason === 'output_limit') return;
+    stderrBytes += Buffer.byteLength(chunk, 'utf8');
+    if (stderrBytes > maxStderrBytes) {
+      initiateTermination('output_limit', `agy output exceeded ${maxStderrBytes} bytes`);
+      return;
+    }
     stderr += chunk;
     onStderr?.(chunk);
   });
 
-  const initiateTermination = (reason) => {
-    if (terminationReason) return;
+  const initiateTermination = (reason, message = null) => {
+    if (settled || terminationReason) return;
     terminationReason = reason;
-    status = reason;
-    try {
-      child.kill('SIGTERM');
-    } catch (err) {
-      stderr += `\nSIGTERM failed: ${err.message}`;
-    }
-    forceTimer ??= setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch (err) {
-        stderr += `\nSIGKILL failed: ${err.message}`;
+    status = reason === 'output_limit' ? 'failed' : reason;
+    errorMessage = message;
+    terminationTask = terminateTree(child.pid, {
+      graceMs: terminationGraceMs,
+      forceGraceMs: forceKillGraceMs,
+    }).catch((err) => {
+      stderr += `\nprocess tree termination failed: ${err.message}`;
+    }).then(() => {
+      if (!settled && !exited) {
+        // A disappeared PID can precede Node's exit/close events. Give those
+        // events a bounded turn to arrive before abandoning the handle.
+        giveUpTimer = setTimeout(() => {
+          if (settled || exited) return; // exit owns the separate drain deadline
+          stderr += '\nagent-runtime: child did not exit after SIGKILL escalation';
+          destroyStdio();
+          child.unref?.();
+          settleExit(124);
+        }, forceKillGraceMs);
       }
-      giveUpTimer ??= setTimeout(() => {
-        stderr += '\nagent-runtime: child did not exit after SIGKILL escalation';
-        child.stdout.destroy?.();
-        child.stderr.destroy?.();
-        child.stdin.destroy?.();
-        child.unref?.();
-        settleExit(124);
-      }, forceKillGraceMs);
-    }, terminationGraceMs);
+    });
   };
 
-  const timer = timeoutMs > 0
-    ? setTimeout(() => initiateTermination('timeout'), timeoutMs)
+  timer = timeoutMs > 0
+    ? setTimeout(() => initiateTermination('timeout', `agy did not finish within ${timeoutMs} ms`), timeoutMs)
     : null;
 
   let abortListener;
@@ -517,22 +581,27 @@ export async function runAgyPrint({
     else signal.addEventListener('abort', abortListener, { once: true });
   }
 
+  let exitCode;
   try {
-    await onSpawn?.({ pid: child.pid ?? null, child });
-  } catch (err) {
-    try { child.kill('SIGKILL'); } catch {}
-    throw err;
+    try {
+      await onSpawn?.({ pid: child.pid ?? null, child });
+    } catch (err) {
+      initiateTermination('failed');
+      await exitCodePromise;
+      throw err;
+    }
+    if (!settled && !terminationReason) {
+      child.stdin.write(buildStreamJsonLine(prompt) + '\n');
+      child.stdin.end();
+    }
+    exitCode = await exitCodePromise;
+  } finally {
+    clearTimeout(timer);
+    clearTimeout(drainTimer);
+    clearTimeout(giveUpTimer);
+    if (signal && abortListener) signal.removeEventListener('abort', abortListener);
+    await terminationTask;
   }
-
-  child.stdin.write(buildStreamJsonLine(prompt) + '\n');
-  child.stdin.end();
-
-  const exitCode = await exitCodePromise;
-
-  if (timer) clearTimeout(timer);
-  if (forceTimer) clearTimeout(forceTimer);
-  if (giveUpTimer) clearTimeout(giveUpTimer);
-  if (signal && abortListener) signal.removeEventListener('abort', abortListener);
 
   const parsed = parseAgyStream(stdout);
 
@@ -548,7 +617,6 @@ export async function runAgyPrint({
     }
   }
 
-  const warnings = [];
   let denial = null;
   if (!status) {
     if (exitCode !== 0) {
@@ -577,10 +645,12 @@ export async function runAgyPrint({
 
   return {
     status,
-    stderr,
+    stderr: errorMessage ? `${stderr}\n${errorMessage}` : stderr,
+    errorMessage,
     exitCode,
     oauthUrl,
-    stdout: parsed.sawResult && typeof parsed.response === 'string' ? parsed.response : stdout,
+    stdout: terminationReason === 'output_limit' ? stdout
+      : parsed.sawResult && typeof parsed.response === 'string' ? parsed.response : stdout,
     rawStdout: stdout,
     usage: parsed.usage ?? null,
     durationSeconds: parsed.durationSeconds ?? null,

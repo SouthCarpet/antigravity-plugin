@@ -16,7 +16,7 @@
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
-import { AGY_MODES, applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
+import { AGY_MODES, DEFAULT_AGY_TIMEOUT_MS, applyDenialHint, headlessDenialHint, patchJob } from "../lib/job-helpers.mjs";
 
 function unsupportedStoredFlag(extraArgs) {
   if (!Array.isArray(extraArgs)) return String(extraArgs);
@@ -79,6 +79,7 @@ async function main() {
       addDirs: request.addDirs ?? [],
       extraArgs,
       cwd: request.cwd ?? workspaceRoot,
+      timeoutMs: request.timeoutMs ?? DEFAULT_AGY_TIMEOUT_MS,
       onText,
       onSpawn: async ({ pid }) => {
         // Publish startup in one transaction after the child exists. The
@@ -139,7 +140,7 @@ async function main() {
         : result.denial && status === "failed"
         ? headlessDenialHint(stored.kind)
         : null,
-    errorMessage: status === "failed" ? trim(result.stderr) : null,
+    errorMessage: result.errorMessage ?? (status === "failed" ? trim(result.stderr) : null),
     result: {
       rawOutput: result.stdout,
       stderr: result.stderr,

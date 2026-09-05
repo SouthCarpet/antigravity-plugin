@@ -6,6 +6,8 @@ import { execFileSync, spawnSync, spawn as nodeSpawn } from "node:child_process"
 import fs from "node:fs";
 import process from "node:process";
 
+export const GIT_TIMEOUT_MS = 120_000;
+
 /**
  * Run a command synchronously and return the result.
  *
@@ -19,6 +21,7 @@ export function runCommand(command, args, options = {}) {
     const result = spawnSync(command, args, {
       cwd: options.cwd,
       maxBuffer: options.maxBuffer ?? 10 * 1024 * 1024,
+      timeout: options.timeoutMs ?? GIT_TIMEOUT_MS,
       encoding: "utf8",
       env: options.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"]
@@ -27,7 +30,9 @@ export function runCommand(command, args, options = {}) {
       stdout: result.stdout ?? "",
       stderr: result.stderr ?? "",
       status: result.status,
-      error: result.error ?? null
+      error: result.error?.code === "ETIMEDOUT"
+        ? Object.assign(new Error(`${command} timed out after ${options.timeoutMs ?? GIT_TIMEOUT_MS} ms`), { code: "ETIMEDOUT" })
+        : result.error ?? null
     };
   } catch (/** @type {any} */ error) {
     return {
@@ -82,7 +87,7 @@ export function formatCommandFailure(result) {
 export function binaryAvailable(name) {
   try {
     const command = process.platform === "win32" ? "where" : "which";
-    const result = spawnSync(command, [name], { encoding: "utf8", stdio: "pipe" });
+    const result = spawnSync(command, [name], { encoding: "utf8", stdio: "pipe", timeout: 10_000 });
     return result.status === 0;
   } catch {
     return false;
@@ -174,7 +179,7 @@ export async function terminateProcessTree(pid, options = {}) {
         last = spawnSyncImpl(
           "taskkill",
           ["/PID", String(numericPid), "/T", ...(force ? ["/F"] : [])],
-          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000 },
         );
       } catch (error) {
         last = { status: null, signal: null, stderr: error?.message ?? String(error), error };
