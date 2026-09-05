@@ -551,4 +551,44 @@ describe('workspace', () => {
     assert.equal(typeof r, 'string');
     assert.ok(r.length > 0);
   });
+
+  // Oracle: fix brief 076-T4-fix2 F1. resolveStateDir calls this once per
+  // state read/write, so an uncached git spawn here repeats per operation;
+  // a unique literal cwd per test keeps the module-level cache from leaking
+  // across cases (real callers pass unique mkdtemp/process.cwd() paths too).
+  it('resolveWorkspaceRoot spawns the injected git check once per cwd for the process lifetime', () => {
+    let calls = 0;
+    const cwd = '/t4fix2-076/unique-cache-hit-cwd';
+    const fakeEnsure = (received) => { calls += 1; assert.equal(received, cwd); return '/fake/repo/root'; };
+
+    const first = resolveWorkspaceRoot(cwd, { ensureGitRepository: fakeEnsure });
+    const second = resolveWorkspaceRoot(cwd, { ensureGitRepository: fakeEnsure });
+
+    assert.equal(calls, 1);
+    assert.equal(first, '/fake/repo/root');
+    assert.equal(second, '/fake/repo/root');
+  });
+
+  it('resolveWorkspaceRoot caches a non-git fallback (cwd itself) the same way', () => {
+    let calls = 0;
+    const cwd = '/t4fix2-076/unique-cache-miss-cwd';
+    const fakeEnsure = () => { calls += 1; throw new Error('not a repo'); };
+
+    const first = resolveWorkspaceRoot(cwd, { ensureGitRepository: fakeEnsure });
+    const second = resolveWorkspaceRoot(cwd, { ensureGitRepository: fakeEnsure });
+
+    assert.equal(calls, 1);
+    assert.equal(first, cwd);
+    assert.equal(second, cwd);
+  });
+
+  it('resolveWorkspaceRoot re-queries for a different cwd', () => {
+    let calls = 0;
+    const fakeEnsure = (received) => { calls += 1; return received; };
+
+    resolveWorkspaceRoot('/t4fix2-076/unique-cwd-a', { ensureGitRepository: fakeEnsure });
+    resolveWorkspaceRoot('/t4fix2-076/unique-cwd-b', { ensureGitRepository: fakeEnsure });
+
+    assert.equal(calls, 2);
+  });
 });

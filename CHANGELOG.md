@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same permission-denied policy. Timed-out background waits now say that the
   job is still queued or running and point to `status`. Stale locks no longer
   survive merely because their recorded PID was reused by another process.
+  Workspace root resolution (used by every job read/write) is cached per
+  directory for the run, so a background worker no longer repeats the same
+  `git rev-parse` on each state update.
 - **Bounded agy runs.** Foreground and background jobs fail after 30 minutes
   instead of waiting forever. Set `ANTIGRAVITY_AGY_TIMEOUT_MS` to change the
   budget, or `0` to disable it. Excess output (16 MiB stdout or 4 MiB stderr)
