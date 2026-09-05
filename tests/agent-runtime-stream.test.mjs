@@ -512,6 +512,40 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     assert.equal(res.oauthUrl, authUrl);
   });
 
+  // F3 fix round 2: rawAuthEvidence must be the matched sentinel text, never
+  // the whole chunk, so a chunk boundary landing inside the embedded
+  // sentinel does not defeat the responseText.includes() comparison below.
+  function longResponseWithEmbeddedSentinel() {
+    const sentinel = 'Authentication required. Please visit the URL to log in.';
+    const padding = 'This review discusses the sign-in flow at length. '.repeat(9);
+    return `${padding}${sentinel}\n${padding}more analysis text to pad it out further.`;
+  }
+
+  it('a long SUCCESS answer with an embedded auth sentinel delivered as one chunk is completed (F3 fixture A8b)', async () => {
+    spawnCalls.length = 0;
+    const response = longResponseWithEmbeddedSentinel();
+    assert.ok(response.length >= 512, `fixture too short: ${response.length}`);
+    nextEvents = [resultLine({ response }) + '\n'];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.stdout, response);
+  });
+
+  it('a long SUCCESS answer split exactly at the embedded auth sentinel is still completed (F3 fixture A8)', async () => {
+    spawnCalls.length = 0;
+    const response = longResponseWithEmbeddedSentinel();
+    const fullLine = resultLine({ response }) + '\n';
+    const sentinel = 'Authentication required. Please visit the URL to log in.';
+    const splitPoint = fullLine.indexOf(sentinel);
+    assert.ok(splitPoint > 0, 'fixture must embed the sentinel after some prefix');
+    nextEvents = [fullLine.slice(0, splitPoint), fullLine.slice(splitPoint)];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.stdout, response);
+  });
+
   it('a non-SUCCESS result quoting the OAuth URL still yields auth_required', async () => {
     spawnCalls.length = 0;
     const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';

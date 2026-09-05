@@ -505,12 +505,17 @@ export async function runAgyPrint({
   let stderr = '';
   let oauthUrl;
   let status;
-  // The exact raw-stdout text (a URL, or the whole chunk for a bare sentinel
-  // line) that made the per-chunk scan below set `auth_required`. Kept so
-  // the SUCCESS-response reclassification (see below) can tell a genuine,
-  // independent raw auth signal apart from a raw match that only fired
-  // because the same bytes are also inside the JSON `result.response` field
-  // — F3/item 14: the fix must undo only the latter.
+  // The exact raw-stdout text (the URL, or the matched sentinel text — never
+  // the whole chunk) that made the per-chunk scan below set `auth_required`.
+  // Kept so the SUCCESS-response reclassification (see below) can tell a
+  // genuine, independent raw auth signal apart from a raw match that only
+  // fired because the same bytes are also inside the JSON `result.response`
+  // field — F3/item 14: the fix must undo only the latter. Storing the
+  // matched text rather than the containing chunk matters because a chunk
+  // boundary can land anywhere: if it happened to fall right at the start of
+  // an embedded sentinel, the rest of that chunk (JSON syntax and all) would
+  // never be a substring of the plain-text `responseText`, so the undo below
+  // would silently never fire for that split.
   let rawAuthEvidence = null;
   let spawnError = null;
   let timer = null;
@@ -588,9 +593,12 @@ export async function runAgyPrint({
         oauthUrl = m[1];
         status ??= 'auth_required';
         rawAuthEvidence ??= m[1];
-      } else if (AUTH_LINE_PATTERNS.some((p) => p.test(chunk))) {
-        status ??= 'auth_required';
-        rawAuthEvidence ??= chunk;
+      } else {
+        const sentinelPattern = AUTH_LINE_PATTERNS.find((p) => p.test(chunk));
+        if (sentinelPattern) {
+          status ??= 'auth_required';
+          if (rawAuthEvidence === null) rawAuthEvidence = chunk.match(sentinelPattern)[0].trim();
+        }
       }
     }
     if (lineFeeder) {
@@ -712,6 +720,10 @@ export async function runAgyPrint({
   // auth prompt/sentinel printed outside the response field (F3 — a real
   // raw signal followed by an unrelated SUCCESS result must stay
   // `auth_required`; the raw-stdout detection itself is unchanged).
+  // Known limit (not a regression): this substring check cannot tell a
+  // speculative JSON-embedded match apart from a genuine raw auth prompt
+  // whose own URL happens to also appear, verbatim, inside an unrelated
+  // long SUCCESS answer — that case is still undone (A9).
   const rawEvidenceIsSpeculative = rawAuthEvidence !== null && responseText.includes(rawAuthEvidence);
   if (status === 'auth_required' && parsed.sawResult && !eligible && rawEvidenceIsSpeculative) {
     status = undefined;

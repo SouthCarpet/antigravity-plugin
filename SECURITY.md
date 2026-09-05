@@ -121,12 +121,12 @@ The job state root, the per-workspace directory created under it, the
 `jobs` directory beneath that, the cross-process lock directory, and the
 update-check cache directory each refuse to use a directory that already
 exists with a different owner, that is writable by the directory's group or
-by anyone else, or that is a symlink — every level is checked, not only the
-leaf that a call happens to create. This matters only on a shared multi-user
-Linux host, where
-another local user could otherwise pre-create or replace one of these paths
-under the OS temp directory before this plugin runs. Windows and macOS are
-unaffected: `%TEMP%`/`$TMPDIR` are already per-user there.
+by anyone else, or that is a symlink. Every level is checked, not only the
+leaf that a call happens to create. This matters only on a shared
+multi-user Linux host, where another local user could otherwise pre-create
+or replace one of these paths under the OS temp directory before this
+plugin runs. Windows and macOS are unaffected: `%TEMP%`/`$TMPDIR` are
+already per-user there.
 
 ### `update --apply`
 
