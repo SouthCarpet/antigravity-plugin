@@ -176,13 +176,14 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       // check (which never runs on a fresh lock), but `resolveStateDir`
       // calling `resolveWorkspaceRoot` — a synchronous `git rev-parse` — on
       // every single state read/write. One worker run spawned it 13 times.
-      // On this machine that spawn costs ~0.1 s from the long-lived test
-      // process but ~3.4 s each time from the freshly spawned background
-      // worker (measured directly and reproduced in isolation with the
-      // worker's exact spawn shape; the cause of the per-process gap is not
-      // conclusively identified, so it is not attributed to antivirus or
-      // anything else unmeasured). 13 x ~3.4 s accounted for essentially
-      // all of the previous ~50 s run. `resolveWorkspaceRoot` now caches
+      // The cost of one such spawn from the freshly started background
+      // worker varies by session on this machine (about 3.4 s in the fix
+      // session, under 0.5 s in the re-review session; the cause of the
+      // per-process gap is not identified, so it is not attributed to
+      // antivirus or anything else unmeasured). The count of spawns, not the
+      // cost of one, is what made this case take up to 50 s and fail a 30 s
+      // budget; with the cache disabled the re-review measured 29 spawns and
+      // 13.3 s. `resolveWorkspaceRoot` now caches
       // per cwd for the process lifetime (workspace.mjs) — a cwd's git
       // identity cannot change within one CLI invocation or worker run —
       // which cuts the worker down to its one unavoidable spawn. Post-fix,
