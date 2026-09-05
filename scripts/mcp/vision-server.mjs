@@ -266,8 +266,16 @@ function handleRequest(msg, allowedPaths, loadImage) {
   }
 }
 
-// Streams and the image loader are injectable for deterministic transport and
-// handler-failure tests. Production uses the same serial processing loop.
+/**
+ * Streams and the image loader are injectable for deterministic transport and
+ * handler-failure tests. Production uses the same serial processing loop.
+ *
+ * @param {NodeJS.ReadableStream} input
+ * @param {NodeJS.WritableStream} output
+ * @param {string[]} allowedPaths
+ * @param {typeof loadImageResult} [loadImage]
+ * @returns {Promise<void>}
+ */
 export async function serveVision(input, output, allowedPaths, loadImage = loadImageResult) {
   // No application request/reply queue: retain one input frame (64 KiB) plus
   // the current stream chunk and one reply (at most one 10 MiB base64 image

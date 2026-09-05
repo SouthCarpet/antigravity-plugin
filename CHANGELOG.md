@@ -91,6 +91,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rescue`, `review`, `task`, or `vision` run stores `agyConversationId` in
   its job record the same way a background run always did. This is an
   internal record field; it is not part of the `--json` output.
+- **Auth-required message wording.** `review`, `rescue`, `task`, and `vision`
+  now print the same not-authenticated message on a foreground OAuth prompt.
+  Each verb had its own slightly different wording before. Diagnostic and
+  error text is not part of the frozen 1.x contract.
+- **Background auth-required message wording.** A background job's stored
+  `healthMessage` for `auth_required` now uses the same wording as the
+  foreground message above. This is an internal record field; it is not
+  part of the `--json` output.
+- **Empty or missing progress log.** `status`'s `recentProgress` (in
+  `--json` `details`) is now `[]` for a job whose log is empty or missing.
+  Before, an empty log gave `[""]` and a missing log left the field absent.
 
 ### Removed
 
@@ -106,6 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thread id, a runtime transport, or ACP-era events on a job), and
   `Last Tool Call` always read `-`. All four lines are gone from the
   single-job status view.
+- **`result`'s conversation footer.** `result`'s answer text no longer
+  appends a `Conversation ID:` / `Resume conversation:` footer. Nothing ever
+  wrote the field this footer read, so it could never actually appear (same
+  cause as the `status <id>` fields above).
 
 ## [1.1.3] — 2026-09-04
 

@@ -32,6 +32,12 @@ import {
 import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
+/**
+ * @param {string[]} [argv] CLI arguments after the verb (flags only)
+ * @param {{ cwd?: string, startBackgroundJob?: typeof startBackgroundJob,
+ *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`
+ * @returns {Promise<number>} process exit code
+ */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["base", "scope", "conversation", "cwd"],

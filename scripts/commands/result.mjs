@@ -14,6 +14,12 @@ import { createJsonEnvelope, outputCommandResult, renderResultOutput } from "../
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
+/**
+ * @param {string[]} [argv] CLI arguments after the verb (a job reference and flags)
+ * @param {{ cwd?: string, resolveResultJob?: typeof resolveResultJob,
+ *   readJobFile?: typeof readJobFile }} [ctx] dependency overrides for tests, plus `cwd`
+ * @returns {Promise<number>} process exit code (0 completed, 1 failed/not found, 2 cancelled)
+ */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["cwd"],

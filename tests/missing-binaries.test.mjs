@@ -36,10 +36,6 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       if (runtime.useRealRun) return real.runAgyPrint(opts);
       return { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };
     },
-    spawnAgyDetached: (opts) => {
-      runtime.calls.push(opts);
-      return { pid: 1 };
-    },
     resolveAgyBin: real.resolveAgyBin,
     probeAgy: async () => {
       runtime.probeCalls += 1;

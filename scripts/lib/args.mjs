@@ -109,7 +109,13 @@ export function parseArgs(argv, schema = {}) {
   return { options, positionals };
 }
 
-/** Parse tokenized command argv without reinterpreting argument boundaries. */
+/**
+ * Parse tokenized command argv without reinterpreting argument boundaries.
+ *
+ * @param {string[]} argv
+ * @param {ArgSchema} [schema]
+ * @returns {ParsedArgs}
+ */
 export function parseCommandInput(argv, schema = {}) {
   return parseArgs(argv, schema);
 }

@@ -365,20 +365,76 @@ describe('state — persistence + reconciliation', () => {
       fs.writeSync(fd, 'final tail line\n');
       fs.closeSync(fd);
 
-      let requestedLength = 0;
+      // Fix round 1 F4 adds a second, 1-byte `fs.readSync` call (the line-
+      // boundary check) whenever the tail window starts mid-file — track the
+      // largest requested length, not the last one, so this assertion still
+      // proves the PRIMARY tail read stays bounded rather than being
+      // silently satisfied by the 1-byte check that runs after it.
+      let maxRequestedLength = 0;
       const realReadSync = fs.readSync.bind(fs);
       t.mock.method(fs, 'readSync', (fdArg, buffer, offset, length, position) => {
-        requestedLength = length;
+        maxRequestedLength = Math.max(maxRequestedLength, length);
         return realReadSync(fdArg, buffer, offset, length, position);
       });
 
       const tail = readLogTail(file, { lines: 4, maxBytes: 65536 });
-      assert.ok(requestedLength > 0 && requestedLength <= 65536,
-        `expected a read bounded to 64 KB, got ${requestedLength}`);
+      assert.ok(maxRequestedLength > 0 && maxRequestedLength <= 65536,
+        `expected every read bounded to 64 KB, got ${maxRequestedLength}`);
       assert.match(tail, /final tail line/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // Fix round 1 F4/F9: `readLogTail` boundary cases the reviewer found
+  // untested. Each is written directly against a scratch file, independent
+  // of appendJobLog's own newline convention.
+  describe('readLogTail boundary cases (fix round 1 F4/F9)', () => {
+    it('does not drop a complete line when the window starts exactly at a line boundary', () => {
+      const dir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-logtail-boundary-'));
+      const file = path.join(dir, 'exact.log');
+      try {
+        // 12 bytes: "aaa\nbbb\nccc\n". maxBytes:8 makes the read window start
+        // at byte offset 4 — exactly after the first "\n" — so "bbb" is a
+        // complete line, not a truncated fragment. The pre-fix code dropped
+        // it anyway (unconditional truncation whenever start > 0),
+        // returning only "ccc".
+        fs.writeFileSync(file, 'aaa\nbbb\nccc\n');
+        const tail = readLogTail(file, { lines: 4, maxBytes: 8 });
+        assert.equal(tail, 'bbb\nccc');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns empty for a bounded window with no newline at all', () => {
+      const dir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-logtail-nonewline-'));
+      const file = path.join(dir, 'onelong.log');
+      try {
+        // A 200-char single line with no newline anywhere in the file: a
+        // maxBytes:50 window can never contain a line boundary, so there is
+        // no complete line to recover. This is the existing, still-correct
+        // outcome for that case; the case exists so deleting the boundary
+        // check entirely (not just weakening it) is caught too.
+        fs.writeFileSync(file, 'x'.repeat(200));
+        const tail = readLogTail(file, { lines: 4, maxBytes: 50 });
+        assert.equal(tail, '');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns empty for lines: 0 instead of the whole tail (slice(-0) === slice(0))', () => {
+      const dir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-logtail-zerolines-'));
+      const file = path.join(dir, 'zero.log');
+      try {
+        fs.writeFileSync(file, 'aaa\nbbb\nccc\n');
+        const tail = readLogTail(file, { lines: 0 });
+        assert.equal(tail, '');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   it('saveState prunes jobs beyond MAX_JOBS=50 and removes per-job files', async () => {

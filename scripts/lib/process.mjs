@@ -77,6 +77,8 @@ export function formatCommandFailure(result) {
  * exists but belongs to another principal, so it is considered running.
  *
  * @param {number} pid
+ * @param {typeof process.kill} [killImpl]
+ * @returns {boolean}
  */
 export function isProcessAlive(pid, killImpl = process.kill) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -97,6 +99,10 @@ export function isProcessAlive(pid, killImpl = process.kill) {
  * briefly per PID to keep a stale live lock's 25 ms retry loop from starting a
  * shell on every attempt. The cache expires so a PID reused later is queried
  * again rather than inheriting the former process's identity indefinitely.
+ *
+ * @param {number} pid
+ * @param {{ now?: () => number, platform?: string, spawnSyncImpl?: typeof spawnSync }} [options]
+ * @returns {number | null}
  */
 export function processStartedAt(pid, {
   now = Date.now,
@@ -166,8 +172,11 @@ function publicAttempt(kind, result) {
  * Terminate a process tree, verify that the root PID disappeared, and
  * escalate from a polite request to a forced kill when needed.
  *
- * @returns {Promise<{ outcome: "killed"|"not_found"|"denied"|"failed",
- *   killed: boolean, pid: number, status: number|null, attempts: object[], message: string }>}
+ * @param {number | string} pid
+ * @param {{ platform?: string, killImpl?: typeof process.kill,
+ *   spawnSyncImpl?: typeof spawnSync, probe?: (pid: number) => boolean,
+ *   graceMs?: number, forceGraceMs?: number }} [options]
+ * @returns {Promise<import('./types.mjs').TerminationResult>}
  */
 export async function terminateProcessTree(pid, options = {}) {
   const numericPid = Number(pid);

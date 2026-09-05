@@ -69,6 +69,11 @@ function imageProblem(imagePath) {
   return null;
 }
 
+/**
+ * @param {string[]} [argv] CLI arguments after the verb (one or more image paths and flags)
+ * @param {{ cwd?: string }} [ctx] `cwd` override for tests
+ * @returns {Promise<number>} process exit code
+ */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["prompt", "model", "cwd"],

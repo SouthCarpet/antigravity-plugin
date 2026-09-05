@@ -46,7 +46,6 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       options.onText?.('second delta');
       return { ...runtime.next };
     },
-    spawnAgyDetached: () => ({ pid: 1 }),
     resolveAgyBin: () => 'agy',
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
@@ -54,6 +53,8 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
 });
 
 const { ensureStateDir, upsertJob, writeJobFile, readJobFile } = await import('../scripts/lib/state.mjs');
+const { buildSingleJobSnapshot } = await import('../scripts/lib/job-control.mjs');
+const { renderSingleJobStatus } = await import('../scripts/lib/render.mjs');
 
 describe('_worker.mjs background job completion', () => {
   for (const extraArgs of [undefined, [], ['--mode', 'plan'], ['--mode', 'accept-edits']]) {
@@ -127,6 +128,93 @@ describe('_worker.mjs background job completion', () => {
       assert.equal(runtime.options.timeoutMs, 1800000);
     });
   }
+});
+
+describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () => {
+  it('stores agy stderr as errorMessage and status <id> renders a ## Error section', async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-'));
+    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-data-'));
+    const jobId = 'job' + randomBytes(3).toString('hex');
+
+    const origCwd = process.cwd();
+    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    const origArgv = process.argv;
+    const savedNext = { ...runtime.next };
+
+    // A fake agy that hits auth_required by writing a stderr sentinel and
+    // exiting normally (no timeout/output-limit termination), so
+    // agent-runtime.mjs never populates `result.errorMessage` — the fallback
+    // in _worker.mjs is the only path that can preserve this text.
+    runtime.next = {
+      status: 'auth_required',
+      exitCode: 1,
+      stdout: '',
+      stderr: 'agy: token expired, please re-authenticate',
+      errorMessage: undefined,
+      oauthUrl: 'https://accounts.google.com/o/oauth2/auth?x',
+      usage: null,
+      durationSeconds: 1.2,
+      agyConversationId: null,
+    };
+
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    process.chdir(workspaceRoot);
+
+    ensureStateDir(workspaceRoot);
+    await upsertJob(workspaceRoot, {
+      id: jobId,
+      kind: 'task',
+      status: 'queued',
+      phase: 'queued',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await writeJobFile(workspaceRoot, jobId, {
+      id: jobId,
+      status: 'queued',
+      request: { prompt: 'hello', mode: 'print', addDirs: [], extraArgs: [] },
+      result: null,
+    });
+
+    let resolveExit;
+    const exited = new Promise((resolve) => {
+      resolveExit = resolve;
+    });
+    const exitMock = mock.method(process, 'exit', (code) => {
+      resolveExit(code);
+    });
+    process.argv = [origArgv[0], origArgv[1], jobId];
+
+    let stored;
+    let rendered;
+    try {
+      await import('../scripts/commands/_worker.mjs?authcase=' + jobId);
+      await exited;
+      stored = readJobFile(workspaceRoot, jobId);
+      // Render while CLAUDE_PLUGIN_DATA still points at the throwaway
+      // dataDir — resolveStateRoot reads that env var.
+      rendered = renderSingleJobStatus(buildSingleJobSnapshot(workspaceRoot, jobId));
+    } finally {
+      process.chdir(origCwd);
+      process.argv = origArgv;
+      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+      else delete process.env.CLAUDE_PLUGIN_DATA;
+      exitMock.mock.restore();
+      runtime.next = savedNext;
+      removeTestDir(workspaceRoot);
+      removeTestDir(dataDir);
+    }
+
+    assert.equal(stored.status, 'failed');
+    assert.equal(stored.healthStatus, 'auth_required');
+    assert.equal(stored.errorMessage, 'agy: token expired, please re-authenticate');
+    assert.ok(rendered.includes('## Error'), 'expected a ## Error section');
+    assert.ok(
+      rendered.includes('agy: token expired, please re-authenticate'),
+      'expected the preserved stderr text in the rendered status',
+    );
+  });
 });
 
 it('uses the stored 50 ms budget and persists failed after terminating a sleeping fake agy', () => {

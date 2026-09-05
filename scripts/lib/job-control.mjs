@@ -26,6 +26,11 @@ export function sortJobsNewestFirst(jobs) {
   );
 }
 
+/**
+ * @param {import('./types.mjs').JobIndexEntry[]} jobs
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {import('./types.mjs').JobIndexEntry[]} `jobs` unfiltered when no session id is set
+ */
 export function filterJobsForCurrentSession(jobs, env = process.env) {
   const sessionId = env[SESSION_ID_ENV] ?? null;
   if (!sessionId) return jobs;
@@ -124,7 +129,13 @@ function classifyRuntimeHealth(job, options = {}) {
   return {};
 }
 
-/** Detail is committed first and wins if its index projection is stale. */
+/**
+ * Detail is committed first and wins if its index projection is stale.
+ *
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {import('./types.mjs').JobRecord | null | undefined} storedJob
+ * @returns {import('./types.mjs').JobIndexEntry | import('./types.mjs').JobRecord}
+ */
 export function mergeJobDetail(job, storedJob) {
   return storedJob && typeof storedJob === "object" && !Array.isArray(storedJob) && storedJob.id === job.id
     ? { ...job, ...storedJob }

@@ -40,7 +40,6 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       for (const delta of runtime.textDeltas) options.onText?.(delta);
       return { ...runtime.next };
     },
-    spawnAgyDetached: () => ({ pid: runtime.spawnPid }),
     resolveAgyBin: () => 'agy',
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
@@ -61,7 +60,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
 // job-helpers below will pick them up.
 const {
   runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId,
-  resolveWorkerPath, agyTimeoutMs, waitOutcomeLine,
+  resolveWorkerPath, agyTimeoutMs, waitOutcomeLine, finishForeground,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
@@ -183,6 +182,28 @@ describe('runForegroundJob — terminal status mapping', () => {
     runtime.next = { status: 'cancelled', exitCode: 130, stdout: '', stderr: '' };
     const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 'x', prompt: 'p' });
     assert.equal(readJobFile(workspaceRoot, job.id).status, 'cancelled');
+  });
+
+  // Fix round 1 F7: the documented exit status 2 for a cancelled foreground
+  // verb now lives in this one shared line inside `finishForeground`
+  // (`return result.status === "cancelled" ? 2 : 1;`) and was untested —
+  // replacing it with `return 1;` left the full suite green. Pin it directly
+  // here, plus a non-cancelled case so the ternary's other branch stays
+  // covered too.
+  it('finishForeground returns exit code 2 for a cancelled result, 1 for any other non-completed status', () => {
+    const stderrMock = mock.method(process.stderr, 'write', () => true);
+    let cancelledExit;
+    let failedExit;
+    try {
+      cancelledExit = finishForeground('rescue', { id: 'j1' },
+        { status: 'cancelled', exitCode: 130, stdout: '', stderr: '' }, { json: false });
+      failedExit = finishForeground('rescue', { id: 'j2' },
+        { status: 'failed', exitCode: 1, stdout: '', stderr: 'boom' }, { json: false });
+    } finally {
+      stderrMock.mock.restore();
+    }
+    assert.equal(cancelledExit, 2);
+    assert.equal(failedExit, 1);
   });
 
   it('failed → status=failed and errorMessage from stderr', async () => {

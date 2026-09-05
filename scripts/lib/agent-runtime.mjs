@@ -59,6 +59,7 @@ function firstExisting(dirs, names) {
  * spawnable.
  *
  * @param {string} bin
+ * @returns {boolean}
  */
 export function isWindowsBatchFile(bin) {
   const ext = extname(String(bin ?? '')).toLowerCase();
@@ -70,6 +71,7 @@ export function isWindowsBatchFile(bin) {
  * the user pointed `AGY_BIN` at one.
  *
  * @param {string} bin
+ * @returns {string}
  */
 export function batchShimRefusalMessage(bin) {
   return (
@@ -85,6 +87,7 @@ export function batchShimRefusalMessage(bin) {
  * instead of letting a raw EINVAL escape.
  *
  * @param {string} bin
+ * @returns {void}
  */
 export function assertAgyBinSpawnable(bin) {
   if (isWindowsBatchFile(bin)) {
@@ -147,6 +150,7 @@ function forwardTerminationSignals(onSignal) {
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @param {string} [platform] - defaults to `process.platform`; injectable for tests.
+ * @returns {string} an absolute path when found, else the bare `agy` name
  */
 export function resolveAgyBin(env = process.env, platform = process.platform) {
   if (env.AGY_BIN && existsSync(env.AGY_BIN)) return env.AGY_BIN;
@@ -177,6 +181,10 @@ export function resolveAgyBin(env = process.env, platform = process.platform) {
 /**
  * Probe `agy --version`. Resolves to `{ ok: true, version }` or
  * `{ ok: false, reason }`.
+ *
+ * @param {{ bin?: string, timeoutMs?: number,
+ *   terminateTree?: typeof terminateProcessTree, platform?: string }} [options]
+ * @returns {Promise<{ ok: true, version: string } | { ok: false, reason: string }>}
  */
 export async function probeAgy({
   bin = resolveAgyBin(),

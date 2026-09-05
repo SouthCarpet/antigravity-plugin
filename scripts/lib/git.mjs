@@ -301,6 +301,8 @@ function compareBaseCommit(cwd, baseRef, baseCommit) {
   return { mergeBase, diff, commits, fileList, summary };
 }
 
+const VALID_SCOPES = new Set(["auto", "working-tree", "branch"]);
+
 /**
  * Collect git context based on scope (working-tree or branch).
  *
@@ -308,8 +310,6 @@ function compareBaseCommit(cwd, baseRef, baseCommit) {
  * @param {{ scope?: "auto" | "working-tree" | "branch", base?: string, realpathSync?: typeof fs.realpathSync }} [options]
  * @returns {{ scope: string, context: any }}
  */
-const VALID_SCOPES = new Set(["auto", "working-tree", "branch"]);
-
 export function collectReviewContext(cwd, options = {}) {
   const scope = options.scope ?? "auto";
 

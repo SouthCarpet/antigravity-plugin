@@ -13,7 +13,13 @@
  */
 import { spawn as nodeSpawn } from 'node:child_process';
 
-/** @type {typeof import('node:child_process').spawn} */
+/**
+ * @type {typeof import('node:child_process').spawn}
+ * @param {string} command
+ * @param {string[]} [args]
+ * @param {object} [options]
+ * @returns {import('node:child_process').ChildProcess}
+ */
 export function spawn(command, args, options) {
   return nodeSpawn(command, args, options);
 }

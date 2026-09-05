@@ -28,6 +28,10 @@ import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
 export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {number} the agy execution budget in ms
+ */
 export function agyTimeoutMs(env = process.env) {
   const value = env[AGY_TIMEOUT_ENV];
   if (value === undefined) return DEFAULT_AGY_TIMEOUT_MS;
@@ -39,7 +43,11 @@ export function agyTimeoutMs(env = process.env) {
   return DEFAULT_AGY_TIMEOUT_MS;
 }
 
-/** Generate a short, URL-safe job id (12 hex chars). */
+/**
+ * Generate a short, URL-safe job id (12 hex chars).
+ *
+ * @returns {string}
+ */
 export function newJobId() {
   return randomBytes(6).toString("hex");
 }
@@ -90,14 +98,25 @@ export function foregroundFailureLine(kind, result) {
     : `antigravity:${kind} — failed (${result.status}).`;
 }
 
-/** Explain an unfinished --wait without changing its exit code or envelope. */
+/**
+ * Explain an unfinished --wait without changing its exit code or envelope.
+ *
+ * @param {string} kind verb name
+ * @param {import('./types.mjs').JobRecord | null | undefined} job
+ * @returns {string | null}
+ */
 export function waitOutcomeLine(kind, job) {
   if (!job) return `antigravity:${kind} — job record vanished while waiting.`;
   if (job.status !== "running" && job.status !== "queued") return null;
   return `antigravity:${kind} — wait timed out; job ${job.id} is still ${job.status}. Run /antigravity:status ${job.id}.`;
 }
 
-/** Resolve the current session id (or `null` if unset). */
+/**
+ * Resolve the current session id (or `null` if unset).
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string | null}
+ */
 export function currentSessionId(env = process.env) {
   return env[SESSION_ID_ENV] ?? null;
 }
@@ -134,6 +153,10 @@ export function headlessDenialHint(kind) {
  * Fold the per-verb hint into a starved-by-denial result so every reader of
  * `result.stderr` (the verb's failure print, the stored `errorMessage`)
  * sees the remedy next to the reason. Returns the same object.
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {string} kind job kind
+ * @returns {import('./types.mjs').RuntimeResult}
  */
 export function applyDenialHint(result, kind) {
   if (result?.status !== "failed" || !result.denial) return result;
@@ -461,6 +484,8 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
  * (see `startBackgroundJob` below) that failure was invisible — the job
  * never left `queued`, and `waitForJob`/`task --wait` hung until timeout
  * (or forever with `timeoutMs: 0`).
+ *
+ * @returns {string}
  */
 export function resolveWorkerPath() {
   return fileURLToPath(new URL("../commands/_worker.mjs", import.meta.url));

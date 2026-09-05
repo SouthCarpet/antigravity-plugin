@@ -26,6 +26,10 @@ export class FileLockTimeoutError extends Error {
   }
 }
 
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
 export function isFileLockTimeoutError(error) {
   return error?.code === "FILE_LOCK_TIMEOUT";
 }
@@ -60,6 +64,10 @@ function staleLockCanBeReaped(lockPath, staleLockMs) {
  * Reap a lock only when its owner record names a PID the caller has already
  * verified as terminated. This bypasses staleLockMs without making ordinary
  * contenders guess about the liveness of fresh Windows processes.
+ *
+ * @param {string} lockPath
+ * @param {number[]} ownerPids
+ * @returns {boolean} true when a matching lock was reaped
  */
 export function reapFileLockOwnedBy(lockPath, ownerPids) {
   const expected = new Set(Array.from(ownerPids ?? [], Number));
@@ -138,6 +146,12 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+/**
+ * @param {string} lockPath
+ * @param {() => any} fn
+ * @param {{ lockTimeoutMs?: number, staleLockMs?: number, waitMs?: number }} [options]
+ * @returns {Promise<any>} `fn`'s resolved value
+ */
 export async function withFileLock(
   lockPath,
   fn,
@@ -163,6 +177,12 @@ export async function withFileLock(
  * `now`/`sleep` are injectable so a test can drive the wait loop with a
  * deterministic virtual clock instead of a real wall-clock wait (TotT R12):
  * production passes no override and gets `Date.now`/a real blocking sleep.
+ *
+ * @param {string} lockPath
+ * @param {() => any} fn
+ * @param {{ lockTimeoutMs?: number, staleLockMs?: number, waitMs?: number,
+ *   now?: () => number, sleep?: (ms: number) => void }} [options]
+ * @returns {any} `fn`'s return value
  */
 export function withFileLockSync(
   lockPath,

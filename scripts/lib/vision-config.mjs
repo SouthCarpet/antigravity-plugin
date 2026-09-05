@@ -209,11 +209,17 @@ function failureResult(filePath, error) {
   return { changed: false, warning: error instanceof Error ? error.message : String(error), filePath };
 }
 
+/** @returns {string} absolute path to scripts/mcp/vision-server.mjs */
 export function resolveVisionServerPath() {
   const here = fileURLToPath(import.meta.url);
   return path.resolve(path.dirname(here), "..", "mcp", "vision-server.mjs");
 }
 
+/**
+ * @param {{ homeDir?: string, serverPath?: string, nodePath?: string,
+ *   lockTimeoutMs?: number, now?: Date, atomicWriter?: typeof defaultAtomicWriter }} [options]
+ * @returns {{ changed: boolean, filePath: string, warning?: string }}
+ */
 export function ensureMcpConfig({
   homeDir = os.homedir(),
   serverPath = resolveVisionServerPath(),
@@ -239,6 +245,11 @@ export function ensureMcpConfig({
   }
 }
 
+/**
+ * @param {{ homeDir?: string, lockTimeoutMs?: number, now?: Date,
+ *   atomicWriter?: typeof defaultAtomicWriter }} [options]
+ * @returns {{ changed: boolean, filePath: string, warning?: string }}
+ */
 export function ensurePermissions({
   homeDir = os.homedir(),
   lockTimeoutMs,
@@ -262,6 +273,12 @@ export function ensurePermissions({
   }
 }
 
+/**
+ * @param {{ homeDir?: string, serverPath?: string, nodePath?: string,
+ *   lockTimeoutMs?: number, now?: Date, atomicWriter?: typeof defaultAtomicWriter }} [options]
+ * @returns {{ ok: boolean, mcpConfig: { changed: boolean, filePath: string },
+ *   permissions: { changed: boolean, filePath: string }, summary: string[] }}
+ */
 export function ensureVisionConfig({
   homeDir = os.homedir(),
   serverPath = resolveVisionServerPath(),
@@ -322,6 +339,11 @@ export function ensureVisionConfig({
   }
 }
 
+/**
+ * @param {{ homeDir?: string, serverPath?: string, lockTimeoutMs?: number,
+ *   now?: Date, atomicWriter?: typeof defaultAtomicWriter }} [options]
+ * @returns {{ ok: boolean, changed: boolean, summary: string[] }}
+ */
 export function removeVisionConfig({
   homeDir = os.homedir(),
   serverPath = resolveVisionServerPath(),

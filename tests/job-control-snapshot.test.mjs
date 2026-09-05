@@ -41,7 +41,7 @@ const {
   saveState,
   resolveJobLogFile,
 } = await import('../scripts/lib/state.mjs');
-const { resetWorkspaceRootCache } = await import('../scripts/lib/workspace.mjs');
+const { resetWorkspaceRootCache, getResolveWorkspaceRootCallCount } = await import('../scripts/lib/workspace.mjs');
 const {
   buildStatusSnapshot,
   buildSingleJobSnapshot,
@@ -122,11 +122,22 @@ describe('buildStatusSnapshot', () => {
   });
 
   // 076-T6 R4: state.mjs no longer re-resolves an already-resolved workspace
-  // root, so a snapshot over several stored jobs launches "git" (the owned
-  // seam mocked at the top of this file) at most once. The cache is reset
-  // right before the assertion so a warm hit from a cache the seeding calls
-  // may have populated cannot mask a regression (test-isolation footgun
-  // flagged on the T4 fix round 2 re-review).
+  // root, so a snapshot over several stored jobs calls `resolveWorkspaceRoot`
+  // (and so launches "git", the owned seam mocked at the top of this file) at
+  // most once. The cache is reset right before the assertion so a warm hit
+  // from a cache the seeding calls may have populated cannot mask a
+  // regression (test-isolation footgun flagged on the T4 fix round 2
+  // re-review).
+  //
+  // Fix round 1 F1: asserting on `gitCalls` alone does not discriminate a
+  // regression where `resolveStateDir` re-resolves the SAME already-resolved
+  // cwd string — the per-cwd cache absorbs that redundant call before it
+  // ever reaches the mocked `ensureGitRepository`, so `gitCalls` stays 1
+  // either way (reproduced: reverting `resolveStateDir` to
+  // `resolveWorkspaceRoot(cwd)` left `gitCalls` at 1 while
+  // `getResolveWorkspaceRootCallCount()` rose to 6). Asserting on the entry
+  // counter as well closes that gap; `gitCalls` stays as a secondary,
+  // independent measurement of the same win.
   it('resolves the workspace root at most once for a status snapshot over three stored jobs', async () => {
     await seedJob({ id: 'g1', status: 'completed' });
     await seedJob({ id: 'g2', status: 'completed' });
@@ -135,6 +146,7 @@ describe('buildStatusSnapshot', () => {
     resetWorkspaceRootCache();
     gitCalls = 0;
     buildStatusSnapshot(workCwd, { env: process.env });
+    assert.equal(getResolveWorkspaceRootCallCount(), 1);
     assert.equal(gitCalls, 1);
   });
 });

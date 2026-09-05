@@ -47,7 +47,6 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       agyRuntime.calls.push(opts);
       return { ...agyRuntime.next };
     },
-    spawnAgyDetached: () => ({ pid: 1 }),
     resolveAgyBin: () => 'agy',
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
@@ -737,6 +736,29 @@ describe('/antigravity:review', () => {
       answer: 'review answer',
     });
     assert.equal(typeof payload.jobId, 'string');
+  });
+
+  // Fix round 1 F7 verb-level case: a foreground `review` cancelled by agy
+  // must exit 2 (docs/COMPATIBILITY.md exit codes), not `finishForeground`'s
+  // generic 1. This exercises the shared line through a real verb, not just
+  // a direct `finishForeground` call.
+  it('exits 2 for a foreground review cancelled by agy', async () => {
+    const gitEnv = initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'original\n');
+    execSync('git add a.txt', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    execSync('git commit -q -m add', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'edited\n');
+
+    agyRuntime.next = { status: 'cancelled', exitCode: 130, stdout: '', stderr: '' };
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 2);
   });
 });
 

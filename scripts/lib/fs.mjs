@@ -38,6 +38,7 @@ export class UnsafeStateDirError extends Error {}
  * symlink, owned by a different uid, or group/other-writable.
  *
  * @param {string} dir
+ * @returns {void}
  */
 export function assertPrivateDir(dir) {
   if (process.platform === "win32") return;

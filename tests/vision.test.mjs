@@ -33,7 +33,6 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       runtime.calls.push(opts);
       return { ...runtime.next };
     },
-    spawnAgyDetached: () => ({ pid: 1 }),
     resolveAgyBin: () => 'agy',
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',

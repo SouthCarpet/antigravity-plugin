@@ -53,6 +53,9 @@ function defaultState() {
  * Resolve the host-owned state root. Claude retains first priority for
  * backward compatibility if a caller unusually supplies multiple host vars.
  * Standalone use (no host variable) is documented to use the OS temp root.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ root: string, source: string }}
  */
 export function resolveStateRoot(env = process.env) {
   for (const name of PLUGIN_DATA_ENVS) {
@@ -429,6 +432,22 @@ const DEFAULT_LOG_TAIL_LINES = 4;
 const DEFAULT_LOG_TAIL_MAX_BYTES = 64 * 1024;
 
 /**
+ * True when the byte immediately before `position` is a `\n`, i.e. `position`
+ * is the start of a line rather than a point mid-line. `position === 0` is
+ * always a line start (there is no preceding byte).
+ *
+ * @param {number} fd open file descriptor
+ * @param {number} position
+ * @returns {boolean}
+ */
+function precededByNewline(fd, position) {
+  if (position <= 0) return true;
+  const one = Buffer.alloc(1);
+  const read = fs.readSync(fd, one, 0, 1, position - 1);
+  return read === 1 && one[0] === 0x0a;
+}
+
+/**
  * Read at most `maxBytes` from the end of a file and return its last
  * `lines` lines, without ever loading the whole file into memory (076-T6
  * R4/item 20: a `status` snapshot used to read a whole multi-megabyte job
@@ -444,6 +463,9 @@ const DEFAULT_LOG_TAIL_MAX_BYTES = 64 * 1024;
  * @returns {string} the tail, newline-joined, oldest kept line first
  */
 export function readLogTail(filePath, { lines = DEFAULT_LOG_TAIL_LINES, maxBytes = DEFAULT_LOG_TAIL_MAX_BYTES } = {}) {
+  // Fix round 1 F9: `slice(-0)` is `slice(0)` (the whole array), so an
+  // unguarded `lines: 0` would return everything instead of nothing.
+  if (!(lines > 0)) return "";
   let fd;
   try {
     fd = fs.openSync(filePath, "r");
@@ -453,8 +475,11 @@ export function readLogTail(filePath, { lines = DEFAULT_LOG_TAIL_LINES, maxBytes
     const buffer = Buffer.alloc(readSize);
     if (readSize > 0) fs.readSync(fd, buffer, 0, readSize, start);
     let text = buffer.toString("utf8");
-    if (start > 0) {
-      // Started mid-file: the first line is a truncated fragment, drop it.
+    // Fix round 1 F4: a window that starts exactly at a line boundary holds
+    // no truncated fragment, so dropping its first line unconditionally
+    // discarded a complete one. Only drop when the byte before `start` is
+    // NOT `\n` — i.e. `start` really does land mid-line.
+    if (start > 0 && !precededByNewline(fd, start)) {
       const firstNewline = text.indexOf("\n");
       text = firstNewline === -1 ? "" : text.slice(firstNewline + 1);
     }

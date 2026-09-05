@@ -20,6 +20,10 @@ export const VISION_EXTENSIONS = Object.freeze(Object.keys(VISION_MIME));
 /** Hard cap on a source image file. Protects the model context and the IPC channel. */
 export const VISION_MAX_BYTES = 10 * 1024 * 1024;
 
+/**
+ * @param {string[]} imagePaths
+ * @returns {string} JSON-encoded allowlist for `ANTIGRAVITY_VISION_ALLOWED_PATHS`
+ */
 export function encodeVisionAllowlist(imagePaths) {
   if (!Array.isArray(imagePaths) || imagePaths.some((value) => typeof value !== "string")) {
     throw new TypeError("imagePaths must be an array of strings");
@@ -27,6 +31,10 @@ export function encodeVisionAllowlist(imagePaths) {
   return JSON.stringify(imagePaths);
 }
 
+/**
+ * @param {string | undefined} value
+ * @returns {string[]}
+ */
 export function decodeVisionAllowlist(value) {
   if (typeof value !== "string" || !value.length) return [];
   try {

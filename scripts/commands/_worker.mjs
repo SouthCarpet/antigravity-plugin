@@ -142,10 +142,21 @@ async function main() {
     healthStatus: derived.healthStatus ?? null,
     healthMessage: derived.healthMessage ?? null,
     recommendedAction: derived.recommendedAction ?? null,
-    errorMessage: result.errorMessage ?? (result.status === "failed" ? trim(result.stderr) : null),
+    // Fix round 1 F3: keyed off the raw `result.status` this dropped agy's
+    // stderr for `auth_required`/`timeout` jobs, since neither raw status is
+    // literally "failed" (only `derived.status`, job-helpers.mjs's mapping
+    // of both onto a persisted job status, is). `derived.status === "failed"`
+    // restores the pre-T6 behaviour for every status this fallback applies
+    // to; `result.errorMessage` (set for a timeout/output-limit termination)
+    // still wins when present.
+    errorMessage: result.errorMessage ?? (derived.status === "failed" ? trim(result.stderr) : null),
     result: buildStoredResult(result),
   });
-  appendJobLog(workspaceRoot, jobId, `[worker] ${derived.status} exit=${result.exitCode} status=${result.status}`);
+  // Fix round 1 F5: pre-T6 this line read `[worker] ${status} exit=${result.exitCode}`
+  // with no ` status=` suffix; nothing reads that suffix as a structured
+  // field (it only ever surfaced verbatim in `status`'s Recent Progress), so
+  // restore the exact pre-T6 wording rather than declare an undeclared change.
+  appendJobLog(workspaceRoot, jobId, `[worker] ${derived.status} exit=${result.exitCode}`);
   return derived.status === "completed" ? 0 : 1;
 }
 
