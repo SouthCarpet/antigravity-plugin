@@ -8,9 +8,8 @@ exercise live `agy`, OAuth, or host plugin loaders.
 Run from a **fresh shell** (no leftover `AGY_BIN`, `CLAUDE_PLUGIN_DATA`,
 `CODEX_PLUGIN_DATA`, or `AGY_PLUGIN_DATA`). Tick items as you go.
 
-The expected CLI version is whatever `package.json` currently says (today
-that is `0.2.4`). Do not treat an older number in a leftover note as the
-target.
+The expected CLI version is whatever `package.json` currently says. Do not
+treat an older number in a leftover note as the target.
 
 ## Prerequisites (do once)
 
@@ -26,14 +25,19 @@ target.
 From the repository root:
 
 ```bash
+npm run lint
 node --test --experimental-test-module-mocks tests/*.test.mjs
 node scripts/check-manifests.mjs
 node scripts/bump-version.mjs --check
 node scripts/check-pack.mjs
 ```
 
+`npm run lint` needs a Node version eslint 10 supports
+(`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24.
+
 On a POSIX shell you can also run `bash scripts/smoke.sh`.
 
+- [ ] Lint green
 - [ ] Full suite green
 - [ ] Manifests agree
 - [ ] `bump-version --check` green (including README Status version)
@@ -160,10 +164,11 @@ $antigravity status
 ## Host 4 — agy native
 
 ```bash
+agy plugin uninstall antigravity
 agy plugin install /path/to/antigravity-plugin
 #   from a clean clone: agy copies the whole working tree, including .git
 #   and tests/, and does not honour package.json files.
-#   Re-run this after every upgrade — agy keeps its own copy.
+#   Uninstall, then install again after every upgrade — agy keeps its own copy.
 
 agy plugin list
 #   expect: antigravity appears (agents, commands)

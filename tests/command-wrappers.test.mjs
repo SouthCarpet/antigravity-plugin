@@ -209,7 +209,7 @@ describe('host bootstrap source', () => {
 
   // R5b + fix round 1 F1/F2: the spawn and the "missing runtime" message
   // stay inside the shipped `scripts/lib/host-bootstrap.cjs` module, but the
-  // manifest check and its refusal now live in the generated snippet itself,
+  // manifest and module-presence checks now live in the generated snippet,
   // ahead of the require() that loads that module — a root that is not this
   // plugin's tree is refused before host-bootstrap.cjs is ever touched, so a
   // foreign copy of that file at that root never runs (see the masquerade
@@ -221,10 +221,15 @@ describe('host bootstrap source', () => {
     assert.equal(source.includes("'scripts','lib','host-bootstrap.cjs'"), true, source);
     assert.equal(source.includes("run(root,'review')"), true, source);
     assert.equal(source.includes('is not an antigravity plugin tree'), true, source);
+    assert.equal(source.includes('runtime not found at'), true, source);
     assert.equal(source.includes('spawnSync'), false, source);
     const manifestCheckIndex = source.indexOf('plugin.json');
+    const moduleCheckIndex = source.indexOf("fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))");
     const requireIndex = source.indexOf("require(p.join(root,'scripts','lib','host-bootstrap.cjs'))");
-    assert.ok(manifestCheckIndex >= 0 && requireIndex > manifestCheckIndex, source);
+    assert.ok(
+      manifestCheckIndex >= 0 && moduleCheckIndex > manifestCheckIndex && requireIndex > moduleCheckIndex,
+      source,
+    );
   });
 
   it('invalidPluginRootMessage names the root and the standalone CLI', () => {
@@ -495,6 +500,19 @@ describe('host bootstrap execution', () => {
     const lines = res.stderr.split(/\r?\n/).filter((line) => line.length > 0);
     assert.equal(lines.length, 1, res.stderr);
     assert.equal(lines[0], invalidPluginRootMessage(expectedRoot, 'task'));
+    assert.equal(res.stderr.includes('node:internal'), false, res.stderr);
+  });
+
+  it('a genuine manifest without host-bootstrap.cjs is refused with one line and no loader stack', () => {
+    const pluginRoot = path.join(tmpRoot, 'half-copied-plugin');
+    writePluginManifest(pluginRoot);
+    const expectedModule = path.join(pluginRoot, 'scripts', 'lib', 'host-bootstrap.cjs');
+
+    const res = runBootstrap('review', { env: { CLAUDE_PLUGIN_ROOT: pluginRoot } });
+    assert.equal(res.status, 1, `stderr=${res.stderr}`);
+    assert.equal(res.stdout, '');
+    const lines = res.stderr.split(/\r?\n/).filter((line) => line.length > 0);
+    assert.deepEqual(lines, [missingRuntimeMessage(expectedModule, 'review')]);
     assert.equal(res.stderr.includes('node:internal'), false, res.stderr);
   });
 

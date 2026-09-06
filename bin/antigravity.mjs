@@ -49,7 +49,8 @@ const COMMAND_HELP = {
     '  --background, --wait, --resume, --continue, --fresh\n' +
     '  --conversation <id>     resume a specific conversation\n' +
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
-    '  --model <id>            forward-compat, currently ignored\n' +
+    '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
+    '  --model <id>            agy model id for this run\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   task:
@@ -57,9 +58,11 @@ const COMMAND_HELP = {
     'Usage: antigravity-plugin task <prompt> [flags]\n' +
     'Defaults to BACKGROUND. Use --foreground to inline, --wait to block.\n\n' +
     'Flags:\n' +
-    '  --wait, --foreground, --continue\n' +
+    '  --wait, --foreground, --background, --continue\n' +
     '  --conversation <id>     resume a specific conversation\n' +
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
+    '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
+    '  --model <id>            agy model id for this run\n' +
     '  --json                  emit JSON\n' +
     '  --cwd <path>            override working directory',
   vision:
@@ -83,7 +86,12 @@ const COMMAND_HELP = {
   result:
     "antigravity-plugin result — fetch a finished job's stored output.\n\n" +
     'Usage: antigravity-plugin result [<job-id>] [flags]\n\n' +
-    'Flags: --json, --cwd <path>\n' +
+    'Flags:\n' +
+    '  --head <n>             show the first n lines\n' +
+    '  --tail <n>             show the last n lines\n' +
+    '  --json                 emit JSON instead of markdown\n' +
+    '  --cwd <path>           override working directory\n' +
+    'Both --head and --tail may be given; markdown output notes a cut.\n' +
     'Exit codes: 0 completed, 1 failed/missing, 2 cancelled.',
   cancel:
     'antigravity-plugin cancel — terminate an active background job.\n\n' +
@@ -93,8 +101,9 @@ const COMMAND_HELP = {
     'antigravity-plugin update — check npm for a newer plugin version.\n\n' +
     'Usage: antigravity-plugin update [--apply] [--json]\n\n' +
     'Standalone only; not a runtime verb, so no host exposes it.\n' +
-    'Asks the npm registry for the latest published version (one request,\n' +
-    'cached 24 h), compares it with this copy, and prints the update command\n' +
+    'Asks the npm registry for the latest published version (up to three\n' +
+    'attempts inside one 25 s budget, cached 24 h), compares it with this copy,\n' +
+    'and prints the update command\n' +
     'for each host found on PATH (Claude Code, Codex CLI, agy). It never\n' +
     'changes an installed copy by itself.\n\n' +
     'Flags:\n' +

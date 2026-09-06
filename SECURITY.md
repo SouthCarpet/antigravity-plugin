@@ -132,12 +132,13 @@ already per-user there.
 
 Every `commands/*.md` wrapper's `node -e "..."` line (or, for `rescue`, the
 embedded invocation the wrapper's own text tells the host model to run) does
-three things, in this order: resolve the plugin root the same way
+four things, in this order: resolve the plugin root the same way
 `resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
 the agy install copy under the home directory); read `<root>/plugin.json`
 and refuse with one line — before requiring anything from that root — when
-the manifest is missing or names a different plugin; only then `require()`
-the shipped `scripts/lib/host-bootstrap.cjs` module and call `run(root,
+the manifest is missing or names a different plugin; check that the shipped
+`scripts/lib/host-bootstrap.cjs` file exists and refuse with one line when it
+does not; only then `require()` that module and call `run(root,
 verb)`, which spawns `scripts/commands/<verb>.mjs` and passes its exit code
 through. That module — a real, reviewable, tested file, not generated text —
 carries its own copy of the same manifest check as a second layer, in case

@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer; when a cut happens, the markdown output ends with
   `(showing <k> of <total> lines; full answer stored)` and `--json` sets
   `details.truncated: true`. Without the flags, output is unchanged.
-- **Safer registry retries for the update check.** `update` (and `status`'s
-  cache read) now retries a failed registry request up to twice on a network
+- **Safer registry retries for the update check.** `update` now retries a
+  failed registry request up to twice on a network
   error, HTTP 429, or 5xx, waiting `500ms * 2^attempt` plus up to 250ms of
   jitter and honouring a numeric `Retry-After` header, all inside one 25
   second total budget for the whole check. A 4xx other than 429, malformed
@@ -39,12 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spawn logic as one long interpolated string. That body now lives in the
   shipped, tested `scripts/lib/host-bootstrap.cjs` module. The generated
   snippet resolves the plugin root, checks `<root>/plugin.json` itself and
-  refuses with one line before requiring anything from that root, and only
-  then requires the shipped module and calls into it; the module carries its
-  own copy of the same check as a second layer. No host input is
+  refuses with one line before requiring anything from that root, checks that
+  the shipped module exists and refuses with one line when it does not, and
+  only then requires the module and calls into it; the module carries its own
+  copy of the manifest check as a second layer. No host input is
   interpolated into executed source; the root is read from the environment
   at run time, same as before.
-
 - **Vision image access.** Vision checks file identity while it reads an image.
   It keeps the 10 MiB limit when a file grows after the first check.
 - **Vision MCP request processing.** Malformed requests do not stop the
@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Background job arguments.** Background jobs reject stored agy flags other
   than the supported mode pair before they start agy. Tampered requests fail.
 - **Review context labeling.** Review skips untracked files with secret-shaped
-  names (`.env*`, `.pem`/`.key`/`.p12`/`.pfx`, default SSH key names) instead
+  names (`.env`, `.env.*`, `.pem`/`.key`/`.p12`/`.pfx`, default SSH key names) instead
   of sending them. Diffs, commits, and untracked file bodies sent to agy are
   wrapped in a labeled, self-escaping data block with one sentence telling the
   model that content is untrusted, not instructions. Every `commands/*.md`
@@ -101,7 +101,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Background launch failures.** A worker must acknowledge its spawn before
   a command reports a queued job. Launch or PID-recording failures now fail
   the job and command; an untracked worker is terminated.
-
 - **Command argument boundaries.** Quoted prompts and image paths keep their
   argument boundaries. Prompt words cannot select permission modes or extra
   directories.
@@ -125,16 +124,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the whole file.
 - **Foreground runs now store their conversation id.** A foreground
   `rescue`, `review`, `task`, or `vision` run stores `agyConversationId` in
-  its job record the same way a background run always did. This is an
-  internal record field; it is not part of the `--json` output.
+  its job record the same way a background run always did. It appears under
+  `details.result` in `result --json`'s unstable nested `details` metadata,
+  not as a promised envelope field.
 - **Auth-required message wording.** `review`, `rescue`, `task`, and `vision`
   now print the same not-authenticated message on a foreground OAuth prompt.
   Each verb had its own slightly different wording before. Diagnostic and
   error text is not part of the frozen 1.x contract.
 - **Background auth-required message wording.** A background job's stored
   `healthMessage` for `auth_required` now uses the same wording as the
-  foreground message above. This is an internal record field; it is not
-  part of the `--json` output.
+  foreground message above. It appears in the status snapshot inside
+  `status --json`'s unstable nested `details` metadata, not as a promised
+  envelope field.
 - **Empty or missing progress log.** `status`'s `recentProgress` (in
   `--json` `details`) is now `[]` for a job whose log is empty or missing.
   Before, an empty log gave `[""]` and a missing log left the field absent.
@@ -143,7 +144,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs in CI on the Node 24 jobs and in the release workflow. `devDependencies`
   gains its one entry, `eslint@^10.10.0`, pinned by the new
   `package-lock.json`; zero runtime dependencies stays true. `npm run lint`
-  needs Node 24 (eslint 10's floor); tests still run on the 22.3 floor.
+  needs a Node version eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`);
+  CI runs it on Node 24. Tests still run on the 22.3 floor.
 - **Functions split under the complexity ceiling.** No behavior change.
   `runAgyPrint` (`scripts/lib/agent-runtime.mjs`), `terminateProcessTree`
   (`scripts/lib/process.mjs`), `renderSingleJobStatus`
@@ -152,7 +154,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `classifyRuntimeHealth` (`scripts/lib/job-control.mjs`), `parseArgs`
   (`scripts/lib/args.mjs`), and a handful of other functions above the
   ceiling are each split into smaller named helpers.
-
 - **Smaller published tarball.** `package.json` `files` now lists
   `scripts/commands`, `scripts/lib`, and `scripts/mcp` instead of the whole
   `scripts` directory, so the maintainer-only scripts
