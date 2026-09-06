@@ -8,8 +8,9 @@ it does not consume one, so the root skills-scope rule does not apply here.
 ## Stack
 
 - Node.js >= 22.3.0, ES modules (`"type": "module"`), no runtime dependencies.
-  `devDependencies` holds one entry (`eslint`, the lint gate), pinned by
-  `package-lock.json`.
+  `devDependencies` holds one entry (`eslint@^10.10.0`, the lint gate),
+  pinned by `package-lock.json`. `npm run lint` needs Node 24 (eslint 10's
+  floor); the runtime and the tests still support Node 22.3+.
 - Hosts: Claude Code (`.claude-plugin/`, root `plugin.json`), Codex CLI
   (`.codex-plugin/`, `.agents/plugins/marketplace.json`), agy TUI, and
   standalone CLI (`bin/antigravity.mjs`).

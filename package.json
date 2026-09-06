@@ -61,6 +61,6 @@
     "SECURITY.md"
   ],
   "devDependencies": {
-    "eslint": "^9.39.5"
+    "eslint": "^10.10.0"
   }
 }

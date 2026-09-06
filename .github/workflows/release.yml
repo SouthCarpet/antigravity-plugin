@@ -35,7 +35,9 @@ jobs:
           # satisfies the floor with its bundled npm.
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          # No lockfile, no dependencies: nothing for setup-node to cache.
+          # A lockfile exists (076-T6b, one devDependency: eslint); this job
+          # now runs `npm ci` to run the lint gate, but caching one small
+          # lockfile buys nothing on a job that runs once per release.
           package-manager-cache: false
 
       - name: Tool versions
@@ -43,7 +45,15 @@ jobs:
           node --version
           npm --version
 
-      # Same four gates as ci.yml, on the exact commit being released.
+      # Same gates as ci.yml's Node 24 job, on the exact commit being
+      # released: a tag pushed on a commit that never passed CI must not
+      # publish code failing the lint gate either.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: node --test --experimental-test-module-mocks tests/*.test.mjs
 

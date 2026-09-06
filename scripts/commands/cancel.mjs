@@ -21,7 +21,7 @@ import { runIfMain } from "../lib/cli-entry.mjs";
  * @param {import('../lib/types.mjs').JobIndexEntry} job
  * @returns {[string, number][]}
  */
-function cancelTargets(job) {
+function resolveCancelTargets(job) {
   return [
     ["worker", Number(job.workerPid ?? job.pid)],
     ["agy", Number(job.agyPid)],
@@ -205,7 +205,7 @@ export async function run(argv = [], ctx = {}) {
   const persist = ctx.patchJob ?? patchJob;
   const output = ctx.outputCommandResult ?? outputCommandResult;
 
-  const termination = await terminateCancelTargets(workspaceRoot, job.id, cancelTargets(job), terminate);
+  const termination = await terminateCancelTargets(workspaceRoot, job.id, resolveCancelTargets(job), terminate);
 
   const lockFailureExitCode = recoverAfterTermination(workspaceRoot, job, termination, json, output);
   if (lockFailureExitCode !== null) return lockFailureExitCode;

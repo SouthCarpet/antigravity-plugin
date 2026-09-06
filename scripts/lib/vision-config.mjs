@@ -345,7 +345,7 @@ export function ensureVisionConfig({
  * @param {string} serverPath
  * @returns {{ error: string } | { removeMcp: boolean, legacy: boolean, servers: object }}
  */
-function mcpRemovalPlan(mcpRead, receipt, serverPath) {
+function planMcpRemoval(mcpRead, receipt, serverPath) {
   const servers = mcpRead.value.mcpServers;
   if (servers !== undefined && (!servers || typeof servers !== "object" || Array.isArray(servers))) {
     return { error: "configuration unchanged: mcp_config.json has a non-object mcpServers value" };
@@ -367,10 +367,10 @@ function mcpRemovalPlan(mcpRead, receipt, serverPath) {
 /**
  * @param {object} settingsRead
  * @param {object | null} receipt
- * @param {boolean} legacy from {@link mcpRemovalPlan}
+ * @param {boolean} legacy from {@link planMcpRemoval}
  * @returns {{ error: string } | { removePermissions: boolean, nextAllow: string[], permissions: object }}
  */
-function permissionsRemovalPlan(settingsRead, receipt, legacy) {
+function planPermissionsRemoval(settingsRead, receipt, legacy) {
   const permissions = settingsRead.value.permissions;
   if (permissions !== undefined && (!permissions || typeof permissions !== "object" || Array.isArray(permissions))) {
     return { error: "configuration unchanged: settings.json has a non-object permissions value" };
@@ -398,9 +398,9 @@ function planRemoval({ mcpRead, settingsRead, receiptRead, serverPath }) {
   if (readError) return { error: `configuration unchanged: ${readError}` };
 
   const receipt = receiptRead.value.version === RECEIPT_VERSION ? receiptRead.value : null;
-  const mcp = mcpRemovalPlan(mcpRead, receipt, serverPath);
+  const mcp = planMcpRemoval(mcpRead, receipt, serverPath);
   if (mcp.error) return { error: mcp.error };
-  const permissions = permissionsRemovalPlan(settingsRead, receipt, mcp.legacy);
+  const permissions = planPermissionsRemoval(settingsRead, receipt, mcp.legacy);
   if (permissions.error) return { error: permissions.error };
 
   return {

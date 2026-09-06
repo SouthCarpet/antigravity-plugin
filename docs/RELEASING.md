@@ -3,7 +3,8 @@
 This runbook is for the maintainer of `@southcarpet/antigravity-plugin`.
 
 A release is a tag `vX.Y.Z` pushed to GitHub. `.github/workflows/release.yml`
-runs the four gates on that commit and publishes it to npm through npm
+runs the five gates (including lint, 076-T6b fix round) on that commit and
+publishes it to npm through npm
 trusted publishing: the job presents a GitHub-issued OIDC token, npm mints a
 short-lived credential, and npm attaches a provenance attestation to the
 tarball. No npm token is stored in the repository, in GitHub secrets, or on
