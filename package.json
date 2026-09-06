@@ -46,7 +46,9 @@
   ],
   "files": [
     "bin",
-    "scripts",
+    "scripts/commands",
+    "scripts/lib",
+    "scripts/mcp",
     "commands",
     "agents",
     "docs",
@@ -57,6 +59,7 @@
     "plugin.json",
     "README.md",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
     "LICENSE",
     "SECURITY.md"
   ],

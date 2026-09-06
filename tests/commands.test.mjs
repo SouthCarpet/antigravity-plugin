@@ -503,6 +503,81 @@ describe('/antigravity:result', () => {
     }
     assert.doesNotMatch(cap.err.join(''), /usage: total=/);
   });
+
+  // ─────────────────── 076-T7 R1: result --head/--tail ───────────────────
+
+  async function resultWithFiveLineAnswer(extraArgs = []) {
+    const id = randomBytes(6).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed', phase: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'one\ntwo\nthree\nfour\nfive' } });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, ...extraArgs], { cwd: tempDir }); } finally { cap.restore(); }
+    return { exit, out: cap.out.join(''), err: cap.err.join('') };
+  }
+
+  it('--head 2 shows the first two lines and the truncation note', async () => {
+    const { exit, out } = await resultWithFiveLineAnswer(['--head', '2']);
+    assert.equal(exit, 0);
+    assert.equal(out, 'one\ntwo\n(showing 2 of 5 lines; full answer stored)\n');
+  });
+
+  it('--tail 1 shows only the last line', async () => {
+    const { exit, out } = await resultWithFiveLineAnswer(['--tail', '1']);
+    assert.equal(exit, 0);
+    assert.equal(out, 'five\n(showing 1 of 5 lines; full answer stored)\n');
+  });
+
+  it('--head 2 --tail 1 shows the first two and the last one', async () => {
+    const { exit, out } = await resultWithFiveLineAnswer(['--head', '2', '--tail', '1']);
+    assert.equal(exit, 0);
+    assert.equal(out, 'one\ntwo\nfive\n(showing 3 of 5 lines; full answer stored)\n');
+  });
+
+  it('--head 0 is rejected with the ArgsError shape', async () => {
+    const { exit, out, err } = await resultWithFiveLineAnswer(['--head', '0']);
+    assert.equal(exit, 1);
+    assert.equal(out, '');
+    assert.equal(err, 'antigravity:result — invalid value for --head: "0" (expected a positive integer)\n');
+  });
+
+  it('without --head/--tail the output is unchanged', async () => {
+    const { exit, out } = await resultWithFiveLineAnswer([]);
+    assert.equal(exit, 0);
+    assert.equal(out, 'one\ntwo\nthree\nfour\nfive\n');
+  });
+
+  it('--head larger than the total line count is not truncated', async () => {
+    const { exit, out } = await resultWithFiveLineAnswer(['--head', '99']);
+    assert.equal(exit, 0);
+    assert.equal(out, 'one\ntwo\nthree\nfour\nfive\n');
+  });
+
+  it('--json sets details.truncated and keeps answer as the cut text', async () => {
+    const id = randomBytes(6).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed', phase: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'one\ntwo\nthree\nfour\nfive' } });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--head', '2', '--json'], { cwd: tempDir }); } finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'one\ntwo' });
+    assert.equal(payload.details.truncated, true);
+  });
 });
 
 // ───────────────────────────── cancel ─────────────────────────────
@@ -761,6 +836,94 @@ describe('/antigravity:review', () => {
   });
 });
 
+// ───────── 076-T7 R4: every verb exits non-zero when the job is failed ─────────
+//
+// Per verb, the test that pins a non-zero exit on a `failed` job status:
+//   review  — 'exits 1 for a foreground review that agy reports failed' (below)
+//   rescue  — already covered: tests/denial-verbs.test.mjs
+//             'rescue: exit 1, names read_file, hints --add-dir <dir>' (foreground);
+//             'exits 1 for a background rescue --wait that ends failed' (below, background)
+//   task    — already covered: tests/denial-verbs.test.mjs
+//             'task --foreground: exit 1, hints --add-dir <dir>' (foreground);
+//             'exits 1 for a background task --wait that ends failed' (below, background)
+//   vision  — already covered: tests/denial-verbs.test.mjs
+//             'vision: exit 1, hints view_image and never --add-dir' (foreground only; no background mode)
+// `finishForeground`/`exitCodeForJobStatus` (job-helpers.mjs) are the shared
+// mapping every one of these goes through; job-helpers.test.mjs pins the
+// mapping itself in isolation ('failed → status=failed and errorMessage from
+// stderr', 'finishForeground returns exit code 2 for a cancelled result, 1
+// for any other non-completed status').
+describe('076-T7 R4: failed job status is always a non-zero exit', () => {
+  it('exits 1 for a foreground review that agy reports failed', async () => {
+    const gitEnv = initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'original\n');
+    execSync('git add a.txt', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    execSync('git commit -q -m add', { cwd: tempDir, stdio: 'ignore', env: gitEnv });
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'edited\n');
+
+    agyRuntime.next = { status: 'failed', exitCode: 1, stdout: '', stderr: 'boom' };
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+  });
+
+  it('exits 1 for a background rescue --wait that ends failed', async () => {
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['help me', '--background', '--wait', '--json'], {
+        cwd: tempDir,
+        startBackgroundJob: async () => ({ job: { id: 'job-rescue-failed' } }),
+        waitForJob: async () => ({ id: 'job-rescue-failed', status: 'failed' }),
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+  });
+
+  it('exits 1 for a background task --wait that ends failed', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--wait', '--json'], {
+        cwd: tempDir,
+        startBackgroundJob: async () => ({ job: { id: 'job-task-failed' } }),
+        waitForJob: async () => ({ id: 'job-task-failed', status: 'failed', result: null }),
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+  });
+
+  it('exits 1 for a background review --wait that ends failed', async () => {
+    initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'pending-review.txt'), 'review me\n');
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--background', '--wait', '--json'], {
+        cwd: tempDir,
+        startBackgroundJob: async () => ({ job: { id: 'job-review-failed' } }),
+        waitForJob: async () => ({ id: 'job-review-failed', status: 'failed' }),
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+  });
+});
+
 // ───────────────────────────── rescue + task argv parsing ─────────────────────────────
 
 describe('/antigravity:rescue argv parsing', () => {
@@ -817,24 +980,24 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.match(cap.err.join(''), /no task text/);
   });
 
-  it('logs an ignored-model warning when --model is passed', async () => {
-    // The empty-prompt check runs before the --model check (see
-    // scripts/commands/rescue.mjs), so a real prompt must be supplied for
-    // this run to ever reach the warning at all.
+  // 076-T7 R3: `agy --help` lists a global `--model` flag ("Model for the
+  // current CLI session") honoured in print mode — the same flag `vision`
+  // already forwards. `rescue` now stores and forwards it instead of
+  // logging it as ignored.
+  it('--model stores request.model and reaches agy via runAgyPrint (foreground)', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
+    agyRuntime.calls = [];
     const { run } = await import('../scripts/commands/rescue.mjs');
     const cap = captureStdio();
     let exit;
     try {
-      exit = await run(['do the thing', '--model', 'pro'], { cwd: tempDir });
+      exit = await run(['do the thing', '--model', 'gemini-x'], { cwd: tempDir });
     } finally {
       cap.restore();
     }
     assert.equal(exit, 0);
-    assert.match(
-      cap.err.join(''),
-      /--model is accepted for forward-compatibility but agy 1\.0\.1 does not expose a per-invocation model flag yet\. Ignoring "pro"\./,
-    );
+    assert.equal(agyRuntime.calls[0].model, 'gemini-x');
+    assert.doesNotMatch(cap.err.join(''), /Ignoring/);
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
@@ -956,6 +1119,42 @@ describe('/antigravity:task argv parsing', () => {
     }
     assert.equal(exit, 1);
     assert.match(cap.err.join(''), /no task text/);
+  });
+
+  // 076-T7 R3: task gains --model, additive, forwarded exactly as vision does.
+  it('--model --foreground stores request.model and reaches agy', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--foreground', '--model', 'gemini-x'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(agyRuntime.calls[0].model, 'gemini-x');
+  });
+
+  it('--model on a background task is stored in the job request', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    let capturedRequest;
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--model', 'gemini-x'], {
+        cwd: tempDir,
+        startBackgroundJob: async (options) => {
+          capturedRequest = options.request;
+          return { job: { id: 'job-model-test', status: 'queued' } };
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(capturedRequest.model, 'gemini-x');
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {

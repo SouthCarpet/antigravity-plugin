@@ -128,6 +128,22 @@ or replace one of these paths under the OS temp directory before this
 plugin runs. Windows and macOS are unaffected: `%TEMP%`/`$TMPDIR` are
 already per-user there.
 
+### The `node -e` host bootstrap snippet
+
+Every `commands/*.md` wrapper's `node -e "..."` line (or, for `rescue`, the
+embedded invocation the wrapper's own text tells the host model to run) does
+one thing: resolve the plugin root the same way `resolvePluginRoot` does
+(`CLAUDE_PLUGIN_ROOT` when set and non-empty, else the agy install copy under
+the home directory), then `require()` the shipped
+`scripts/lib/host-bootstrap.cjs` module and call `run(root, verb)`. That
+module — a real, reviewable, tested file, not generated text — checks that
+`root` holds this plugin's manifest, refuses with one line if it does not,
+then spawns `scripts/commands/<verb>.mjs` and passes its exit code through.
+The root comes from the environment at run time; no host input is
+interpolated into executed source, and the generated snippet itself carries
+no manifest-check or refusal-message logic to interpolate in the first
+place.
+
 ### `update --apply`
 
 On Windows, the update runner refuses a `.cmd`/`.bat` step before spawning

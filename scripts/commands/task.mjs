@@ -13,6 +13,7 @@
  *   --conversation <id>   resume a specific conversation
  *   --add-dir <path>      additional workspace dir (repeatable)
  *   --mode <plan|accept-edits>  agy execution mode for this run
+ *   --model <id>          agy model id for this run
  *   --json                emit JSON
  */
 
@@ -57,7 +58,7 @@ function printCompletedRawOutput(final, json) {
   process.stdout.write(final.result.rawOutput);
 }
 
-async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, json }) {
+async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, json }) {
   const { job, result } = await runForegroundJob({
     workspaceRoot,
     kind: "task",
@@ -66,16 +67,17 @@ async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversat
     mode,
     conversationId,
     addDirs,
+    model,
     extraArgs,
     cwd: workspaceRoot,
-    request: { prompt, mode, addDirs },
+    request: { prompt, mode, addDirs, model },
     onText: (delta) => process.stderr.write(delta),
   });
 
   return finishForeground("task", job, result, { json });
 }
 
-async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, options, ctx }) {
+async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, options, ctx }) {
   const start = ctx.startBackgroundJob ?? startBackgroundJob;
   const wait = ctx.waitForJob ?? waitForJob;
   const { job } = await start({
@@ -88,7 +90,7 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
     addDirs,
     extraArgs,
     cwd: workspaceRoot,
-    request: { mode, addDirs },
+    request: { mode, addDirs, model },
   });
   const queuedExit = reportQueuedJob("task", job, options);
   if (queuedExit !== null) return queuedExit;
@@ -110,7 +112,7 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "cwd", "add-dir", "mode"],
+    valueOptions: ["conversation", "cwd", "add-dir", "mode", "model"],
     booleanOptions: ["wait", "foreground", "background", "continue", "json"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES },
@@ -134,6 +136,7 @@ export async function run(argv = [], ctx = {}) {
   const { mode, conversationId } = resolveTaskMode(options);
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
+  const model = options.model ? String(options.model) : undefined;
 
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
@@ -144,7 +147,7 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model };
 
   if (options.foreground) {
     return runTaskForeground({ ...runArgs, json: options.json });

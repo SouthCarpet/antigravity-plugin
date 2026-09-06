@@ -122,6 +122,32 @@ describe('runForegroundJob — terminal status mapping', () => {
     assert.equal(stored.summary, null);
   });
 
+  // 076-T7 R1: answerBytes/answerLines are stored on the job (and therefore
+  // its index projection) at foreground finish.
+  it('completed → stores answerBytes and answerLines from a five-line answer', async () => {
+    freshWorkspace();
+    const answer = 'one\ntwo\nthree\nfour\nfive';
+    runtime.next = { status: 'completed', exitCode: 0, stdout: answer, stderr: '' };
+    const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.answerBytes, Buffer.byteLength(answer, 'utf8'));
+    assert.equal(stored.answerLines, 5);
+    assert.equal(listJobs(workspaceRoot).find((j) => j.id === job.id).answerLines, 5);
+  });
+
+  it('a trailing newline does not add a line, and empty stdout is zero, not null', async () => {
+    freshWorkspace();
+    runtime.next = { status: 'completed', exitCode: 0, stdout: 'a\nb\n', stderr: '' };
+    const { job: jobA } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
+    assert.equal(readJobFile(workspaceRoot, jobA.id).answerLines, 2);
+
+    runtime.next = { status: 'completed', exitCode: 0, stdout: '', stderr: '' };
+    const { job: jobB } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
+    const storedB = readJobFile(workspaceRoot, jobB.id);
+    assert.equal(storedB.answerBytes, 0);
+    assert.equal(storedB.answerLines, 0);
+  });
+
   // 076-T6 R1: one stored-result projection for both paths — the drifted
   // foreground copy never stored this field before (worker.test.mjs already
   // covers the background path).

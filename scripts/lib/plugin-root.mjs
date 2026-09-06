@@ -109,6 +109,13 @@ const VERB_RE = /^[a-z]+$/;
 /**
  * CommonJS source for `node -e "..."` in command wrappers. No `$` or `%`.
  *
+ * The snippet resolves the plugin root exactly as before, then hands off to
+ * the shipped `scripts/lib/host-bootstrap.cjs` module (076-T7 R5b): no
+ * string-built logic and no interpolated refusal message lives in the
+ * generated text itself any more, only the root resolution and a
+ * `require()` call. `host-bootstrap.cjs` does the manifest check, prints the
+ * refusal message, spawns the verb, and passes its exit code through.
+ *
  * @param {string} verb
  * @returns {string}
  */
@@ -120,20 +127,8 @@ export function hostBootstrapSource(verb) {
   return (
     "const p=require('node:path');" +
     "const os=require('node:os');" +
-    "const fs=require('node:fs');" +
-    "const {spawnSync}=require('node:child_process');" +
     `const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),${segments});` +
-    // The refusal text is built by invalidPluginRootMessage with `'+root+'`
-    // in place of the root, so the snippet concatenates the real root at run
-    // time and the wording has exactly one definition.
-    "let ok=false;" +
-    `try{ok=JSON.parse(fs.readFileSync(p.join(root,'${PLUGIN_MANIFEST_FILE}'),'utf8')).name==='${PLUGIN_MANIFEST_NAME}'}catch(e){ok=false}` +
-    `if(!ok){console.error('${invalidPluginRootMessage("'+root+'", verb)}');process.exit(1)}` +
-    `const s=p.join(root,'scripts','commands','${verb}.mjs');` +
-    `if(!fs.existsSync(s)){console.error('antigravity-plugin: runtime not found at '+s+'. Run: npx @southcarpet/antigravity-plugin ${verb}');process.exit(1)}` +
-    "const r=spawnSync(process.execPath,[s].concat(process.argv.slice(1)),{stdio:'inherit'});" +
-    `if(r.error){console.error('antigravity-plugin: failed to start '+s+': '+r.error.message+'. Run: npx @southcarpet/antigravity-plugin ${verb}');process.exit(1)}` +
-    "process.exit(r.status==null?1:r.status)"
+    `process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'${verb}'));`
   );
 }
 

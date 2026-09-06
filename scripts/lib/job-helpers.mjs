@@ -447,6 +447,7 @@ export async function runForegroundJob({
   const completedAt = new Date().toISOString();
   applyDenialHint(result, kind);
   const derived = deriveJobStatus(result, kind);
+  const { answerBytes, answerLines } = deriveAnswerSize(result.stdout);
   await patchJob(workspaceRoot, job.id, {
     status: derived.status,
     phase: derived.status,
@@ -458,6 +459,8 @@ export async function runForegroundJob({
     healthStatus: derived.healthStatus ?? null,
     healthMessage: derived.healthMessage ?? null,
     recommendedAction: derived.recommendedAction ?? null,
+    answerBytes,
+    answerLines,
     result: buildStoredResult(result),
   });
   appendJobLog(
@@ -721,6 +724,27 @@ export async function waitForJob(
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);
   }
+}
+
+/**
+ * `answerBytes` (UTF-8 byte length) and `answerLines` (line count, a
+ * trailing newline does not add a line) for a stored answer text — computed
+ * at job finish from the same `result.stdout` `buildStoredResult` projects,
+ * for both the foreground path (below) and the background worker
+ * (`_worker.mjs`). `null` for both fields when there is no answer text
+ * (076-T7 R1).
+ *
+ * @param {unknown} answer
+ * @returns {{ answerBytes: number | null, answerLines: number | null }}
+ */
+export function deriveAnswerSize(answer) {
+  if (typeof answer !== "string") return { answerBytes: null, answerLines: null };
+  if (answer.length === 0) return { answerBytes: 0, answerLines: 0 };
+  const withoutTrailingNewline = answer.endsWith("\n") ? answer.slice(0, -1) : answer;
+  return {
+    answerBytes: Buffer.byteLength(answer, "utf8"),
+    answerLines: withoutTrailingNewline.split("\n").length,
+  };
 }
 
 /**

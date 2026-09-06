@@ -341,6 +341,20 @@ credentials, images, and job state are preserved. If the named MCP entry has
 changed ownership or the JSON/config shape is unsafe, removal fails without
 applying a partial configuration change.
 
+## Additive surface added within 1.x
+
+These shipped after 1.0.0 as additive changes (docs/COMMANDS.md has the full
+flag/field detail); none changes an existing verb, flag, exit code, or field
+meaning:
+
+- `--model <id>` on `task` and `rescue`, forwarded to agy exactly as
+  `vision`'s `--model` already was.
+- `--head <n>` / `--tail <n>` on `result`, cutting the stored answer to the
+  named number of lines from the start and/or end.
+- `answerBytes` / `answerLines` on a finished job's index entry (`status`
+  and `status --json`), and the `--json` `details.truncated` field on
+  `result` when `--head`/`--tail` cut the answer.
+
 ## Deprecation and compatibility changes
 
 A documented public 1.x surface will be marked deprecated in release notes

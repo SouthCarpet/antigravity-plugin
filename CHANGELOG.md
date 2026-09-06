@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Retrievable result size.** `status` (and `status --json`) shows the
+  stored answer's byte and line counts (`answerBytes`, `answerLines`) on the
+  job record. `result` gains `--head <n>` and `--tail <n>` (a positive
+  integer number of lines; both may be given) to show only part of a stored
+  answer; when a cut happens, the markdown output ends with
+  `(showing <k> of <total> lines; full answer stored)` and `--json` sets
+  `details.truncated: true`. Without the flags, output is unchanged.
+- **`--model` on `task` and `rescue`.** Both verbs now accept `--model <id>`
+  and forward it to agy exactly as `vision` already did, foreground and
+  background. `rescue --model` previously logged the flag as ignored; it now
+  reaches agy.
+- **Contributor files.** A public `CONTRIBUTING.md` (the five gates, the
+  frozen 1.x contract pointer, the release runbook pointer, the docs-in-
+  the-same-change rule). `.cursor/rules/antigravity-plugin.mdc` and
+  `.cursorignore` for contributors working in Cursor.
+
 ### Security
+
+- **Socket-flagged host bootstrap moved to a shipped module.** The
+  `node -e` snippet every `commands/*.md` wrapper runs no longer builds its
+  manifest check, refusal message, and spawn logic as one long interpolated
+  string. That body now lives in the shipped, tested
+  `scripts/lib/host-bootstrap.cjs` module; the generated snippet only
+  resolves the plugin root and calls into it. No host input is interpolated
+  into executed source; the root is read from the environment at run time,
+  same as before.
 
 - **Vision image access.** Vision checks file identity while it reads an image.
   It keeps the 10 MiB limit when a file grows after the first check.
@@ -114,6 +141,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `classifyRuntimeHealth` (`scripts/lib/job-control.mjs`), `parseArgs`
   (`scripts/lib/args.mjs`), and a handful of other functions above the
   ceiling are each split into smaller named helpers.
+
+- **Smaller published tarball.** `package.json` `files` now lists
+  `scripts/commands`, `scripts/lib`, and `scripts/mcp` instead of the whole
+  `scripts` directory, so the maintainer-only scripts
+  (`bump-version.mjs`, `check-pack.mjs`, `check-manifests.mjs`, `smoke.sh`)
+  no longer ship in the installed package; `CONTRIBUTING.md` is added to the
+  tarball instead.
+- **Agent orientation files stay local.** `CLAUDE.md` and `AGENTS.md` are
+  gitignored going forward (they stay on disk; they were never part of the
+  product). `.verify-*.md`, `.audit-*.md`, and `.report-*.md` (verifier and
+  audit reports) are gitignored the same way.
 
 ### Removed
 

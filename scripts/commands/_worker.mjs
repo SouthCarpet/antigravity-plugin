@@ -21,6 +21,7 @@ import {
   DEFAULT_AGY_TIMEOUT_MS,
   applyDenialHint,
   buildStoredResult,
+  deriveAnswerSize,
   deriveJobStatus,
   deriveSummary,
   patchJob,
@@ -100,6 +101,7 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
       mode: request.mode ?? "print",
       conversationId: request.conversationId,
       addDirs: request.addDirs ?? [],
+      model: request.model,
       extraArgs,
       cwd: request.cwd ?? workspaceRoot,
       timeoutMs: request.timeoutMs ?? DEFAULT_AGY_TIMEOUT_MS,
@@ -149,6 +151,7 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
 async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
   applyDenialHint(result, stored.kind);
   const derived = deriveJobStatus(result, stored.kind);
+  const { answerBytes, answerLines } = deriveAnswerSize(result.stdout);
 
   await patchJob(workspaceRoot, jobId, {
     status: derived.status,
@@ -160,6 +163,8 @@ async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
     healthStatus: derived.healthStatus ?? null,
     healthMessage: derived.healthMessage ?? null,
     recommendedAction: derived.recommendedAction ?? null,
+    answerBytes,
+    answerLines,
     // Fix round 1 F3: keyed off the raw `result.status` this dropped agy's
     // stderr for `auth_required`/`timeout` jobs, since neither raw status is
     // literally "failed" (only `derived.status`, job-helpers.mjs's mapping

@@ -83,6 +83,16 @@ function runBootstrap(verb, { args = [], env = {}, cwd } = {}) {
   });
 }
 
+// R5b: `host-bootstrap.cjs` is a real shipped file the generated snippet
+// require()s at `<root>/scripts/lib/host-bootstrap.cjs`, so any fixture
+// plugin root the tests spawn against needs its own copy — a real
+// `agy plugin install` copy would carry one too, since `scripts/lib` ships
+// (package.json `files`).
+const HOST_BOOTSTRAP_SOURCE = fs.readFileSync(
+  path.join(ROOT, 'scripts', 'lib', 'host-bootstrap.cjs'),
+  'utf8',
+);
+
 function writePluginManifest(pluginRoot, name = PLUGIN_MANIFEST_NAME) {
   fs.mkdirSync(pluginRoot, { recursive: true });
   fs.writeFileSync(
@@ -90,6 +100,9 @@ function writePluginManifest(pluginRoot, name = PLUGIN_MANIFEST_NAME) {
     JSON.stringify({ name, version: '0.0.0-test' }),
     'utf8',
   );
+  const libDir = path.join(pluginRoot, 'scripts', 'lib');
+  fs.mkdirSync(libDir, { recursive: true });
+  fs.writeFileSync(path.join(libDir, 'host-bootstrap.cjs'), HOST_BOOTSTRAP_SOURCE, 'utf8');
 }
 
 function writeStubVerb(pluginRoot, verb, markerFile) {
@@ -185,17 +198,19 @@ describe('host bootstrap source', () => {
     assert.match(message, /npx @southcarpet\/antigravity-plugin status/);
   });
 
-  it('checks the plugin manifest before it resolves the verb script', () => {
+  // R5b: the manifest check, the refusal message, and the spawn all moved
+  // into the shipped `scripts/lib/host-bootstrap.cjs` module — the generated
+  // snippet itself now only resolves the root and require()s that module.
+  // tests/host-bootstrap.test.mjs covers the manifest-before-spawn ordering
+  // (and every other host-bootstrap.cjs behaviour) directly against that
+  // module; tests/plugin-root.test.mjs covers the shape of the generated
+  // one-liner itself.
+  it('hands off to the shipped host-bootstrap.cjs module instead of building refusal logic inline', () => {
     const source = hostBootstrapSource('review');
-    assert.equal(source.includes("p.join(root,'plugin.json')"), true, source);
-    assert.ok(
-      source.indexOf("'plugin.json'") < source.indexOf("'scripts','commands'"),
-      'manifest check must precede the verb-script path',
-    );
-    assert.ok(
-      source.indexOf('is not an antigravity plugin tree') < source.indexOf('spawnSync(process.execPath'),
-      'manifest check must precede the spawn',
-    );
+    assert.equal(source.includes("'scripts','lib','host-bootstrap.cjs'"), true, source);
+    assert.equal(source.includes("run(root,'review')"), true, source);
+    assert.equal(source.includes('is not an antigravity plugin tree'), false, source);
+    assert.equal(source.includes('spawnSync'), false, source);
   });
 
   it('invalidPluginRootMessage names the root and the standalone CLI', () => {

@@ -190,9 +190,8 @@ task text as one argument to preserve its boundaries.
   for this run (`plan`: propose without editing; `accept-edits`: apply file
   edits without a prompt). Any other value is an argument error (exit 1)
   and agy is not started.
-- `--model <id>` is accepted but currently ignored, with a diagnostic on
-  stderr. No model-selection behavior is promised for this flag until the
-  documentation says it is active.
+- `--model <id>` (additive) selects the agy model for this run, forwarded to
+  agy exactly as `vision`'s `--model` already was.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
   foreground and `--wait` has no additional effect.
@@ -210,7 +209,7 @@ task <prompt...>
      [--background | --foreground] [--wait]
      [--continue | --conversation <id>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
-     [--json] [--cwd <path>]
+     [--model <id>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -232,6 +231,8 @@ required unless `--continue` or `--conversation` is supplied.
   and in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access).
 - `--mode <plan|accept-edits>` is forwarded to agy on both paths, as under
   `rescue`. Any other value is an argument error.
+- `--model <id>` (additive) is forwarded to agy on both paths, as under
+  `rescue` and `vision`.
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
@@ -349,10 +350,16 @@ after the wait timeout and when the observed terminal status is failed or
 cancelled. It returns 1 when state cannot be read or a reference cannot be
 resolved. It does not return 2 for a cancelled job.
 
+A finished job's index entry (and therefore the "Recent Jobs" table and
+`--json`) additionally carries `answerBytes` (UTF-8 byte length of the stored
+answer) and `answerLines` (line count; a trailing newline does not add a
+line), set once the job reaches a terminal state. These fields are additive
+and `null`/absent on legacy records.
+
 ## `result`
 
 ```text
-result [<job-reference>] [--json] [--cwd <path>]
+result [<job-reference>] [--head <n>] [--tail <n>] [--json] [--cwd <path>]
 ```
 
 The reference accepts the same exact-id, unique-substring, and 1-based-index
@@ -360,6 +367,16 @@ forms as `status`. Without a reference, result selects the newest finished job
 in the current session when `ANTIGRAVITY_PLUGIN_SESSION_ID` is set, or the
 newest finished job across sessions otherwise. An explicit reference is not
 session-filtered. Active jobs are rejected with guidance to use `status`.
+
+`--head <n>` and `--tail <n>` (additive) each take a positive integer number
+of lines and may be combined; `--head 0` (or any non-positive value) is an
+argument error. Without either flag, output is unchanged. When a flag cuts
+the stored answer, the markdown output ends with a line `(showing <k> of
+<total> lines; full answer stored)`, and `--json` sets `details.truncated:
+true` while `answer` holds the cut text. The cut is applied to the stored
+answer text itself (lines only; a multi-byte UTF-8 character is never
+split), not to the metadata-fallback shape a job without a stored answer
+renders.
 
 If measured usage was stored, the stable usage trailer is written to stderr.
 Exit status is 0 for a completed job, 1 for a failed, active, missing, or
