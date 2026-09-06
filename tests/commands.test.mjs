@@ -97,6 +97,9 @@ function captureStdio({ pluginOnly = false } = {}) {
   const origStdout = process.stdout.write.bind(process.stdout);
   const origStderr = process.stderr.write.bind(process.stderr);
   process.stdout.write = (chunk, ...rest) => {
+    // node:test reports its own binary V8-serializer frames on stdout while
+    // a command yields; forward those untouched, never record them.
+    if (typeof chunk !== 'string') return origStdout(chunk, ...rest);
     if (pluginOnly) {
       // While a command yields, node:test reports binary frames on stdout.
       // Forward those frames so the runner still receives every test result.

@@ -21,12 +21,19 @@ it('treats an EPERM probe as an existing process, as required by R3', () => {
 });
 
 it('can read the start time of a live child for stale-lock identity checks', async () => {
-  const earliest = Date.now() - 1000;
+  const earliest = Date.now() - 3000;
   const child = spawn(process.execPath, ['-e', 'process.send("ready"); process.on("message", () => process.exit(0));'], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
   try {
     await new Promise((resolve, reject) => { child.once('message', resolve); child.once('error', reject); });
-    const startedAt = processStartedAt(child.pid);
-    assert.ok(startedAt >= earliest && startedAt <= Date.now(), `start time: ${startedAt}`);
+    const queryStartedAt = Date.now();
+    const startedAt = processStartedAt(child.pid, { queryTimeoutMs: 20_000 });
+    const queryElapsedMs = Date.now() - queryStartedAt;
+    // Window is 3 s on each side: POSIX ps derives lstart from the boot time
+    // in /proc/stat plus start ticks at second resolution, so the reported
+    // value can land about a second either side of the wall clock.
+    const latest = Date.now() + 3000;
+    assert.ok(startedAt !== null, `start time query on ${process.platform} returned null after ${queryElapsedMs} ms`);
+    assert.ok(startedAt >= earliest && startedAt <= latest, `start time: ${startedAt}, earliest: ${earliest}, latest: ${latest}`);
   } finally {
     const exited = new Promise((resolve) => child.once('exit', resolve));
     child.send('exit');

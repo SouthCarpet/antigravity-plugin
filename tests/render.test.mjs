@@ -266,7 +266,10 @@ describe('renderCancelReport / renderSetupReport / outputCommandResult', () => {
   it('outputCommandResult emits markdown or JSON based on flag', () => {
     const chunks = [];
     const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = (s, ..._rest) => { chunks.push(s); return true; };
+    process.stdout.write = (s, ...rest) => {
+      if (typeof s !== 'string') return origWrite(s, ...rest);
+      chunks.push(s); return true;
+    };
     try {
       outputCommandResult({ ok: 1 }, '# Markdown\n', false);
       outputCommandResult({ ok: 2 }, 'IGNORED', true);

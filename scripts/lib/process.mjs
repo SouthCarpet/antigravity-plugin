@@ -101,13 +101,16 @@ export function isProcessAlive(pid, killImpl = process.kill) {
  * again rather than inheriting the former process's identity indefinitely.
  *
  * @param {number} pid
- * @param {{ now?: () => number, platform?: string, spawnSyncImpl?: typeof spawnSync }} [options]
+ * @param {{ now?: () => number, platform?: string, spawnSyncImpl?: typeof spawnSync, queryTimeoutMs?: number }} [options]
+ *   `queryTimeoutMs` overrides the query's timeout bound; production callers
+ *   never set it and get `PROCESS_START_QUERY_TIMEOUT_MS`.
  * @returns {number | null}
  */
 export function processStartedAt(pid, {
   now = Date.now,
   platform = process.platform,
   spawnSyncImpl = spawnSync,
+  queryTimeoutMs = PROCESS_START_QUERY_TIMEOUT_MS,
 } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
   if (pid === process.pid) return now() - process.uptime() * 1000;
@@ -124,9 +127,9 @@ export function processStartedAt(pid, {
     const result = platform === "win32"
       ? spawnSyncImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
           `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`],
-        { encoding: "utf8", windowsHide: true, timeout: PROCESS_START_QUERY_TIMEOUT_MS, stdio: ["ignore", "pipe", "pipe"] })
+        { encoding: "utf8", windowsHide: true, timeout: queryTimeoutMs, stdio: ["ignore", "pipe", "pipe"] })
       : spawnSyncImpl("ps", ["-p", String(pid), "-o", "lstart="],
-        { encoding: "utf8", timeout: PROCESS_START_QUERY_TIMEOUT_MS, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] });
+        { encoding: "utf8", timeout: queryTimeoutMs, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] });
     if (result.status === 0 && !result.error) {
       const parsed = Date.parse(String(result.stdout).trim());
       if (Number.isFinite(parsed)) startedAt = parsed;
