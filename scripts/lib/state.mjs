@@ -170,7 +170,10 @@ function readStateIndex(cwd) {
 }
 
 function jobIndexProjection(job) {
-  const { request, result, stdout, ...index } = job;
+  const index = { ...job };
+  delete index.request;
+  delete index.result;
+  delete index.stdout;
   return index;
 }
 

@@ -16,21 +16,67 @@
  * record and any spawn.
  */
 
-import { readCommandInput } from "../lib/args.mjs";
+import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   agyUnavailableLine,
   finishForeground,
-  foregroundFailureLine,
+  reportQueuedJob,
   runForegroundJob,
   startBackgroundJob,
+  waitAndExit,
   waitForJob,
-  waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
 import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+
+/**
+ * @param {{ conversation?: string, continue?: boolean }} options
+ * @returns {string}
+ */
+function resolveReviewMode(options) {
+  if (options.conversation) return "conversation";
+  if (options.continue) return "continue";
+  return "print";
+}
+
+async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, options, ctx }) {
+  const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
+    workspaceRoot,
+    kind: "review",
+    title,
+    prompt,
+    mode,
+    conversationId,
+    cwd: workspaceRoot,
+    request: { scope: envelope.scope, base: base ?? null, mode },
+  });
+  const queuedExit = reportQueuedJob("review", job, options);
+  if (queuedExit !== null) return queuedExit;
+  if (!options.wait) return 0;
+  return waitAndExit("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
+}
+
+async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, json }) {
+  const { job, result } = await runForegroundJob({
+    workspaceRoot,
+    kind: "review",
+    title,
+    prompt,
+    mode,
+    conversationId,
+    cwd: workspaceRoot,
+    request: { scope: envelope.scope, base: base ?? null, mode },
+    onText: (delta) => process.stderr.write(delta),
+  });
+
+  return finishForeground("review", job, result, {
+    json,
+    extraDetails: { scope: envelope.scope },
+  });
+}
 
 /**
  * @param {string[]} [argv] CLI arguments after the verb (flags only)
@@ -49,7 +95,7 @@ export async function run(argv = [], ctx = {}) {
   if (!parsed) return 1;
   const { options } = parsed;
 
-  const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
+  const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const scope = (options.scope ? String(options.scope) : "auto");
   const base = options.base ? String(options.base) : undefined;
@@ -81,66 +127,17 @@ export async function run(argv = [], ctx = {}) {
   }
 
   const prompt = buildReviewPrompt(envelope);
-  const mode = options.conversation
-    ? "conversation"
-    : options.continue
-    ? "continue"
-    : "print";
+  const mode = resolveReviewMode(options);
   const conversationId = options.conversation ? String(options.conversation) : undefined;
   const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}`;
 
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, envelope, base };
+
   if (options.background) {
-    const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
-      workspaceRoot,
-      kind: "review",
-      title,
-      prompt,
-      mode,
-      conversationId,
-      cwd: workspaceRoot,
-      request: { scope: envelope.scope, base: base ?? null, mode },
-    });
-    if (job.status === "failed") {
-      process.stderr.write(`${foregroundFailureLine("review", { spawnError: job.errorMessage })}\n`);
-      return 1;
-    }
-    const payload = createJsonEnvelope("review", {
-      status: "queued",
-      jobId: job.id,
-      details: {
-        message: `Background review started. Run /antigravity:status ${job.id} to check progress.`,
-      },
-    });
-    outputCommandResult(
-      payload,
-      `Background review started: ${job.id}\nRun /antigravity:status ${job.id} to check progress.\n`,
-      Boolean(options.json),
-    );
-    if (options.wait) {
-      const final = await (ctx.waitForJob ?? waitForJob)(workspaceRoot, job.id);
-      const line = waitOutcomeLine("review", final);
-      if (line) process.stderr.write(`${line}\n`);
-      return final?.status === "completed" ? 0 : final?.status === "cancelled" ? 2 : 1;
-    }
-    return 0;
+    return runReviewBackground({ ...runArgs, options, ctx });
   }
 
-  const { job, result } = await runForegroundJob({
-    workspaceRoot,
-    kind: "review",
-    title,
-    prompt,
-    mode,
-    conversationId,
-    cwd: workspaceRoot,
-    request: { scope: envelope.scope, base: base ?? null, mode },
-    onText: (delta) => process.stderr.write(delta),
-  });
-
-  return finishForeground("review", job, result, {
-    json: options.json,
-    extraDetails: { scope: envelope.scope },
-  });
+  return runReviewForeground({ ...runArgs, json: options.json });
 }
 
 /**

@@ -112,6 +112,74 @@ export function waitOutcomeLine(kind, job) {
 }
 
 /**
+ * Map a terminal job status onto the exit code every verb shares: 0
+ * completed, 2 cancelled, 1 otherwise (failed, missing, still running).
+ *
+ * @param {import('./types.mjs').JobStatus | undefined} status
+ * @returns {number}
+ */
+export function exitCodeForJobStatus(status) {
+  switch (status) {
+    case "completed":
+      return 0;
+    case "cancelled":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+/**
+ * Report a background job's start: the failure line and exit code 1 when it
+ * never started, else the stable `--json`/markdown "queued" envelope. The
+ * one background-start report `task.mjs`, `rescue.mjs` and `review.mjs`
+ * each hand-wrote (item 19).
+ *
+ * @param {string} kind verb name
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {{ json?: boolean }} options
+ * @returns {number | null} an exit code when the job failed to start, else
+ *   null so the caller continues (e.g. to an optional `--wait`)
+ */
+export function reportQueuedJob(kind, job, options) {
+  if (job.status === "failed") {
+    process.stderr.write(`${foregroundFailureLine(kind, { spawnError: job.errorMessage })}\n`);
+    return 1;
+  }
+  const payload = createJsonEnvelope(kind, {
+    status: "queued",
+    jobId: job.id,
+    details: {
+      message: `Background ${kind} started. Run /antigravity:status ${job.id} to check progress.`,
+    },
+  });
+  outputCommandResult(
+    payload,
+    `Background ${kind} started: ${job.id}\nRun /antigravity:status ${job.id} to check progress.\n`,
+    Boolean(options.json),
+  );
+  return null;
+}
+
+/**
+ * Await a background job's terminal state, print the wait-timeout line (if
+ * any), and map the outcome to an exit code. The one background-wait tail
+ * `rescue.mjs` and `review.mjs` each hand-wrote (item 19).
+ *
+ * @param {string} kind verb name
+ * @param {string} workspaceRoot
+ * @param {string} jobId
+ * @param {typeof waitForJob} wait
+ * @returns {Promise<number>}
+ */
+export async function waitAndExit(kind, workspaceRoot, jobId, wait) {
+  const final = await wait(workspaceRoot, jobId);
+  const line = waitOutcomeLine(kind, final);
+  if (line) process.stderr.write(`${line}\n`);
+  return exitCodeForJobStatus(final?.status);
+}
+
+/**
  * Resolve the current session id (or `null` if unset).
  *
  * @param {NodeJS.ProcessEnv} [env]
@@ -280,7 +348,10 @@ export async function patchJob(workspaceRoot, jobId, patch) {
 
 /** Strip detail-only fields (request/result/stdout) from a patch destined for the index. */
 function stripDetail(patch) {
-  const { request: _r, result: _re, stdout: _s, ...rest } = patch;
+  const rest = { ...patch };
+  delete rest.request;
+  delete rest.result;
+  delete rest.stdout;
   return rest;
 }
 
@@ -589,6 +660,44 @@ export async function startBackgroundJob({
  *   now?: () => number, sleep?: (ms: number) => Promise<void> }} [options]
  * @returns {Promise<import('./types.mjs').JobRecord | null>}
  */
+/**
+ * @param {import('./types.mjs').JobRecord | null} job
+ * @param {number} workerPid
+ * @param {typeof processIsAlive} isProcessAlive
+ * @returns {boolean} true when the job looks active but its worker PID is gone
+ */
+function isWorkerVanished(job, workerPid, isProcessAlive) {
+  return Boolean(
+    job &&
+    (job.status === "running" || job.status === "queued") &&
+    Number.isInteger(workerPid) && workerPid > 0 &&
+    !isProcessAlive(workerPid),
+  );
+}
+
+/**
+ * Persist and log the terminal state for a job whose worker vanished
+ * without recording a result.
+ *
+ * @param {string} workspaceRoot
+ * @param {string} jobId
+ * @param {number} workerPid
+ * @returns {Promise<import('./types.mjs').JobRecord>}
+ */
+async function markWorkerVanished(workspaceRoot, jobId, workerPid) {
+  const failed = await patchJob(workspaceRoot, jobId, {
+    status: "failed",
+    phase: "worker_missing",
+    completedAt: new Date().toISOString(),
+    healthStatus: "worker_missing",
+    healthMessage: `Worker process ${workerPid} vanished before recording a terminal result.`,
+    recommendedAction: "Inspect the job log, then retry the task.",
+    errorMessage: `Background worker process ${workerPid} is no longer running.`,
+  });
+  appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
+  return failed;
+}
+
 export async function waitForJob(
   workspaceRoot,
   jobId,
@@ -606,19 +715,8 @@ export async function waitForJob(
     const job = readJobFile(workspaceRoot, jobId);
     if (!job || TERMINAL.has(job.status)) return job;
     const workerPid = Number(job?.workerPid ?? job?.pid);
-    if (job && (job.status === "running" || job.status === "queued") &&
-        Number.isInteger(workerPid) && workerPid > 0 && !isProcessAlive(workerPid)) {
-      const failed = await patchJob(workspaceRoot, jobId, {
-        status: "failed",
-        phase: "worker_missing",
-        completedAt: new Date().toISOString(),
-        healthStatus: "worker_missing",
-        healthMessage: `Worker process ${workerPid} vanished before recording a terminal result.`,
-        recommendedAction: "Inspect the job log, then retry the task.",
-        errorMessage: `Background worker process ${workerPid} is no longer running.`,
-      });
-      appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
-      return failed;
+    if (isWorkerVanished(job, workerPid, isProcessAlive)) {
+      return markWorkerVanished(workspaceRoot, jobId, workerPid);
     }
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);

@@ -35,14 +35,16 @@ function unsupportedStoredFlag(extraArgs) {
   return extraArgs.length === 2 ? null : String(extraArgs[2]);
 }
 
-async function main() {
-  const [jobId] = process.argv.slice(2);
-  if (!jobId) {
-    process.stderr.write("worker: missing jobId\n");
-    process.exit(2);
-  }
-
-  const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+/**
+ * Read the job file for `jobId` and its request/prompt. Exits the process
+ * (matching the pre-split behaviour) when the job file or its prompt is
+ * missing, so this never returns in either case.
+ *
+ * @param {string} jobId
+ * @param {string} workspaceRoot
+ * @returns {Promise<{ stored: object, request: object, prompt: string }>}
+ */
+async function loadWorkerContext(jobId, workspaceRoot) {
   const stored = readJobFile(workspaceRoot, jobId);
   if (!stored) {
     process.stderr.write(`worker: no job file for ${jobId}\n`);
@@ -60,15 +62,17 @@ async function main() {
     });
     process.exit(1);
   }
+  return { stored, request, prompt };
+}
 
-  const startedAt = new Date().toISOString();
-  appendJobLog(workspaceRoot, jobId, `[worker] started pid=${process.pid}`);
-
-  const logPath = resolveJobLogFile(workspaceRoot, jobId);
-  const fs = await import("node:fs");
-  const activity = createJobActivityRecorder(workspaceRoot, jobId, { heartbeat: true });
-
-  const onText = (delta) => {
+/**
+ * @param {ReturnType<typeof createJobActivityRecorder>} activity
+ * @param {string} logPath
+ * @param {typeof import('node:fs')} fs
+ * @returns {(delta: string) => void}
+ */
+function createWorkerTextLogger(activity, logPath, fs) {
+  return (delta) => {
     activity.onText();
     try {
       fs.appendFileSync(logPath, delta, { encoding: "utf8", mode: 0o600 });
@@ -76,15 +80,22 @@ async function main() {
       // best-effort log capture
     }
   };
+}
 
-  let result;
+/**
+ * Run the stored request through `runAgyPrint`, publishing startup once agy
+ * spawns and recording a failure on the job if the run throws.
+ *
+ * @returns {Promise<{ failed: true } | { failed: false, result: import('../lib/types.mjs').RuntimeResult }>}
+ */
+async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, onText, activity }) {
   try {
     const extraArgs = request.extraArgs === undefined ? [] : request.extraArgs;
     const flag = unsupportedStoredFlag(extraArgs);
     if (flag !== null) {
       throw new Error(`stored request carries an unsupported agy flag: ${flag}`);
     }
-    result = await runAgyPrint({
+    const result = await runAgyPrint({
       prompt,
       mode: request.mode ?? "print",
       conversationId: request.conversationId,
@@ -110,6 +121,7 @@ async function main() {
       },
     });
     await activity.finish();
+    return { failed: false, result };
   } catch (err) {
     await activity.finish().catch(() => {});
     appendJobLog(workspaceRoot, jobId, `[worker] error: ${err?.message ?? err}`);
@@ -120,15 +132,21 @@ async function main() {
       errorMessage: err?.message ?? String(err),
       healthStatus: "failed",
     });
-    return 1;
+    return { failed: true };
   } finally {
     await activity.finish();
   }
+}
 
-  // One stored-result projection for both paths (076-T6 R1): the same
-  // status mapping, summary derivation, and trimming helper `runForegroundJob`
-  // uses, so a background run stores `agyConversationId` and the same
-  // timeout retry hint the foreground path already had.
+/**
+ * One stored-result projection for both paths (076-T6 R1): the same status
+ * mapping, summary derivation, and trimming helper `runForegroundJob` uses,
+ * so a background run stores `agyConversationId` and the same timeout retry
+ * hint the foreground path already had.
+ *
+ * @returns {Promise<number>} the worker's process exit code
+ */
+async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
   applyDenialHint(result, stored.kind);
   const derived = deriveJobStatus(result, stored.kind);
 
@@ -158,6 +176,30 @@ async function main() {
   // restore the exact pre-T6 wording rather than declare an undeclared change.
   appendJobLog(workspaceRoot, jobId, `[worker] ${derived.status} exit=${result.exitCode}`);
   return derived.status === "completed" ? 0 : 1;
+}
+
+async function main() {
+  const [jobId] = process.argv.slice(2);
+  if (!jobId) {
+    process.stderr.write("worker: missing jobId\n");
+    process.exit(2);
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+  const { stored, request, prompt } = await loadWorkerContext(jobId, workspaceRoot);
+
+  const startedAt = new Date().toISOString();
+  appendJobLog(workspaceRoot, jobId, `[worker] started pid=${process.pid}`);
+
+  const logPath = resolveJobLogFile(workspaceRoot, jobId);
+  const fs = await import("node:fs");
+  const activity = createJobActivityRecorder(workspaceRoot, jobId, { heartbeat: true });
+  const onText = createWorkerTextLogger(activity, logPath, fs);
+
+  const outcome = await runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, onText, activity });
+  if (outcome.failed) return 1;
+
+  return persistWorkerResult(workspaceRoot, jobId, stored, outcome.result);
 }
 
 main().then((code) => process.exit(code)).catch((err) => {

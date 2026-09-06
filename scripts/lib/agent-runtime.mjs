@@ -9,9 +9,8 @@
  */
 import { spawn } from './process-adapter.mjs';
 import { terminateProcessTree } from './process.mjs';
-import { promises as fs } from 'node:fs';
 import { existsSync } from 'node:fs';
-import { resolve as resolvePath, join, delimiter, extname } from 'node:path';
+import { join, delimiter, extname } from 'node:path';
 
 /** Default binary name. Override via env `AGY_BIN`. */
 export const DEFAULT_AGY_BIN = 'agy';
@@ -21,8 +20,14 @@ export const MAX_STDOUT_BYTES = 16 * 1024 * 1024;
 export const MAX_STDERR_BYTES = 4 * 1024 * 1024;
 export const STDIO_DRAIN_TIMEOUT_MS = 5_000;
 
-/** Sentinel lines surfaced by `agy --print` when the user needs to (re-)auth. */
-const AUTH_LINE_PATTERNS = [
+/**
+ * Sentinel lines surfaced by `agy --print` when the user needs to (re-)auth.
+ * None of these may carry the `/g` flag: {@link recordRawAuthSignal} does
+ * `AUTH_LINE_PATTERNS.find(p => p.test(chunk))` followed by
+ * `chunk.match(pattern)`, and a global-flagged pattern's stateful
+ * `lastIndex` can desynchronize those two calls on the same chunk.
+ */
+export const AUTH_LINE_PATTERNS = [
   /^Authentication required\.?\s*Please visit the URL to log in/i,
   /^Waiting for authentication/i,
 ];
@@ -386,6 +391,454 @@ export function detectAutoDenial(stderr) {
 }
 
 /**
+ * `options[key]` when present, else the lazily-computed fallback — the same
+ * "only `undefined` triggers the default" rule a default-parameter value
+ * follows, kept as a plain function so `runAgyPrint`'s many optional fields
+ * don't each add a branch to its own complexity (they used to be default
+ * parameter values on the destructured signature itself).
+ *
+ * @param {object} options
+ * @param {string} key
+ * @param {() => any} getFallback called only when `options[key] === undefined`
+ * @returns {any}
+ */
+function optionOrDefault(options, key, getFallback) {
+  return options[key] === undefined ? getFallback() : options[key];
+}
+
+/**
+ * Apply `runAgyPrint`'s default values to a raw options object. `outputFormat`
+ * is accepted for backward compat but is a no-op (see the `runAgyPrint`
+ * doc comment) and is not read here.
+ *
+ * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
+ * @returns {object} every `runAgyPrint` field, fully defaulted
+ */
+function normalizeRunOptions(options) {
+  return {
+    prompt: options.prompt,
+    mode: optionOrDefault(options, 'mode', () => 'print'),
+    conversationId: options.conversationId,
+    cwd: optionOrDefault(options, 'cwd', () => process.cwd()),
+    addDirs: optionOrDefault(options, 'addDirs', () => []),
+    model: options.model,
+    extraArgs: optionOrDefault(options, 'extraArgs', () => []),
+    timeoutMs: optionOrDefault(options, 'timeoutMs', () => 0),
+    bin: optionOrDefault(options, 'bin', () => resolveAgyBin()),
+    env: optionOrDefault(options, 'env', () => process.env),
+    onStdout: options.onStdout,
+    onStderr: options.onStderr,
+    onText: options.onText,
+    onSpawn: options.onSpawn,
+    signal: options.signal,
+    terminationGraceMs: optionOrDefault(options, 'terminationGraceMs', () => 500),
+    forceKillGraceMs: optionOrDefault(options, 'forceKillGraceMs', () => 500),
+    maxStdoutBytes: optionOrDefault(options, 'maxStdoutBytes', () => MAX_STDOUT_BYTES),
+    maxStderrBytes: optionOrDefault(options, 'maxStderrBytes', () => MAX_STDERR_BYTES),
+    stdioDrainTimeoutMs: optionOrDefault(options, 'stdioDrainTimeoutMs', () => STDIO_DRAIN_TIMEOUT_MS),
+    terminateTree: optionOrDefault(options, 'terminateTree', () => terminateProcessTree),
+    platform: optionOrDefault(options, 'platform', () => process.platform),
+  };
+}
+
+/**
+ * Build the agy argv for one `runAgyPrint` invocation: the continuation
+ * flag (if any), `--add-dir`/`--model`/extra args, then the always-on
+ * stream-json/print tail.
+ *
+ * @param {{ mode: string, conversationId?: string, addDirs: string[],
+ *   model?: string, extraArgs: string[] }} options
+ * @returns {string[]}
+ */
+function buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs }) {
+  const args = [];
+  if (mode === 'continue') args.push('--continue');
+  if (mode === 'conversation') {
+    if (!conversationId) throw new TypeError('runAgyPrint: conversationId required for mode=conversation');
+    args.push('--conversation', conversationId);
+  }
+  for (const dir of addDirs) args.push('--add-dir', dir);
+  if (model) args.push('--model', model);
+  args.push(...extraArgs);
+  args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
+  return args;
+}
+
+/**
+ * Scan one raw stdout chunk for a raw (non-JSON) auth signal — the OAuth
+ * URL itself, or one of agy's short sentinel lines — and record it on
+ * `session`. Only the first signal wins (`session.oauthUrl` gates it); the
+ * exact matched text (never the whole chunk) is kept in
+ * `session.rawAuthEvidence` so the SUCCESS-response reclassification below
+ * can tell a genuine raw signal apart from a raw match that only fired
+ * because the same bytes are also inside the JSON `result.response` field.
+ *
+ * Guards the sentinel match's `[0]` index: `AUTH_LINE_PATTERNS.find` already
+ * proved one pattern matches via `.test()`, but a global-flagged pattern's
+ * stateful `lastIndex` can desynchronize `.test()` from a later `.match()`
+ * on the same chunk, so `.match()` returning `null` here is treated as "no
+ * evidence this chunk", not indexed into.
+ *
+ * @param {{ oauthUrl?: string, status?: string, rawAuthEvidence: string | null }} session
+ * @param {string} chunk
+ * @returns {void}
+ */
+function recordRawAuthSignal(session, chunk) {
+  if (session.oauthUrl) return;
+  const m = chunk.match(AUTH_URL_PATTERN);
+  if (m) {
+    session.oauthUrl = m[1];
+    session.status ??= 'auth_required';
+    session.rawAuthEvidence ??= m[1];
+    return;
+  }
+  const sentinelPattern = AUTH_LINE_PATTERNS.find((p) => p.test(chunk));
+  if (!sentinelPattern) return;
+  session.status ??= 'auth_required';
+  if (session.rawAuthEvidence !== null) return;
+  const match = chunk.match(sentinelPattern);
+  if (match) session.rawAuthEvidence = match[0].trim();
+}
+
+/**
+ * Create the mutable per-run state `runAgyPrint` threads through spawn,
+ * stream wiring, and termination handling, plus the `exitCodePromise` that
+ * settles once the child's lifecycle events resolve it exactly once.
+ *
+ * @param {import('node:child_process').ChildProcess} child
+ * @param {{ stdioDrainTimeoutMs: number, terminateTree: typeof terminateProcessTree,
+ *   terminationGraceMs: number, forceKillGraceMs: number }} config
+ * @returns {object} the run session (see call sites for the fields it carries)
+ */
+function createRunSession(child, { stdioDrainTimeoutMs, terminateTree, terminationGraceMs, forceKillGraceMs }) {
+  const session = {
+    stdout: '',
+    stderr: '',
+    oauthUrl: undefined,
+    status: undefined,
+    rawAuthEvidence: null,
+    spawnError: null,
+    timer: null,
+    drainTimer: null,
+    giveUpTimer: null,
+    terminationTask: undefined,
+    terminationReason: null,
+    errorMessage: null,
+    settleExit: undefined,
+    settled: false,
+    exited: false,
+    stdoutBytes: 0,
+    stderrBytes: 0,
+    warnings: [],
+  };
+
+  // Destroying is not enough to let this process exit: the pending shutdown
+  // of the stdin pipe (from `stdin.end()`) stays an active handle while a
+  // grandchild that inherited the descriptors keeps it open, so the handles
+  // are also unreferenced. Without the unref, a library caller settles at the
+  // drain deadline but only exits when that grandchild does.
+  session.destroyStdio = () => {
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      stream?.destroy?.();
+      stream?.unref?.();
+    }
+  };
+
+  session.exitCodePromise = new Promise((resolve) => {
+    session.settleExit = (code) => {
+      if (session.settled) return;
+      session.settled = true;
+      clearTimeout(session.timer);
+      clearTimeout(session.drainTimer);
+      clearTimeout(session.giveUpTimer);
+      resolve(code);
+    };
+    child.on('error', (e) => {
+      if (session.settled) return;
+      session.spawnError = e.message;
+      session.stderr += `\nspawn error: ${e.message}`;
+      session.settleExit(typeof e.errno === 'number' ? e.errno : 1);
+    });
+    child.on('close', (code, signal) => session.settleExit(code ?? (signal ? 1 : 0)));
+    child.on('exit', (code, signal) => {
+      session.exited = true;
+      if (session.settled) return;
+      session.drainTimer = setTimeout(() => {
+        session.warnings.push(`agy stdio did not close within ${stdioDrainTimeoutMs} ms after exit`);
+        session.destroyStdio();
+        session.settleExit(code ?? (signal ? 1 : 0));
+      }, stdioDrainTimeoutMs);
+    });
+  });
+
+  session.initiateTermination = (reason, message = null) => {
+    if (session.settled || session.terminationReason) return;
+    session.terminationReason = reason;
+    session.status = reason === 'output_limit' ? 'failed' : reason;
+    session.errorMessage = message;
+    session.terminationTask = terminateTree(child.pid, {
+      graceMs: terminationGraceMs,
+      forceGraceMs: forceKillGraceMs,
+    }).catch((err) => {
+      session.stderr += `\nprocess tree termination failed: ${err.message}`;
+    }).then(() => {
+      if (!session.settled && !session.exited) {
+        // A disappeared PID can precede Node's exit/close events. Give those
+        // events a bounded turn to arrive before abandoning the handle.
+        session.giveUpTimer = setTimeout(() => {
+          if (session.settled || session.exited) return; // exit owns the separate drain deadline
+          session.stderr += '\nagent-runtime: child did not exit after SIGKILL escalation';
+          session.destroyStdio();
+          child.unref?.();
+          session.settleExit(124);
+        }, forceKillGraceMs);
+      }
+    });
+  };
+
+  return session;
+}
+
+/**
+ * Wire the spawned child's stdin error handler and stdout/stderr `data`
+ * listeners: byte-cap enforcement, raw auth-signal scanning
+ * ({@link recordRawAuthSignal}), incremental NDJSON `onText` delivery, and
+ * the raw `onStdout`/`onStderr` pass-through.
+ *
+ * @param {import('node:child_process').ChildProcess} child
+ * @param {object} session from {@link createRunSession}
+ * @param {{ maxStdoutBytes: number, maxStderrBytes: number,
+ *   onStdout?: (chunk: string) => void, onStderr?: (chunk: string) => void,
+ *   onText?: (delta: string) => void }} config
+ * @returns {void}
+ */
+function wireAgyStreams(child, session, { maxStdoutBytes, maxStderrBytes, onStdout, onStderr, onText }) {
+  child.stdin.on('error', (e) => {
+    // EPIPE if agy exits before we finish writing the prompt line — record
+    // it, never let it surface as an unhandled 'error' event. Newline-
+    // terminated: the child's own stderr usually arrives after this.
+    session.stderr += `\nstdin error: ${e.message}\n`;
+  });
+  const lineFeeder = onText ? createNdjsonLineFeeder() : null;
+
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    if (session.settled || session.terminationReason === 'output_limit') return;
+    session.stdoutBytes += Buffer.byteLength(chunk, 'utf8');
+    if (session.stdoutBytes > maxStdoutBytes) {
+      session.initiateTermination('output_limit', `agy output exceeded ${maxStdoutBytes} bytes`);
+      return;
+    }
+    session.stdout += chunk;
+    recordRawAuthSignal(session, chunk);
+    if (lineFeeder) {
+      for (const event of lineFeeder.push(chunk)) {
+        const delta = event?.event === 'step_update' ? event.step_update?.text_delta : undefined;
+        if (typeof delta === 'string' && delta.length) onText(delta);
+      }
+    }
+    onStdout?.(chunk);
+  });
+  child.stderr.on('data', (chunk) => {
+    if (session.settled || session.terminationReason === 'output_limit') return;
+    session.stderrBytes += Buffer.byteLength(chunk, 'utf8');
+    if (session.stderrBytes > maxStderrBytes) {
+      session.initiateTermination('output_limit', `agy output exceeded ${maxStderrBytes} bytes`);
+      return;
+    }
+    session.stderr += chunk;
+    onStderr?.(chunk);
+  });
+}
+
+/**
+ * Await `onSpawn`, then write the prompt line and wait for the child to
+ * exit. Preserves the original failure contract: if `onSpawn` throws, this
+ * drives termination, waits for the child to settle, and rethrows — the
+ * caller's promise rejects rather than resolving to a result.
+ *
+ * @param {{ child: import('node:child_process').ChildProcess, session: object,
+ *   prompt: string, onSpawn?: (info: { pid: number | null, child: object }) => void | Promise<void> }} args
+ * @returns {Promise<number>}
+ */
+async function writePromptAndAwaitExit({ child, session, prompt, onSpawn }) {
+  try {
+    await onSpawn?.({ pid: child.pid ?? null, child });
+  } catch (err) {
+    session.initiateTermination('failed');
+    await session.exitCodePromise;
+    throw err;
+  }
+  if (!session.settled && !session.terminationReason) {
+    child.stdin.write(buildStreamJsonLine(prompt) + '\n');
+    child.stdin.end();
+  }
+  return session.exitCodePromise;
+}
+
+/**
+ * Whether the parsed result is trustworthy as an auth signal at all (item
+ * 14): never for a legitimate long SUCCESS answer that merely contains the
+ * URL text, only when it looks like agy's own short sentinel line (under
+ * 512 chars, first line matching `AUTH_LINE_PATTERNS`) or the run did not
+ * succeed — agy's own failure text has no length promise.
+ *
+ * @param {ReturnType<typeof parseAgyStream>} parsed
+ * @returns {{ responseText: string, looksLikeAuthSentinel: boolean, eligible: boolean }}
+ */
+function computeAuthEligibility(parsed) {
+  const responseText = typeof parsed.response === 'string' ? parsed.response : '';
+  const responseFirstLine = responseText.split('\n', 1)[0];
+  const looksLikeAuthSentinel = AUTH_LINE_PATTERNS.some((p) => p.test(responseFirstLine));
+  const eligible = parsed.resultStatus !== 'SUCCESS' ||
+    (responseText.length < 512 && looksLikeAuthSentinel);
+  return { responseText, looksLikeAuthSentinel, eligible };
+}
+
+/**
+ * Undo a speculative raw-stdout `auth_required` call once the full result is
+ * parsed and it turns out not to be `eligible` (see
+ * {@link computeAuthEligibility}) — but ONLY when the raw evidence that
+ * triggered it is itself inside the parsed response text: that is what marks
+ * it as the same speculative JSON-embedded match
+ * ({@link recordRawAuthSignal}'s per-chunk scan runs before parsing can know
+ * whether the text will turn out to be a SUCCESS result's response field),
+ * not a genuine raw auth prompt/sentinel printed outside the response field
+ * (F3 — a real raw signal followed by an unrelated SUCCESS result must stay
+ * `auth_required`).
+ *
+ * Known limit (not a regression): this substring check cannot tell a
+ * speculative JSON-embedded match apart from a genuine raw auth prompt whose
+ * own URL, or whose sentinel line, happens to also appear verbatim inside an
+ * unrelated long SUCCESS answer (A9 for the URL, B11 for the sentinel); it
+ * needs a SUCCESS result with a 512+ character answer in the same run as an
+ * unauthenticated prompt, which the auth path does not produce.
+ *
+ * @param {{ status?: string, oauthUrl?: string, rawAuthEvidence: string | null,
+ *   parsed: ReturnType<typeof parseAgyStream>, eligible: boolean, responseText: string }} args
+ * @returns {{ status?: string, oauthUrl?: string }}
+ */
+function undoSpeculativeAuthMatch({ status, oauthUrl, rawAuthEvidence, parsed, eligible, responseText }) {
+  const rawEvidenceIsSpeculative = rawAuthEvidence !== null && responseText.includes(rawAuthEvidence);
+  if (status === 'auth_required' && parsed.sawResult && !eligible && rawEvidenceIsSpeculative) {
+    return { status: undefined, oauthUrl: undefined };
+  }
+  return { status, oauthUrl };
+}
+
+/**
+ * Auth prompts may also arrive folded into the result event's response
+ * field without ever matching at the raw-chunk level (e.g. reassembled only
+ * after a chunk boundary split the URL) — check for that here.
+ *
+ * @param {{ status?: string, oauthUrl?: string, eligible: boolean,
+ *   responseText: string, looksLikeAuthSentinel: boolean }} args
+ * @returns {{ status?: string, oauthUrl?: string }}
+ */
+function detectResponseAuthSignal({ status, oauthUrl, eligible, responseText, looksLikeAuthSentinel }) {
+  if (status || !eligible) return { status, oauthUrl };
+  const m = responseText.match(AUTH_URL_PATTERN);
+  if (!m && !looksLikeAuthSentinel) return { status, oauthUrl };
+  return { status: 'auth_required', oauthUrl: oauthUrl ?? m?.[1] };
+}
+
+/**
+ * The final status classification once auth is ruled out: exit code, a
+ * missing/non-SUCCESS result event, and headless auto-denials (see
+ * `detectAutoDenial`), in the order documented on `runAgyPrint`. A no-op
+ * (returns `status` unchanged) once a status is already set.
+ *
+ * @param {{ status?: string, exitCode: number, parsed: ReturnType<typeof parseAgyStream>,
+ *   stderr: string, warnings: string[] }} args
+ * @returns {{ status: string, stderr: string, denial: { tool: string, line: string } | null }}
+ */
+function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings }) {
+  if (status) return { status, stderr, denial: null };
+  let denial = null;
+  let nextStatus;
+  let nextStderr = stderr;
+  if (exitCode !== 0) {
+    nextStatus = 'failed';
+  } else if (!parsed.sawResult) {
+    nextStatus = 'failed';
+    nextStderr += '\nagent-runtime: agy exited 0 without a result event (stream truncated?)';
+  } else if (parsed.resultStatus !== 'SUCCESS') {
+    nextStatus = 'failed';
+    nextStderr += `\nagent-runtime: agy result status was "${parsed.resultStatus ?? 'unknown'}", not SUCCESS`;
+  } else {
+    denial = detectAutoDenial(nextStderr);
+    const answered = typeof parsed.response === 'string' && parsed.response.trim().length > 0;
+    if (denial && !answered) {
+      nextStatus = 'failed';
+      nextStderr +=
+        `\nagent-runtime: agy produced no output because the "${denial.tool}" tool was ` +
+        `auto-denied (headless mode cannot prompt for it)`;
+    } else {
+      nextStatus = 'completed';
+      if (denial) warnings.push(denial.line);
+    }
+  }
+  nextStderr += agyResultErrorNote(parsed.resultError);
+  return { status: nextStatus, stderr: nextStderr, denial };
+}
+
+/**
+ * Result classification: parse the accumulated stdout, resolve the final
+ * auth status ({@link undoSpeculativeAuthMatch}, {@link detectResponseAuthSignal}),
+ * classify the terminal status ({@link classifyFinalStatus}), and assemble
+ * the `RuntimeResult` `runAgyPrint` returns.
+ *
+ * @param {{ session: object, exitCode: number }} args
+ * @returns {import('./types.mjs').RuntimeResult}
+ */
+function classifyRunResult({ session, exitCode }) {
+  const parsed = parseAgyStream(session.stdout);
+  const authContext = computeAuthEligibility(parsed);
+
+  const undone = undoSpeculativeAuthMatch({
+    status: session.status,
+    oauthUrl: session.oauthUrl,
+    rawAuthEvidence: session.rawAuthEvidence,
+    parsed,
+    eligible: authContext.eligible,
+    responseText: authContext.responseText,
+  });
+  const detected = detectResponseAuthSignal({
+    status: undone.status,
+    oauthUrl: undone.oauthUrl,
+    eligible: authContext.eligible,
+    responseText: authContext.responseText,
+    looksLikeAuthSentinel: authContext.looksLikeAuthSentinel,
+  });
+
+  const finalized = classifyFinalStatus({
+    status: detected.status,
+    exitCode,
+    parsed,
+    stderr: session.stderr,
+    warnings: session.warnings,
+  });
+
+  return {
+    status: finalized.status,
+    stderr: session.errorMessage ? `${finalized.stderr}\n${session.errorMessage}` : finalized.stderr,
+    errorMessage: session.errorMessage,
+    exitCode,
+    oauthUrl: detected.oauthUrl,
+    stdout: session.terminationReason === 'output_limit' ? session.stdout
+      : parsed.sawResult && typeof parsed.response === 'string' ? parsed.response : session.stdout,
+    rawStdout: session.stdout,
+    usage: parsed.usage ?? null,
+    durationSeconds: parsed.durationSeconds ?? null,
+    agyConversationId: parsed.conversationId ?? null,
+    warnings: session.warnings,
+    denial: finalized.denial,
+    spawnError: session.spawnError,
+  };
+}
+
+/**
  * Run `agy` (or a continuation variant) over its stream-json transport and
  * capture the final response.
  *
@@ -465,44 +918,36 @@ export function detectAutoDenial(stderr) {
  * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
  * @returns {Promise<import('./types.mjs').RuntimeResult>}
  */
-export async function runAgyPrint({
-  prompt,
-  mode = 'print',
-  conversationId,
-  cwd = process.cwd(),
-  addDirs = [],
-  model,
-  outputFormat,
-  extraArgs = [],
-  timeoutMs = 0,
-  bin = resolveAgyBin(),
-  env = process.env,
-  onStdout,
-  onStderr,
-  onText,
-  onSpawn,
-  signal,
-  terminationGraceMs = 500,
-  forceKillGraceMs = 500,
-  maxStdoutBytes = MAX_STDOUT_BYTES,
-  maxStderrBytes = MAX_STDERR_BYTES,
-  stdioDrainTimeoutMs = STDIO_DRAIN_TIMEOUT_MS,
-  terminateTree = terminateProcessTree,
-  platform = process.platform,
-} = {}) {
+export async function runAgyPrint(rawOptions = {}) {
+  const {
+    prompt,
+    mode,
+    conversationId,
+    cwd,
+    addDirs,
+    model,
+    extraArgs,
+    timeoutMs,
+    bin,
+    env,
+    onStdout,
+    onStderr,
+    onText,
+    onSpawn,
+    signal,
+    terminationGraceMs,
+    forceKillGraceMs,
+    maxStdoutBytes,
+    maxStderrBytes,
+    stdioDrainTimeoutMs,
+    terminateTree,
+    platform,
+  } = normalizeRunOptions(rawOptions);
+
   if (typeof prompt !== 'string' || !prompt.length) {
     throw new TypeError('runAgyPrint: prompt must be a non-empty string');
   }
-  const args = [];
-  if (mode === 'continue') args.push('--continue');
-  if (mode === 'conversation') {
-    if (!conversationId) throw new TypeError('runAgyPrint: conversationId required for mode=conversation');
-    args.push('--conversation', conversationId);
-  }
-  for (const dir of addDirs) args.push('--add-dir', dir);
-  if (model) args.push('--model', model);
-  args.push(...extraArgs);
-  args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
+  const args = buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs });
 
   const detached = platform !== 'win32';
   const child = spawnAgy(bin, args, {
@@ -512,289 +957,38 @@ export async function runAgyPrint({
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  let stdout = '';
-  let stderr = '';
-  let oauthUrl;
-  let status;
-  // The exact raw-stdout text (the URL, or the matched sentinel text — never
-  // the whole chunk) that made the per-chunk scan below set `auth_required`.
-  // Kept so the SUCCESS-response reclassification (see below) can tell a
-  // genuine, independent raw auth signal apart from a raw match that only
-  // fired because the same bytes are also inside the JSON `result.response`
-  // field — F3/item 14: the fix must undo only the latter. Storing the
-  // matched text rather than the containing chunk matters because a chunk
-  // boundary can land anywhere: if it happened to fall right at the start of
-  // an embedded sentinel, the rest of that chunk (JSON syntax and all) would
-  // never be a substring of the plain-text `responseText`, so the undo below
-  // would silently never fire for that split.
-  let rawAuthEvidence = null;
-  let spawnError = null;
-  let timer = null;
-  let drainTimer = null;
-  let giveUpTimer = null;
-  let terminationTask;
-  let terminationReason = null;
-  let errorMessage = null;
-  let settleExit;
-  let settled = false;
-  let exited = false;
-  let stdoutBytes = 0;
-  let stderrBytes = 0;
-  const warnings = [];
-  // Destroying is not enough to let this process exit: the pending shutdown
-  // of the stdin pipe (from `stdin.end()`) stays an active handle while a
-  // grandchild that inherited the descriptors keeps it open, so the handles
-  // are also unreferenced. Without the unref, a library caller settles at the
-  // drain deadline but only exits when that grandchild does.
-  const destroyStdio = () => {
-    for (const stream of [child.stdin, child.stdout, child.stderr]) {
-      stream?.destroy?.();
-      stream?.unref?.();
-    }
-  };
+  const session = createRunSession(child, { stdioDrainTimeoutMs, terminateTree, terminationGraceMs, forceKillGraceMs });
+  wireAgyStreams(child, session, { maxStdoutBytes, maxStderrBytes, onStdout, onStderr, onText });
 
-  const exitCodePromise = new Promise((resolve) => {
-    settleExit = (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      clearTimeout(drainTimer);
-      clearTimeout(giveUpTimer);
-      resolve(code);
-    };
-    child.on('error', (e) => {
-      if (settled) return;
-      spawnError = e.message;
-      stderr += `\nspawn error: ${e.message}`;
-      settleExit(typeof e.errno === 'number' ? e.errno : 1);
-    });
-    child.on('close', (code, signal) => settleExit(code ?? (signal ? 1 : 0)));
-    child.on('exit', (code, signal) => {
-      exited = true;
-      if (settled) return;
-      drainTimer = setTimeout(() => {
-        warnings.push(`agy stdio did not close within ${stdioDrainTimeoutMs} ms after exit`);
-        destroyStdio();
-        settleExit(code ?? (signal ? 1 : 0));
-      }, stdioDrainTimeoutMs);
-    });
-  });
-
-  child.stdin.on('error', (e) => {
-    // EPIPE if agy exits before we finish writing the prompt line — record
-    // it, never let it surface as an unhandled 'error' event. Newline-
-    // terminated: the child's own stderr usually arrives after this.
-    stderr += `\nstdin error: ${e.message}\n`;
-  });
-  const lineFeeder = onText ? createNdjsonLineFeeder() : null;
-
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => {
-    if (settled || terminationReason === 'output_limit') return;
-    stdoutBytes += Buffer.byteLength(chunk, 'utf8');
-    if (stdoutBytes > maxStdoutBytes) {
-      initiateTermination('output_limit', `agy output exceeded ${maxStdoutBytes} bytes`);
-      return;
-    }
-    stdout += chunk;
-    if (!oauthUrl) {
-      const m = chunk.match(AUTH_URL_PATTERN);
-      if (m) {
-        oauthUrl = m[1];
-        status ??= 'auth_required';
-        rawAuthEvidence ??= m[1];
-      } else {
-        const sentinelPattern = AUTH_LINE_PATTERNS.find((p) => p.test(chunk));
-        if (sentinelPattern) {
-          status ??= 'auth_required';
-          if (rawAuthEvidence === null) rawAuthEvidence = chunk.match(sentinelPattern)[0].trim();
-        }
-      }
-    }
-    if (lineFeeder) {
-      for (const event of lineFeeder.push(chunk)) {
-        const delta = event?.event === 'step_update' ? event.step_update?.text_delta : undefined;
-        if (typeof delta === 'string' && delta.length) onText(delta);
-      }
-    }
-    onStdout?.(chunk);
-  });
-  child.stderr.on('data', (chunk) => {
-    if (settled || terminationReason === 'output_limit') return;
-    stderrBytes += Buffer.byteLength(chunk, 'utf8');
-    if (stderrBytes > maxStderrBytes) {
-      initiateTermination('output_limit', `agy output exceeded ${maxStderrBytes} bytes`);
-      return;
-    }
-    stderr += chunk;
-    onStderr?.(chunk);
-  });
-
-  const initiateTermination = (reason, message = null) => {
-    if (settled || terminationReason) return;
-    terminationReason = reason;
-    status = reason === 'output_limit' ? 'failed' : reason;
-    errorMessage = message;
-    terminationTask = terminateTree(child.pid, {
-      graceMs: terminationGraceMs,
-      forceGraceMs: forceKillGraceMs,
-    }).catch((err) => {
-      stderr += `\nprocess tree termination failed: ${err.message}`;
-    }).then(() => {
-      if (!settled && !exited) {
-        // A disappeared PID can precede Node's exit/close events. Give those
-        // events a bounded turn to arrive before abandoning the handle.
-        giveUpTimer = setTimeout(() => {
-          if (settled || exited) return; // exit owns the separate drain deadline
-          stderr += '\nagent-runtime: child did not exit after SIGKILL escalation';
-          destroyStdio();
-          child.unref?.();
-          settleExit(124);
-        }, forceKillGraceMs);
-      }
-    });
-  };
-
-  timer = timeoutMs > 0
-    ? setTimeout(() => initiateTermination('timeout', `agy did not finish within ${timeoutMs} ms`), timeoutMs)
+  session.timer = timeoutMs > 0
+    ? setTimeout(() => session.initiateTermination('timeout', `agy did not finish within ${timeoutMs} ms`), timeoutMs)
     : null;
 
   // A detached agy no longer dies with the terminal's foreground process
   // group, so the interactive signals are forwarded to the same bounded
   // cancellation an abort uses (see forwardTerminationSignals).
   const removeSignalHandlers = detached
-    ? forwardTerminationSignals(() => initiateTermination('cancelled'))
+    ? forwardTerminationSignals(() => session.initiateTermination('cancelled'))
     : null;
 
   let abortListener;
   if (signal) {
-    abortListener = () => initiateTermination('cancelled');
+    abortListener = () => session.initiateTermination('cancelled');
     if (signal.aborted) abortListener();
     else signal.addEventListener('abort', abortListener, { once: true });
   }
 
   let exitCode;
   try {
-    try {
-      await onSpawn?.({ pid: child.pid ?? null, child });
-    } catch (err) {
-      initiateTermination('failed');
-      await exitCodePromise;
-      throw err;
-    }
-    if (!settled && !terminationReason) {
-      child.stdin.write(buildStreamJsonLine(prompt) + '\n');
-      child.stdin.end();
-    }
-    exitCode = await exitCodePromise;
+    exitCode = await writePromptAndAwaitExit({ child, session, prompt, onSpawn });
   } finally {
-    clearTimeout(timer);
-    clearTimeout(drainTimer);
-    clearTimeout(giveUpTimer);
+    clearTimeout(session.timer);
+    clearTimeout(session.drainTimer);
+    clearTimeout(session.giveUpTimer);
     removeSignalHandlers?.();
     if (signal && abortListener) signal.removeEventListener('abort', abortListener);
-    await terminationTask;
+    await session.terminationTask;
   }
 
-  const parsed = parseAgyStream(stdout);
-
-  // A SUCCESS result quoting the OAuth URL mid-answer is not an auth
-  // failure (item 14): a completed review of a change that touches Google
-  // sign-in can legitimately echo that URL. `eligible` decides whether a
-  // response is trustworthy as an auth signal at all: never for a legitimate
-  // long SUCCESS answer that merely contains the URL text, only when it
-  // looks like agy's own short sentinel line (under 512 chars, first line
-  // matching AUTH_LINE_PATTERNS) or the run did not succeed — agy's own
-  // failure text has no length promise.
-  // NOTE: this SUCCESS-response path is exercised only against recorded
-  // fixtures — the live auth response shape on agy 1.1.24 (whether a prompt
-  // ever actually arrives inside a SUCCESS result, or only ever as raw
-  // stdout) was not re-probed for this change. See
-  // tests/agent-runtime-stream.test.mjs "flags auth_required for a short
-  // SUCCESS sentinel matching AUTH_LINE_PATTERNS" for the shapes this pins
-  // today.
-  const responseText = typeof parsed.response === 'string' ? parsed.response : '';
-  const responseFirstLine = responseText.split('\n', 1)[0];
-  const looksLikeAuthSentinel = AUTH_LINE_PATTERNS.some((p) => p.test(responseFirstLine));
-  const eligible = parsed.resultStatus !== 'SUCCESS' ||
-    (responseText.length < 512 && looksLikeAuthSentinel);
-
-  // The per-chunk raw-stdout scan above runs while the stream is still
-  // arriving, before parsing can know whether this text will turn out to be
-  // a SUCCESS result's response field — so it can speculatively set
-  // `auth_required` on exactly the long-answer-mentions-the-URL case this
-  // fix targets. Undo that speculative call once the full result is parsed
-  // and it turns out not to be eligible, but ONLY when the raw evidence that
-  // triggered it is itself inside the parsed response text: that is what
-  // marks it as the same speculative JSON-embedded match, not a genuine raw
-  // auth prompt/sentinel printed outside the response field (F3 — a real
-  // raw signal followed by an unrelated SUCCESS result must stay
-  // `auth_required`; the raw-stdout detection itself is unchanged).
-  // Known limit (not a regression): this substring check cannot tell a
-  // speculative JSON-embedded match apart from a genuine raw auth prompt
-  // whose own URL, or whose sentinel line, happens to also appear verbatim
-  // inside an unrelated long SUCCESS answer; that case is still undone (A9
-  // for the URL, B11 for the sentinel). It needs a SUCCESS result with a
-  // 512+ character answer in the same run as an unauthenticated prompt,
-  // which the auth path does not produce.
-  const rawEvidenceIsSpeculative = rawAuthEvidence !== null && responseText.includes(rawAuthEvidence);
-  if (status === 'auth_required' && parsed.sawResult && !eligible && rawEvidenceIsSpeculative) {
-    status = undefined;
-    oauthUrl = undefined;
-  }
-
-  // Auth prompts may also arrive folded into the result event's response
-  // field without ever matching at the raw-chunk level (e.g. reassembled
-  // only after a chunk boundary split the URL) — check it here too.
-  if (!status && eligible) {
-    const m = responseText.match(AUTH_URL_PATTERN);
-    if (m || looksLikeAuthSentinel) {
-      oauthUrl = oauthUrl ?? m?.[1];
-      status = 'auth_required';
-    }
-  }
-
-  let denial = null;
-  if (!status) {
-    if (exitCode !== 0) {
-      status = 'failed';
-    } else if (!parsed.sawResult) {
-      status = 'failed';
-      stderr += '\nagent-runtime: agy exited 0 without a result event (stream truncated?)';
-    } else if (parsed.resultStatus !== 'SUCCESS') {
-      status = 'failed';
-      stderr += `\nagent-runtime: agy result status was "${parsed.resultStatus ?? 'unknown'}", not SUCCESS`;
-    } else {
-      denial = detectAutoDenial(stderr);
-      const answered = typeof parsed.response === 'string' && parsed.response.trim().length > 0;
-      if (denial && !answered) {
-        status = 'failed';
-        stderr +=
-          `\nagent-runtime: agy produced no output because the "${denial.tool}" tool was ` +
-          `auto-denied (headless mode cannot prompt for it)`;
-      } else {
-        status = 'completed';
-        if (denial) warnings.push(denial.line);
-      }
-    }
-    stderr += agyResultErrorNote(parsed.resultError);
-  }
-
-  return {
-    status,
-    stderr: errorMessage ? `${stderr}\n${errorMessage}` : stderr,
-    errorMessage,
-    exitCode,
-    oauthUrl,
-    stdout: terminationReason === 'output_limit' ? stdout
-      : parsed.sawResult && typeof parsed.response === 'string' ? parsed.response : stdout,
-    rawStdout: stdout,
-    usage: parsed.usage ?? null,
-    durationSeconds: parsed.durationSeconds ?? null,
-    agyConversationId: parsed.conversationId ?? null,
-    warnings,
-    denial,
-    spawnError,
-  };
+  return classifyRunResult({ session, exitCode });
 }

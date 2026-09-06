@@ -15,7 +15,7 @@
  *   --json                emit JSON instead of markdown
  */
 
-import { readCommandInput } from "../lib/args.mjs";
+import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import {
@@ -23,14 +23,63 @@ import {
   agyModeArgs,
   agyUnavailableLine,
   finishForeground,
-  foregroundFailureLine,
+  reportQueuedJob,
   runForegroundJob,
   startBackgroundJob,
+  waitAndExit,
   waitForJob,
-  waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+
+/**
+ * Resolve conversation mode: `--conversation` wins; then `--resume`/
+ * `--continue` (unless `--fresh`); else a fresh conversation.
+ *
+ * @param {{ conversation?: string, resume?: boolean, continue?: boolean, fresh?: boolean }} options
+ * @returns {{ mode: string, conversationId: string | undefined }}
+ */
+function resolveRescueMode(options) {
+  if (options.conversation) return { mode: "conversation", conversationId: String(options.conversation) };
+  if ((options.resume || options.continue) && !options.fresh) return { mode: "continue", conversationId: undefined };
+  return { mode: "print", conversationId: undefined };
+}
+
+async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, json }) {
+  const { job, result } = await runForegroundJob({
+    workspaceRoot,
+    kind: "rescue",
+    title,
+    prompt,
+    mode,
+    conversationId,
+    addDirs,
+    extraArgs,
+    cwd: workspaceRoot,
+    request: { mode, addDirs },
+    onText: (delta) => process.stderr.write(delta),
+  });
+
+  return finishForeground("rescue", job, result, { json });
+}
+
+async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, options, ctx }) {
+  const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
+    workspaceRoot,
+    kind: "rescue",
+    title,
+    prompt,
+    mode,
+    conversationId,
+    addDirs,
+    extraArgs,
+    cwd: workspaceRoot,
+    request: { mode, addDirs },
+  });
+  const queuedExit = reportQueuedJob("rescue", job, options);
+  if (queuedExit !== null) return queuedExit;
+  if (!options.wait) return 0;
+  return waitAndExit("rescue", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
+}
 
 /**
  * @param {string[]} [argv] CLI arguments after the verb (a prompt and flags)
@@ -55,7 +104,7 @@ export async function run(argv = [], ctx = {}) {
   if (!parsed) return 1;
   const { options, positionals } = parsed;
 
-  const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
+  const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
   const userPrompt = positionals.join(" ").trim();
@@ -71,15 +120,7 @@ export async function run(argv = [], ctx = {}) {
     );
   }
 
-  // Resolve conversation mode. --conversation wins; then --resume/--continue; then fresh.
-  let mode = "print";
-  let conversationId;
-  if (options.conversation) {
-    mode = "conversation";
-    conversationId = String(options.conversation);
-  } else if ((options.resume || options.continue) && !options.fresh) {
-    mode = "continue";
-  }
+  const { mode, conversationId } = resolveRescueMode(options);
 
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
@@ -93,59 +134,13 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
 
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs };
+
   if (options.background) {
-    const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
-      workspaceRoot,
-      kind: "rescue",
-      title,
-      prompt,
-      mode,
-      conversationId,
-      addDirs,
-      extraArgs,
-      cwd: workspaceRoot,
-      request: { mode, addDirs },
-    });
-    if (job.status === "failed") {
-      process.stderr.write(`${foregroundFailureLine("rescue", { spawnError: job.errorMessage })}\n`);
-      return 1;
-    }
-    const payload = createJsonEnvelope("rescue", {
-      status: "queued",
-      jobId: job.id,
-      details: {
-        message: `Background rescue started. Run /antigravity:status ${job.id} to check progress.`,
-      },
-    });
-    outputCommandResult(
-      payload,
-      `Background rescue started: ${job.id}\nRun /antigravity:status ${job.id} to check progress.\n`,
-      Boolean(options.json),
-    );
-    if (options.wait) {
-      const final = await (ctx.waitForJob ?? waitForJob)(workspaceRoot, job.id);
-      const line = waitOutcomeLine("rescue", final);
-      if (line) process.stderr.write(`${line}\n`);
-      return final?.status === "completed" ? 0 : final?.status === "cancelled" ? 2 : 1;
-    }
-    return 0;
+    return runRescueBackground({ ...runArgs, options, ctx });
   }
 
-  const { job, result } = await runForegroundJob({
-    workspaceRoot,
-    kind: "rescue",
-    title,
-    prompt,
-    mode,
-    conversationId,
-    addDirs,
-    extraArgs,
-    cwd: workspaceRoot,
-    request: { mode, addDirs },
-    onText: (delta) => process.stderr.write(delta),
-  });
-
-  return finishForeground("rescue", job, result, { json: options.json });
+  return runRescueForeground({ ...runArgs, json: options.json });
 }
 
 function truncate(s, n) {

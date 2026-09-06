@@ -9,6 +9,7 @@
   "scripts": {
     "test": "node --test --experimental-test-module-mocks tests/*.test.mjs",
     "test:coverage": "node --test --experimental-test-module-mocks --experimental-test-coverage tests/*.test.mjs",
+    "lint": "eslint .",
     "bump-version": "node scripts/bump-version.mjs",
     "check:version": "node scripts/bump-version.mjs --check"
   },
@@ -58,5 +59,8 @@
     "CHANGELOG.md",
     "LICENSE",
     "SECURITY.md"
-  ]
+  ],
+  "devDependencies": {
+    "eslint": "^9.39.5"
+  }
 }

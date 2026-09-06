@@ -33,15 +33,21 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
-          # No lockfile, no dependencies — do not let setup-node hunt for a cache key.
+          # Zero runtime dependencies; package-lock.json pins only the lint
+          # devDependency, so caching one small lockfile buys nothing.
           package-manager-cache: false
 
-      # Zero runtime dependencies and no package-lock.json. `npm ci` refuses to
-      # run without a lockfile; `npm install` would write a lockfile of an empty
-      # tree into the runner workspace. Tests and gates run with stock Node/npm.
+      # package-lock.json exists (076-T6b, one devDependency: eslint), so
+      # `npm ci` now installs it deterministically; it is a no-op otherwise
+      # since the package still ships zero runtime dependencies.
       - name: Install
-        run: |
-          echo "skip npm install: no dependencies and no lockfile"
+        run: npm ci
+
+      # The lint gate (cyclomatic complexity) runs once, on the Node 24 job
+      # only — it is a code-quality gate, not a per-runtime behaviour check.
+      - name: Lint
+        if: matrix.node == '24'
+        run: npm run lint
 
       # Keep the quote-free glob so Git Bash expands tests/*.test.mjs to real
       # paths consistently on both runner OSes. GitHub-hosted windows-latest

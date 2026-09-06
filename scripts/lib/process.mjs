@@ -2,7 +2,7 @@
  * Process spawning and management utilities.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 export const GIT_TIMEOUT_MS = 120_000;
@@ -169,26 +169,15 @@ function publicAttempt(kind, result) {
 }
 
 /**
- * Terminate a process tree, verify that the root PID disappeared, and
- * escalate from a polite request to a forced kill when needed.
+ * Build the `finish(outcome, message, status)` closure a termination path
+ * resolves with, bound to the one `attempts` array it appends to.
  *
- * @param {number | string} pid
- * @param {{ platform?: string, killImpl?: typeof process.kill,
- *   spawnSyncImpl?: typeof spawnSync, probe?: (pid: number) => boolean,
- *   graceMs?: number, forceGraceMs?: number }} [options]
- * @returns {Promise<import('./types.mjs').TerminationResult>}
+ * @param {number} numericPid
+ * @param {object[]} attempts
+ * @returns {(outcome: string, message: string, status?: number | null) => import('./types.mjs').TerminationResult}
  */
-export async function terminateProcessTree(pid, options = {}) {
-  const numericPid = Number(pid);
-  const platform = options.platform ?? process.platform;
-  const killImpl = options.killImpl ?? process.kill;
-  const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
-  const probe = options.probe ?? ((candidate) => isProcessAlive(candidate, killImpl));
-  const graceMs = options.graceMs ?? 500;
-  const forceGraceMs = options.forceGraceMs ?? 500;
-  const attempts = [];
-
-  const finish = (outcome, message, status = null) => ({
+function buildFinisher(numericPid, attempts) {
+  return (outcome, message, status = null) => ({
     outcome,
     killed: outcome === "killed",
     pid: numericPid,
@@ -196,41 +185,57 @@ export async function terminateProcessTree(pid, options = {}) {
     attempts,
     message,
   });
+}
 
-  if (!Number.isInteger(numericPid) || numericPid <= 0) {
-    return finish("failed", `Invalid process id: ${pid}`);
-  }
-  if (!probe(numericPid)) {
-    return finish("not_found", `Process ${numericPid} is not running.`);
-  }
-
-  if (platform === "win32") {
-    let last;
-    for (const force of [false, true]) {
-      try {
-        last = spawnSyncImpl(
-          "taskkill",
-          ["/PID", String(numericPid), "/T", ...(force ? ["/F"] : [])],
-          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000 },
-        );
-      } catch (error) {
-        last = { status: null, signal: null, stderr: error?.message ?? String(error), error };
-      }
-      attempts.push(publicAttempt(force ? "taskkill-force" : "taskkill", last));
-      if (await waitUntilGone(numericPid, probe, force ? forceGraceMs : graceMs)) {
-        return finish("killed", `Process tree ${numericPid} terminated.`, last?.status ?? null);
-      }
+/**
+ * win32 termination: `taskkill /T`, escalating to `/F` when the tree
+ * survives the first grace window.
+ *
+ * @param {number} numericPid
+ * @param {{ spawnSyncImpl: typeof spawnSync, probe: (pid: number) => boolean,
+ *   graceMs: number, forceGraceMs: number, attempts: object[],
+ *   finish: ReturnType<typeof buildFinisher> }} context
+ * @returns {Promise<import('./types.mjs').TerminationResult>}
+ */
+async function terminateWin32Tree(numericPid, { spawnSyncImpl, probe, graceMs, forceGraceMs, attempts, finish }) {
+  let last;
+  for (const force of [false, true]) {
+    try {
+      last = spawnSyncImpl(
+        "taskkill",
+        ["/PID", String(numericPid), "/T", ...(force ? ["/F"] : [])],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000 },
+      );
+    } catch (error) {
+      last = { status: null, signal: null, stderr: error?.message ?? String(error), error };
     }
-    if (deniedBy(last) || attempts.some((attempt) => /denied|permitted/i.test(attempt.stderr ?? ""))) {
-      return finish("denied", `Permission denied while terminating process tree ${numericPid}.`, last?.status ?? null);
+    attempts.push(publicAttempt(force ? "taskkill-force" : "taskkill", last));
+    if (await waitUntilGone(numericPid, probe, force ? forceGraceMs : graceMs)) {
+      return finish("killed", `Process tree ${numericPid} terminated.`, last?.status ?? null);
     }
-    return finish(
-      "failed",
-      `Process tree ${numericPid} is still running after taskkill escalation.`,
-      last?.status ?? null,
-    );
   }
+  if (deniedBy(last) || attempts.some((attempt) => /denied|permitted/i.test(attempt.stderr ?? ""))) {
+    return finish("denied", `Permission denied while terminating process tree ${numericPid}.`, last?.status ?? null);
+  }
+  return finish(
+    "failed",
+    `Process tree ${numericPid} is still running after taskkill escalation.`,
+    last?.status ?? null,
+  );
+}
 
+/**
+ * POSIX termination: signal the process group first, falling back to the
+ * direct PID when the group signal itself fails, escalating SIGTERM to
+ * SIGKILL when the tree survives the first grace window.
+ *
+ * @param {number} numericPid
+ * @param {{ killImpl: typeof process.kill, probe: (pid: number) => boolean,
+ *   graceMs: number, forceGraceMs: number, attempts: object[],
+ *   finish: ReturnType<typeof buildFinisher> }} context
+ * @returns {Promise<import('./types.mjs').TerminationResult>}
+ */
+async function terminatePosixTree(numericPid, { killImpl, probe, graceMs, forceGraceMs, attempts, finish }) {
   let lastError = null;
   for (const [kind, signal] of [["group-term", "SIGTERM"], ["group-kill", "SIGKILL"]]) {
     try {
@@ -261,4 +266,41 @@ export async function terminateProcessTree(pid, options = {}) {
     return finish("denied", `Permission denied while terminating process tree ${numericPid}.`);
   }
   return finish("failed", `Process tree ${numericPid} is still running after SIGKILL escalation.`);
+}
+
+/**
+ * Terminate a process tree, verify that the root PID disappeared, and
+ * escalate from a polite request to a forced kill when needed.
+ *
+ * Validates the PID and confirms the tree is alive, then dispatches to the
+ * win32 (`taskkill`) or POSIX (process-group signal) implementation.
+ *
+ * @param {number | string} pid
+ * @param {{ platform?: string, killImpl?: typeof process.kill,
+ *   spawnSyncImpl?: typeof spawnSync, probe?: (pid: number) => boolean,
+ *   graceMs?: number, forceGraceMs?: number }} [options]
+ * @returns {Promise<import('./types.mjs').TerminationResult>}
+ */
+export async function terminateProcessTree(pid, options = {}) {
+  const numericPid = Number(pid);
+  const platform = options.platform ?? process.platform;
+  const killImpl = options.killImpl ?? process.kill;
+  const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
+  const probe = options.probe ?? ((candidate) => isProcessAlive(candidate, killImpl));
+  const graceMs = options.graceMs ?? 500;
+  const forceGraceMs = options.forceGraceMs ?? 500;
+  const attempts = [];
+  const finish = buildFinisher(numericPid, attempts);
+
+  if (!Number.isInteger(numericPid) || numericPid <= 0) {
+    return finish("failed", `Invalid process id: ${pid}`);
+  }
+  if (!probe(numericPid)) {
+    return finish("not_found", `Process ${numericPid} is not running.`);
+  }
+
+  const context = { killImpl, spawnSyncImpl, probe, graceMs, forceGraceMs, attempts, finish };
+  return platform === "win32"
+    ? terminateWin32Tree(numericPid, context)
+    : terminatePosixTree(numericPid, context);
 }

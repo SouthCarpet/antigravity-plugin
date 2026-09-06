@@ -24,7 +24,6 @@ import { EventEmitter } from 'node:events';
 import {
   upsertJob,
   writeJobFile,
-  appendJobLog,
   resolveJobLogFile,
   ensureStateDir,
   resolveJobFile,

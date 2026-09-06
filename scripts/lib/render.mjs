@@ -153,68 +153,108 @@ export function renderStatusSnapshot(snapshot) {
 }
 
 /**
+ * @param {import('./types.mjs').JobRecord} job
+ * @returns {string[]}
+ */
+function renderJobHeaderLines(job) {
+  const lines = [
+    `# Antigravity Job: ${job.id}`,
+    "",
+    `- **Kind:** ${job.kind ?? "unknown"}`,
+    `- **Status:** ${job.status}`,
+    `- **Phase:** ${job.phase ?? "-"}`,
+    `- **Title:** ${job.title ?? "-"}`,
+  ];
+  if (job.summary) lines.push(`- **Summary:** ${job.summary}`);
+  return lines;
+}
+
+/**
+ * @param {import('./types.mjs').JobRecord} job
+ * @returns {string[]}
+ */
+function renderJobHealthLines(job) {
+  return [
+    "",
+    "## Health",
+    "",
+    `- **Health:** ${job.healthStatus ?? "-"}`,
+    `- **Diagnostic:** ${job.healthMessage ?? "-"}`,
+    `- **Recommended Action:** ${job.recommendedAction ?? "-"}`,
+  ];
+}
+
+/**
+ * @param {import('./types.mjs').JobRecord} job
+ * @returns {string[]}
+ */
+function renderJobRuntimeLines(job) {
+  return [
+    "",
+    "## Runtime",
+    "",
+    `- **Elapsed:** ${job.elapsed ?? "-"}`,
+    `- **PID:** ${job.pid ?? "-"}`,
+    `- **Created:** ${job.createdAt ?? "-"}`,
+    `- **Started:** ${job.startedAt ?? "-"}`,
+    `- **Updated:** ${job.updatedAt ?? "-"}`,
+    `- **Completed:** ${job.completedAt ?? "-"}`,
+    `- **Last Heartbeat:** ${job.lastHeartbeatAt ?? "-"}`,
+    `- **Last Progress:** ${job.lastProgressAt ?? "-"}`,
+    `- **Last Model Output:** ${job.lastModelOutputAt ?? "-"}`,
+    `- **Last Diagnostic:** ${job.lastDiagnosticAt ?? "-"}`,
+  ];
+}
+
+/**
+ * @param {import('./types.mjs').JobRecord} job
+ * @returns {string[]} empty when the job has no error message
+ */
+function renderJobErrorLines(job) {
+  if (!job.errorMessage) return [];
+  return ["", "## Error", "", job.errorMessage];
+}
+
+/**
+ * @param {import('./types.mjs').JobRecord} job
+ * @returns {string[]} empty when the job has no recent progress lines
+ */
+function renderJobRecentProgressLines(job) {
+  if (!job.recentProgress || job.recentProgress.length === 0) return [];
+  return ["", "## Recent Progress", "", ...job.recentProgress];
+}
+
+/**
+ * @param {{ workspaceRoot: string, job: import('./types.mjs').JobRecord } | import('./types.mjs').JobRecord} snapshotOrJob
+ *   Either a { job } wrapper (legacy) or a bare job object.
+ * @returns {boolean}
+ */
+function isSnapshotWrapper(snapshotOrJob) {
+  return Boolean(
+    snapshotOrJob &&
+    typeof snapshotOrJob === "object" &&
+    Object.prototype.hasOwnProperty.call(snapshotOrJob, "workspaceRoot") &&
+    Object.prototype.hasOwnProperty.call(snapshotOrJob, "job"),
+  );
+}
+
+/**
  * Render a single job's detailed status.
  *
  * @param {{ workspaceRoot: string, job: import('./types.mjs').JobRecord } | import('./types.mjs').JobRecord} snapshotOrJob
  *   Either a { job } wrapper (legacy) or a bare job object.
- * @param {{ now?: number }} [options] unused; kept for call-site compatibility
+ * @param {{ now?: number }} [_options] unused; kept for call-site compatibility
  * @returns {string}
  */
-export function renderSingleJobStatus(snapshotOrJob, options = {}) {
-  const isSnapshotWrapper =
-    snapshotOrJob &&
-    typeof snapshotOrJob === "object" &&
-    Object.prototype.hasOwnProperty.call(snapshotOrJob, "workspaceRoot") &&
-    Object.prototype.hasOwnProperty.call(snapshotOrJob, "job");
-  const job = isSnapshotWrapper ? snapshotOrJob.job : snapshotOrJob;
-  const lines = [];
-  lines.push(`# Antigravity Job: ${job.id}`);
-  lines.push("");
-  lines.push(`- **Kind:** ${job.kind ?? "unknown"}`);
-  lines.push(`- **Status:** ${job.status}`);
-  lines.push(`- **Phase:** ${job.phase ?? "-"}`);
-  lines.push(`- **Title:** ${job.title ?? "-"}`);
-  if (job.summary) {
-    lines.push(`- **Summary:** ${job.summary}`);
-  }
-
-  lines.push("");
-  lines.push("## Health");
-  lines.push("");
-  lines.push(`- **Health:** ${job.healthStatus ?? "-"}`);
-  lines.push(`- **Diagnostic:** ${job.healthMessage ?? "-"}`);
-  lines.push(`- **Recommended Action:** ${job.recommendedAction ?? "-"}`);
-
-  lines.push("");
-  lines.push("## Runtime");
-  lines.push("");
-  lines.push(`- **Elapsed:** ${job.elapsed ?? "-"}`);
-  lines.push(`- **PID:** ${job.pid ?? "-"}`);
-  lines.push(`- **Created:** ${job.createdAt ?? "-"}`);
-  lines.push(`- **Started:** ${job.startedAt ?? "-"}`);
-  lines.push(`- **Updated:** ${job.updatedAt ?? "-"}`);
-  lines.push(`- **Completed:** ${job.completedAt ?? "-"}`);
-  lines.push(`- **Last Heartbeat:** ${job.lastHeartbeatAt ?? "-"}`);
-  lines.push(`- **Last Progress:** ${job.lastProgressAt ?? "-"}`);
-  lines.push(`- **Last Model Output:** ${job.lastModelOutputAt ?? "-"}`);
-  lines.push(`- **Last Diagnostic:** ${job.lastDiagnosticAt ?? "-"}`);
-
-  if (job.errorMessage) {
-    lines.push("");
-    lines.push("## Error");
-    lines.push("");
-    lines.push(job.errorMessage);
-  }
-
-  if (job.recentProgress && job.recentProgress.length > 0) {
-    lines.push("");
-    lines.push("## Recent Progress");
-    lines.push("");
-    for (const line of job.recentProgress) {
-      lines.push(line);
-    }
-  }
-
+export function renderSingleJobStatus(snapshotOrJob, _options = {}) {
+  const job = isSnapshotWrapper(snapshotOrJob) ? snapshotOrJob.job : snapshotOrJob;
+  const lines = [
+    ...renderJobHeaderLines(job),
+    ...renderJobHealthLines(job),
+    ...renderJobRuntimeLines(job),
+    ...renderJobErrorLines(job),
+    ...renderJobRecentProgressLines(job),
+  ];
   return `${lines.join("\n").trimEnd()}\n`;
 }
 

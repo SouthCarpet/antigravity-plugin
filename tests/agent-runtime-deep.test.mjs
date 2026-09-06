@@ -70,7 +70,7 @@ describe('resolveAgyBin', () => {
   });
 
   it('uses Windows-style env.Path when env.PATH is absent', () => {
-    const bin = writeStub('agy-win', 'echo win'); // separate file so we can write a unique fake
+    writeStub('agy-win', 'echo win'); // separate file so we can write a unique fake
     // The resolver looks for the literal name "agy"; provide it.
     fs.writeFileSync(path.join(stubDir, 'agy'), '#!/bin/sh\necho via-Path\n', { mode: 0o755 });
     const found = resolveAgyBin({ Path: stubDir, HOME: '/no' });

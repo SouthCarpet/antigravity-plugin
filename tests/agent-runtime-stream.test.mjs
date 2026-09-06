@@ -64,7 +64,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
   },
 });
 
-const { runAgyPrint, parseAgyStream, probeAgy } = await import(
+const { runAgyPrint, parseAgyStream, probeAgy, AUTH_LINE_PATTERNS } = await import(
   '../scripts/lib/agent-runtime.mjs'
 );
 
@@ -484,6 +484,13 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'auth_required');
     assert.equal(res.oauthUrl, authUrl);
+  });
+
+  // recordRawAuthSignal does AUTH_LINE_PATTERNS.find(p => p.test(chunk)) then
+  // chunk.match(pattern)[0] via the guarded match; a /g pattern's stateful
+  // lastIndex can desynchronize those two calls on the same chunk.
+  it('no AUTH_LINE_PATTERNS entry carries the /g flag', () => {
+    assert.ok(AUTH_LINE_PATTERNS.every((pattern) => !pattern.global));
   });
 
   it('a SUCCESS result quoting the OAuth URL mid-answer is completed, not auth_required', async () => {

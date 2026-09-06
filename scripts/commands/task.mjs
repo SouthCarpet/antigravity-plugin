@@ -16,22 +16,91 @@
  *   --json                emit JSON
  */
 
-import { readCommandInput } from "../lib/args.mjs";
+import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
 import {
   AGY_MODES,
   agyModeArgs,
   agyUnavailableLine,
+  exitCodeForJobStatus,
   finishForeground,
-  foregroundFailureLine,
+  reportQueuedJob,
   runForegroundJob,
   startBackgroundJob,
   waitForJob,
   waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+
+/**
+ * @param {{ conversation?: string, continue?: boolean }} options
+ * @returns {{ mode: string, conversationId: string | undefined }}
+ */
+function resolveTaskMode(options) {
+  if (options.conversation) return { mode: "conversation", conversationId: String(options.conversation) };
+  if (options.continue) return { mode: "continue", conversationId: undefined };
+  return { mode: "print", conversationId: undefined };
+}
+
+/**
+ * Print the finished job's raw output on stdout when `--wait` completed
+ * without `--json` — the one behaviour `task --wait` has that `rescue`/
+ * `review`'s wait tail does not.
+ *
+ * @param {import('../lib/types.mjs').JobRecord} final
+ * @param {boolean} json
+ * @returns {void}
+ */
+function printCompletedRawOutput(final, json) {
+  if (json || final.status !== "completed" || !final.result?.rawOutput) return;
+  process.stdout.write(final.result.rawOutput);
+}
+
+async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, json }) {
+  const { job, result } = await runForegroundJob({
+    workspaceRoot,
+    kind: "task",
+    title,
+    prompt,
+    mode,
+    conversationId,
+    addDirs,
+    extraArgs,
+    cwd: workspaceRoot,
+    request: { prompt, mode, addDirs },
+    onText: (delta) => process.stderr.write(delta),
+  });
+
+  return finishForeground("task", job, result, { json });
+}
+
+async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, options, ctx }) {
+  const start = ctx.startBackgroundJob ?? startBackgroundJob;
+  const wait = ctx.waitForJob ?? waitForJob;
+  const { job } = await start({
+    workspaceRoot,
+    kind: "task",
+    title,
+    prompt,
+    mode,
+    conversationId,
+    addDirs,
+    extraArgs,
+    cwd: workspaceRoot,
+    request: { mode, addDirs },
+  });
+  const queuedExit = reportQueuedJob("task", job, options);
+  if (queuedExit !== null) return queuedExit;
+
+  if (!options.wait) return 0;
+  const final = await wait(workspaceRoot, job.id);
+  const line = waitOutcomeLine("task", final);
+  if (line) process.stderr.write(`${line}\n`);
+  if (!final) return 1;
+  printCompletedRawOutput(final, options.json);
+  return exitCodeForJobStatus(final.status);
+}
 
 /**
  * @param {string[]} [argv] CLI arguments after the verb (a prompt and flags)
@@ -53,7 +122,7 @@ export async function run(argv = [], ctx = {}) {
   if (!parsed) return 1;
   const { options, positionals } = parsed;
 
-  const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
+  const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
   const userPrompt = positionals.join(" ").trim();
@@ -62,15 +131,7 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
 
-  let mode = "print";
-  let conversationId;
-  if (options.conversation) {
-    mode = "conversation";
-    conversationId = String(options.conversation);
-  } else if (options.continue) {
-    mode = "continue";
-  }
-
+  const { mode, conversationId } = resolveTaskMode(options);
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
 
@@ -83,67 +144,13 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
 
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs };
+
   if (options.foreground) {
-    const { job, result } = await runForegroundJob({
-      workspaceRoot,
-      kind: "task",
-      title,
-      prompt,
-      mode,
-      conversationId,
-      addDirs,
-      extraArgs,
-      cwd: workspaceRoot,
-      request: { prompt, mode, addDirs },
-      onText: (delta) => process.stderr.write(delta),
-    });
-
-    return finishForeground("task", job, result, { json: options.json });
+    return runTaskForeground({ ...runArgs, json: options.json });
   }
 
-  // Background path (default).
-  const start = ctx.startBackgroundJob ?? startBackgroundJob;
-  const wait = ctx.waitForJob ?? waitForJob;
-  const { job } = await start({
-    workspaceRoot,
-    kind: "task",
-    title,
-    prompt,
-    mode,
-    conversationId,
-    addDirs,
-    extraArgs,
-    cwd: workspaceRoot,
-    request: { mode, addDirs },
-  });
-  if (job.status === "failed") {
-    process.stderr.write(`${foregroundFailureLine("task", { spawnError: job.errorMessage })}\n`);
-    return 1;
-  }
-  const payload = createJsonEnvelope("task", {
-    status: "queued",
-    jobId: job.id,
-    details: {
-      message: `Background task started. Run /antigravity:status ${job.id} to check progress.`,
-    },
-  });
-  outputCommandResult(
-    payload,
-    `Background task started: ${job.id}\nRun /antigravity:status ${job.id} to check progress.\n`,
-    Boolean(options.json),
-  );
-
-  if (options.wait) {
-    const final = await wait(workspaceRoot, job.id);
-    const line = waitOutcomeLine("task", final);
-    if (line) process.stderr.write(`${line}\n`);
-    if (!final) return 1;
-    if (!options.json && final.status === "completed" && final.result?.rawOutput) {
-      process.stdout.write(final.result.rawOutput);
-    }
-    return final.status === "completed" ? 0 : final.status === "cancelled" ? 2 : 1;
-  }
-  return 0;
+  return runTaskBackground({ ...runArgs, options, ctx });
 }
 
 function truncate(s, n) {

@@ -49,11 +49,11 @@ function captureStdio() {
   const err = [];
   const origStdout = process.stdout.write.bind(process.stdout);
   const origStderr = process.stderr.write.bind(process.stderr);
-  process.stdout.write = (chunk, ...rest) => {
+  process.stdout.write = (chunk, ..._rest) => {
     out.push(typeof chunk === 'string' ? chunk : chunk.toString());
     return true;
   };
-  process.stderr.write = (chunk, ...rest) => {
+  process.stderr.write = (chunk, ..._rest) => {
     err.push(typeof chunk === 'string' ? chunk : chunk.toString());
     return true;
   };

@@ -37,8 +37,6 @@ const {
   upsertJob,
   writeJobFile,
   appendJobLog,
-  ensureStateDir,
-  saveState,
   resolveJobLogFile,
 } = await import('../scripts/lib/state.mjs');
 const { resetWorkspaceRootCache, getResolveWorkspaceRootCallCount } = await import('../scripts/lib/workspace.mjs');

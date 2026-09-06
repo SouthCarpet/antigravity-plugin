@@ -71,6 +71,7 @@ exists for discovery on the repository page.
 4. Run the gates locally:
 
    ```bash
+   npm run lint
    node --test --experimental-test-module-mocks tests/*.test.mjs
    node scripts/check-manifests.mjs
    node scripts/check-pack.mjs

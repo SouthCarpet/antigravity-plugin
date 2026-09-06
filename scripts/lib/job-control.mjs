@@ -69,62 +69,121 @@ const DIAGNOSTIC_HEALTH_STATUSES = new Set([
   "cancel_failed",
 ]);
 
+/**
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {(pid: number) => boolean} probe
+ * @returns {object | null} a health patch, or null when the worker is alive
+ */
+function classifyWorkerMissing(job, probe) {
+  const workerPid = job.workerPid ?? job.pid;
+  if (!workerPid || probe(workerPid)) return null;
+  return {
+    healthStatus: "worker_missing",
+    healthMessage: "Worker process is no longer running.",
+    recommendedAction:
+      "Check /antigravity:result or /antigravity:status, then retry if the result is incomplete.",
+  };
+}
+
+/**
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @returns {object | null} the persisted diagnostic status, or null when none applies
+ */
+function classifyPersistedDiagnostic(job) {
+  if (!DIAGNOSTIC_HEALTH_STATUSES.has(job.healthStatus)) return null;
+  return {
+    healthStatus: job.healthStatus,
+    healthMessage: job.healthMessage ?? null,
+    recommendedAction: job.recommendedAction ?? null,
+  };
+}
+
+/**
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @returns {{ heartbeatMs: number | null, lastProgressMs: number | null, lastHeartbeatMs: number | null }}
+ */
+function computeActivityTimestamps(job) {
+  const progressMs = parseTime(job.lastProgressAt) ?? parseTime(job.lastModelOutputAt);
+  const heartbeatMs = parseTime(job.lastHeartbeatAt);
+  const fallback = progressMs === null && heartbeatMs === null ? parseTime(job.startedAt) : null;
+  const lastProgressMs = progressMs ?? fallback;
+  const lastHeartbeatMs = heartbeatMs ?? fallback;
+  return { heartbeatMs, lastProgressMs, lastHeartbeatMs };
+}
+
+/**
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {number} nowMs
+ * @param {number | null} lastProgressMs
+ * @returns {object | null}
+ */
+function classifyActive(job, nowMs, lastProgressMs) {
+  if (lastProgressMs === null || nowMs - lastProgressMs > QUIET_AFTER_MS) return null;
+  return {
+    healthStatus: "active",
+    healthMessage: job.healthMessage ?? null,
+    recommendedAction: job.recommendedAction ?? null,
+  };
+}
+
+/**
+ * @param {number} nowMs
+ * @param {number | null} heartbeatMs
+ * @param {number | null} lastProgressMs
+ * @param {number | null} lastHeartbeatMs
+ * @returns {object | null}
+ */
+function classifyQuiet(nowMs, heartbeatMs, lastProgressMs, lastHeartbeatMs) {
+  const lastActivityMs = Math.max(lastHeartbeatMs ?? -Infinity, lastProgressMs ?? -Infinity);
+  if (nowMs - lastActivityMs > POSSIBLY_STALLED_AFTER_MS) return null;
+  return {
+    healthStatus: "quiet",
+    healthMessage:
+      heartbeatMs !== null ? "Worker heartbeat is recent, but no progress was recorded recently."
+        : "The job started or made progress recently; waiting for more output.",
+    recommendedAction:
+      "Check status again shortly or inspect the detailed job status.",
+  };
+}
+
+/**
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {number | null} lastProgressMs
+ * @param {number | null} lastHeartbeatMs
+ * @returns {object | null}
+ */
+function classifyPossiblyStalled(job, lastProgressMs, lastHeartbeatMs) {
+  if (lastProgressMs === null && lastHeartbeatMs === null && job.status !== "running") return null;
+  return {
+    healthStatus: "possibly_stalled",
+    healthMessage: "No recent worker heartbeat or progress was recorded.",
+    recommendedAction:
+      "Check /antigravity:status or /antigravity:result, then retry if the job does not recover.",
+  };
+}
+
 function classifyRuntimeHealth(job, options = {}) {
   if (job.status !== "running" && job.status !== "queued") return {};
 
   const nowMs = parseTime(options.now) ?? Date.now();
   const probe = options.isProcessAlive ?? isProcessAlive;
-  const workerPid = job.workerPid ?? job.pid;
-  if (workerPid && !probe(workerPid)) {
-    return {
-      healthStatus: "worker_missing",
-      healthMessage: "Worker process is no longer running.",
-      recommendedAction:
-        "Check /antigravity:result or /antigravity:status, then retry if the result is incomplete.",
-    };
-  }
 
-  if (DIAGNOSTIC_HEALTH_STATUSES.has(job.healthStatus)) {
-    return {
-      healthStatus: job.healthStatus,
-      healthMessage: job.healthMessage ?? null,
-      recommendedAction: job.recommendedAction ?? null,
-    };
-  }
+  const workerMissing = classifyWorkerMissing(job, probe);
+  if (workerMissing) return workerMissing;
 
-  const progressMs = parseTime(job.lastProgressAt) ?? parseTime(job.lastModelOutputAt);
-  const heartbeatMs = parseTime(job.lastHeartbeatAt);
-  const fallback = progressMs === null && heartbeatMs === null ? parseTime(job.startedAt) : null;
-  const lastProgressMs = progressMs ?? fallback;
-  if (lastProgressMs !== null && nowMs - lastProgressMs <= QUIET_AFTER_MS) {
-    return {
-      healthStatus: "active",
-      healthMessage: job.healthMessage ?? null,
-      recommendedAction: job.recommendedAction ?? null,
-    };
-  }
+  const persisted = classifyPersistedDiagnostic(job);
+  if (persisted) return persisted;
 
-  const lastHeartbeatMs = heartbeatMs ?? fallback;
-  const lastActivityMs = Math.max(lastHeartbeatMs ?? -Infinity, lastProgressMs ?? -Infinity);
-  if (nowMs - lastActivityMs <= POSSIBLY_STALLED_AFTER_MS) {
-    return {
-      healthStatus: "quiet",
-      healthMessage:
-        heartbeatMs !== null ? "Worker heartbeat is recent, but no progress was recorded recently."
-          : "The job started or made progress recently; waiting for more output.",
-      recommendedAction:
-        "Check status again shortly or inspect the detailed job status.",
-    };
-  }
+  const { heartbeatMs, lastProgressMs, lastHeartbeatMs } = computeActivityTimestamps(job);
 
-  if (lastProgressMs !== null || lastHeartbeatMs !== null || job.status === "running") {
-    return {
-      healthStatus: "possibly_stalled",
-      healthMessage: "No recent worker heartbeat or progress was recorded.",
-      recommendedAction:
-        "Check /antigravity:status or /antigravity:result, then retry if the job does not recover.",
-    };
-  }
+  const active = classifyActive(job, nowMs, lastProgressMs);
+  if (active) return active;
+
+  const quiet = classifyQuiet(nowMs, heartbeatMs, lastProgressMs, lastHeartbeatMs);
+  if (quiet) return quiet;
+
+  const possiblyStalled = classifyPossiblyStalled(job, lastProgressMs, lastHeartbeatMs);
+  if (possiblyStalled) return possiblyStalled;
 
   return {};
 }

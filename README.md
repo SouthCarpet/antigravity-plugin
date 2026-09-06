@@ -208,16 +208,17 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 ## Contributing
 
-Open an issue before you propose a behavior change. Every pull request runs the four gates on Ubuntu and Windows with Node 22.3 and Node 24. The tests use `node:test` with owned seams. The 1.x contract in [Compatibility](./docs/COMPATIBILITY.md) is frozen.
+Open an issue before you propose a behavior change. Every pull request runs the five gates on Ubuntu and Windows with Node 22.3 and Node 24; the lint gate runs on the Node 24 job only. The tests use `node:test` with owned seams. The 1.x contract in [Compatibility](./docs/COMPATIBILITY.md) is frozen.
 
 ```bash
+npm run lint
 node --test --experimental-test-module-mocks tests/*.test.mjs
 node scripts/check-manifests.mjs
 node scripts/check-pack.mjs
 node scripts/bump-version.mjs --check
 ```
 
-The package has no dependencies and no lockfile. The pack gate checks the files that all four hosts need.
+The package has no runtime dependencies. `devDependencies` holds one entry, `eslint`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
 
 ## Known issues
 

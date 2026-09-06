@@ -340,6 +340,111 @@ export function ensureVisionConfig({
 }
 
 /**
+ * @param {object} mcpRead
+ * @param {object | null} receipt
+ * @param {string} serverPath
+ * @returns {{ error: string } | { removeMcp: boolean, legacy: boolean, servers: object }}
+ */
+function mcpRemovalPlan(mcpRead, receipt, serverPath) {
+  const servers = mcpRead.value.mcpServers;
+  if (servers !== undefined && (!servers || typeof servers !== "object" || Array.isArray(servers))) {
+    return { error: "configuration unchanged: mcp_config.json has a non-object mcpServers value" };
+  }
+  const existing = servers?.vision;
+  const pluginOwned = isPluginMcp(
+    existing,
+    [serverPath, receipt?.serverPath],
+    ["node", process.execPath, receipt?.nodePath],
+  );
+  const legacy = Boolean(existing && existing.command === "node" && pluginOwned);
+  const removeMcp = Boolean(existing && pluginOwned && (receipt?.mcpEntryAdded || legacy));
+  if (receipt?.mcpEntryAdded && existing && !pluginOwned) {
+    return { error: "configuration unchanged: mcpServers.vision changed ownership; refusing to remove it" };
+  }
+  return { removeMcp, legacy, servers };
+}
+
+/**
+ * @param {object} settingsRead
+ * @param {object | null} receipt
+ * @param {boolean} legacy from {@link mcpRemovalPlan}
+ * @returns {{ error: string } | { removePermissions: boolean, nextAllow: string[], permissions: object }}
+ */
+function permissionsRemovalPlan(settingsRead, receipt, legacy) {
+  const permissions = settingsRead.value.permissions;
+  if (permissions !== undefined && (!permissions || typeof permissions !== "object" || Array.isArray(permissions))) {
+    return { error: "configuration unchanged: settings.json has a non-object permissions value" };
+  }
+  const allow = permissions?.allow ?? [];
+  if (!Array.isArray(allow)) {
+    return { error: "configuration unchanged: settings.json has a non-array permissions.allow value" };
+  }
+  const removableRules = new Set();
+  if (receipt?.permissionRuleAdded) removableRules.add(VISION_PERMISSION);
+  if (legacy && !receipt) for (const rule of LEGACY_PERMISSIONS) removableRules.add(rule);
+  const nextAllow = allow.filter((rule) => !removableRules.has(rule));
+  return { removePermissions: nextAllow.length !== allow.length, nextAllow, permissions };
+}
+
+/**
+ * Compute what `removeVisionConfig` must remove, without touching disk.
+ *
+ * @param {{ mcpRead: object, settingsRead: object, receiptRead: object, serverPath: string }} reads
+ * @returns {{ error: string } | { removeMcp: boolean, removePermissions: boolean,
+ *   nextAllow: string[], permissions: object, servers: object }}
+ */
+function planRemoval({ mcpRead, settingsRead, receiptRead, serverPath }) {
+  const readError = mcpRead.error || settingsRead.error || receiptRead.error;
+  if (readError) return { error: `configuration unchanged: ${readError}` };
+
+  const receipt = receiptRead.value.version === RECEIPT_VERSION ? receiptRead.value : null;
+  const mcp = mcpRemovalPlan(mcpRead, receipt, serverPath);
+  if (mcp.error) return { error: mcp.error };
+  const permissions = permissionsRemovalPlan(settingsRead, receipt, mcp.legacy);
+  if (permissions.error) return { error: permissions.error };
+
+  return {
+    removeMcp: mcp.removeMcp,
+    removePermissions: permissions.removePermissions,
+    nextAllow: permissions.nextAllow,
+    permissions: permissions.permissions,
+    servers: mcp.servers,
+  };
+}
+
+/**
+ * Build the write-batch for a removal plan (mcp_config.json, settings.json,
+ * the ownership receipt — each only when the plan calls for it).
+ *
+ * @param {{ files: object, mcpRead: object, settingsRead: object,
+ *   receiptRead: object, plan: ReturnType<typeof planRemoval> }} args
+ * @returns {object[]}
+ */
+function buildRemovalOperations({ files, mcpRead, settingsRead, receiptRead, plan }) {
+  const operations = [];
+  if (plan.removeMcp) {
+    const otherServers = { ...plan.servers };
+    delete otherServers.vision;
+    operations.push({
+      filePath: files.mcp,
+      read: mcpRead,
+      body: jsonBody({ ...mcpRead.value, mcpServers: otherServers }),
+      backup: true,
+    });
+  }
+  if (plan.removePermissions) {
+    operations.push({
+      filePath: files.settings,
+      read: settingsRead,
+      body: jsonBody({ ...settingsRead.value, permissions: { ...plan.permissions, allow: plan.nextAllow } }),
+      backup: true,
+    });
+  }
+  if (receiptRead.existed) operations.push({ filePath: files.receipt, read: receiptRead, delete: true });
+  return operations;
+}
+
+/**
  * @param {{ homeDir?: string, serverPath?: string, lockTimeoutMs?: number,
  *   now?: Date, atomicWriter?: typeof defaultAtomicWriter }} [options]
  * @returns {{ ok: boolean, changed: boolean, summary: string[] }}
@@ -357,68 +462,18 @@ export function removeVisionConfig({
       const mcpRead = readJsonConfig(files.mcp);
       const settingsRead = readJsonConfig(files.settings);
       const receiptRead = readJsonConfig(files.receipt);
-      const readError = mcpRead.error || settingsRead.error || receiptRead.error;
-      if (readError) return { ok: false, changed: false, summary: [`configuration unchanged: ${readError}`] };
+      const plan = planRemoval({ mcpRead, settingsRead, receiptRead, serverPath });
+      if (plan.error) return { ok: false, changed: false, summary: [plan.error] };
 
-      const receipt = receiptRead.value.version === RECEIPT_VERSION ? receiptRead.value : null;
-      const servers = mcpRead.value.mcpServers;
-      if (servers !== undefined && (!servers || typeof servers !== "object" || Array.isArray(servers))) {
-        return { ok: false, changed: false, summary: ["configuration unchanged: mcp_config.json has a non-object mcpServers value"] };
-      }
-      const existing = servers?.vision;
-      const ownedServerPath = receipt?.serverPath;
-      const pluginOwned = isPluginMcp(
-        existing,
-        [serverPath, ownedServerPath],
-        ["node", process.execPath, receipt?.nodePath],
-      );
-      const legacy = Boolean(existing && existing.command === "node" && pluginOwned);
-      const removeMcp = Boolean(existing && pluginOwned && (receipt?.mcpEntryAdded || legacy));
-      if (receipt?.mcpEntryAdded && existing && !pluginOwned) {
-        return { ok: false, changed: false, summary: ["configuration unchanged: mcpServers.vision changed ownership; refusing to remove it"] };
-      }
-
-      const permissions = settingsRead.value.permissions;
-      if (permissions !== undefined && (!permissions || typeof permissions !== "object" || Array.isArray(permissions))) {
-        return { ok: false, changed: false, summary: ["configuration unchanged: settings.json has a non-object permissions value"] };
-      }
-      const allow = permissions?.allow ?? [];
-      if (!Array.isArray(allow)) {
-        return { ok: false, changed: false, summary: ["configuration unchanged: settings.json has a non-array permissions.allow value"] };
-      }
-      const removableRules = new Set();
-      if (receipt?.permissionRuleAdded) removableRules.add(VISION_PERMISSION);
-      if (legacy && !receipt) for (const rule of LEGACY_PERMISSIONS) removableRules.add(rule);
-      const nextAllow = allow.filter((rule) => !removableRules.has(rule));
-      const removePermissions = nextAllow.length !== allow.length;
-
-      const operations = [];
-      if (removeMcp) {
-        const { vision: _vision, ...otherServers } = servers;
-        operations.push({
-          filePath: files.mcp,
-          read: mcpRead,
-          body: jsonBody({ ...mcpRead.value, mcpServers: otherServers }),
-          backup: true,
-        });
-      }
-      if (removePermissions) {
-        operations.push({
-          filePath: files.settings,
-          read: settingsRead,
-          body: jsonBody({ ...settingsRead.value, permissions: { ...permissions, allow: nextAllow } }),
-          backup: true,
-        });
-      }
-      if (receiptRead.existed) operations.push({ filePath: files.receipt, read: receiptRead, delete: true });
+      const operations = buildRemovalOperations({ files, mcpRead, settingsRead, receiptRead, plan });
       applyBatch(operations, now, atomicWriter);
 
       return {
         ok: true,
         changed: operations.length > 0,
         summary: [
-          removeMcp ? "mcp_config.json: removed this plugin's vision server" : "mcp_config.json: no plugin-owned vision server to remove",
-          removePermissions ? "settings.json: removed only vision rules added by this plugin" : "settings.json: no plugin-owned vision rules to remove",
+          plan.removeMcp ? "mcp_config.json: removed this plugin's vision server" : "mcp_config.json: no plugin-owned vision server to remove",
+          plan.removePermissions ? "settings.json: removed only vision rules added by this plugin" : "settings.json: no plugin-owned vision rules to remove",
           receiptRead.existed ? "ownership receipt: removed" : "ownership receipt: not present",
         ],
       };

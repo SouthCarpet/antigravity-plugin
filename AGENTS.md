@@ -7,8 +7,9 @@ it does not consume one, so the root skills-scope rule does not apply here.
 
 ## Stack
 
-- Node.js >= 22.3.0, ES modules (`"type": "module"`), no runtime dependencies,
-  no lockfile.
+- Node.js >= 22.3.0, ES modules (`"type": "module"`), no runtime dependencies.
+  `devDependencies` holds one entry (`eslint`, the lint gate), pinned by
+  `package-lock.json`.
 - Hosts: Claude Code (`.claude-plugin/`, root `plugin.json`), Codex CLI
   (`.codex-plugin/`, `.agents/plugins/marketplace.json`), agy TUI, and
   standalone CLI (`bin/antigravity.mjs`).
@@ -17,6 +18,7 @@ it does not consume one, so the root skills-scope rule does not apply here.
 
 - Run standalone: `node bin/antigravity.mjs <verb>` (verbs: setup, review,
   rescue, task, vision, status, result, cancel).
+- Lint (cyclomatic complexity gate): `npm run lint`
 - Test: `node --test --experimental-test-module-mocks tests/*.test.mjs`
 - Test with coverage: `npm run test:coverage`
 - Manifest parity check: `node scripts/check-manifests.mjs`

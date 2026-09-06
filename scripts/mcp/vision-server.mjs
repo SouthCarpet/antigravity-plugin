@@ -222,45 +222,78 @@ function usableId(msg) {
   return null;
 }
 
-function handleRequest(msg, allowedPaths, loadImage) {
+/**
+ * Classify a raw JSON-RPC message before dispatch: `ignore` when it is an
+ * object without an id (a malformed notification — never answered), else
+ * `invalid` when it fails the JSON-RPC 2.0 request shape.
+ *
+ * @param {unknown} msg
+ * @returns {{ id: string | number | null, ignore: boolean, invalid: boolean }}
+ */
+function validateEnvelope(msg) {
   const isObject = msg !== null && typeof msg === "object" && !Array.isArray(msg);
   const hasId = isObject && Object.hasOwn(msg, "id");
   const id = usableId(msg);
   // Non-object JSON is invalid, not a notification. Objects without an id
   // are never answered, including malformed notifications.
-  if (isObject && !hasId) return;
-  if (!isObject || msg.jsonrpc !== "2.0" || typeof msg.method !== "string"
-    || (id === null && msg.id !== null)) {
-    return protocolError(id, -32600, "invalid request");
+  const ignore = isObject && !hasId;
+  const invalid = !ignore && (!isObject || msg.jsonrpc !== "2.0" || typeof msg.method !== "string"
+    || (id === null && msg.id !== null));
+  return { id, ignore, invalid };
+}
+
+/**
+ * @param {unknown} params
+ * @param {string[]} allowedPaths
+ * @param {typeof loadImageResult} loadImage
+ * @returns {{ result?: any, error?: { code: number, message: string } }}
+ */
+function dispatchToolsCall(params, allowedPaths, loadImage) {
+  const imagePath = params?.arguments?.path;
+  if (typeof imagePath !== "string" || imagePath.length === 0) {
+    return { error: { code: -32602, message: "path must be a non-empty string" } };
   }
-  try {
-    const { method, params } = msg;
-    let result;
-    if (method === "initialize") {
-      result = {
+  if (params?.name !== "view_image") {
+    return { error: { code: -32602, message: "unknown tool" } };
+  }
+  return { result: loadImage(imagePath, process.cwd(), allowedPaths) };
+}
+
+/**
+ * @param {string} method
+ * @param {unknown} params
+ * @param {string[]} allowedPaths
+ * @param {typeof loadImageResult} loadImage
+ * @returns {{ result?: any, error?: { code: number, message: string }, ignore?: boolean }}
+ */
+function dispatchMethod(method, params, allowedPaths, loadImage) {
+  if (method === "initialize") {
+    return {
+      result: {
         protocolVersion: typeof params?.protocolVersion === "string" ? params.protocolVersion : "2025-06-18",
         capabilities: { tools: {} },
         serverInfo: { name: "vision-server", version: "0.2.0" },
-      };
-    } else if (method === "notifications/initialized" || method === "initialized") {
-      return;
-    } else if (method === "ping") {
-      result = {};
-    } else if (method === "tools/list") {
-      result = { tools: TOOLS };
-    } else if (method === "tools/call") {
-      const imagePath = params?.arguments?.path;
-      if (typeof imagePath !== "string" || imagePath.length === 0) {
-        return protocolError(id, -32602, "path must be a non-empty string");
-      }
-      if (params?.name !== "view_image") {
-        return protocolError(id, -32602, "unknown tool");
-      }
-      result = loadImage(imagePath, process.cwd(), allowedPaths);
-    } else {
-      return protocolError(id, -32601, "method not found");
-    }
-    return { jsonrpc: "2.0", id, result };
+      },
+    };
+  }
+  if (method === "notifications/initialized" || method === "initialized") return { ignore: true };
+  if (method === "ping") return { result: {} };
+  if (method === "tools/list") return { result: { tools: TOOLS } };
+  if (method === "tools/call") return dispatchToolsCall(params, allowedPaths, loadImage);
+  return { error: { code: -32601, message: "method not found" } };
+}
+
+function handleRequest(msg, allowedPaths, loadImage) {
+  const envelope = validateEnvelope(msg);
+  if (envelope.ignore) return;
+  if (envelope.invalid) return protocolError(envelope.id, -32600, "invalid request");
+  const { id } = envelope;
+  try {
+    const { method, params } = msg;
+    const outcome = dispatchMethod(method, params, allowedPaths, loadImage);
+    if (outcome.ignore) return;
+    if (outcome.error) return protocolError(id, outcome.error.code, outcome.error.message);
+    return { jsonrpc: "2.0", id, result: outcome.result };
   } catch {
     return protocolError(id, -32603, "internal error");
   }

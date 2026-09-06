@@ -4,7 +4,7 @@
  * Every test passes an explicit `homeDir` pointed at a temp directory — the
  * real `~/.gemini` is never touched.
  */
-import { describe, it, before, after } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

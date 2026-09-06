@@ -12,7 +12,7 @@
  *   node --test --experimental-test-module-mocks tests/job-helpers.test.mjs
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
