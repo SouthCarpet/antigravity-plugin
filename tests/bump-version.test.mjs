@@ -190,6 +190,17 @@ function makeTree() {
   return root;
 }
 
+function addLockfile(root) {
+  fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(root, 'package-lock.json'));
+}
+
+function writeLockfile(root, update) {
+  const lockPath = path.join(root, 'package-lock.json');
+  const lock = readJson(root, 'package-lock.json');
+  update(lock);
+  fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+}
+
 function allScalars(root) {
   return SCALAR_READERS.map(([label, get]) => ({ label, value: get(root) }));
 }
@@ -270,17 +281,64 @@ after(() => {
 });
 
 describe('bump-version --check on a coherent tree', () => {
-  it('passes when the seven scalars, plugin.json copies, CHANGELOG, and README Status agree', () => {
+  it('passes without a lockfile when the seven host scalars and release metadata agree', () => {
     const root = makeTree();
     const current = currentVersion(root);
     const result = runBump(root, ['--check']);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, new RegExp(`ok: 7 version scalars agree on ${escapeRe(current)}`));
+    assert.match(result.stdout, /package-lock\.json absent/);
     assert.match(result.stdout, /plugin\.json, \.claude-plugin\/plugin\.json, \.codex-plugin\/plugin\.json are byte-identical/);
     assert.match(result.stdout, new RegExp(`CHANGELOG\\.md has ## \\[${escapeRe(current)}\\]`));
     assert.match(result.stdout, new RegExp(`README\\.md Status is v${escapeRe(current)}`));
     assert.match(result.stdout, /not a git repository; not checking tags/);
   });
+});
+
+describe('bump-version package-lock.json handling', () => {
+  it('bumps the root and packages[""] lockfile versions and keeps canonical JSON formatting', () => {
+    const root = makeTree();
+    addLockfile(root);
+    const next = nextVersion(currentVersion(root), 'patch');
+
+    const result = runBump(root, ['patch']);
+    assert.equal(result.status, 0, result.stderr);
+    const lockText = fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8');
+    const lock = JSON.parse(lockText);
+    assert.equal(lock.version, next);
+    assert.equal(lock.packages[''].version, next);
+    assert.equal(lockText, `${JSON.stringify(lock, null, 2)}\n`);
+    assert.match(result.stdout, /package-lock\.json root and packages\[""\] versions included/);
+  });
+
+  const STALE_LOCK_CASES = [
+    {
+      label: 'root version',
+      stale: (lock, version) => {
+        lock.version = version;
+      },
+      expected: /package-lock\.json version:/,
+    },
+    {
+      label: 'packages[""] version',
+      stale: (lock, version) => {
+        lock.packages[''].version = version;
+      },
+      expected: /package-lock\.json packages\[""\] version:/,
+    },
+  ];
+
+  for (const { label, stale, expected } of STALE_LOCK_CASES) {
+    it(`fails --check when the lockfile ${label} is stale`, () => {
+      const root = makeTree();
+      addLockfile(root);
+      writeLockfile(root, (lock) => stale(lock, otherVersion(currentVersion(root))));
+
+      const result = runBump(root, ['--check']);
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stdout}${result.stderr}`, expected);
+    });
+  }
 });
 
 describe('bump-version --check on a desynced tree', () => {

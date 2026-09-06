@@ -111,7 +111,8 @@ const VERB_RE = /^[a-z]+$/;
  *
  * The snippet resolves the plugin root exactly as before, then checks the
  * manifest itself — reading `<root>/plugin.json` and comparing its `name` —
- * before it ever requires anything from that root (076-T7 fix round 1,
+ * before it ever requires anything from that root, then checks that the
+ * shipped bootstrap module exists before requiring it (076-T7 fix round 1,
  * F1/F2: a prior version handed the unchecked root straight to
  * `require(p.join(root,'scripts','lib','host-bootstrap.cjs'))`, so a foreign
  * tree shipping its own copy of that file ran instead of being refused, and
@@ -138,11 +139,16 @@ export function hostBootstrapSource(verb) {
     `'antigravity-plugin: '+root+' is not an antigravity plugin tree ` +
     `(${PLUGIN_MANIFEST_FILE} missing or name mismatch). ` +
     `Run: npx @southcarpet/antigravity-plugin ${verb}'`;
+  const moduleMissing =
+    `'antigravity-plugin: runtime not found at '+m+'. ` +
+    `Run: npx @southcarpet/antigravity-plugin ${verb}'`;
   return (
     "const p=require('node:path'),fs=require('node:fs'),os=require('node:os');" +
     `const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),${segments});` +
     `let n;try{n=JSON.parse(fs.readFileSync(p.join(root,'${PLUGIN_MANIFEST_FILE}'),'utf8')).name}catch{n=0}` +
     `if(n!=='${PLUGIN_MANIFEST_NAME}'){console.error(${refusal});process.exit(1)}` +
+    `const m=p.join(root,'scripts','lib','host-bootstrap.cjs');` +
+    `if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){console.error(${moduleMissing});process.exit(1)}` +
     `process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'${verb}'));`
   );
 }

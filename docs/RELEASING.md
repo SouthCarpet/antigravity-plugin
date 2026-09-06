@@ -66,9 +66,10 @@ exists for discovery on the repository page.
    that is not the one in `package.json`, and it prints the file and the line.
 3. Bump every version scalar at once:
    `node scripts/bump-version.mjs <patch|minor|major|x.y.z>`.
-   This rewrites the seven host manifests, the changelog heading and compare
-   links, the README status line, and every `Plugin <version>` phrase in the
-   README and in `docs/`.
+   This rewrites the seven host manifest scalars, the root and
+   `packages[""]` versions in `package-lock.json` when it exists, the
+   changelog heading and compare links, the README status line, and every
+   `Plugin <version>` phrase in the README and in `docs/`.
 4. Run the gates locally:
 
    ```bash
@@ -90,16 +91,16 @@ exists for discovery on the repository page.
    same content shipped as 1.1.3. After a failed publish, run `npm view
    <package>@<version>` before any rerun.
 
-5. Commit: `git commit -am "release: X.Y.Z"`.
-6. Tag with a signature. See [Tag signing](#tag-signing).
+6. Commit: `git commit -am "release: X.Y.Z"`.
+7. Tag with a signature. See [Tag signing](#tag-signing).
    `git tag -s vX.Y.Z -m "vX.Y.Z"`, then `git tag -v vX.Y.Z`.
-7. Push the commit first. Then push the tag:
+8. Push the commit first. Then push the tag:
    `git push origin main` and `git push origin vX.Y.Z`.
    CI runs on the commit; the tag push starts `release.yml`.
-8. Watch the run on the Actions tab or use `gh run watch`. The job stops
+9. Watch the run on the Actions tab or use `gh run watch`. The job stops
    before publishing when a gate fails, when the tag does not match
    `package.json`, or when npmjs.com does not trust the workflow yet.
-9. Verify the published version (next section).
+10. Verify the published version (next section).
 
 ## Tag signing
 

@@ -692,6 +692,8 @@ async function writePromptAndAwaitExit({ child, session, prompt, onSpawn }) {
  * @param {ReturnType<typeof parseAgyStream>} parsed
  * @returns {{ responseText: string, looksLikeAuthSentinel: boolean, eligible: boolean }}
  */
+// The live auth output shape on agy 1.1.24 was not re-probed for this change.
+// Classification is pinned by the sentinel, URL, and split-chunk cases in tests/agent-runtime-stream.test.mjs.
 function computeAuthEligibility(parsed) {
   const responseText = typeof parsed.response === 'string' ? parsed.response : '';
   const responseFirstLine = responseText.split('\n', 1)[0];

@@ -176,7 +176,7 @@ See [Security](./SECURITY.md) for threat boundaries and vulnerability reports.
 
 ## Release integrity
 
-Socket scores the published package (the badge is at the top of this page). Its supply chain score counts the capabilities this plugin needs: it starts the `agy` process, makes one request to the npm registry in `update`, reads and writes the local job store, and reads host environment variables; [Security](./SECURITY.md) and [Permissions and privacy](#permissions-and-privacy) state exactly what leaves the machine.
+Socket scores the published package (the badge is at the top of this page). Its supply chain score counts the capabilities this plugin needs: it starts the `agy` process, makes up to three npm registry attempts inside one 25-second budget in `update` only, reads and writes the local job store, and reads host environment variables; [Security](./SECURITY.md) and [Permissions and privacy](#permissions-and-privacy) state exactly what leaves the machine.
 
 npmjs.org is the primary registry. Releases use npm trusted publishing and include a provenance attestation. Release tags use SSH signatures from v1.1.0 onward.
 

@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const BIN = path.resolve(REPO_ROOT, 'bin', 'antigravity.mjs');
+const VERBS = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel'];
+const HELP_TARGETS = [...VERBS, 'update'];
 const PLUGIN_JSON = JSON.parse(
   fs.readFileSync(path.resolve(REPO_ROOT, 'plugin.json'), 'utf8'),
 );
@@ -47,6 +49,17 @@ function run(args, env = {}) {
     encoding: 'utf8',
     env: { ...process.env, ...env },
   });
+}
+
+function parserFlags(verb) {
+  const source = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'commands', `${verb}.mjs`), 'utf8');
+  const flags = [];
+  for (const optionKind of ['valueOptions', 'booleanOptions']) {
+    const match = source.match(new RegExp(`${optionKind}:\\s*\\[([^\\]]*)\\]`));
+    if (!match) continue;
+    for (const quoted of match[1].matchAll(/["']([^"']+)["']/g)) flags.push(quoted[1]);
+  }
+  return flags;
 }
 
 describe('bin/antigravity.mjs', () => {
@@ -92,6 +105,24 @@ describe('bin/antigravity.mjs', () => {
     assert.match(res.stdout, /antigravity-plugin review/);
     assert.match(res.stdout, /--base/);
     assert.match(res.stdout, /--scope/);
+  });
+
+  for (const verb of VERBS) {
+    it(`help ${verb} names every flag accepted by its parser`, () => {
+      const res = run(['help', verb]);
+      assert.equal(res.status, 0, res.stderr);
+      for (const flag of parserFlags(verb)) {
+        assert.equal(res.stdout.includes(`--${flag}`), true, `help ${verb} is missing --${flag}`);
+      }
+    });
+  }
+
+  it('no per-command help describes an accepted flag as currently ignored', () => {
+    for (const command of HELP_TARGETS) {
+      const res = run(['help', command]);
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(res.stdout.includes('currently ignored'), false, `help ${command}: ${res.stdout}`);
+    }
   });
 
   it('unknown command suggests closest match and exits 2', () => {

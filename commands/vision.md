@@ -15,7 +15,7 @@ Find the runtime with Node, not the shell. Plugin root is `process.env.CLAUDE_PL
 
 Run:
 
-!`node -e "const p=require('node:path'),fs=require('node:fs'),os=require('node:os');const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),'.gemini','config','plugins','antigravity');let n;try{n=JSON.parse(fs.readFileSync(p.join(root,'plugin.json'),'utf8')).name}catch{n=0}if(n!=='antigravity'){console.error('antigravity-plugin: '+root+' is not an antigravity plugin tree (plugin.json missing or name mismatch). Run: npx @southcarpet/antigravity-plugin vision');process.exit(1)}process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'vision'));" -- $ARGUMENTS`
+!`node -e "const p=require('node:path'),fs=require('node:fs'),os=require('node:os');const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),'.gemini','config','plugins','antigravity');let n;try{n=JSON.parse(fs.readFileSync(p.join(root,'plugin.json'),'utf8')).name}catch{n=0}if(n!=='antigravity'){console.error('antigravity-plugin: '+root+' is not an antigravity plugin tree (plugin.json missing or name mismatch). Run: npx @southcarpet/antigravity-plugin vision');process.exit(1)}const m=p.join(root,'scripts','lib','host-bootstrap.cjs');if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){console.error('antigravity-plugin: runtime not found at '+m+'. Run: npx @southcarpet/antigravity-plugin vision');process.exit(1)}process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'vision'));" -- $ARGUMENTS`
 
 Flags:
 - `<image-path>` one or more image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`). At least one required.

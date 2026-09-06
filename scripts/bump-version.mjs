@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Bump or verify the seven host-facing version scalars together.
+ * Bump or verify the seven host-facing version scalars together, plus the
+ * two package-lock.json copies when the lockfile exists.
  *
  * Detector: scripts/check-manifests.mjs (fails on drift).
  * This script is the writer, plus CHANGELOG heading/compare-link
@@ -8,7 +9,7 @@
  * phrases in README.md and docs/*.md, and a read-only git-tag report.
  * It never creates, moves, or deletes tags.
  *
- * Seven scalars (six files; marketplace.json carries two):
+ * Seven host scalars (six files; marketplace.json carries two):
  *   package.json                               .version
  *   plugin.json                                .version
  *   .claude-plugin/plugin.json                 .version
@@ -16,6 +17,9 @@
  *   .claude-plugin/marketplace.json            .metadata.version
  *   .claude-plugin/marketplace.json            .plugins[0].version
  *   .agents/plugins/marketplace.json           .metadata.version
+ * Optional lockfile scalars:
+ *   package-lock.json                          .version
+ *   package-lock.json                          .packages[""].version
  */
 import fs from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -42,7 +46,7 @@ const PLUGIN_COPIES = [
 const COMPARE_REPO = 'https://github.com/SouthCarpet/antigravity-plugin';
 
 /**
- * @typedef {{ label: string, file: string, get: (json: any) => unknown, set: (json: any, version: string) => void }} Scalar
+ * @typedef {{ label: string, file: string, optional?: boolean, get: (json: any) => unknown, set: (json: any, version: string) => void }} Scalar
  */
 
 /** @type {Scalar[]} */
@@ -110,6 +114,27 @@ const SCALARS = [
         throw new Error('.agents/plugins/marketplace.json metadata is missing');
       }
       j.metadata.version = v;
+    },
+  },
+  {
+    label: 'package-lock.json version',
+    file: 'package-lock.json',
+    optional: true,
+    get: (j) => j.version,
+    set: (j, v) => {
+      j.version = v;
+    },
+  },
+  {
+    label: 'package-lock.json packages[""] version',
+    file: 'package-lock.json',
+    optional: true,
+    get: (j) => j.packages?.['']?.version,
+    set: (j, v) => {
+      if (!j.packages?.[''] || typeof j.packages[''] !== 'object') {
+        throw new Error('package-lock.json packages[""] is missing');
+      }
+      j.packages[''].version = v;
     },
   },
 ];
@@ -211,6 +236,7 @@ function readScalars(root) {
   const values = [];
   const errors = [];
   for (const scalar of SCALARS) {
+    if (scalar.optional && !existsSync(join(root, scalar.file))) continue;
     try {
       const json = readJson(root, scalar.file);
       const value = scalar.get(json);
@@ -643,13 +669,16 @@ function prepareWrites(root, version, previousVersion, current) {
   const claimed = claimedVersions(current, readmeText, version);
   const phraseChanges = planPhraseWrites(root, planned, claimed, version);
 
-  const uniqueFiles = [...new Set(SCALARS.map((s) => s.file))];
+  const activeScalars = SCALARS.filter(
+    (scalar) => !scalar.optional || existsSync(join(root, scalar.file)),
+  );
+  const uniqueFiles = [...new Set(activeScalars.map((s) => s.file))];
   /** @type {Map<string, any>} */
   const parsed = new Map();
   for (const file of uniqueFiles) {
     parsed.set(file, readJson(root, file));
   }
-  for (const scalar of SCALARS) {
+  for (const scalar of activeScalars) {
     scalar.set(parsed.get(scalar.file), version);
   }
 
@@ -678,7 +707,10 @@ function printCheck(root, expectedVersion) {
     return;
   }
 
-  console.log(`ok: ${values.length} version scalars agree on ${expectedVersion}`);
+  const lockfile = existsSync(join(root, 'package-lock.json'))
+    ? 'package-lock.json root and packages[""] versions included'
+    : 'package-lock.json absent';
+  console.log(`ok: ${values.length} version scalars agree on ${expectedVersion} (${lockfile})`);
   for (const { label, value } of values) {
     console.log(`  ${label} = ${value}`);
   }
@@ -770,13 +802,16 @@ function main() {
     const noun = count === 1 ? 'phrase' : 'phrases';
     console.log(`Rewrote ${count} version ${noun} in ${rel} to Plugin ${next}`);
   }
-  const { errors } = checkAgreement(root, next);
+  const { errors, values } = checkAgreement(root, next);
   if (errors.length > 0) {
     throw new Error(
       `Wrote files but the tree still disagrees:\n${errors.map((e) => `  ${e}`).join('\n')}`,
     );
   }
-  console.log(`ok: ${SCALARS.length} version scalars agree on ${next}`);
+  const lockfile = existsSync(join(root, 'package-lock.json'))
+    ? 'package-lock.json root and packages[""] versions included'
+    : 'package-lock.json absent';
+  console.log(`ok: ${values.length} version scalars agree on ${next} (${lockfile})`);
   console.log(`ok: ${PLUGIN_COPIES.join(', ')} are byte-identical`);
   console.log(tagReport(root, next));
 }

@@ -35,20 +35,19 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
     assert.match(source, /process\.exit\(/);
   });
 
-  it('checks the manifest inline, before it requires anything from the root (F1/F2)', () => {
+  it('checks the manifest and module presence inline before requiring from the root (F1/F2)', () => {
     const source = hostBootstrapSource('status');
     assert.equal(source.includes('plugin.json'), true, source);
     assert.equal(source.includes('JSON.parse'), true, source);
     assert.equal(source.includes('is not an antigravity plugin tree'), true, source);
-    // The spawn and the "missing runtime" message stay inside host-bootstrap.cjs;
-    // only the manifest check and its refusal moved into the generated text.
-    assert.equal(source.includes('runtime not found at'), false, source);
+    assert.equal(source.includes('runtime not found at'), true, source);
     assert.equal(source.includes('spawnSync'), false, source);
     const manifestCheckIndex = source.indexOf('plugin.json');
+    const moduleCheckIndex = source.indexOf("fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))");
     const requireIndex = source.indexOf("require(p.join(root,'scripts','lib','host-bootstrap.cjs'))");
     assert.ok(
-      manifestCheckIndex >= 0 && requireIndex > manifestCheckIndex,
-      `manifest check must precede the require() of host-bootstrap.cjs: ${source}`,
+      manifestCheckIndex >= 0 && moduleCheckIndex > manifestCheckIndex && requireIndex > moduleCheckIndex,
+      `manifest and module checks must precede the require() of host-bootstrap.cjs: ${source}`,
     );
   });
 
@@ -76,7 +75,7 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
   // limit the fix itself cannot meet.
   it('the regenerated bang line of commands/task.md stays reasonably short', () => {
     const line = hostBangLine('task');
-    assert.ok(line.length < 700, `bang line is ${line.length} chars: ${line}`);
+    assert.ok(line.length < 900, `bang line is ${line.length} chars: ${line}`);
   });
 
   it('hostBangLine keeps the frozen shape: bang-backtick, node -e, -- $ARGUMENTS', () => {
