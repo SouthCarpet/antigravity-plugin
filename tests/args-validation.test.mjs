@@ -49,12 +49,14 @@ function captureStdio() {
   const err = [];
   const origStdout = process.stdout.write.bind(process.stdout);
   const origStderr = process.stderr.write.bind(process.stderr);
-  process.stdout.write = (chunk, ..._rest) => {
-    out.push(typeof chunk === 'string' ? chunk : chunk.toString());
+  process.stdout.write = (chunk, ...rest) => {
+    if (typeof chunk !== 'string') return origStdout(chunk, ...rest);
+    out.push(chunk);
     return true;
   };
-  process.stderr.write = (chunk, ..._rest) => {
-    err.push(typeof chunk === 'string' ? chunk : chunk.toString());
+  process.stderr.write = (chunk, ...rest) => {
+    if (typeof chunk !== 'string') return origStderr(chunk, ...rest);
+    err.push(chunk);
     return true;
   };
   return {

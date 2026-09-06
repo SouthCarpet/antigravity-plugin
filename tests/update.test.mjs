@@ -71,8 +71,14 @@ function captureStdio() {
   const err = [];
   const origOut = process.stdout.write.bind(process.stdout);
   const origErr = process.stderr.write.bind(process.stderr);
-  process.stdout.write = (chunk) => { out.push(String(chunk)); return true; };
-  process.stderr.write = (chunk) => { err.push(String(chunk)); return true; };
+  process.stdout.write = (chunk, ...rest) => {
+    if (typeof chunk !== 'string') return origOut(chunk, ...rest);
+    out.push(chunk); return true;
+  };
+  process.stderr.write = (chunk, ...rest) => {
+    if (typeof chunk !== 'string') return origErr(chunk, ...rest);
+    err.push(chunk); return true;
+  };
   return {
     out,
     err,
