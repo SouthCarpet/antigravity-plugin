@@ -83,17 +83,39 @@ function runBootstrap(verb, { args = [], env = {}, cwd } = {}) {
   });
 }
 
-function writePluginManifest(pluginRoot, name = PLUGIN_MANIFEST_NAME) {
+// R5b: `host-bootstrap.cjs` is a real shipped file the generated snippet
+// require()s at `<root>/scripts/lib/host-bootstrap.cjs`, so any fixture
+// plugin root that needs the verb to actually dispatch carries its own copy
+// — a real `agy plugin install` copy would carry one too, since
+// `scripts/lib` ships (package.json `files`). Fix round 1 (F1): after the
+// manifest check moved ahead of the `require()` in the generated snippet, a
+// fixture that only exercises the refusal path no longer needs a copy of
+// this module at all, so `writePluginManifest` stops copying it by default;
+// a fixture that needs the module present (or a foreign one, for the F1
+// masquerade test) says so explicitly.
+const HOST_BOOTSTRAP_SOURCE = fs.readFileSync(
+  path.join(ROOT, 'scripts', 'lib', 'host-bootstrap.cjs'),
+  'utf8',
+);
+
+function writePluginManifest(pluginRoot, name = PLUGIN_MANIFEST_NAME, { withHostBootstrap = false } = {}) {
   fs.mkdirSync(pluginRoot, { recursive: true });
   fs.writeFileSync(
     path.join(pluginRoot, 'plugin.json'),
     JSON.stringify({ name, version: '0.0.0-test' }),
     'utf8',
   );
+  if (withHostBootstrap) {
+    const libDir = path.join(pluginRoot, 'scripts', 'lib');
+    fs.mkdirSync(libDir, { recursive: true });
+    fs.writeFileSync(path.join(libDir, 'host-bootstrap.cjs'), HOST_BOOTSTRAP_SOURCE, 'utf8');
+  }
 }
 
 function writeStubVerb(pluginRoot, verb, markerFile) {
-  writePluginManifest(pluginRoot);
+  // A stub verb must actually dispatch end to end, so it needs the genuine
+  // host-bootstrap.cjs present.
+  writePluginManifest(pluginRoot, PLUGIN_MANIFEST_NAME, { withHostBootstrap: true });
   const dir = path.join(pluginRoot, 'scripts', 'commands');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
@@ -185,17 +207,24 @@ describe('host bootstrap source', () => {
     assert.match(message, /npx @southcarpet\/antigravity-plugin status/);
   });
 
-  it('checks the plugin manifest before it resolves the verb script', () => {
+  // R5b + fix round 1 F1/F2: the spawn and the "missing runtime" message
+  // stay inside the shipped `scripts/lib/host-bootstrap.cjs` module, but the
+  // manifest check and its refusal now live in the generated snippet itself,
+  // ahead of the require() that loads that module — a root that is not this
+  // plugin's tree is refused before host-bootstrap.cjs is ever touched, so a
+  // foreign copy of that file at that root never runs (see the masquerade
+  // fixture test below). tests/host-bootstrap.test.mjs covers the module's
+  // own (defence-in-depth) manifest check directly; tests/plugin-root.test.mjs
+  // covers the shape of the generated one-liner itself.
+  it('checks the manifest before requiring the shipped host-bootstrap.cjs module', () => {
     const source = hostBootstrapSource('review');
-    assert.equal(source.includes("p.join(root,'plugin.json')"), true, source);
-    assert.ok(
-      source.indexOf("'plugin.json'") < source.indexOf("'scripts','commands'"),
-      'manifest check must precede the verb-script path',
-    );
-    assert.ok(
-      source.indexOf('is not an antigravity plugin tree') < source.indexOf('spawnSync(process.execPath'),
-      'manifest check must precede the spawn',
-    );
+    assert.equal(source.includes("'scripts','lib','host-bootstrap.cjs'"), true, source);
+    assert.equal(source.includes("run(root,'review')"), true, source);
+    assert.equal(source.includes('is not an antigravity plugin tree'), true, source);
+    assert.equal(source.includes('spawnSync'), false, source);
+    const manifestCheckIndex = source.indexOf('plugin.json');
+    const requireIndex = source.indexOf("require(p.join(root,'scripts','lib','host-bootstrap.cjs'))");
+    assert.ok(manifestCheckIndex >= 0 && requireIndex > manifestCheckIndex, source);
   });
 
   it('invalidPluginRootMessage names the root and the standalone CLI', () => {
@@ -401,10 +430,81 @@ describe('host bootstrap execution', () => {
     assert.equal(fs.existsSync(marker), false, 'verb script ran despite the foreign manifest');
   });
 
+  // Fix round 1, F1 (a): a foreign plugin root that carries its own
+  // scripts/lib/host-bootstrap.cjs, one that would announce itself if it
+  // ran. Before the fix, the generated snippet handed this root straight to
+  // require() with no check, so this foreign module ran and printed
+  // "FOREIGN MODULE RAN" with exit 0. The manifest check now runs first: the
+  // real bang line must refuse before that require() ever happens, so the
+  // foreign text must never appear.
+  it('a foreign plugin root carrying its own host-bootstrap.cjs is refused before that module ever loads (F1)', () => {
+    const pluginRoot = path.join(tmpRoot, 'foreign-module-root');
+    fs.mkdirSync(pluginRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginRoot, 'plugin.json'),
+      JSON.stringify({ name: 'some-other-plugin' }),
+      'utf8',
+    );
+    const foreignLibDir = path.join(pluginRoot, 'scripts', 'lib');
+    fs.mkdirSync(foreignLibDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(foreignLibDir, 'host-bootstrap.cjs'),
+      'module.exports={run(){console.log("FOREIGN MODULE RAN");return 0;}};',
+      'utf8',
+    );
+
+    const res = runBootstrap('task', { env: { CLAUDE_PLUGIN_ROOT: pluginRoot } });
+    assert.equal(res.status, 1, `stderr=${res.stderr}`);
+    assert.equal(res.stdout.includes('FOREIGN MODULE RAN'), false, res.stdout);
+    assert.equal(res.stdout, '');
+    assert.equal(
+      res.stderr.trim(),
+      invalidPluginRootMessage(pluginRoot, 'task'),
+      res.stderr,
+    );
+  });
+
+  // Fix round 1, F2 (b): an absent or non-plugin root with no
+  // host-bootstrap.cjs at all used to die with a ~20-line raw Node loader
+  // stack instead of the plugin's one line, because the old snippet
+  // require()d the module unconditionally. The manifest check now runs
+  // before any require(), so both an empty directory and an unset
+  // CLAUDE_PLUGIN_ROOT with nothing at the default path get the same single
+  // refusal line and no loader stack.
+  it('an empty CLAUDE_PLUGIN_ROOT directory is refused with one line and no loader stack (F2)', () => {
+    const pluginRoot = path.join(tmpRoot, 'empty-dir-root');
+    fs.mkdirSync(pluginRoot, { recursive: true });
+
+    const res = runBootstrap('task', { env: { CLAUDE_PLUGIN_ROOT: pluginRoot } });
+    assert.equal(res.status, 1, `stderr=${res.stderr}`);
+    assert.equal(res.stdout, '');
+    const lines = res.stderr.split(/\r?\n/).filter((line) => line.length > 0);
+    assert.equal(lines.length, 1, res.stderr);
+    assert.equal(lines[0], invalidPluginRootMessage(pluginRoot, 'task'));
+    assert.equal(res.stderr.includes('node:internal'), false, res.stderr);
+  });
+
+  it('unset CLAUDE_PLUGIN_ROOT with no plugin at the default path is refused with one line and no loader stack (F2)', () => {
+    const home = path.join(tmpRoot, 'home-no-plugin');
+    fs.mkdirSync(home, { recursive: true });
+    const expectedRoot = agyPluginInstallDir(home);
+
+    const res = runBootstrap('task', { env: { CLAUDE_PLUGIN_ROOT: '', ...homeEnv(home) } });
+    assert.equal(res.status, 1, `stderr=${res.stderr}`);
+    assert.equal(res.stdout, '');
+    const lines = res.stderr.split(/\r?\n/).filter((line) => line.length > 0);
+    assert.equal(lines.length, 1, res.stderr);
+    assert.equal(lines[0], invalidPluginRootMessage(expectedRoot, 'task'));
+    assert.equal(res.stderr.includes('node:internal'), false, res.stderr);
+  });
+
   it('missing runtime prints the path and the standalone CLI, then exits 1', () => {
     const pluginRoot = path.join(tmpRoot, 'empty-plugin');
     fs.mkdirSync(pluginRoot, { recursive: true });
-    writePluginManifest(pluginRoot);
+    // The manifest check passes, so the snippet reaches host-bootstrap.cjs's
+    // own "missing runtime" branch — that requires the genuine module itself
+    // to be present, unlike the refusal-path fixtures above.
+    writePluginManifest(pluginRoot, PLUGIN_MANIFEST_NAME, { withHostBootstrap: true });
     const expectedScript = path.join(pluginRoot, 'scripts', 'commands', 'review.mjs');
 
     const res = runBootstrap('review', {

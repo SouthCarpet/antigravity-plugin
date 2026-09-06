@@ -1,0 +1,43 @@
+---
+description: antigravity-plugin contributor rules (Node ESM plugin that runs Google Antigravity CLI jobs for Claude Code, Codex CLI, agy and the standalone CLI)
+globs: ["**/*.mjs", "**/*.cjs", "commands/*.md", "docs/*.md", "*.json"]
+alwaysApply: true
+---
+# antigravity-plugin
+
+## Layout
+- bin/antigravity.mjs: standalone dispatcher; imports scripts/commands/<verb>.mjs.
+- scripts/commands/*.mjs: the eight verbs (setup review rescue task vision status result cancel). _worker.mjs is the background worker and not public.
+- scripts/lib/*.mjs: agent-runtime (spawns agy, prompt as one NDJSON line on stdin), job-helpers, job-control, state + atomic-state + file-lock, git, args, render, update, vision-config, workspace, plugin-root.
+- scripts/lib/host-bootstrap.cjs: shipped CommonJS module the generated `node -e` wrapper snippet require()s; keep it dependency-free and covered by tests/host-bootstrap.test.mjs.
+- scripts/mcp/vision-server.mjs: MCP stdio server with one tool, view_image; registered with agy by `setup`, never with the host.
+- commands/*.md: host wrappers (Claude Code, agy TUI). tests/*.test.mjs: node:test suite.
+
+## Contract (frozen for 1.x, docs/COMPATIBILITY.md and docs/COMMANDS.md)
+- setup [--skip-vision|--remove-vision]
+- review [--base <ref>] [--scope auto|working-tree|branch] [--background] [--wait] [--continue|--conversation <id>] [--json] [--cwd <p>]
+- rescue <prompt...> [--background] [--wait] [--resume|--continue|--fresh] [--conversation <id>] [--add-dir <p>]... [--mode plan|accept-edits] [--model <id>] [--json] [--cwd <p>]
+- task <prompt...> [--background|--foreground] [--wait] [--continue|--conversation <id>] [--add-dir <p>]... [--mode plan|accept-edits] [--model <id>] [--json] [--cwd <p>]
+- vision <image>... [--prompt <text>] [--model <id>] [--json] [--cwd <p>] (foreground only; no --add-dir)
+- status [<ref>] [--wait] [--timeout-ms <ms>] [--json] [--cwd <p>]; result [<ref>] [--head <n>] [--tail <n>] [--json] [--cwd <p>]; cancel [<ref>] [--json] [--cwd <p>]
+- New flags/fields are additive only: --model on task/rescue, --head/--tail on result, answerBytes/answerLines on the job index, details.truncated on --json. Never change an existing meaning.
+- Exit codes are per verb: 0 success or queued, 1 failure, 2 a cancelled agy outcome (and dispatcher misuse), 127 dispatcher AGY_BIN preflight. No global taxonomy.
+- --json stdout is exactly one envelope: { schemaVersion: 1, command, status, jobId, answer, details } plus model and imagePaths on vision. `answer` is opaque model text; `details` is unstable except documented additive fields.
+- State: <state-root>/<slug>-<hash>/state.json and jobs/<id>.json|.log; root from CLAUDE_PLUGIN_DATA, CODEX_PLUGIN_DATA, AGY_PLUGIN_DATA, else os.tmpdir()/antigravity.
+
+## JS rules that match this codebase
+- ESM `.mjs` (host-bootstrap.cjs is the one intentional CommonJS file), Node >= 22.3, zero runtime dependencies; JSDoc types on every export.
+- Spawn with argument arrays only. Never `shell: true`. Never spawn a `.cmd`/`.bat` for agy (assertAgyBinSpawnable). Prompts go to agy over stdin, never argv.
+- State writes go through patchJobState / writeJsonAtomic under withWorkspaceMutex; never write state.json or jobs/*.json directly.
+- Every wait has a deadline; every spawn has a timeout or a comment naming why not.
+- Failures: one `antigravity:<verb> — <reason>` line on stderr, then return 1. Typed errors are ArgsError and FileLockTimeoutError; test them with instanceof or isFileLockTimeoutError, not message text.
+- Tests use node:test, tests/helpers/fake-agy.mjs for a fake binary, tests/helpers/tmp.mjs for temp dirs, and a fake scripts/lib/process-adapter.mjs rather than node:child_process.
+- `npm run lint` enforces cyclomatic complexity (max 20 per function); split a function instead of adding eslint-disable.
+- README and docs (CHANGELOG.md, docs/COMMANDS.md, docs/COMPATIBILITY.md) change in the same commit as the behaviour.
+
+## Do not touch without a maintainer decision
+- plugin.json, .claude-plugin/, .codex-plugin/, .agents/, agents/openai.yaml, SKILL.md, the frontmatter and `!` line of commands/*.md, the vision-server JSON-RPC shapes, the `node _worker.mjs <jobId>` shape, any promise in docs/COMPATIBILITY.md.
+- A change to verbs, flags, exit codes, envelope fields or state locations is a 2.0 candidate, not a 1.x change.
+
+## Gates before a PR
+npm run lint; node --test --experimental-test-module-mocks tests/*.test.mjs; node scripts/check-pack.mjs; node scripts/check-manifests.mjs; node scripts/bump-version.mjs --check.

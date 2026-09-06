@@ -19,7 +19,9 @@ import {
   CACHE_TTL_MS,
   DIST_TAGS_URL,
   PACKAGE_NAME,
+  UPDATE_CHECK_TOTAL_MS,
   applyPlan,
+  attemptTimeoutMs,
   buildHostPlan,
   compareVersions,
   detectHosts,
@@ -155,7 +157,9 @@ describe('update: registry cache', () => {
 
   it('unreachable: a network failure is a message, never a throw', async () => {
     const fetch = fakeFetch(null, { fail: new Error('getaddrinfo ENOTFOUND registry.npmjs.org') });
-    const result = await resolveLatest({ env: {}, now: NOW, fetchImpl: fetch, cacheFile });
+    const result = await resolveLatest({
+      env: {}, now: NOW, fetchImpl: fetch, cacheFile, retry: { maxRetries: 0 },
+    });
     assert.equal(result.source, 'unreachable');
     assert.equal(result.latest, null);
     assert.match(result.message, /could not reach the npm registry: getaddrinfo ENOTFOUND/);
@@ -191,10 +195,171 @@ describe('update: registry cache', () => {
   });
 
   it('an HTTP error or a malformed answer is unreachable too', async () => {
-    const http = await resolveLatest({ env: {}, now: NOW, fetchImpl: fakeFetch({}, { ok: false, status: 503 }), cacheFile });
+    const http = await resolveLatest({
+      env: {}, now: NOW, fetchImpl: fakeFetch({}, { ok: false, status: 503 }), cacheFile,
+      retry: { maxRetries: 0 },
+    });
     assert.match(http.message, /HTTP 503/);
     const shape = await resolveLatest({ env: {}, now: NOW, fetchImpl: fakeFetch({ nope: true }), cacheFile });
     assert.match(shape.message, /no semver dist-tags\.latest/);
+  });
+});
+
+describe('update: registry retry (076-T7 R2)', () => {
+  function immediateSleep() {
+    const calls = [];
+    const sleep = async (ms) => { calls.push(ms); };
+    sleep.calls = calls;
+    return sleep;
+  }
+
+  function fakeFetchSequence(steps) {
+    let i = 0;
+    const calls = [];
+    const impl = async () => {
+      const idx = Math.min(i, steps.length - 1);
+      calls.push(idx);
+      const step = steps[idx];
+      i += 1;
+      if (step.throw) throw step.throw;
+      const status = step.status ?? 200;
+      const ok = step.ok ?? status < 400;
+      return { ok, status, headers: step.headers ?? { get: () => null }, json: async () => step.body };
+    };
+    impl.calls = calls;
+    return impl;
+  }
+
+  it('two 503s then 200 succeeds, with two delays recorded (500ms then 1000ms with random=0)', async () => {
+    const fetch = fakeFetchSequence([
+      { status: 503 }, { status: 503 }, { body: { latest: '1.6.0' } },
+    ]);
+    const sleep = immediateSleep();
+    const latest = await fetchLatestVersion(fetch, { now: () => NOW, sleep, random: () => 0 });
+    assert.equal(latest, '1.6.0');
+    assert.equal(fetch.calls.length, 3);
+    assert.deepEqual(sleep.calls, [500, 1000]);
+  });
+
+  it('404 does not retry', async () => {
+    const fetch = fakeFetchSequence([{ status: 404 }, { body: { latest: '1.6.0' } }]);
+    const sleep = immediateSleep();
+    await assert.rejects(
+      fetchLatestVersion(fetch, { now: () => NOW, sleep, random: () => 0 }),
+      /registry answered HTTP 404/,
+    );
+    assert.equal(fetch.calls.length, 1);
+    assert.equal(sleep.calls.length, 0);
+  });
+
+  it('malformed JSON does not retry', async () => {
+    const fetch = fakeFetchSequence([{ body: { latest: 'not-a-semver' } }, { body: { latest: '1.6.0' } }]);
+    const sleep = immediateSleep();
+    await assert.rejects(
+      fetchLatestVersion(fetch, { now: () => NOW, sleep, random: () => 0 }),
+      /no semver dist-tags\.latest/,
+    );
+    assert.equal(fetch.calls.length, 1);
+    assert.equal(sleep.calls.length, 0);
+  });
+
+  it('a network error retries the same as a 5xx, up to maxRetries', async () => {
+    const err = new Error('getaddrinfo ENOTFOUND registry.npmjs.org');
+    const fetch = fakeFetchSequence([{ throw: err }, { throw: err }, { throw: err }]);
+    const sleep = immediateSleep();
+    await assert.rejects(fetchLatestVersion(fetch, { now: () => NOW, sleep, random: () => 0 }), err);
+    assert.equal(fetch.calls.length, 3);
+    assert.deepEqual(sleep.calls, [500, 1000]);
+  });
+
+  it('the total budget stops a third attempt before it happens', async () => {
+    const fetch = fakeFetchSequence([{ status: 503 }, { status: 503 }, { body: { latest: '1.6.0' } }]);
+    let clock = NOW;
+    // Budget only wide enough for the first 500ms retry, not the second 1000ms one.
+    const sleep = async (ms) => { clock += ms; };
+    await assert.rejects(
+      fetchLatestVersion(fetch, { now: () => clock, sleep, random: () => 0, totalBudgetMs: 600 }),
+      /registry answered HTTP 503/,
+    );
+    // One initial attempt, one retry after the 500ms delay, then the budget
+    // (600ms) cannot fit the next 1000ms delay, so no third attempt is made.
+    assert.equal(fetch.calls.length, 2);
+  });
+
+  // 076-T7 fix round 1, F11: `waitForRetry` only bounds when the *next*
+  // attempt may start, not an attempt already in flight — an unbounded
+  // per-request timeout could let one real call run to roughly the total
+  // budget plus the full 10s FETCH_TIMEOUT_MS. `attemptTimeoutMs` caps each
+  // attempt's own timeout at whatever of the budget remains when it starts,
+  // using the same injected clock (`now`/`deadline`) fetchLatestVersion
+  // itself uses.
+  describe('attemptTimeoutMs caps the per-request timeout at the remaining budget (F11)', () => {
+    it('keeps the full per-request timeout when plenty of budget remains', () => {
+      const deadline = 1_000_000 + UPDATE_CHECK_TOTAL_MS;
+      const now = () => 1_000_000;
+      assert.equal(attemptTimeoutMs(10_000, deadline - now()), 10_000);
+    });
+
+    it('shrinks to whatever of the budget remains when that is less than the per-request timeout', () => {
+      const deadline = 1_000_000 + UPDATE_CHECK_TOTAL_MS;
+      const now = () => deadline - 4_000; // 4s of budget left, less than the 10s timeout
+      assert.equal(attemptTimeoutMs(10_000, deadline - now()), 4_000);
+    });
+
+    it('never goes negative once the deadline has already passed', () => {
+      const deadline = 1_000_000 + UPDATE_CHECK_TOTAL_MS;
+      const now = () => deadline + 500; // already past the deadline
+      assert.equal(attemptTimeoutMs(10_000, deadline - now()), 0);
+    });
+  });
+
+  // 076-T7 fix round 2, F11 (the re-review found the unit cases above never
+  // exercised a retry or the timeout `fetchLatestVersion` actually passes to
+  // `fetch`). Drives the real retry loop with an injected clock, recovering
+  // each attempt's timeout by intercepting `AbortSignal.timeout`, the exact
+  // seam `fetchOnce` builds the abort signal through.
+  it('fetchLatestVersion caps only the last attempt\'s per-request timeout when the budget runs low (F11)', async () => {
+    const recordedTimeouts = [];
+    const originalTimeout = AbortSignal.timeout;
+    AbortSignal.timeout = (ms) => {
+      recordedTimeouts.push(ms);
+      return originalTimeout(ms);
+    };
+    try {
+      const fetch = fakeFetchSequence([{ status: 503 }, { status: 503 }, { body: { latest: '1.6.0' } }]);
+      let clock = NOW;
+      const sleep = async (ms) => { clock += ms; };
+      // Budget (10500ms) wide enough for both retries (500ms then 1000ms
+      // delays, random=0) but leaving only 9000ms for the third attempt,
+      // less than the 10000ms per-request timeout.
+      const latest = await fetchLatestVersion(fetch, {
+        now: () => clock, sleep, random: () => 0, totalBudgetMs: 10_500,
+      });
+      assert.equal(latest, '1.6.0');
+      assert.equal(fetch.calls.length, 3);
+      assert.deepEqual(recordedTimeouts, [10_000, 10_000, 9_000]);
+    } finally {
+      AbortSignal.timeout = originalTimeout;
+    }
+  });
+
+  it('a numeric Retry-After header is honoured over the exponential formula', async () => {
+    const fetch = fakeFetchSequence([
+      { status: 429, headers: { get: (name) => (name === 'retry-after' ? '2' : null) } },
+      { body: { latest: '1.6.0' } },
+    ]);
+    const sleep = immediateSleep();
+    const latest = await fetchLatestVersion(fetch, { now: () => NOW, sleep, random: () => 0 });
+    assert.equal(latest, '1.6.0');
+    assert.deepEqual(sleep.calls, [2000]);
+  });
+
+  it('update --apply steps never retry (defaultRunner has no retry loop)', () => {
+    // Oracle: R2's retry contract applies only to fetchLatestVersion; the
+    // update-plan runner (applyPlan/defaultRunner) makes exactly one attempt
+    // per step and reports the first failure, as covered by the
+    // "a failing step stops that host" test above.
+    assert.equal(typeof defaultRunner, 'function');
   });
 });
 

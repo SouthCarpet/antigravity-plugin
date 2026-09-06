@@ -109,6 +109,23 @@ const VERB_RE = /^[a-z]+$/;
 /**
  * CommonJS source for `node -e "..."` in command wrappers. No `$` or `%`.
  *
+ * The snippet resolves the plugin root exactly as before, then checks the
+ * manifest itself — reading `<root>/plugin.json` and comparing its `name` —
+ * before it ever requires anything from that root (076-T7 fix round 1,
+ * F1/F2: a prior version handed the unchecked root straight to
+ * `require(p.join(root,'scripts','lib','host-bootstrap.cjs'))`, so a foreign
+ * tree shipping its own copy of that file ran instead of being refused, and
+ * a root with no such file at all crashed with a raw Node loader stack
+ * instead of the plugin's one line). Only a root that passes the check
+ * reaches `require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root, verb)`,
+ * which spawns the verb and passes its exit code through; that module keeps
+ * its own copy of the same check too (defence in depth — see its own doc
+ * comment). The refusal text is assembled the same way
+ * {@link invalidPluginRootMessage} below builds it — `root` reaches it only
+ * through the runtime `root` variable, never baked into the generated
+ * string as a literal value, and the verb is the validated constant this
+ * function already checked; a test pins the two wordings together.
+ *
  * @param {string} verb
  * @returns {string}
  */
@@ -117,23 +134,16 @@ export function hostBootstrapSource(verb) {
     throw new Error(`hostBootstrapSource: invalid verb ${verb}`);
   }
   const segments = AGY_PLUGIN_INSTALL_SEGMENTS.map((s) => `'${s}'`).join(",");
+  const refusal =
+    `'antigravity-plugin: '+root+' is not an antigravity plugin tree ` +
+    `(${PLUGIN_MANIFEST_FILE} missing or name mismatch). ` +
+    `Run: npx @southcarpet/antigravity-plugin ${verb}'`;
   return (
-    "const p=require('node:path');" +
-    "const os=require('node:os');" +
-    "const fs=require('node:fs');" +
-    "const {spawnSync}=require('node:child_process');" +
+    "const p=require('node:path'),fs=require('node:fs'),os=require('node:os');" +
     `const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),${segments});` +
-    // The refusal text is built by invalidPluginRootMessage with `'+root+'`
-    // in place of the root, so the snippet concatenates the real root at run
-    // time and the wording has exactly one definition.
-    "let ok=false;" +
-    `try{ok=JSON.parse(fs.readFileSync(p.join(root,'${PLUGIN_MANIFEST_FILE}'),'utf8')).name==='${PLUGIN_MANIFEST_NAME}'}catch(e){ok=false}` +
-    `if(!ok){console.error('${invalidPluginRootMessage("'+root+'", verb)}');process.exit(1)}` +
-    `const s=p.join(root,'scripts','commands','${verb}.mjs');` +
-    `if(!fs.existsSync(s)){console.error('antigravity-plugin: runtime not found at '+s+'. Run: npx @southcarpet/antigravity-plugin ${verb}');process.exit(1)}` +
-    "const r=spawnSync(process.execPath,[s].concat(process.argv.slice(1)),{stdio:'inherit'});" +
-    `if(r.error){console.error('antigravity-plugin: failed to start '+s+': '+r.error.message+'. Run: npx @southcarpet/antigravity-plugin ${verb}');process.exit(1)}` +
-    "process.exit(r.status==null?1:r.status)"
+    `let n;try{n=JSON.parse(fs.readFileSync(p.join(root,'${PLUGIN_MANIFEST_FILE}'),'utf8')).name}catch{n=0}` +
+    `if(n!=='${PLUGIN_MANIFEST_NAME}'){console.error(${refusal});process.exit(1)}` +
+    `process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'${verb}'));`
   );
 }
 

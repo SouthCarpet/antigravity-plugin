@@ -98,6 +98,19 @@ function summaryForTableCell(value) {
 }
 
 /**
+ * `<bytes>B/<lines>L`, or `-` when either field is missing (running jobs and
+ * legacy records) — 076-T7 R1: `answerBytes`/`answerLines` shown in the
+ * `status` table.
+ *
+ * @param {{ answerBytes?: number | null, answerLines?: number | null }} job
+ * @returns {string}
+ */
+function formatAnswerSize(job) {
+  if (typeof job.answerBytes !== "number" || typeof job.answerLines !== "number") return "-";
+  return `${job.answerBytes}B/${job.answerLines}L`;
+}
+
+/**
  * Render a status snapshot as markdown.
  *
  * @param {{ workspaceRoot: string, config: object,
@@ -134,12 +147,12 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.recent.length > 0) {
     lines.push("## Recent Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Duration | Summary | Follow-up |");
-    lines.push("|--------|------|--------|----------|---------|-----------|");
+    lines.push("| Job ID | Kind | Status | Duration | Size | Summary | Follow-up |");
+    lines.push("|--------|------|--------|----------|------|---------|-----------|");
     for (const job of snapshot.recent) {
       const duration = computeElapsedDisplay(job);
       const followUp = job.status === "completed" ? `/antigravity:result ${job.id}` : "-";
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${summaryForTableCell(job.summary)} | ${followUp} |`);
+      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} | ${summaryForTableCell(job.summary)} | ${followUp} |`);
     }
     lines.push("");
   }
@@ -166,6 +179,9 @@ function renderJobHeaderLines(job) {
     `- **Title:** ${job.title ?? "-"}`,
   ];
   if (job.summary) lines.push(`- **Summary:** ${job.summary}`);
+  if (typeof job.answerBytes === "number" && typeof job.answerLines === "number") {
+    lines.push(`- **Answer size:** ${formatAnswerSize(job)}`);
+  }
   return lines;
 }
 

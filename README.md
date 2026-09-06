@@ -147,6 +147,8 @@ For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-
 
 `setup` changes user-level files under `~/.gemini`. After a successful OAuth probe, it registers `mcpServers.vision` and the `mcp(vision/view_image)` allow rule. Each `vision` run allows only the image paths that you name. The server denies every other path and denies all access when no per-run allowlist is present.
 
+Headless verbs (`rescue`, `task`, `review`, `vision` run through a host wrapper or in the background) are read-and-reason, not read-and-write. Reads are granted per invocation with `--add-dir <dir>` (bounded to that directory, read-only, for that run); execution inside agy is all-or-nothing, since headless mode cannot prompt for a permission. A task that needs a command actually run must either grant everything up front (accepting that risk) or run the command yourself and hand the seat the output to judge.
+
 Undo the vision configuration without changing OAuth or job state:
 
 ```bash
@@ -208,15 +210,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 ## Contributing
 
-Open an issue before you propose a behavior change. Every pull request runs the five gates on Ubuntu and Windows with Node 22.3 and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+. The tests use `node:test` with owned seams. The 1.x contract in [Compatibility](./docs/COMPATIBILITY.md) is frozen.
-
-```bash
-npm run lint
-node --test --experimental-test-module-mocks tests/*.test.mjs
-node scripts/check-manifests.mjs
-node scripts/check-pack.mjs
-node scripts/bump-version.mjs --check
-```
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 1.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu and Windows with Node 22.3 and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
 
 The package has no runtime dependencies. `devDependencies` holds one entry, `eslint@^10.10.0`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
 

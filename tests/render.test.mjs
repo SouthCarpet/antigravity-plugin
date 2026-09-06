@@ -85,6 +85,26 @@ describe('renderStatusSnapshot', () => {
     assert.doesNotMatch(out, /\/antigravity:result f1/);
   });
 
+  // 076-T7 R1: answerBytes/answerLines shown in the Recent Jobs table (and
+  // the single-job view), "-" when absent (legacy records, running jobs).
+  it('shows a Size column with answerBytes/answerLines, or "-" when absent', () => {
+    const now = new Date().toISOString();
+    const out = renderStatusSnapshot({
+      workspaceRoot: '/tmp',
+      config: {},
+      running: [],
+      latestFinished: null,
+      recent: [
+        { id: 'd1', kind: 'task', status: 'completed', startedAt: now, completedAt: now, answerBytes: 42, answerLines: 3 },
+        { id: 'd2', kind: 'task', status: 'completed', startedAt: now, completedAt: now },
+      ],
+      needsReview: false,
+    });
+    assert.match(out, /\| Size \|/);
+    assert.match(out, /\| 42B\/3L \|/);
+    assert.match(out, /\| d2 \| task \| completed \| \d+m?s \| - \|/);
+  });
+
   it('escapes a pipe and folds CR/LF in a summary at the table row, keeping the raw value everywhere else (F5)', () => {
     const now = new Date().toISOString();
     const out = renderStatusSnapshot({

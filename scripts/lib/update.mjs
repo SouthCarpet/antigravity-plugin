@@ -36,6 +36,21 @@ export const MARKETPLACE_NAME = "antigravity";
 
 const CACHE_FILE_NAME = "update-check.json";
 const FETCH_TIMEOUT_MS = 10_000;
+/**
+ * Total budget (ms) for one `fetchLatestVersion` call, delays and body
+ * reading included. No new attempt starts once starting it would exceed
+ * this budget ({@link waitForRetry}); an attempt already in flight is not
+ * aborted mid-request, but its own per-request timeout is capped at
+ * whatever of this budget remains when it starts ({@link attemptTimeoutMs}),
+ * so no single attempt can carry the call meaningfully past this number
+ * (076-T7 fix round 1, F11).
+ */
+export const UPDATE_CHECK_TOTAL_MS = 25_000;
+/** Retries on a network error, HTTP 429, or 5xx: `500ms * 2^attempt` plus up to 250ms jitter. */
+export const UPDATE_CHECK_MAX_RETRIES = 2;
+const RETRY_BASE_MS = 500;
+const RETRY_JITTER_MS = 250;
+const MAX_RETRY_AFTER_MS = 30_000;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const TARBALL_PLACEHOLDER = "<tarball>";
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -186,24 +201,173 @@ function isSemver(value) {
   return typeof value === "string" && SEMVER_RE.test(value);
 }
 
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** @param {number} status @returns {boolean} */
+function isRetryableStatus(status) {
+  return status === 429 || (status >= 500 && status <= 599);
+}
+
 /**
+ * A numeric `Retry-After` header value (seconds), or `null` when absent or
+ * not a finite non-negative number. Only the numeric form is honoured; the
+ * HTTP-date form is not.
+ *
+ * @param {{ headers?: { get?: (name: string) => string | null } }} response
+ * @returns {number | null}
+ */
+function parseRetryAfterSeconds(response) {
+  const raw = response?.headers?.get?.("retry-after");
+  const seconds = Number(raw);
+  return raw !== null && raw !== undefined && Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+/**
+ * The delay before the next attempt: the numeric `Retry-After` value (capped
+ * at 30s) when given, else `500ms * 2^attempt` plus up to 250ms of jitter.
+ *
+ * @param {number} attempt zero-based retry attempt index
+ * @param {number | null} retryAfterSeconds
+ * @param {() => number} random
+ * @returns {number}
+ */
+function retryDelayMs(attempt, retryAfterSeconds, random) {
+  if (retryAfterSeconds !== null) return Math.min(retryAfterSeconds * 1000, MAX_RETRY_AFTER_MS);
+  return RETRY_BASE_MS * 2 ** attempt + random() * RETRY_JITTER_MS;
+}
+
+/**
+ * Sleep for the next retry's delay, unless doing so would exceed `deadline`.
+ *
+ * @param {{ attempt: number, retryAfterSeconds: number | null, now: () => number,
+ *   deadline: number, sleep: (ms: number) => Promise<void>, random: () => number }} args
+ * @returns {Promise<boolean>} whether the delay fit inside the budget and was taken
+ */
+async function waitForRetry({ attempt, retryAfterSeconds, now, deadline, sleep, random }) {
+  const delay = retryDelayMs(attempt, retryAfterSeconds, random);
+  if (now() + delay >= deadline) return false;
+  await sleep(delay);
+  return true;
+}
+
+/**
+ * The per-attempt fetch timeout: `timeoutMs`, capped at whatever of the
+ * total budget remains when this attempt starts (076-T7 fix round 1, F11).
+ * Never negative — a call starting at or past its own deadline (the last
+ * moment {@link waitForRetry} allowed) gets a timeout of 0, which aborts
+ * immediately rather than waiting the full per-request timeout regardless
+ * of the budget.
+ *
+ * @param {number} timeoutMs
+ * @param {number} remainingMs
+ * @returns {number}
+ */
+export function attemptTimeoutMs(timeoutMs, remainingMs) {
+  return Math.max(0, Math.min(timeoutMs, remainingMs));
+}
+
+/**
+ * One attempt: either a response or the network error the fetch call threw.
+ * Never throws.
+ *
+ * @param {typeof fetch} fetchImpl
+ * @param {number} timeoutMs
+ * @returns {Promise<{ response: object, networkError: null } | { response: null, networkError: Error }>}
+ */
+async function fetchOnce(fetchImpl, timeoutMs) {
+  try {
+    const response = await fetchImpl(DIST_TAGS_URL, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return { response, networkError: null };
+  } catch (networkError) {
+    return { response: null, networkError };
+  }
+}
+
+/**
+ * Classify one {@link fetchOnce} outcome: whether it is retryable, the
+ * `Retry-After` seconds to honour (if any), and the error to throw should
+ * this attempt not be retried (`null` only for a response that turned out
+ * to be `ok`).
+ *
+ * @param {{ response: object | null, networkError: Error | null }} outcome
+ * @param {number} attempt
+ * @param {number} maxRetries
+ * @returns {{ retryable: boolean, retryAfterSeconds: number | null, error: Error | null }}
+ */
+function classifyAttempt({ response, networkError }, attempt, maxRetries) {
+  if (networkError) {
+    return { retryable: attempt < maxRetries, retryAfterSeconds: null, error: networkError };
+  }
+  if (!response.ok) {
+    const retryable = attempt < maxRetries && isRetryableStatus(response.status);
+    return {
+      retryable,
+      retryAfterSeconds: retryable ? parseRetryAfterSeconds(response) : null,
+      error: new Error(`registry answered HTTP ${response.status}`),
+    };
+  }
+  return { retryable: false, retryAfterSeconds: null, error: null };
+}
+
+/**
+ * One GET to the npm registry's dist-tags endpoint, with a 10s per-request
+ * timeout. Retries at most {@link UPDATE_CHECK_MAX_RETRIES} times on a
+ * network error, HTTP 429, or 5xx, honouring a numeric `Retry-After` header
+ * (up to 30s, though under the 25s total budget the effective cap is
+ * whatever of that budget remains when the retry is scheduled — the full
+ * 30s can never be taken), all inside one {@link UPDATE_CHECK_TOTAL_MS}
+ * total budget that includes delays and body reading: no new attempt starts
+ * once starting it would exceed the budget, and each attempt's own
+ * per-request timeout is capped at whatever of the budget remains when it
+ * starts ({@link attemptTimeoutMs}), so an in-flight request cannot itself
+ * carry the call meaningfully past the budget. Never retries on another
+ * 4xx, malformed JSON, or the semver check below — `update --apply` steps
+ * (`applyPlan`/`defaultRunner`) never retry either.
+ *
+ * `sleep`, `now`, and `random` are injectable so tests never wait on a real
+ * timer or depend on wall-clock time.
+ *
  * @param {typeof fetch} [fetchImpl]
+ * @param {{ now?: () => number, sleep?: (ms: number) => Promise<void>,
+ *   random?: () => number, maxRetries?: number, totalBudgetMs?: number,
+ *   timeoutMs?: number }} [options]
  * @returns {Promise<string>} the latest published semver
  */
-export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {
+export async function fetchLatestVersion(fetchImpl = globalThis.fetch, options = {}) {
+  const {
+    now = () => Date.now(),
+    sleep = defaultSleep,
+    random = Math.random,
+    maxRetries = UPDATE_CHECK_MAX_RETRIES,
+    totalBudgetMs = UPDATE_CHECK_TOTAL_MS,
+    timeoutMs = FETCH_TIMEOUT_MS,
+  } = options;
   if (typeof fetchImpl !== "function") {
     throw new Error("fetch is not available in this Node runtime");
   }
-  const response = await fetchImpl(DIST_TAGS_URL, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`registry answered HTTP ${response.status}`);
-  const body = await response.json();
-  if (!isSemver(body?.latest)) {
-    throw new Error(`registry answer has no semver dist-tags.latest (${JSON.stringify(body?.latest)})`);
+  const deadline = now() + totalBudgetMs;
+  let attempt = 0;
+  for (;;) {
+    const outcome = await fetchOnce(fetchImpl, attemptTimeoutMs(timeoutMs, deadline - now()));
+    const classified = classifyAttempt(outcome, attempt, maxRetries);
+    if (classified.error) {
+      const retried = classified.retryable &&
+        (await waitForRetry({ attempt, retryAfterSeconds: classified.retryAfterSeconds, now, deadline, sleep, random }));
+      if (!retried) throw classified.error;
+      attempt += 1;
+      continue;
+    }
+    const body = await outcome.response.json();
+    if (!isSemver(body?.latest)) {
+      throw new Error(`registry answer has no semver dist-tags.latest (${JSON.stringify(body?.latest)})`);
+    }
+    return body.latest;
   }
-  return body.latest;
 }
 
 /**
@@ -215,7 +379,11 @@ export async function fetchLatestVersion(fetchImpl = globalThis.fetch) {
  * network request happen.
  *
  * @param {{ env?: NodeJS.ProcessEnv, now?: number, fetchImpl?: typeof fetch,
- *   cacheFile?: string, forceRefresh?: boolean }} [options]
+ *   cacheFile?: string, forceRefresh?: boolean,
+ *   retry?: { now?: () => number, sleep?: (ms: number) => Promise<void>,
+ *     random?: () => number, maxRetries?: number, totalBudgetMs?: number,
+ *     timeoutMs?: number } }} [options] `retry` is the test-only seam for
+ *   `fetchLatestVersion`'s injectable clock/delay/jitter.
  * @returns {Promise<{ latest: string | null, source: "disabled" | "cache" | "registry" | "unreachable",
  *   checkedAt: string | null, message: string | null }>}
  */
@@ -228,6 +396,7 @@ export async function resolveLatest({
   // Test-only seam (F4/item 15): a fake that always throws lets the
   // POSIX-only trust violation be exercised on win32 too.
   assertPrivateDir = defaultAssertPrivateDir,
+  retry = {},
 } = {}) {
   if (isCheckDisabled(env)) {
     return {
@@ -242,7 +411,7 @@ export async function resolveLatest({
     return { latest: cached.latest, source: "cache", checkedAt: cached.checkedAt, message: null };
   }
   try {
-    const latest = await fetchLatestVersion(fetchImpl);
+    const latest = await fetchLatestVersion(fetchImpl, retry);
     const checkedAt = new Date(now).toISOString();
     writeUpdateCache(cacheFile, { latest, checkedAt }, assertPrivateDir);
     return { latest, source: "registry", checkedAt, message: null };
@@ -686,7 +855,9 @@ export function readUpdateNotice({ cacheFile = resolveUpdateCacheFile(), running
 /**
  * @param {string[]} argv
  * @param {{ env?: object, now?: number, fetch?: Function, cacheFile?: string,
- *   running?: string, platform?: string, runner?: Function, tmpDir?: string, cwd?: string }} [deps]
+ *   running?: string, platform?: string, runner?: Function, tmpDir?: string, cwd?: string,
+ *   retry?: object }} [deps] `retry` is the test-only seam for
+ *   `fetchLatestVersion`'s injectable clock/delay/jitter (never used by real callers).
  * @returns {Promise<number>} exit code: 0, or 1 on bad arguments or a failed --apply step
  */
 export async function runUpdate(argv = [], deps = {}) {
@@ -703,6 +874,7 @@ export async function runUpdate(argv = [], deps = {}) {
     cacheFile: deps.cacheFile,
     forceRefresh: apply,
     assertPrivateDir: deps.assertPrivateDir,
+    retry: deps.retry,
   });
   const running = deps.running ?? readRunningVersion();
   const report = {

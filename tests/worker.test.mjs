@@ -124,10 +124,62 @@ describe('_worker.mjs background job completion', () => {
       assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
       assert.equal(stored.result.durationSeconds, 3.5);
       assert.equal(stored.result.agyConversationId, 'conv-123');
+      // 076-T7 R1: stored counts after a worker finish (stdout is 'done', one line).
+      assert.equal(stored.answerBytes, 4);
+      assert.equal(stored.answerLines, 1);
       // Oracle: 076-T3 R1, legacy records get the full default budget.
       assert.equal(runtime.options.timeoutMs, 1800000);
     });
   }
+});
+
+// 076-T7 R3: a background task/rescue's stored request.model reaches agy the
+// same way the foreground path does.
+describe('_worker.mjs forwards a stored request.model to runAgyPrint (076-T7 R3)', () => {
+  it('passes request.model through to runAgyPrint', async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-'));
+    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-data-'));
+    const jobId = 'job' + randomBytes(3).toString('hex');
+
+    const origCwd = process.cwd();
+    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    const origArgv = process.argv;
+
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    process.chdir(workspaceRoot);
+
+    ensureStateDir(workspaceRoot);
+    await upsertJob(workspaceRoot, {
+      id: jobId, kind: 'task', status: 'queued', phase: 'queued',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    await writeJobFile(workspaceRoot, jobId, {
+      id: jobId, status: 'queued',
+      request: { prompt: 'hello', mode: 'print', addDirs: [], model: 'gemini-x' },
+      result: null,
+    });
+
+    let resolveExit;
+    const exited = new Promise((resolve) => { resolveExit = resolve; });
+    const exitMock = mock.method(process, 'exit', (code) => { resolveExit(code); });
+    process.argv = [origArgv[0], origArgv[1], jobId];
+
+    try {
+      await import('../scripts/commands/_worker.mjs?args=' + encodeURIComponent('model-' + jobId));
+      await exited;
+    } finally {
+      process.chdir(origCwd);
+      process.argv = origArgv;
+      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+      else delete process.env.CLAUDE_PLUGIN_DATA;
+      exitMock.mock.restore();
+      removeTestDir(workspaceRoot);
+      removeTestDir(dataDir);
+    }
+
+    assert.equal(runtime.options.model, 'gemini-x');
+  });
 });
 
 describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () => {

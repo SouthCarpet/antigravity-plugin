@@ -34,13 +34,13 @@ commands:
   - name: rescue
     description: "Delegate an investigation or fix request to agy — e.g. 'why are the tests failing on main'. Foreground by default; --background returns a job id for $antigravity status / result."
   - name: task
-    description: "Generic long-running task delegation. Background by default; --foreground to inline, --wait to block. Supports --continue / --conversation <id> / --add-dir for follow-up agy conversations."
+    description: "Generic long-running task delegation. Background by default; --foreground to inline, --wait to block. Supports --continue / --conversation <id> / --add-dir / --model for follow-up agy conversations."
   - name: vision
     description: "Ask agy to look at one or more image files (--prompt, --model, --json). Foreground-only; requires setup to have registered the vision MCP server."
   - name: status
     description: "Show current and recent agy jobs, including any pending OAuth URL."
   - name: result
-    description: "Print the stored final output of a completed agy job by id."
+    description: "Print the stored final output of a completed agy job by id, or part of it with --head / --tail."
   - name: cancel
     description: "Send SIGTERM to a running agy worker by job id."
 

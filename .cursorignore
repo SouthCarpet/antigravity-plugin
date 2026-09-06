@@ -1,0 +1,15 @@
+.git/
+node_modules/
+coverage/
+dist/
+.cache/
+.tmp/
+.vault/
+.antigravitycli/
+*.log
+*.tgz
+.env
+.env.*
+.audit-*.md
+.verify-*.md
+.report-*.md

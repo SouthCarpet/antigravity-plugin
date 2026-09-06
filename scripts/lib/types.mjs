@@ -59,6 +59,8 @@
  * @property {string} [cwd]
  * @property {number} [timeoutMs] agy execution budget in ms (added T3, R1);
  *   legacy records without it fall back to `DEFAULT_AGY_TIMEOUT_MS`.
+ * @property {string} [model] agy model id (076-T7 R3, additive on `task` and
+ *   `rescue`; `vision` already had this field)
  */
 
 /**
@@ -108,6 +110,11 @@
  * @property {string | null} [lastProgressAt] observed model/tool output (T4)
  * @property {string | null} [lastModelOutputAt] observed model text (T4)
  * @property {string | null} [lastDiagnosticAt] observed diagnostic event (T4)
+ * @property {number | null} [answerBytes] UTF-8 byte length of the stored
+ *   answer, set at job finish (076-T7 R1); additive, `null` on legacy records
+ * @property {number | null} [answerLines] line count of the stored answer, a
+ *   trailing newline does not add a line (076-T7 R1); additive, `null` on
+ *   legacy records
  */
 
 /**
@@ -154,6 +161,8 @@
  * @property {object} details
  * @property {string} [model] vision only
  * @property {string[]} [imagePaths] vision only
+ * @property {boolean} [details.truncated] `result` only, additive (076-T7
+ *   R1): set when `--head`/`--tail` cut the stored answer
  */
 
 /**

@@ -11,7 +11,7 @@
  *   --conversation <id>   resume a specific conversation
  *   --add-dir <path>      additional workspace dir (repeatable)
  *   --mode <plan|accept-edits>  agy execution mode for this run
- *   --model <id>          accepted for forward-compat, currently logged + ignored
+ *   --model <id>          agy model id for this run
  *   --json                emit JSON instead of markdown
  */
 
@@ -44,7 +44,7 @@ function resolveRescueMode(options) {
   return { mode: "print", conversationId: undefined };
 }
 
-async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, json }) {
+async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, json }) {
   const { job, result } = await runForegroundJob({
     workspaceRoot,
     kind: "rescue",
@@ -53,16 +53,17 @@ async function runRescueForeground({ workspaceRoot, title, prompt, mode, convers
     mode,
     conversationId,
     addDirs,
+    model,
     extraArgs,
     cwd: workspaceRoot,
-    request: { mode, addDirs },
+    request: { mode, addDirs, model },
     onText: (delta) => process.stderr.write(delta),
   });
 
   return finishForeground("rescue", job, result, { json });
 }
 
-async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, options, ctx }) {
+async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "rescue",
@@ -73,7 +74,7 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
     addDirs,
     extraArgs,
     cwd: workspaceRoot,
-    request: { mode, addDirs },
+    request: { mode, addDirs, model },
   });
   const queuedExit = reportQueuedJob("rescue", job, options);
   if (queuedExit !== null) return queuedExit;
@@ -113,17 +114,11 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
 
-  if (options.model) {
-    process.stderr.write(
-      `antigravity:rescue — note: --model is accepted for forward-compatibility but ` +
-        `agy 1.0.1 does not expose a per-invocation model flag yet. Ignoring "${options.model}".\n`,
-    );
-  }
-
   const { mode, conversationId } = resolveRescueMode(options);
 
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
+  const model = options.model ? String(options.model) : undefined;
 
   const prompt = buildRescuePrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
@@ -134,7 +129,7 @@ export async function run(argv = [], ctx = {}) {
     return 1;
   }
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model };
 
   if (options.background) {
     return runRescueBackground({ ...runArgs, options, ctx });
