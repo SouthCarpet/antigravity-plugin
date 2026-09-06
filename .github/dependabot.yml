@@ -1,7 +1,7 @@
 # Dependabot keeps the GitHub Actions pins current. The package has zero
 # runtime dependencies but one development dependency (eslint, the lint
-# gate) and a lockfile (076-T6b), so the npm ecosystem entry below is
-# active: its first PR is the eslint major bump.
+# gate) and a lockfile, so the npm ecosystem entry below is active and
+# proposes eslint updates as they are published.
 version: 2
 updates:
   - package-ecosystem: github-actions

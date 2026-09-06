@@ -45,9 +45,9 @@ jobs:
           node --version
           npm --version
 
-      # Same gates as ci.yml's Node 24 job, on the exact commit being
-      # released: a tag pushed on a commit that never passed CI must not
-      # publish code failing the lint gate either.
+      # The lint, test, manifest, pack and version checks of ci.yml's Node 24
+      # job, on the exact commit being released: a tag pushed on a commit
+      # that never passed CI must not publish code that fails a gate.
       - name: Install
         run: npm ci
 

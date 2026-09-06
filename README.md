@@ -208,7 +208,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 ## Contributing
 
-Open an issue before you propose a behavior change. Every pull request runs the five gates on Ubuntu and Windows with Node 22.3 and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs Node 24 (eslint 10's floor is Node `^20.19.0 || ^22.13.0 || >=24`); the tests and the rest of the runtime still support Node 22.3+. The tests use `node:test` with owned seams. The 1.x contract in [Compatibility](./docs/COMPATIBILITY.md) is frozen.
+Open an issue before you propose a behavior change. Every pull request runs the five gates on Ubuntu and Windows with Node 22.3 and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+. The tests use `node:test` with owned seams. The 1.x contract in [Compatibility](./docs/COMPATIBILITY.md) is frozen.
 
 ```bash
 npm run lint
