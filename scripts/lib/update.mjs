@@ -36,7 +36,15 @@ export const MARKETPLACE_NAME = "antigravity";
 
 const CACHE_FILE_NAME = "update-check.json";
 const FETCH_TIMEOUT_MS = 10_000;
-/** Total budget (ms) for one `fetchLatestVersion` call, delays and body reading included. */
+/**
+ * Total budget (ms) for one `fetchLatestVersion` call, delays and body
+ * reading included. No new attempt starts once starting it would exceed
+ * this budget ({@link waitForRetry}); an attempt already in flight is not
+ * aborted mid-request, but its own per-request timeout is capped at
+ * whatever of this budget remains when it starts ({@link attemptTimeoutMs}),
+ * so no single attempt can carry the call meaningfully past this number
+ * (076-T7 fix round 1, F11).
+ */
 export const UPDATE_CHECK_TOTAL_MS = 25_000;
 /** Retries on a network error, HTTP 429, or 5xx: `500ms * 2^attempt` plus up to 250ms jitter. */
 export const UPDATE_CHECK_MAX_RETRIES = 2;
@@ -245,6 +253,22 @@ async function waitForRetry({ attempt, retryAfterSeconds, now, deadline, sleep, 
 }
 
 /**
+ * The per-attempt fetch timeout: `timeoutMs`, capped at whatever of the
+ * total budget remains when this attempt starts (076-T7 fix round 1, F11).
+ * Never negative — a call starting at or past its own deadline (the last
+ * moment {@link waitForRetry} allowed) gets a timeout of 0, which aborts
+ * immediately rather than waiting the full per-request timeout regardless
+ * of the budget.
+ *
+ * @param {number} timeoutMs
+ * @param {number} remainingMs
+ * @returns {number}
+ */
+export function attemptTimeoutMs(timeoutMs, remainingMs) {
+  return Math.max(0, Math.min(timeoutMs, remainingMs));
+}
+
+/**
  * One attempt: either a response or the network error the fetch call threw.
  * Never throws.
  *
@@ -294,9 +318,15 @@ function classifyAttempt({ response, networkError }, attempt, maxRetries) {
  * One GET to the npm registry's dist-tags endpoint, with a 10s per-request
  * timeout. Retries at most {@link UPDATE_CHECK_MAX_RETRIES} times on a
  * network error, HTTP 429, or 5xx, honouring a numeric `Retry-After` header
- * (capped at 30s), all inside one {@link UPDATE_CHECK_TOTAL_MS} total budget
- * that includes delays and body reading. Never retries on another 4xx,
- * malformed JSON, or the semver check below — `update --apply` steps
+ * (up to 30s, though under the 25s total budget the effective cap is
+ * whatever of that budget remains when the retry is scheduled — the full
+ * 30s can never be taken), all inside one {@link UPDATE_CHECK_TOTAL_MS}
+ * total budget that includes delays and body reading: no new attempt starts
+ * once starting it would exceed the budget, and each attempt's own
+ * per-request timeout is capped at whatever of the budget remains when it
+ * starts ({@link attemptTimeoutMs}), so an in-flight request cannot itself
+ * carry the call meaningfully past the budget. Never retries on another
+ * 4xx, malformed JSON, or the semver check below — `update --apply` steps
  * (`applyPlan`/`defaultRunner`) never retry either.
  *
  * `sleep`, `now`, and `random` are injectable so tests never wait on a real
@@ -323,7 +353,7 @@ export async function fetchLatestVersion(fetchImpl = globalThis.fetch, options =
   const deadline = now() + totalBudgetMs;
   let attempt = 0;
   for (;;) {
-    const outcome = await fetchOnce(fetchImpl, timeoutMs);
+    const outcome = await fetchOnce(fetchImpl, attemptTimeoutMs(timeoutMs, deadline - now()));
     const classified = classifyAttempt(outcome, attempt, maxRetries);
     if (classified.error) {
       const retried = classified.retryable &&

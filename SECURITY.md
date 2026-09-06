@@ -132,17 +132,19 @@ already per-user there.
 
 Every `commands/*.md` wrapper's `node -e "..."` line (or, for `rescue`, the
 embedded invocation the wrapper's own text tells the host model to run) does
-one thing: resolve the plugin root the same way `resolvePluginRoot` does
-(`CLAUDE_PLUGIN_ROOT` when set and non-empty, else the agy install copy under
-the home directory), then `require()` the shipped
-`scripts/lib/host-bootstrap.cjs` module and call `run(root, verb)`. That
-module — a real, reviewable, tested file, not generated text — checks that
-`root` holds this plugin's manifest, refuses with one line if it does not,
-then spawns `scripts/commands/<verb>.mjs` and passes its exit code through.
-The root comes from the environment at run time; no host input is
-interpolated into executed source, and the generated snippet itself carries
-no manifest-check or refusal-message logic to interpolate in the first
-place.
+three things, in this order: resolve the plugin root the same way
+`resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
+the agy install copy under the home directory); read `<root>/plugin.json`
+and refuse with one line — before requiring anything from that root — when
+the manifest is missing or names a different plugin; only then `require()`
+the shipped `scripts/lib/host-bootstrap.cjs` module and call `run(root,
+verb)`, which spawns `scripts/commands/<verb>.mjs` and passes its exit code
+through. That module — a real, reviewable, tested file, not generated text —
+carries its own copy of the same manifest check as a second layer, in case
+it is ever reached by a caller other than this snippet. The root comes from
+the environment at run time; no host input is interpolated into executed
+source — the manifest field name and the verb are the only literals the
+generated text carries, and both are constants this plugin controls.
 
 ### `update --apply`
 

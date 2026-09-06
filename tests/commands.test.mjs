@@ -441,6 +441,40 @@ describe('/antigravity:result', () => {
     assert.equal(exit, 2);
   });
 
+  // 076-T7 fix round 1, F8: `result` on a `failed` job exits 1 by the same
+  // `exitCodeForJobStatus` mapping every other terminal status goes through
+  // (job-helpers.test.mjs pins the mapping itself); nothing pinned it for
+  // `result` specifically before this. `status` is the one verb that does
+  // NOT follow this pattern: it returns 0 on a failed job by frozen
+  // contract (docs/COMMANDS.md, "`status` returns 0 whenever it
+  // successfully produces a snapshot ... including ... when the observed
+  // terminal status is failed") because producing the snapshot, not the
+  // job's own outcome, is what `status` reports on.
+  it('exits 1 for result on a failed job', async () => {
+    const id = 'fa11edaaaaaa';
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id,
+      kind: 'task',
+      status: 'failed',
+      phase: 'failed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, { id, status: 'failed', errorMessage: 'boom' });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([id], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+  });
+
   it('prints a usage trailer on stderr when the stored job carries measured usage', async () => {
     const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
@@ -577,6 +611,29 @@ describe('/antigravity:result', () => {
     assert.equal(exit, 0);
     const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'one\ntwo' });
     assert.equal(payload.details.truncated, true);
+  });
+
+  // 076-T7 fix round 1, F9: the cut used to apply to `answer` but not to
+  // `details.result.rawOutput`, so the --json path still carried the whole
+  // stored answer even when truncated=true.
+  it('--json cuts details.result.rawOutput too when truncated (F9)', async () => {
+    const id = randomBytes(6).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed', phase: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'one\ntwo\nthree\nfour\nfive' } });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--head', '2', '--json'], { cwd: tempDir }); } finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'one\ntwo' });
+    assert.equal(payload.details.truncated, true);
+    assert.equal(payload.details.result.rawOutput, 'one\ntwo');
   });
 });
 
@@ -848,6 +905,11 @@ describe('/antigravity:review', () => {
 //             'exits 1 for a background task --wait that ends failed' (below, background)
 //   vision  — already covered: tests/denial-verbs.test.mjs
 //             'vision: exit 1, hints view_image and never --add-dir' (foreground only; no background mode)
+//   result  — 'exits 1 for result on a failed job' (above, in the
+//             /antigravity:result describe block, 076-T7 fix round 1 F8)
+// `status` is the one verb that does NOT follow this pattern: it returns 0
+// on a failed job by frozen contract (docs/COMMANDS.md) because it reports
+// on whether it produced a snapshot, not on the job's own outcome.
 // `finishForeground`/`exitCodeForJobStatus` (job-helpers.mjs) are the shared
 // mapping every one of these goes through; job-helpers.test.mjs pins the
 // mapping itself in isolation ('failed → status=failed and errorMessage from

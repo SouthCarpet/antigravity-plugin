@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer; when a cut happens, the markdown output ends with
   `(showing <k> of <total> lines; full answer stored)` and `--json` sets
   `details.truncated: true`. Without the flags, output is unchanged.
+- **Safer registry retries for the update check.** `update` (and `status`'s
+  cache read) now retries a failed registry request up to twice on a network
+  error, HTTP 429, or 5xx, waiting `500ms * 2^attempt` plus up to 250ms of
+  jitter and honouring a numeric `Retry-After` header, all inside one 25
+  second total budget for the whole check. A 4xx other than 429, malformed
+  JSON, and the semver check never retry; `update --apply` steps never
+  retry either. Before this, one failed request ended the check immediately.
 - **`--model` on `task` and `rescue`.** Both verbs now accept `--model <id>`
   and forward it to agy exactly as `vision` already did, foreground and
   background. `rescue --model` previously logged the flag as ignored; it now
@@ -29,12 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Socket-flagged host bootstrap moved to a shipped module.** The
   `node -e` snippet every `commands/*.md` wrapper runs no longer builds its
-  manifest check, refusal message, and spawn logic as one long interpolated
-  string. That body now lives in the shipped, tested
-  `scripts/lib/host-bootstrap.cjs` module; the generated snippet only
-  resolves the plugin root and calls into it. No host input is interpolated
-  into executed source; the root is read from the environment at run time,
-  same as before.
+  spawn logic as one long interpolated string. That body now lives in the
+  shipped, tested `scripts/lib/host-bootstrap.cjs` module. The generated
+  snippet resolves the plugin root, checks `<root>/plugin.json` itself and
+  refuses with one line before requiring anything from that root, and only
+  then requires the shipped module and calls into it; the module carries its
+  own copy of the same check as a second layer. No host input is
+  interpolated into executed source; the root is read from the environment
+  at run time, same as before.
 
 - **Vision image access.** Vision checks file identity while it reads an image.
   It keeps the 10 MiB limit when a file grows after the first check.

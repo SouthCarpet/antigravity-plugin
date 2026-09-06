@@ -60,12 +60,20 @@ function printMeasuredUsageTrailer(stored) {
 /**
  * @param {import('../lib/types.mjs').JobIndexEntry} job
  * @param {import('../lib/types.mjs').JobRecord | null} stored
+ * @param {{ truncated: boolean, text?: string }} [cut] the same cut
+ *   `buildResultOutput` applied to `answer` (076-T7 fix round 1, F9): when
+ *   truncated, `details.result.rawOutput` gets the same cut text instead of
+ *   the full stored answer, so the `--json` path saves the same bytes the
+ *   markdown path does.
  * @returns {{ conversationId: string | null, result: object | null }}
  */
-function buildResultDetails(job, stored) {
+function buildResultDetails(job, stored, cut) {
+  const result = stored?.result ?? null;
+  const rawOutput =
+    cut?.truncated && typeof result?.rawOutput === "string" ? cut.text : result?.rawOutput;
   return {
     conversationId: stored?.conversationId ?? job.conversationId ?? null,
-    result: stored?.result ?? null,
+    result: result ? { ...result, rawOutput } : result,
   };
 }
 
@@ -171,7 +179,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
     jobId: job.id,
     answer: cut.truncated ? cut.text : rendered,
     details: {
-      ...buildResultDetails(job, stored),
+      ...buildResultDetails(job, stored, cut),
       ...(cut.truncated ? { truncated: true } : {}),
     },
   });

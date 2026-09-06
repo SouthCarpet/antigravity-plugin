@@ -19,7 +19,9 @@ import {
   CACHE_TTL_MS,
   DIST_TAGS_URL,
   PACKAGE_NAME,
+  UPDATE_CHECK_TOTAL_MS,
   applyPlan,
+  attemptTimeoutMs,
   buildHostPlan,
   compareVersions,
   detectHosts,
@@ -282,6 +284,33 @@ describe('update: registry retry (076-T7 R2)', () => {
     // One initial attempt, one retry after the 500ms delay, then the budget
     // (600ms) cannot fit the next 1000ms delay, so no third attempt is made.
     assert.equal(fetch.calls.length, 2);
+  });
+
+  // 076-T7 fix round 1, F11: `waitForRetry` only bounds when the *next*
+  // attempt may start, not an attempt already in flight — an unbounded
+  // per-request timeout could let one real call run to roughly the total
+  // budget plus the full 10s FETCH_TIMEOUT_MS. `attemptTimeoutMs` caps each
+  // attempt's own timeout at whatever of the budget remains when it starts,
+  // using the same injected clock (`now`/`deadline`) fetchLatestVersion
+  // itself uses.
+  describe('attemptTimeoutMs caps the per-request timeout at the remaining budget (F11)', () => {
+    it('keeps the full per-request timeout when plenty of budget remains', () => {
+      const deadline = 1_000_000 + UPDATE_CHECK_TOTAL_MS;
+      const now = () => 1_000_000;
+      assert.equal(attemptTimeoutMs(10_000, deadline - now()), 10_000);
+    });
+
+    it('shrinks to whatever of the budget remains when that is less than the per-request timeout', () => {
+      const deadline = 1_000_000 + UPDATE_CHECK_TOTAL_MS;
+      const now = () => deadline - 4_000; // 4s of budget left, less than the 10s timeout
+      assert.equal(attemptTimeoutMs(10_000, deadline - now()), 4_000);
+    });
+
+    it('never goes negative once the deadline has already passed', () => {
+      const deadline = 1_000_000 + UPDATE_CHECK_TOTAL_MS;
+      const now = () => deadline + 500; // already past the deadline
+      assert.equal(attemptTimeoutMs(10_000, deadline - now()), 0);
+    });
   });
 
   it('a numeric Retry-After header is honoured over the exponential formula', async () => {

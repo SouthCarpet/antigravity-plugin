@@ -15,7 +15,7 @@ Find the runtime with Node, not the shell. Plugin root is `process.env.CLAUDE_PL
 
 Run:
 
-!`node -e "const p=require('node:path');const os=require('node:os');const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),'.gemini','config','plugins','antigravity');process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'setup'));" -- $ARGUMENTS`
+!`node -e "const p=require('node:path'),fs=require('node:fs'),os=require('node:os');const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(os.homedir(),'.gemini','config','plugins','antigravity');let n;try{n=JSON.parse(fs.readFileSync(p.join(root,'plugin.json'),'utf8')).name}catch{n=0}if(n!=='antigravity'){console.error('antigravity-plugin: '+root+' is not an antigravity plugin tree (plugin.json missing or name mismatch). Run: npx @southcarpet/antigravity-plugin setup');process.exit(1)}process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'setup'));" -- $ARGUMENTS`
 
 Flags:
 - Default: run an authenticated `agy --print` probe in the foreground so the OAuth URL is visible. Idempotent if credentials are already valid.

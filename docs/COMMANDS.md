@@ -373,8 +373,10 @@ of lines and may be combined; `--head 0` (or any non-positive value) is an
 argument error. Without either flag, output is unchanged. When a flag cuts
 the stored answer, the markdown output ends with a line `(showing <k> of
 <total> lines; full answer stored)`, and `--json` sets `details.truncated:
-true` while `answer` holds the cut text. The cut is applied to the stored
-answer text itself (lines only; a multi-byte UTF-8 character is never
+true` while `answer` holds the cut text; `details.result.rawOutput` carries
+the same cut text too, not the full stored answer, so the `--json` path
+saves the same bytes the markdown path does. The cut is applied to the
+stored answer text itself (lines only; a multi-byte UTF-8 character is never
 split), not to the metadata-fallback shape a job without a stored answer
 renders.
 
@@ -420,6 +422,19 @@ No host wrapper reaches it, and its `--json` output is unstable in 1.x. It
 reads the running version, asks the npm registry for the latest version
 (cached 24 hours), and prints the update command of every host it finds on
 `PATH`. Without `--apply` it changes nothing.
+
+The registry check retries at most twice on a network error, HTTP 429, or
+5xx, waiting `500ms * 2^attempt` plus up to 250ms of jitter between
+attempts, honouring a numeric `Retry-After` header when the registry sends
+one. All of this, delays and body reading included, fits inside one 25
+second total budget: no new attempt starts once starting it would exceed
+that budget, and each attempt's own 10 second per-request timeout is capped
+at whatever of the 25 seconds remains when that attempt starts, so no single
+request can carry the whole call past its budget. The effective
+`Retry-After` cap under this budget is therefore whatever of the 25 seconds
+remains when a retry is scheduled, not the full 30 seconds the header format
+allows. A 4xx other than 429, malformed JSON, and the semver check above
+never retry; an `update --apply` step never retries either.
 
 `--apply` runs those commands for the hosts that are present, and prints each
 command before it runs it. It stops a host at the first failing step and

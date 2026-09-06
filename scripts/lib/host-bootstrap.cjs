@@ -83,6 +83,13 @@ function missingRuntimeMessage(scriptPath, verb) {
  * code through. Refuses before it spawns anything when `root` is not this
  * plugin's tree, or when the verb's script is missing.
  *
+ * The generated `node -e` snippet (`scripts/lib/plugin-root.mjs#hostBootstrapSource`,
+ * 076-T7 fix round 1, F1/F2) already checks the manifest before it
+ * `require()`s this file at all, so `root` normally arrives here
+ * pre-validated. This function repeats the same check anyway — defence in
+ * depth, in case this module is ever reached by a caller other than that
+ * snippet — rather than trust the caller silently.
+ *
  * @param {string} root plugin root (from `process.env.CLAUDE_PLUGIN_ROOT`
  *   or the agy install fallback — resolved by the calling snippet)
  * @param {string} verb

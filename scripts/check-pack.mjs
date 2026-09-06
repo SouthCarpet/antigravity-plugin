@@ -20,7 +20,14 @@
  *      (`vision-config` resolves `vision-server.mjs` at runtime).
  *   5. The static import graph of (3), (4), and `bin/antigravity.mjs`, plus
  *      relative `.mjs` string literals in those files (`new URL("…")`).
- *   6. `CHANGELOG.md`, and every markdown file the README links to with a
+ *   6. The host bootstrap module the generated `node -e` snippet
+ *      `require()`s at run time (`scripts/lib/plugin-root.mjs#hostBootstrapSource`,
+ *      076-T7 R5b/fix round 1 F5). That `require()` call lives inside
+ *      generated text, not a static import, so the walk in (5) cannot see
+ *      it; its path is parsed out of the generated source itself instead of
+ *      hardcoded, so a future change to where that snippet resolves its
+ *      module still derives the right required entry.
+ *   7. `CHANGELOG.md`, and every markdown file the README links to with a
  *      relative link that resolves inside the package. An installed copy
  *      shows the README first: a link from it to a file the tarball omits
  *      is a dead link, and the Troubleshooting table cannot be read offline.
@@ -56,6 +63,8 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join, relative, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+
+import { hostBootstrapSource } from './lib/plugin-root.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -182,6 +191,28 @@ export function readmeDeadLinkErrors(readmeRel = 'README.md') {
     .map(({ link, resolved }) => `${readmeRel} links ${link} but ${resolved} is not on disk`);
 }
 
+/**
+ * The package-relative path the generated `node -e` snippet `require()`s at
+ * run time (076-T7 fix round 1, F5). Parsed out of
+ * {@link hostBootstrapSource}'s own output instead of hardcoded, so this
+ * stays correct if that snippet's module path ever changes without anyone
+ * remembering to update this file too.
+ *
+ * @returns {string}
+ */
+export function hostBootstrapRequiredPath() {
+  const source = hostBootstrapSource('status');
+  const match = source.match(/require\(p\.join\(root,((?:'[^']*',?)+)\)\)/);
+  if (!match) {
+    throw new Error('check-pack: could not find a host-bootstrap require() in hostBootstrapSource output');
+  }
+  const segments = match[1]
+    .split(',')
+    .filter(Boolean)
+    .map((part) => part.trim().replace(/^'|'$/g, ''));
+  return segments.join('/');
+}
+
 export function deriveRequired() {
   const required = new Map();
 
@@ -213,6 +244,13 @@ export function deriveRequired() {
   for (const rel of mcpModules) {
     add(required, rel, 'MCP server (scripts/mcp/*.mjs)');
   }
+
+  add(
+    required,
+    hostBootstrapRequiredPath(),
+    "host bootstrap module require()'d by the generated node -e snippet " +
+      '(scripts/lib/plugin-root.mjs#hostBootstrapSource)',
+  );
 
   add(required, 'README.md', 'the first thing an installed copy shows');
   add(required, 'CHANGELOG.md', 'release history, linked from the README');

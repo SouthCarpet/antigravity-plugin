@@ -1,12 +1,14 @@
 /**
- * Tests for scripts/lib/plugin-root.mjs's own exports (076-T7 R5b).
+ * Tests for scripts/lib/plugin-root.mjs's own exports (076-T7 R5b, fix
+ * round 1 F1/F2).
  *
  * `tests/command-wrappers.test.mjs` covers `hostBootstrapSource`/`hostBangLine`
  * against the real commands/*.md wrapper files and against a live
- * `require()`-able plugin tree end to end. This file covers the module's
- * exports directly: the generated one-line snippet's shape (no string-built
- * refusal logic left in it after R5b), and the message builders it no longer
- * embeds inline.
+ * `require()`-able plugin tree end to end, including the fixture attacks
+ * (foreign module, empty/missing root) that motivated F1/F2. This file
+ * covers the module's exports directly: the generated one-line snippet's
+ * shape — it checks the manifest itself before requiring anything from the
+ * root — and the message builders whose wording it reuses.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,13 +35,21 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
     assert.match(source, /process\.exit\(/);
   });
 
-  it('carries no interpolated refusal message or manifest-check logic any more', () => {
+  it('checks the manifest inline, before it requires anything from the root (F1/F2)', () => {
     const source = hostBootstrapSource('status');
-    assert.equal(source.includes('is not an antigravity plugin tree'), false);
-    assert.equal(source.includes('runtime not found at'), false);
-    assert.equal(source.includes('plugin.json'), false);
-    assert.equal(source.includes('JSON.parse'), false);
-    assert.equal(source.includes('spawnSync'), false);
+    assert.equal(source.includes('plugin.json'), true, source);
+    assert.equal(source.includes('JSON.parse'), true, source);
+    assert.equal(source.includes('is not an antigravity plugin tree'), true, source);
+    // The spawn and the "missing runtime" message stay inside host-bootstrap.cjs;
+    // only the manifest check and its refusal moved into the generated text.
+    assert.equal(source.includes('runtime not found at'), false, source);
+    assert.equal(source.includes('spawnSync'), false, source);
+    const manifestCheckIndex = source.indexOf('plugin.json');
+    const requireIndex = source.indexOf("require(p.join(root,'scripts','lib','host-bootstrap.cjs'))");
+    assert.ok(
+      manifestCheckIndex >= 0 && requireIndex > manifestCheckIndex,
+      `manifest check must precede the require() of host-bootstrap.cjs: ${source}`,
+    );
   });
 
   it('is free of $ and % so shells do not interpolate it', () => {
@@ -57,9 +67,16 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
     assert.throws(() => hostBootstrapSource("review';process.exit(0)//"), /invalid verb/);
   });
 
-  it('the regenerated bang line of commands/task.md stays under 400 characters', () => {
+  // 076-T7 fix round 1 (F1/F2): the manifest check the snippet now carries
+  // inline pushed every wrapper's bang line past the pre-fix 400-character
+  // bar. The controller's guidance is explicit that correctness wins here
+  // ("the 400-character bar for the bang line yields to this check") — this
+  // test keeps a sane upper bound so a future regression (e.g. duplicated
+  // logic, verbose identifiers) still gets caught, without reintroducing a
+  // limit the fix itself cannot meet.
+  it('the regenerated bang line of commands/task.md stays reasonably short', () => {
     const line = hostBangLine('task');
-    assert.ok(line.length < 400, `bang line is ${line.length} chars: ${line}`);
+    assert.ok(line.length < 700, `bang line is ${line.length} chars: ${line}`);
   });
 
   it('hostBangLine keeps the frozen shape: bang-backtick, node -e, -- $ARGUMENTS', () => {
