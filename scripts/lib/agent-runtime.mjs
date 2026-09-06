@@ -26,6 +26,11 @@ export const STDIO_DRAIN_TIMEOUT_MS = 5_000;
  * `AUTH_LINE_PATTERNS.find(p => p.test(chunk))` followed by
  * `chunk.match(pattern)`, and a global-flagged pattern's stateful
  * `lastIndex` can desynchronize those two calls on the same chunk.
+ *
+ * Exported as a test-only seam (the `resetWorkspaceRootCache` precedent, see
+ * `scripts/lib/workspace.mjs`): only `tests/agent-runtime-stream.test.mjs`
+ * imports it, so the `/g`-safety invariant above stays independently
+ * checkable without exercising the full stream.
  */
 export const AUTH_LINE_PATTERNS = [
   /^Authentication required\.?\s*Please visit the URL to log in/i,

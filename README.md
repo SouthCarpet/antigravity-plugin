@@ -210,9 +210,9 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 1.x contract, the branch and release flow, and the docs-in-the-same-change rule.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 1.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu and Windows with Node 22.3 and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
 
-The package has no runtime dependencies. `devDependencies` holds one entry, `eslint`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
+The package has no runtime dependencies. `devDependencies` holds one entry, `eslint@^10.10.0`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
 
 ## Known issues
 

@@ -43,8 +43,9 @@ jobs:
       - name: Install
         run: npm ci
 
-      # The lint gate (cyclomatic complexity) runs once, on the Node 24 job
-      # only — it is a code-quality gate, not a per-runtime behaviour check.
+      # The lint gate (cyclomatic complexity) runs on the Node 24 jobs only
+      # (both OSes) — it is a code-quality gate, not a per-runtime behaviour
+      # check, so it does not need to run on the Node 22.3 jobs too.
       - name: Lint
         if: matrix.node == '24'
         run: npm run lint

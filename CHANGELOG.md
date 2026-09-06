@@ -129,10 +129,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Empty or missing progress log.** `status`'s `recentProgress` (in
   `--json` `details`) is now `[]` for a job whose log is empty or missing.
   Before, an empty log gave `[""]` and a missing log left the field absent.
-- **Cyclomatic complexity lint gate.** `npm run lint` (ESLint flat config,
-  `complexity: max 20` on `bin/**`/`scripts/**`) runs in CI on the Node 24
-  job. `devDependencies` gains its one entry, `eslint`, pinned by the new
-  `package-lock.json`; zero runtime dependencies stays true.
+- **Cyclomatic complexity lint gate.** `npm run lint` (ESLint 10 flat config,
+  `complexity: max 20` on `bin/**`/`scripts/**`, globs also cover `.js`/`.cjs`)
+  runs in CI on the Node 24 jobs and in the release workflow. `devDependencies`
+  gains its one entry, `eslint@^10.10.0`, pinned by the new
+  `package-lock.json`; zero runtime dependencies stays true. `npm run lint`
+  needs Node 24 (eslint 10's floor); tests still run on the 22.3 floor.
 - **Functions split under the complexity ceiling.** No behavior change.
   `runAgyPrint` (`scripts/lib/agent-runtime.mjs`), `terminateProcessTree`
   (`scripts/lib/process.mjs`), `renderSingleJobStatus`
