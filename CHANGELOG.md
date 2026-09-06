@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-06
+
 ### Added
 
 - **Retrievable result size.** `status` (and `status --json`) shows the
@@ -684,7 +686,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.0...v1.1.1
