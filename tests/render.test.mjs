@@ -119,6 +119,20 @@ describe('renderStatusSnapshot', () => {
     assert.match(out, /\| a \\\| b c \|/);
     assert.doesNotMatch(out, /a \| b\nc/);
   });
+
+  it('escapes a trailing backslash before a pipe so the cell does not still split (item 3)', () => {
+    const now = new Date().toISOString();
+    const out = renderStatusSnapshot({
+      workspaceRoot: '/tmp',
+      config: {},
+      runtimeStatus: {},
+      running: [],
+      latestFinished: null,
+      recent: [{ id: 'd1', kind: 'task', status: 'completed', startedAt: now, completedAt: now, summary: 'a\\|b c' }],
+      needsReview: false,
+    });
+    assert.match(out, /\| a\\\\\\\|b c \|/);
+  });
 });
 
 describe('renderSingleJobStatus', () => {

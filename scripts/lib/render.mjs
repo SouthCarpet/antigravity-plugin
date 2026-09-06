@@ -83,8 +83,11 @@ export function reportWarnings(command, result) {
 /**
  * Sanitize a job summary for embedding in a markdown table cell (F5/item
  * 13c): a raw `|` would split the cell, and a raw CR/LF would break the row
- * across lines. This runs only where a table row is actually built — the
- * stored/enriched job field, and therefore `--json`, keeps the raw summary.
+ * across lines. A trailing `\` before a raw `|` must be escaped first, or
+ * markdown reads `\|` as an escaped backslash followed by a live pipe and
+ * still splits the cell. This runs only where a table row is actually
+ * built — the stored/enriched job field, and therefore `--json`, keeps the
+ * raw summary.
  *
  * @param {unknown} value
  * @returns {string}
@@ -93,7 +96,7 @@ function summaryForTableCell(value) {
   if (typeof value !== "string") return "-";
   const collapsed = value.replace(/[\r\n]+/g, " ").trim();
   if (!collapsed) return "-";
-  const escaped = collapsed.replace(/\|/g, "\\|");
+  const escaped = collapsed.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
   return escaped.length > 120 ? `${escaped.slice(0, 117)}...` : escaped;
 }
 

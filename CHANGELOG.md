@@ -113,6 +113,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sign-in flow) no longer reports `auth_required`. That classification
   now applies only when the run did not succeed, or the answer looks like
   agy's own short auth sentinel.
+- **Table-cell escaping.** The `status` table escapes backslashes as well as
+  pipes in summaries, so a summary ending in a backslash before a pipe no
+  longer splits the cell.
 
 ### Changed
 
