@@ -313,6 +313,36 @@ describe('update: registry retry (076-T7 R2)', () => {
     });
   });
 
+  // 076-T7 fix round 2, F11 (the re-review found the unit cases above never
+  // exercised a retry or the timeout `fetchLatestVersion` actually passes to
+  // `fetch`). Drives the real retry loop with an injected clock, recovering
+  // each attempt's timeout by intercepting `AbortSignal.timeout`, the exact
+  // seam `fetchOnce` builds the abort signal through.
+  it('fetchLatestVersion caps only the last attempt\'s per-request timeout when the budget runs low (F11)', async () => {
+    const recordedTimeouts = [];
+    const originalTimeout = AbortSignal.timeout;
+    AbortSignal.timeout = (ms) => {
+      recordedTimeouts.push(ms);
+      return originalTimeout(ms);
+    };
+    try {
+      const fetch = fakeFetchSequence([{ status: 503 }, { status: 503 }, { body: { latest: '1.6.0' } }]);
+      let clock = NOW;
+      const sleep = async (ms) => { clock += ms; };
+      // Budget (10500ms) wide enough for both retries (500ms then 1000ms
+      // delays, random=0) but leaving only 9000ms for the third attempt,
+      // less than the 10000ms per-request timeout.
+      const latest = await fetchLatestVersion(fetch, {
+        now: () => clock, sleep, random: () => 0, totalBudgetMs: 10_500,
+      });
+      assert.equal(latest, '1.6.0');
+      assert.equal(fetch.calls.length, 3);
+      assert.deepEqual(recordedTimeouts, [10_000, 10_000, 9_000]);
+    } finally {
+      AbortSignal.timeout = originalTimeout;
+    }
+  });
+
   it('a numeric Retry-After header is honoured over the exponential formula', async () => {
     const fetch = fakeFetchSequence([
       { status: 429, headers: { get: (name) => (name === 'retry-after' ? '2' : null) } },
