@@ -112,7 +112,8 @@ describe('bin/antigravity.mjs', () => {
       const res = run(['help', verb]);
       assert.equal(res.status, 0, res.stderr);
       for (const flag of parserFlags(verb)) {
-        assert.equal(res.stdout.includes(`--${flag}`), true, `help ${verb} is missing --${flag}`);
+        // Word boundary after the flag: `--model` must not satisfy `--mode`.
+        assert.match(res.stdout, new RegExp(`--${flag}(?![\\w-])`), `help ${verb} is missing --${flag}`);
       }
     });
   }
