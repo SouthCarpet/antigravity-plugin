@@ -83,6 +83,7 @@ describe('ensureStateDir wiring (F2/F7)', () => {
     const dataDir = tmpDir('antigravity-trust-data-');
     const stateRoot = path.join(dataDir, 'state');
     fs.mkdirSync(stateRoot, { mode: 0o777 });
+    fs.chmodSync(stateRoot, 0o777);
     const cwd = tmpDir('antigravity-trust-cwd-');
     const saved = process.env.CLAUDE_PLUGIN_DATA;
     process.env.CLAUDE_PLUGIN_DATA = dataDir;

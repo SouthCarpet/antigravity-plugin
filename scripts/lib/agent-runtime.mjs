@@ -506,6 +506,32 @@ function recordRawAuthSignal(session, chunk) {
 }
 
 /**
+ * Clear and null every timer handle on `session`, skipping a handle that is
+ * already `null`. Real Node's `clearTimeout(null)` is a silent no-op, but
+ * Node 22.3's `node:test` mock timers throw `TypeError: Cannot read
+ * properties of null (reading 'priorityQueuePosition')` on that exact call
+ * (probed directly: `clearTimeout(null)` throws under mock timers,
+ * `clearTimeout` on an already-fired-but-still-referenced handle does not).
+ * `timer`/`drainTimer`/`giveUpTimer` are frequently still `null` here — most
+ * runs never hit the execution timeout or the give-up deadline — so the
+ * guard is required on every call, not just a defensive extra. Each handle
+ * is also nulled inside its own firing callback (drain, give-up, execution
+ * timeout) so a settled session never re-reads a stale handle.
+ *
+ * @param {{ timer: NodeJS.Timeout | null, drainTimer: NodeJS.Timeout | null,
+ *   giveUpTimer: NodeJS.Timeout | null }} session
+ * @returns {void}
+ */
+function clearSessionTimers(session) {
+  if (session.timer) clearTimeout(session.timer);
+  if (session.drainTimer) clearTimeout(session.drainTimer);
+  if (session.giveUpTimer) clearTimeout(session.giveUpTimer);
+  session.timer = null;
+  session.drainTimer = null;
+  session.giveUpTimer = null;
+}
+
+/**
  * Create the mutable per-run state `runAgyPrint` threads through spawn,
  * stream wiring, and termination handling, plus the `exitCodePromise` that
  * settles once the child's lifecycle events resolve it exactly once.
@@ -553,9 +579,7 @@ function createRunSession(child, { stdioDrainTimeoutMs, terminateTree, terminati
     session.settleExit = (code) => {
       if (session.settled) return;
       session.settled = true;
-      clearTimeout(session.timer);
-      clearTimeout(session.drainTimer);
-      clearTimeout(session.giveUpTimer);
+      clearSessionTimers(session);
       resolve(code);
     };
     child.on('error', (e) => {
@@ -569,6 +593,7 @@ function createRunSession(child, { stdioDrainTimeoutMs, terminateTree, terminati
       session.exited = true;
       if (session.settled) return;
       session.drainTimer = setTimeout(() => {
+        session.drainTimer = null;
         session.warnings.push(`agy stdio did not close within ${stdioDrainTimeoutMs} ms after exit`);
         session.destroyStdio();
         session.settleExit(code ?? (signal ? 1 : 0));
@@ -591,6 +616,7 @@ function createRunSession(child, { stdioDrainTimeoutMs, terminateTree, terminati
         // A disappeared PID can precede Node's exit/close events. Give those
         // events a bounded turn to arrive before abandoning the handle.
         session.giveUpTimer = setTimeout(() => {
+          session.giveUpTimer = null;
           if (session.settled || session.exited) return; // exit owns the separate drain deadline
           session.stderr += '\nagent-runtime: child did not exit after SIGKILL escalation';
           session.destroyStdio();
@@ -968,7 +994,10 @@ export async function runAgyPrint(rawOptions = {}) {
   wireAgyStreams(child, session, { maxStdoutBytes, maxStderrBytes, onStdout, onStderr, onText });
 
   session.timer = timeoutMs > 0
-    ? setTimeout(() => session.initiateTermination('timeout', `agy did not finish within ${timeoutMs} ms`), timeoutMs)
+    ? setTimeout(() => {
+      session.timer = null;
+      session.initiateTermination('timeout', `agy did not finish within ${timeoutMs} ms`);
+    }, timeoutMs)
     : null;
 
   // A detached agy no longer dies with the terminal's foreground process
@@ -989,9 +1018,7 @@ export async function runAgyPrint(rawOptions = {}) {
   try {
     exitCode = await writePromptAndAwaitExit({ child, session, prompt, onSpawn });
   } finally {
-    clearTimeout(session.timer);
-    clearTimeout(session.drainTimer);
-    clearTimeout(session.giveUpTimer);
+    clearSessionTimers(session);
     removeSignalHandlers?.();
     if (signal && abortListener) signal.removeEventListener('abort', abortListener);
     await session.terminationTask;
