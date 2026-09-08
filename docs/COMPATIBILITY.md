@@ -15,7 +15,7 @@ not change the plugin version.
 | Surface | Supported in 1.x |
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
-| Operating systems | Linux, Windows, and macOS. All three run the full CI suite (`macos-latest`, Node 22.3.x and 24, tested in CI run `<run id>` on `<date>`). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live table below) have not happened on macOS; that coverage stays best-effort until they do. |
+| Operating systems | Linux, Windows, and macOS. All three run the full CI suite; macOS was tested in CI cell `macos-latest` (runner image `macos-26-arm64`, Node 22.3.x and 24, run 34280679647 on 2026-09-08: 802 tests, 789 passed, 13 skipped, 0 failed, on Node 22.3.x). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live table below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
 | Google Antigravity CLI | `agy` 1.1.15, 1.1.17, and 1.1.24. These versions form the tested and supported matrix. Live coverage differs by version as shown below. |
 
