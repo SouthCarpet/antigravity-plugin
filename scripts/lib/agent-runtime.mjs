@@ -436,7 +436,7 @@ export function normalizeDeniedActions(rawList) {
   for (const member of rawList) {
     const normalized = normalizeJsonDeniedAction(member);
     if (!normalized) continue;
-    const key = `${normalized.action} ${normalized.displayName ?? ''}`;
+    const key = `${normalized.action}\0${normalized.displayName ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(normalized);
