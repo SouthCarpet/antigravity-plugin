@@ -446,16 +446,49 @@ function normalizeRunOptions(options) {
   };
 }
 
+/** Forwarded for `timeoutMs === 0` ("no deadline"): agy treats a literal
+ * `--print-timeout 0` as an immediate timeout, not as disabled (T0a fixtures
+ * item 4), so a large fixed duration stands in as the practical ceiling of a
+ * "no deadline" run. */
+export const PRINT_TIMEOUT_NO_DEADLINE = '24h';
+
+/** Headroom added on top of the plugin's own outer budget before it is
+ * forwarded to agy as `--print-timeout`, so the plugin's deadline
+ * (`runAgyPrint`'s `session.timer`) fires first and agy's timeout stays a
+ * backstop. */
+const PRINT_TIMEOUT_HEADROOM_MS = 60_000;
+
+/**
+ * Render the resolved outer execution budget as agy's `--print-timeout`
+ * value: a Go duration string. A finite budget (`timeoutMs > 0`) becomes
+ * `<budget + 60s headroom>` rounded up to whole seconds (`1860s` for the
+ * 30-minute default; never fractional). Anything else — `0` ("no
+ * deadline"), a negative value, or a non-finite value — becomes
+ * {@link PRINT_TIMEOUT_NO_DEADLINE}; `--print-timeout` must never be `0` or
+ * a fractional/negative value.
+ *
+ * @param {number} timeoutMs
+ * @returns {string}
+ */
+export function printTimeoutArg(timeoutMs) {
+  if (!(timeoutMs > 0)) return PRINT_TIMEOUT_NO_DEADLINE;
+  const seconds = Math.ceil((timeoutMs + PRINT_TIMEOUT_HEADROOM_MS) / 1000);
+  return `${seconds}s`;
+}
+
 /**
  * Build the agy argv for one `runAgyPrint` invocation: the continuation
- * flag (if any), `--add-dir`/`--model`/extra args, then the always-on
- * stream-json/print tail.
+ * flag (if any), `--add-dir`/`--model`/extra args, `--print-timeout`
+ * ({@link printTimeoutArg}) and `--disable-slash-commands`, then the
+ * always-on stream-json/print tail. The two new flags apply to every
+ * print-mode path (plain print, `--continue`, `--conversation`) the same
+ * way; the `--version` probe does not go through this builder.
  *
  * @param {{ mode: string, conversationId?: string, addDirs: string[],
- *   model?: string, extraArgs: string[] }} options
+ *   model?: string, extraArgs: string[], timeoutMs: number }} options
  * @returns {string[]}
  */
-function buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs }) {
+function buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs, timeoutMs }) {
   const args = [];
   if (mode === 'continue') args.push('--continue');
   if (mode === 'conversation') {
@@ -465,6 +498,8 @@ function buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs }) {
   for (const dir of addDirs) args.push('--add-dir', dir);
   if (model) args.push('--model', model);
   args.push(...extraArgs);
+  args.push('--print-timeout', printTimeoutArg(timeoutMs));
+  args.push('--disable-slash-commands');
   args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
   return args;
 }
@@ -880,12 +915,28 @@ function classifyRunResult({ session, exitCode }) {
  * (Win32 error 206 / Node `ENAMETOOLONG`), and review/rescue/task briefs
  * routinely exceed it. Every invocation instead runs:
  *   `agy [--continue|--conversation <id>] [--add-dir ...]* [--model <id>]
- *        [...extraArgs] --input-format stream-json --output-format
- *        stream-json --print ""`
+ *        [...extraArgs] --print-timeout <duration> --disable-slash-commands
+ *        --input-format stream-json --output-format stream-json --print ""`
  * (`--print ""` is required — bare `--print` errors "flag needs an
  * argument", and a non-empty value would be sent as a second prompt) with
  * exactly one NDJSON line written to stdin, then `stdin.end()`:
  *   `{"event":"user","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}`
+ *
+ * `--print-timeout <duration>` ({@link printTimeoutArg}) is agy's own
+ * timeout on top of `timeoutMs`'s outer deadline: without it, agy's default
+ * `--print-timeout 5m0s` ends any run over five minutes with `status:
+ * ERROR`/`"timeout waiting for response"` while this plugin's own (usually
+ * longer) budget is still open. The forwarded duration is `timeoutMs + 60s`
+ * so this plugin's deadline fires first; `timeoutMs === 0` ("no deadline")
+ * forwards {@link PRINT_TIMEOUT_NO_DEADLINE} instead of `0s`, because agy
+ * treats a literal `0` as an immediate timeout, not as disabled.
+ *
+ * `--disable-slash-commands` is always forwarded too: without it, prompt
+ * text starting with `/` (untrusted diff/review/rescue/task content) is
+ * parsed and executed as an agy slash command instead of being sent as
+ * plain prompt text. This is a print-mode parsing switch, not a sandbox —
+ * it only stops slash/skill expansion, not what a tool agy itself decides
+ * to run.
  *
  * `mode`:
  *   - `print` (default) — no continuation flag
@@ -980,7 +1031,7 @@ export async function runAgyPrint(rawOptions = {}) {
   if (typeof prompt !== 'string' || !prompt.length) {
     throw new TypeError('runAgyPrint: prompt must be a non-empty string');
   }
-  const args = buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs });
+  const args = buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs, timeoutMs });
 
   const detached = platform !== 'win32';
   const child = spawnAgy(bin, args, {

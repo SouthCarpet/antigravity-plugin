@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Long runs no longer end at agy's 5-minute default.** Every print-mode
+  `agy` invocation (`review`, `rescue`, `task`, `vision`; foreground,
+  background, plain, `--continue`, and `--conversation`) now forwards agy's
+  own `--print-timeout` as `<the plugin's execution budget + 60 second
+  headroom>`, so the plugin's own (usually longer) deadline fires first and
+  agy's default `--print-timeout 5m0s` no longer ends the run early with
+  `status: ERROR`/`"timeout waiting for response"`. A `0` budget ("no
+  deadline") forwards a fixed `24h` ceiling instead of a literal `0`, which
+  agy treats as an immediate timeout, not as disabled.
 - **Vision allowlist on macOS.** The vision MCP server refused every image
   on macOS: `os.tmpdir()` sits under `/var`, a symlink to `/private/var`, so
   the resolved path never matched the request's own logical spelling.
@@ -28,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `process.cwd()` is already the physical path after `chdir`) and a caller
   holding the logical, symlinked form of the same directory (again, macOS's
   `os.tmpdir()`) agree on where job state lives.
+
+### Security
+
+- **Slash expansion disabled.** Every print-mode `agy` invocation now
+  forwards `--disable-slash-commands`, so prompt text starting with `/` —
+  including untrusted diff, review, rescue, or task content — reaches the
+  model as plain text instead of being parsed and executed as an agy slash
+  command or skill.
 
 ## [1.2.0] — 2026-09-06
 
