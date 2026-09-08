@@ -192,7 +192,10 @@ describe('/antigravity:vision', () => {
     assert.match(runtime.calls[0].prompt, /view_image/);
     assert.match(runtime.calls[0].prompt, /what shape is this\?/);
     assert.match(runtime.calls[0].prompt, /VISION-UNAVAILABLE/);
-    assert.deepEqual(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]), [imagePath]);
+    // The allowlist carries the resolved (realpath) form of each image so the
+    // MCP server's own realpath check agrees with it through an ancestor
+    // directory symlink (macOS `/var` -> `/private/var`).
+    assert.deepEqual(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]), [fs.realpathSync(imagePath)]);
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
@@ -301,6 +304,9 @@ describe('/antigravity:vision', () => {
     }
     assert.equal(exit, 0);
     assert.match(runtime.calls[0].prompt, /2 image/);
-    assert.deepEqual(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]), [imagePath, second]);
+    assert.deepEqual(
+      JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]),
+      [fs.realpathSync(imagePath), fs.realpathSync(second)],
+    );
   });
 });
