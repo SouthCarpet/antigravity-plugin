@@ -422,6 +422,41 @@ describe('state — persistence + reconciliation', () => {
     }
   });
 
+  // 085-T4 F1 fix round 2: resolveStateDir has no way to map a PHYSICAL
+  // spelling back to a logical one it was never given — canonicalWorkspaceRoot
+  // only resolves logical -> physical, never the reverse. So with only the
+  // logical leaf present, resolving with the physical spelling still returns
+  // the (not-yet-existing) realpath leaf. This is expected, not a residual
+  // bug: after this fix the plugin's own background worker always receives
+  // the parent's exact spelling as an argv (job-helpers.mjs's
+  // `startBackgroundJob` passes `workspaceRoot` verbatim; `_worker.mjs` uses
+  // it instead of re-deriving one from `process.cwd()`), so it never calls
+  // resolveStateDir with a spelling its own caller did not use.
+  it('resolving with the physical spelling does not find a logical-only leaf (documented limitation)', (t) => {
+    const linkTarget = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-physonly-target-'));
+    const linkParent = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-physonly-parent-'));
+    const linkPath = path.join(linkParent, 'workspace-link');
+    try {
+      fs.symlinkSync(linkTarget, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+      t.skip(`symlink/junction creation needs elevated privileges: ${err.message}`);
+      return;
+    }
+    const physicalRoot = fs.realpathSync.native(linkPath);
+    const logicalLeafDir = path.join(tmpData, 'state', leafFor(linkPath));
+    const realpathLeafDir = path.join(tmpData, 'state', leafFor(physicalRoot));
+    try {
+      fs.mkdirSync(logicalLeafDir, { recursive: true });
+      assert.equal(resolveStateDir(physicalRoot), realpathLeafDir);
+      assert.equal(fs.existsSync(realpathLeafDir), false);
+    } finally {
+      try { fs.rmSync(logicalLeafDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkTarget, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkParent, { recursive: true, force: true }); } catch {}
+    }
+  });
+
   it('loadState returns defaults when nothing on disk', () => {
     const s = loadState(workCwd);
     assert.equal(s.version, 1);

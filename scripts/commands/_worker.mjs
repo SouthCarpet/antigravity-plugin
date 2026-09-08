@@ -3,7 +3,17 @@
  * Internal background worker. Not exposed via bin/antigravity.mjs.
  *
  * Invoked by job-helpers.startBackgroundJob as:
- *   node scripts/commands/_worker.mjs <jobId>
+ *   node scripts/commands/_worker.mjs <jobId> <workspaceRoot>
+ *
+ * `<workspaceRoot>` is the exact spelling the parent process used for every
+ * state access when it created the job (085-T4 F1 fix round 2): the parent
+ * and this worker must key state with the same string, since `resolveStateDir`
+ * only falls back to a pre-085 logical-keyed leaf for the caller that spells
+ * the workspace the way that leaf was written, and this worker's own
+ * `process.cwd()` is already the physical path (a `chdir`'d process's
+ * `getcwd()` per POSIX). A missing or non-absolute argument falls back to
+ * resolving from `process.cwd()`, matching pre-fix behaviour for a job
+ * spawned by an older parent.
  *
  * Reads the job file for <jobId> from the resolved workspace state, runs
  * `agy` per the persisted request (prompt travels over stdin as a
@@ -12,6 +22,8 @@
  * file as it streams in, via runAgyPrint's `onText` callback (fired per
  * `step_update.text_delta`) — not the raw NDJSON event stream.
  */
+
+import path from "node:path";
 
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
@@ -184,13 +196,15 @@ async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
 }
 
 async function main() {
-  const [jobId] = process.argv.slice(2);
+  const [jobId, rootArg] = process.argv.slice(2);
   if (!jobId) {
     process.stderr.write("worker: missing jobId\n");
     process.exit(2);
   }
 
-  const workspaceRoot = resolveWorkspaceRoot(process.cwd());
+  const workspaceRoot = typeof rootArg === "string" && rootArg !== "" && path.isAbsolute(rootArg)
+    ? rootArg
+    : resolveWorkspaceRoot(process.cwd());
   const { stored, request, prompt } = await loadWorkerContext(jobId, workspaceRoot);
 
   const startedAt = new Date().toISOString();

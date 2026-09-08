@@ -39,7 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `os.tmpdir()`) agree on where job state lives. An existing install's jobs,
   stored under the pre-085 logical-path leaf, stay reachable until that
   leaf is explicitly moved: a realpath leaf is preferred once it exists, but
-  the logical leaf is still read until then.
+  the logical leaf is still read until then. A background job's worker now
+  receives the parent's exact workspace spelling instead of re-deriving one
+  from its own (already-physical) `process.cwd()`, so a job started through
+  a logical spelling stays under the leaf it was created in rather than
+  splitting into a second, realpath-keyed leaf.
 
 ### Security
 

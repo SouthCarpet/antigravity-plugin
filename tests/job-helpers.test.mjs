@@ -485,6 +485,24 @@ describe('background worker acknowledgement', () => {
     assert.doesNotThrow(() => child.emit('error', new Error('late handle error')));
   });
 
+  it('spawns the worker with jobId and workspaceRoot as argv, cwd unchanged (085-T4 F1 fix round 2)', async () => {
+    freshWorkspace();
+    const child = Object.assign(new EventEmitter(), { pid: 9911, unref() {} });
+    let capturedArgs;
+    let capturedOptions;
+    const { job } = await startBackgroundJob({
+      workspaceRoot, kind: 'task', prompt: 'p',
+      spawnWorker: (command, args, options) => {
+        capturedArgs = args;
+        capturedOptions = options;
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+    });
+    assert.deepEqual(capturedArgs, [resolveWorkerPath(), job.id, workspaceRoot]);
+    assert.equal(capturedOptions.cwd, workspaceRoot);
+  });
+
   it('persists failed when an owned child emits error asynchronously', async () => {
     freshWorkspace();
     const { job, pid } = await startBackgroundJob({
