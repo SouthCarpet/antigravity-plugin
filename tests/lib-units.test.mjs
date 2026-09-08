@@ -414,7 +414,11 @@ describe('state — persistence + reconciliation', () => {
   });
 
   it('resolves a non-symlinked workspace to a single candidate, unaffected by the legacy-leaf lookup', () => {
-    const plainCwd = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-plain-'));
+    // The fixture must itself be a physical path: on the CI runners the OS
+    // temp directory is reached through an 8.3 alias (Windows `RUNNER~1`) or
+    // a directory symlink (macOS `/var` -> `/private/var`), which would make a
+    // "plain" workspace resolve to a different spelling than the one given.
+    const plainCwd = fs.realpathSync.native(fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-plain-')));
     try {
       assert.equal(resolveStateDir(plainCwd), path.join(tmpData, 'state', leafFor(plainCwd)));
     } finally {
