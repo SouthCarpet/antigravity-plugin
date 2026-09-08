@@ -44,7 +44,7 @@ by agy version. The plugin does not update itself.
 - **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
 - **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
 - **Verify releases.** npm provenance and signed tags connect a package to its source commit.
-- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux and Windows, with Node 22.3 and Node 24, on every change.
+- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux, Windows, and macOS, with Node 22.3 and Node 24, on every change.
 
 ## Quick start
 

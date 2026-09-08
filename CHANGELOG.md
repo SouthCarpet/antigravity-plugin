@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **CI matrix.** `macos-latest` joins `ubuntu-latest` and `windows-latest` in
+  the test matrix (Node 22.3.x and 24); the lint gate still runs on the
+  Node 24 jobs only, now on all three operating systems.
+
+### Fixed
+
+- **Vision allowlist on macOS.** The vision MCP server refused every image
+  on macOS: `os.tmpdir()` sits under `/var`, a symlink to `/private/var`, so
+  the resolved path never matched the request's own logical spelling.
+  `vision` now records the allowlist in its resolved (realpath) form, and
+  the server accepts a request whose own realpath is itself an authorized
+  entry. The requested file's own final component being a symlink is still
+  refused unconditionally, and the identity checks made while reading an
+  image are unchanged.
+- **Workspace-root canonicalization.** The job state directory is now keyed
+  off the realpath of the workspace root, so a background worker (whose own
+  `process.cwd()` is already the physical path after `chdir`) and a caller
+  holding the logical, symlinked form of the same directory (again, macOS's
+  `os.tmpdir()`) agree on where job state lives.
+
 ## [1.2.0] — 2026-09-06
 
 ### Added
