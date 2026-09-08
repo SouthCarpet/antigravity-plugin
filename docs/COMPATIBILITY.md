@@ -235,9 +235,9 @@ surfaces the merged `deniedActions` list, each with a computed remedy, on
 every output path:
 
 - `--json`: `details.deniedActions` (an array of `{ action, displayName,
-  remedy }`) on a completed foreground envelope, on `status <id> --json`,
-  and on `result <id> --json`; a per-job `deniedActionsCount` on every job
-  entry in `status --json`'s job lists.
+  remedy }`) on a completed foreground envelope and on `result <id>
+  --json`; `details.job.deniedActions` on `status <id> --json`; a per-job
+  `deniedActionsCount` on every job entry in `status --json`'s job lists.
 - Markdown: one line per denied action with its remedy, in the single-job
   `status <id>` view, in the foreground failure/warning text, and appended
   to `result` when the stored result carries denials; the `status` job
@@ -398,6 +398,11 @@ meaning:
 
 - `--model <id>` on `task` and `rescue`, forwarded to agy exactly as
   `vision`'s `--model` already was.
+- `--effort <low|medium|high>` on `task` and `rescue`, forwarded to agy
+  verbatim as `--effort <value>` right after `--model` (or in its place when
+  there is no model). No plugin default: absent unless the caller passes it,
+  and the plugin does not probe what agy does with the value beyond
+  forwarding it.
 - `--head <n>` / `--tail <n>` on `result`, cutting the stored answer to the
   named number of lines from the start and/or end.
 - `answerBytes` / `answerLines` on a finished job's index entry (`status`

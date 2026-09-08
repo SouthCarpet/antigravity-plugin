@@ -182,6 +182,104 @@ describe('_worker.mjs forwards a stored request.model to runAgyPrint (076-T7 R3)
   });
 });
 
+// Plan 085 T3: a background task/rescue's stored request.effort reaches agy
+// the same way request.model does; a stored request with no effort behaves
+// exactly as before this field existed.
+describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 T3)', () => {
+  it('passes request.effort through to runAgyPrint', async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-'));
+    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-data-'));
+    const jobId = 'job' + randomBytes(3).toString('hex');
+
+    const origCwd = process.cwd();
+    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    const origArgv = process.argv;
+
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    process.chdir(workspaceRoot);
+
+    ensureStateDir(workspaceRoot);
+    await upsertJob(workspaceRoot, {
+      id: jobId, kind: 'task', status: 'queued', phase: 'queued',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    await writeJobFile(workspaceRoot, jobId, {
+      id: jobId, status: 'queued',
+      request: { prompt: 'hello', mode: 'print', addDirs: [], effort: 'low' },
+      result: null,
+    });
+
+    let resolveExit;
+    const exited = new Promise((resolve) => { resolveExit = resolve; });
+    const exitMock = mock.method(process, 'exit', (code) => { resolveExit(code); });
+    process.argv = [origArgv[0], origArgv[1], jobId];
+
+    try {
+      await import('../scripts/commands/_worker.mjs?args=' + encodeURIComponent('effort-' + jobId));
+      await exited;
+    } finally {
+      process.chdir(origCwd);
+      process.argv = origArgv;
+      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+      else delete process.env.CLAUDE_PLUGIN_DATA;
+      exitMock.mock.restore();
+      removeTestDir(workspaceRoot);
+      removeTestDir(dataDir);
+    }
+
+    assert.equal(runtime.options.effort, 'low');
+  });
+
+  it('a stored request with no effort forwards undefined, exactly as before this field existed', async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-noeffort-'));
+    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-noeffort-data-'));
+    const jobId = 'job' + randomBytes(3).toString('hex');
+
+    const origCwd = process.cwd();
+    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    const origArgv = process.argv;
+
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    process.chdir(workspaceRoot);
+
+    ensureStateDir(workspaceRoot);
+    await upsertJob(workspaceRoot, {
+      id: jobId, kind: 'task', status: 'queued', phase: 'queued',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    await writeJobFile(workspaceRoot, jobId, {
+      id: jobId, status: 'queued',
+      request: { prompt: 'hello', mode: 'print', addDirs: [] },
+      result: null,
+    });
+
+    let resolveExit;
+    const exited = new Promise((resolve) => { resolveExit = resolve; });
+    const exitMock = mock.method(process, 'exit', (code) => { resolveExit(code); });
+    process.argv = [origArgv[0], origArgv[1], jobId];
+
+    let stored;
+    try {
+      await import('../scripts/commands/_worker.mjs?args=' + encodeURIComponent('noeffort-' + jobId));
+      await exited;
+      stored = readJobFile(workspaceRoot, jobId);
+    } finally {
+      process.chdir(origCwd);
+      process.argv = origArgv;
+      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+      else delete process.env.CLAUDE_PLUGIN_DATA;
+      exitMock.mock.restore();
+      removeTestDir(workspaceRoot);
+      removeTestDir(dataDir);
+    }
+
+    assert.equal(runtime.options.effort, undefined);
+    assert.equal(stored.status, 'completed');
+  });
+});
+
 // Plan 085 T2: the background path persists the same top-level
 // deniedActions/deniedActionsCount fields the foreground path does
 // (job-helpers.mjs#runForegroundJob), via _worker.mjs's own patchJob call.
@@ -403,6 +501,56 @@ describe('worker persisted-request allowlist', () => {
         assert.equal(stored.status, 'failed');
         assert.equal(stored.healthStatus, 'failed');
         assert.equal(stored.errorMessage, 'stored request carries an unsupported agy flag: ' + flag);
+      } finally { removeTestDir(workspace); }
+    });
+  }
+});
+
+// Plan 085 T3 item 3: the worker revalidates a stored request.effort against
+// AGY_EFFORTS before running — a hand-edited or legacy job file is not
+// guaranteed to carry a value the CLI parser would have accepted.
+describe('worker persisted-request effort revalidation', () => {
+  const cases = [
+    { effort: 'max', echoed: 'max' },
+    { effort: 'LOW', echoed: 'LOW' },
+    // Control characters in the echoed value are neutralised (item 3).
+    { effort: 'ma\x00x\x1f', echoed: 'max' },
+  ];
+  for (const { effort, echoed } of cases) {
+    it('fails stored effort ' + JSON.stringify(effort) + ' before the owned process adapter spawns', () => {
+      const workspace = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-reject-'));
+      const data = path.join(workspace, 'data');
+      const script = `
+        import { mock } from 'node:test';
+        const state = await import(${JSON.stringify(new URL('../scripts/lib/state.mjs', import.meta.url).href)});
+        let spawns = 0;
+        mock.module(${JSON.stringify(new URL('../scripts/lib/process-adapter.mjs', import.meta.url).href)}, {
+          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); } },
+        });
+        const workspace = process.cwd();
+        const jobId = 'stored-request';
+        state.ensureStateDir(workspace);
+        await state.upsertJob(workspace, { id: jobId, kind: 'task', status: 'queued' });
+        await state.writeJobFile(workspace, jobId, {
+          id: jobId, kind: 'task', status: 'queued',
+          request: { prompt: 'hello', effort: ${JSON.stringify(effort)} },
+        });
+        process.argv[2] = jobId;
+        process.on('exit', () => {
+          process.stdout.write(JSON.stringify({ spawns, stored: state.readJobFile(workspace, jobId) }));
+        });
+        await import(${JSON.stringify(new URL('../scripts/commands/_worker.mjs', import.meta.url).href)});
+      `;
+      try {
+        const result = spawnSync(process.execPath, ['--no-warnings', '--experimental-test-module-mocks', '--input-type=module', '-e', script], {
+          encoding: 'utf8', cwd: workspace, env: { ...process.env, CLAUDE_PLUGIN_DATA: data },
+        });
+        assert.equal(result.status, 1, result.stderr);
+        const { stored, spawns } = JSON.parse(result.stdout);
+        assert.equal(spawns, 0);
+        assert.equal(stored.status, 'failed');
+        assert.equal(stored.healthStatus, 'failed');
+        assert.equal(stored.errorMessage, 'stored request carries an unsupported effort: ' + echoed);
       } finally { removeTestDir(workspace); }
     });
   }

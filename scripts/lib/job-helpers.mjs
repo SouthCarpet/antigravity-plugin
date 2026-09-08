@@ -55,6 +55,11 @@ export function newJobId() {
 /** Values agy accepts for `--mode` (agy 1.1.24 `--help`). */
 export const AGY_MODES = ["plan", "accept-edits"];
 
+/** Values agy accepts for `--effort` (agy 1.1.27 `--help`: "Reasoning effort
+ * for the current CLI session (low|medium|high)"). No plugin default: the
+ * flag is forwarded only when the caller supplies one of these three. */
+export const AGY_EFFORTS = ["low", "medium", "high"];
+
 /**
  * agy argv for a validated `--mode` value; empty when the flag was not given.
  * Validation itself is the parser's job (`valueChoices`), so this never sees
@@ -450,6 +455,7 @@ export async function runForegroundJob({
   conversationId,
   addDirs = [],
   model,
+  effort,
   outputFormat,
   extraArgs = [],
   cwd,
@@ -487,6 +493,7 @@ export async function runForegroundJob({
       conversationId,
       addDirs,
       model,
+      effort,
       outputFormat,
       extraArgs,
       cwd: cwd ?? workspaceRoot,

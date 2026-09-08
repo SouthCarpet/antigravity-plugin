@@ -1212,6 +1212,23 @@ describe('/antigravity:rescue argv parsing', () => {
     }
     assert.match(cap.err.join(''), /a piece of readable text/);
   });
+
+  // Plan 085 T3: `--effort` on `rescue`, additive, forwarded exactly as
+  // `--model` already is.
+  it('--effort stores request.effort and reaches agy via runAgyPrint (foreground)', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--effort', 'low'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(agyRuntime.calls[0].effort, 'low');
+  });
 });
 
 describe('/antigravity:task argv parsing', () => {
@@ -1354,6 +1371,43 @@ describe('/antigravity:task argv parsing', () => {
     }
     assert.equal(exit, 0);
     assert.equal(capturedRequest.model, 'gemini-x');
+  });
+
+  // Plan 085 T3: `--effort` on `task`, additive, forwarded exactly as
+  // `--model` already is.
+  it('--effort --foreground stores request.effort and reaches agy', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--foreground', '--effort', 'high'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(agyRuntime.calls[0].effort, 'high');
+  });
+
+  it('--effort on a background task is stored in the job request', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    let capturedRequest;
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--effort', 'medium'], {
+        cwd: tempDir,
+        startBackgroundJob: async (options) => {
+          capturedRequest = options.request;
+          return { job: { id: 'job-effort-test', status: 'queued' } };
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(capturedRequest.effort, 'medium');
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {

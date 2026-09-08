@@ -436,7 +436,7 @@ export function normalizeDeniedActions(rawList) {
   for (const member of rawList) {
     const normalized = normalizeJsonDeniedAction(member);
     if (!normalized) continue;
-    const key = `${normalized.action} ${normalized.displayName ?? ''}`;
+    const key = `${normalized.action}\0${normalized.displayName ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(normalized);
@@ -455,13 +455,24 @@ export function normalizeDeniedActions(rawList) {
  * it. `null` when neither source has anything (the additive "no
  * information" contract T2 item 2 requires).
  *
+ * The stderr-sourced `action` runs through {@link sanitizeDeniedActionString}
+ * (T3 carry-over item 9) exactly like the JSON path's `action`/`displayName`
+ * fields — capped at {@link MAX_DENIED_ACTION_STRING_LENGTH} and stripped of
+ * control characters — since `sentinelDenial.tool` comes from
+ * {@link detectAutoDenial}'s free-text quote capture, not a bounded schema.
+ * Falls back to `'unknown'` (matching `detectAutoDenial`'s own fallback)
+ * when sanitizing leaves nothing usable.
+ *
  * @param {{ action: string, displayName: string | null }[] | null} jsonList
  * @param {{ tool: string, line: string } | null} sentinelDenial
  * @returns {{ action: string, displayName: string | null, source: 'json' | 'stderr' }[] | null}
  */
 export function mergeDeniedActions(jsonList, sentinelDenial) {
   if (jsonList && jsonList.length) return jsonList;
-  if (sentinelDenial) return [{ action: sentinelDenial.tool, displayName: null, source: 'stderr' }];
+  if (sentinelDenial) {
+    const action = sanitizeDeniedActionString(sentinelDenial.tool) ?? 'unknown';
+    return [{ action, displayName: null, source: 'stderr' }];
+  }
   return null;
 }
 
@@ -522,6 +533,7 @@ function normalizeRunOptions(options) {
     cwd: optionOrDefault(options, 'cwd', () => process.cwd()),
     addDirs: optionOrDefault(options, 'addDirs', () => []),
     model: options.model,
+    effort: options.effort,
     extraArgs: optionOrDefault(options, 'extraArgs', () => []),
     timeoutMs: optionOrDefault(options, 'timeoutMs', () => 0),
     bin: optionOrDefault(options, 'bin', () => resolveAgyBin()),
@@ -573,17 +585,17 @@ export function printTimeoutArg(timeoutMs) {
 
 /**
  * Build the agy argv for one `runAgyPrint` invocation: the continuation
- * flag (if any), `--add-dir`/`--model`/extra args, `--print-timeout`
+ * flag (if any), `--add-dir`/`--model`/`--effort`/extra args, `--print-timeout`
  * ({@link printTimeoutArg}) and `--disable-slash-commands`, then the
  * always-on stream-json/print tail. The two new flags apply to every
  * print-mode path (plain print, `--continue`, `--conversation`) the same
  * way; the `--version` probe does not go through this builder.
  *
  * @param {{ mode: string, conversationId?: string, addDirs: string[],
- *   model?: string, extraArgs: string[], timeoutMs: number }} options
+ *   model?: string, effort?: string, extraArgs: string[], timeoutMs: number }} options
  * @returns {string[]}
  */
-function buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs, timeoutMs }) {
+function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, timeoutMs }) {
   const args = [];
   if (mode === 'continue') args.push('--continue');
   if (mode === 'conversation') {
@@ -592,6 +604,7 @@ function buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs, timeout
   }
   for (const dir of addDirs) args.push('--add-dir', dir);
   if (model) args.push('--model', model);
+  if (effort) args.push('--effort', effort);
   args.push(...extraArgs);
   args.push('--print-timeout', printTimeoutArg(timeoutMs));
   args.push('--disable-slash-commands');
@@ -1021,8 +1034,9 @@ function classifyRunResult({ session, exitCode }) {
  * (Win32 error 206 / Node `ENAMETOOLONG`), and review/rescue/task briefs
  * routinely exceed it. Every invocation instead runs:
  *   `agy [--continue|--conversation <id>] [--add-dir ...]* [--model <id>]
- *        [...extraArgs] --print-timeout <duration> --disable-slash-commands
- *        --input-format stream-json --output-format stream-json --print ""`
+ *        [--effort <low|medium|high>] [...extraArgs] --print-timeout <duration>
+ *        --disable-slash-commands --input-format stream-json --output-format
+ *        stream-json --print ""`
  * (`--print ""` is required — bare `--print` errors "flag needs an
  * argument", and a non-empty value would be sent as a second prompt) with
  * exactly one NDJSON line written to stdin, then `stdin.end()`:
@@ -1049,9 +1063,11 @@ function classifyRunResult({ session, exitCode }) {
  *   - `continue` — prepends `--continue`
  *   - `conversation` — prepends `--conversation <id>`
  *
- * `model`, if given, pushes `--model <id>`. `extraArgs`, if given, is
- * appended (in order) after `--model`. Both land before the always-on
- * `--input-format`/`--output-format`/`--print` tail.
+ * `model`, if given, pushes `--model <id>`. `effort`, if given, pushes
+ * `--effort <value>` right after `--model` (or in its place when there is no
+ * model) — forwarded verbatim, the plugin does not probe what agy does with
+ * it. `extraArgs`, if given, is appended (in order) after that. All three
+ * land before the always-on `--input-format`/`--output-format`/`--print` tail.
  *
  * Outside win32 the child is spawned `detached` (its own process group, so
  * `terminateProcessTree` can signal the group) and `SIGINT`/`SIGTERM`/`SIGHUP`
@@ -1125,6 +1141,7 @@ export async function runAgyPrint(rawOptions = {}) {
     cwd,
     addDirs,
     model,
+    effort,
     extraArgs,
     timeoutMs,
     bin,
@@ -1146,7 +1163,7 @@ export async function runAgyPrint(rawOptions = {}) {
   if (typeof prompt !== 'string' || !prompt.length) {
     throw new TypeError('runAgyPrint: prompt must be a non-empty string');
   }
-  const args = buildAgyArgs({ mode, conversationId, addDirs, model, extraArgs, timeoutMs });
+  const args = buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, timeoutMs });
 
   const detached = platform !== 'win32';
   const child = spawnAgy(bin, args, {

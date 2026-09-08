@@ -1,6 +1,6 @@
 ---
 description: Free-form Antigravity task with state tracking (background by default)
-argument-hint: '[--wait] [--foreground] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--json] <prompt>'
+argument-hint: '[--wait] [--foreground] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
 disable-model-invocation: true
 allowed-tools: Bash(node:*)
 ---
@@ -25,6 +25,7 @@ Flags:
 - `--conversation <id>` resume a specific conversation.
 - `--add-dir <path>` extra workspace directory (repeatable).
 - `--model <id>` agy model id for this run.
+- `--effort <low|medium|high>` agy reasoning effort for this run.
 - `--json` emit structured JSON.
 
 Auth note:

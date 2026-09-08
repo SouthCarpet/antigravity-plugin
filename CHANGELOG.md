@@ -15,12 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   computed remedy (`--add-dir <dir>` for reads, `--mode accept-edits` for
   edits, or a plain statement that headless mode cannot grant the action) on
   every output path: `--json`'s `details.deniedActions` on a completed
-  foreground envelope, `status <id> --json`, and `result <id> --json`; a
-  per-job `deniedActionsCount` in `status`'s job lists; a "## Denied
+  foreground envelope and `result <id> --json`, and `details.job.deniedActions`
+  on `status <id> --json`; a per-job `deniedActionsCount` in `status`'s job
+  lists; a "## Denied
   Actions" markdown section on `status <id>` and `result`; and a `Denied`
   column on the `status` job tables. Older agy without the field still gets
   its one known denial from the stderr sentinel, unchanged. The fail-vs-warn
   decision and every exit code are unchanged — this is additive detail.
+- **`--effort <low|medium|high>` on `task` and `rescue`.** Both verbs now
+  accept `--effort` and forward it to agy verbatim as `--effort <value>`,
+  foreground and background, right after `--model` (or in its place when
+  there is no model). No plugin default: when the flag is absent, nothing is
+  forwarded and agy keeps its own choice. The plugin does not probe what agy
+  does with the value beyond forwarding it.
 
 ### Fixed
 

@@ -86,6 +86,9 @@
  *   legacy records without it fall back to `DEFAULT_AGY_TIMEOUT_MS`.
  * @property {string} [model] agy model id (076-T7 R3, additive on `task` and
  *   `rescue`; `vision` already had this field)
+ * @property {string} [effort] agy reasoning effort, one of `AGY_EFFORTS`
+ *   (`job-helpers.mjs`) (plan 085 T3, additive on `task` and `rescue`); no
+ *   plugin default, absent unless the caller passed `--effort`
  */
 
 /**
@@ -224,6 +227,8 @@
  * @property {string} [cwd]
  * @property {string[]} [addDirs]
  * @property {string} [model]
+ * @property {string} [effort] agy reasoning effort, one of `AGY_EFFORTS`
+ *   (`job-helpers.mjs`); additive (plan 085 T3), forwarded only when given
  * @property {string[]} [extraArgs]
  * @property {string} [bin]
  * @property {NodeJS.ProcessEnv} [env]

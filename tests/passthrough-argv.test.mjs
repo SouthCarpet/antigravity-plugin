@@ -197,6 +197,83 @@ describe('--mode <plan|accept-edits> reaches agy argv; anything else is an ArgsE
   });
 });
 
+describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsError', () => {
+  const DEFAULT_BUDGET_ARGV_TAIL = [
+    '--print-timeout', '1860s',
+    '--disable-slash-commands',
+    '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+  ];
+
+  it('rescue --effort low lands as `--effort low`, with no --model, before the tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'x', '--effort', 'low'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--effort', 'low', ...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('task --foreground --effort high lands as `--effort high` right after --model', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(
+      ['task', 'x', '--foreground', '--model', 'gemini-x', '--effort', 'high'],
+      makeEnv(data), work,
+    );
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(
+      argvOf(res.stderr),
+      ['--model', 'gemini-x', '--effort', 'high', ...DEFAULT_BUDGET_ARGV_TAIL],
+    );
+  });
+
+  it('task (background worker): --effort survives the job file and reaches argv', () => {
+    const { work, data } = freshDirs();
+    const env = makeEnv(data);
+    const queued = runVerb(['task', 'x', '--effort', 'medium', '--wait', '--json'], env, work);
+    assert.equal(queued.status, 1, queued.stderr);
+    const { jobId } = JSON.parse(queued.stdout);
+    const stored = runVerb(['result', jobId, '--json'], env, work);
+    assert.deepEqual(
+      argvOf(JSON.parse(stored.stdout).details.result.stderr),
+      ['--effort', 'medium', ...DEFAULT_BUDGET_ARGV_TAIL],
+    );
+  });
+
+  it('rescue --effort high --mode plan: --effort lands before --mode (extraArgs), not after', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'x', '--effort', 'high', '--mode', 'plan'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(
+      argvOf(res.stderr),
+      ['--effort', 'high', '--mode', 'plan', ...DEFAULT_BUDGET_ARGV_TAIL],
+    );
+  });
+
+  it('an unknown --effort value exits 1, names the flag and the choices, and never spawns agy', () => {
+    const { work, data } = freshDirs();
+    for (const verb of [['rescue', 'x'], ['task', 'x', '--foreground']]) {
+      const res = runVerb([...verb, '--effort', 'max'], makeEnv(data), work);
+      assert.equal(res.status, 1, res.stderr);
+      assert.match(
+        res.stderr,
+        /antigravity:(rescue|task) — invalid value for --effort: "max" \(expected low\|medium\|high\)/,
+      );
+      assert.deepEqual(argvOf(res.stderr), [], 'agy must not be spawned');
+    }
+  });
+
+  it('a prompt that merely contains the words "--effort high" stays a prompt', () => {
+    const { work, data } = freshDirs();
+    const env = { ...makeEnv(data), AGY_BIN: successAgy };
+    const res = runVerb(['task', 'Explain --effort high', '--foreground', '--json'], env, work);
+    assert.equal(res.status, 0, res.stderr);
+    const { jobId } = JSON.parse(res.stdout);
+    const records = fs.readdirSync(data, { recursive: true }).filter(file => file.endsWith(jobId + '.json'));
+    assert.equal(records.length, 1);
+    const stored = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
+    assert.equal(stored.request.prompt, 'Explain --effort high');
+    assert.ok(!argvOf(stored.result.stderr).includes('--effort'));
+  });
+});
+
 describe('vision --add-dir is rejected before any spawn', () => {
   it('vision --add-dir exits 1, names the flag, and never spawns agy', () => {
     const { work, data } = freshDirs();

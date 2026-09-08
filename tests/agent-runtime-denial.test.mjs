@@ -306,6 +306,43 @@ describe('mergeDeniedActions', () => {
     assert.equal(mergeDeniedActions(null, null), null);
     assert.equal(mergeDeniedActions([], null), null);
   });
+
+  // T3 carry-over item 9: the sentinel-sourced action is free text captured
+  // by detectAutoDenial's quote regex, not a bounded schema field like the
+  // JSON path's members — it must go through the same sanitiser.
+  it('sanitises a control character in the sentinel tool name', () => {
+    const dirty = { tool: 'read\x00_\x1ffile\x7f', line: 'jetski: ... auto-denied ...' };
+    assert.deepEqual(mergeDeniedActions(null, dirty), [
+      { action: 'read_file', displayName: null, source: 'stderr' },
+    ]);
+  });
+
+  it('caps an over-long sentinel tool name at MAX_DENIED_ACTION_STRING_LENGTH', () => {
+    const longTool = 'a'.repeat(300);
+    const out = mergeDeniedActions(null, { tool: longTool, line: 'jetski: ... auto-denied ...' });
+    assert.equal(out[0].action.length, MAX_DENIED_ACTION_STRING_LENGTH);
+  });
+
+  it('falls back to "unknown" when the sentinel tool sanitises to nothing', () => {
+    const out = mergeDeniedActions(null, { tool: '\x00\x01', line: 'jetski: ... auto-denied ...' });
+    assert.deepEqual(out, [{ action: 'unknown', displayName: null, source: 'stderr' }]);
+  });
+});
+
+// T3 carry-over item 8: the exact `result` line from the t0a live fixture
+// (agy 1.1.27, A:\projects-vault\animus\data\agent-runs\085_antigravity-plugin-1.3\t0a-denied-stream-stdout.txt),
+// copied unchanged, through parseAgyStream.
+describe('parseAgyStream — the t0a live fixture, verbatim', () => {
+  const T0A_RESULT_LINE = '{"event":"result","result":{"conversation_id":"55443200-9863-4c41-8c38-709982557509","status":"SUCCESS","response":"","duration_seconds":2.2773574,"num_turns":1,"usage":{"input_tokens":5999,"output_tokens":135,"thinking_tokens":94,"cache_read_tokens":8125,"total_tokens":6134},"denied_actions":[{"action":"read_url","display_name":"ReadUrlContent"}]}}';
+
+  it('normalises deniedActions from the unmodified fixture line', () => {
+    const out = parseAgyStream(T0A_RESULT_LINE + '\n');
+    assert.equal(out.sawResult, true);
+    assert.equal(out.resultStatus, 'SUCCESS');
+    assert.deepEqual(out.deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+    ]);
+  });
 });
 
 describe('parseAgyStream — deniedActions', () => {
