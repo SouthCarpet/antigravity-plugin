@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         # mock.module() and --experimental-test-module-mocks landed in Node
         # 22.3.0. This is also the package.json engines.node floor, so the full
         # suite now exercises the oldest supported runtime instead of relying
