@@ -626,18 +626,11 @@ describe('runAgyPrint argv — --print-timeout and --disable-slash-commands (D1 
     nextExitCode = 0;
     await runAgyPrint({ prompt: 'p', bin: 'agy', timeoutMs: 1_800_000 });
     const { args } = spawnCalls[0];
-    const timeoutIdx = args.indexOf('--print-timeout');
-    const disableIdx = args.indexOf('--disable-slash-commands');
-    const tailIdx = args.indexOf('--input-format');
-    assert.ok(timeoutIdx > -1, 'expected --print-timeout in argv');
-    assert.equal(args[timeoutIdx + 1], '1860s');
-    assert.ok(disableIdx > -1, 'expected --disable-slash-commands in argv');
-    assert.ok(timeoutIdx < tailIdx, '--print-timeout must precede the stream-json tail');
-    assert.ok(disableIdx < tailIdx, '--disable-slash-commands must precede the stream-json tail');
-    assert.deepEqual(
-      args.slice(-6),
-      ['--input-format', 'stream-json', '--output-format', 'stream-json', '--print', ''],
-    );
+    assert.deepEqual(args, [
+      '--print-timeout', '1860s',
+      '--disable-slash-commands',
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+    ]);
   });
 
   it('print mode: timeoutMs 0 forwards the 24h ceiling, never "0s"', async () => {
@@ -646,8 +639,11 @@ describe('runAgyPrint argv — --print-timeout and --disable-slash-commands (D1 
     nextExitCode = 0;
     await runAgyPrint({ prompt: 'p', bin: 'agy', timeoutMs: 0 });
     const { args } = spawnCalls[0];
-    const timeoutIdx = args.indexOf('--print-timeout');
-    assert.equal(args[timeoutIdx + 1], PRINT_TIMEOUT_NO_DEADLINE);
+    assert.deepEqual(args, [
+      '--print-timeout', PRINT_TIMEOUT_NO_DEADLINE,
+      '--disable-slash-commands',
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+    ]);
   });
 
   it('continue mode: both flags land after --continue and before the tail', async () => {
@@ -656,12 +652,12 @@ describe('runAgyPrint argv — --print-timeout and --disable-slash-commands (D1 
     nextExitCode = 0;
     await runAgyPrint({ prompt: 'p', bin: 'agy', mode: 'continue', timeoutMs: 1 });
     const { args } = spawnCalls[0];
-    assert.deepEqual(args.slice(0, 1), ['--continue']);
-    const timeoutIdx = args.indexOf('--print-timeout');
-    assert.ok(timeoutIdx > 0);
-    assert.equal(args[timeoutIdx + 1], '61s');
-    assert.ok(args.includes('--disable-slash-commands'));
-    assert.ok(timeoutIdx < args.indexOf('--input-format'));
+    assert.deepEqual(args, [
+      '--continue',
+      '--print-timeout', '61s',
+      '--disable-slash-commands',
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+    ]);
   });
 
   it('conversation mode: both flags land after --conversation <id> and before the tail', async () => {
@@ -672,12 +668,12 @@ describe('runAgyPrint argv — --print-timeout and --disable-slash-commands (D1 
       prompt: 'p', bin: 'agy', mode: 'conversation', conversationId: 'thr_1', timeoutMs: 60 * 60 * 1000,
     });
     const { args } = spawnCalls[0];
-    assert.deepEqual(args.slice(0, 2), ['--conversation', 'thr_1']);
-    const timeoutIdx = args.indexOf('--print-timeout');
-    assert.equal(args[timeoutIdx + 1], '3660s');
-    assert.ok(args.includes('--disable-slash-commands'));
-    assert.ok(timeoutIdx < args.indexOf('--input-format'));
-    assert.ok(args.indexOf('--disable-slash-commands') < args.indexOf('--input-format'));
+    assert.deepEqual(args, [
+      '--conversation', 'thr_1',
+      '--print-timeout', '3660s',
+      '--disable-slash-commands',
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+    ]);
   });
 
   it('the --version probe never receives --print-timeout or --disable-slash-commands', async () => {
