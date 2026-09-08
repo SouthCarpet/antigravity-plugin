@@ -119,6 +119,58 @@ describe('--add-dir reaches agy argv verbatim and in order', () => {
   });
 });
 
+describe('--print-timeout and --disable-slash-commands reach agy argv on every print-mode path (D1 / D2)', () => {
+  it('rescue (foreground): both flags appear once, before the stream-json tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'read it'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    const argv = argvOf(res.stderr);
+    assert.equal(argv.filter((a) => a === '--print-timeout').length, 1);
+    assert.equal(argv.filter((a) => a === '--disable-slash-commands').length, 1);
+    assert.ok(argv.indexOf('--print-timeout') < argv.indexOf('--input-format'));
+    assert.ok(argv.indexOf('--disable-slash-commands') < argv.indexOf('--input-format'));
+    const timeoutIdx = argv.indexOf('--print-timeout');
+    assert.match(argv[timeoutIdx + 1], /^([0-9]+s|24h)$/);
+  });
+
+  it('task --foreground: both flags appear once, before the stream-json tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['task', 'read it', '--foreground'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    const argv = argvOf(res.stderr);
+    assert.equal(argv.filter((a) => a === '--print-timeout').length, 1);
+    assert.equal(argv.filter((a) => a === '--disable-slash-commands').length, 1);
+    assert.ok(argv.indexOf('--print-timeout') < argv.indexOf('--input-format'));
+    assert.ok(argv.indexOf('--disable-slash-commands') < argv.indexOf('--input-format'));
+  });
+
+  it('task (background worker): both flags reach argv the same way', () => {
+    const { work, data } = freshDirs();
+    const env = makeEnv(data);
+    const queued = runVerb(['task', 'read it', '--wait', '--json'], env, work);
+    assert.equal(queued.status, 1, queued.stderr);
+    const { jobId } = JSON.parse(queued.stdout);
+    const stored = runVerb(['result', jobId, '--json'], env, work);
+    const argv = argvOf(JSON.parse(stored.stdout).details.result.stderr);
+    assert.equal(argv.filter((a) => a === '--print-timeout').length, 1);
+    assert.equal(argv.filter((a) => a === '--disable-slash-commands').length, 1);
+    assert.ok(argv.indexOf('--print-timeout') < argv.indexOf('--input-format'));
+    assert.ok(argv.indexOf('--disable-slash-commands') < argv.indexOf('--input-format'));
+  });
+
+  it('rescue --conversation <id>: both flags appear after --conversation and before the tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'continue it', '--conversation', 'thr_1'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    const argv = argvOf(res.stderr);
+    assertRun(argv, ['--conversation', 'thr_1']);
+    assert.ok(argv.includes('--disable-slash-commands'), 'expected --disable-slash-commands in argv');
+    assert.ok(argv.indexOf('--conversation') < argv.indexOf('--print-timeout'));
+    assert.ok(argv.indexOf('--print-timeout') < argv.indexOf('--input-format'));
+    assert.ok(argv.indexOf('--disable-slash-commands') < argv.indexOf('--input-format'));
+  });
+});
+
 describe('--mode <plan|accept-edits> reaches agy argv; anything else is an ArgsError', () => {
   it('rescue --mode plan lands as `--mode plan` after --add-dir and before the tail', () => {
     const { work, data } = freshDirs();

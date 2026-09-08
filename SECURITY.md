@@ -115,6 +115,16 @@ in a labeled data block that tells the model the content is untrusted
 repository data, not instructions — this narrows, but does not eliminate,
 prompt injection from repository content (see "Out of scope").
 
+### Slash and skill commands in prompts
+
+Every print-mode `agy` invocation (`review`, `rescue`, `task`, `vision`)
+forwards `--disable-slash-commands`. Without it, prompt text beginning with
+`/` — including untrusted diff, review, rescue, or task content this plugin
+sends as plain prompt text, not as instructions — would be parsed and
+executed as an agy slash command or skill instead. This closes that
+expansion path for every prompt this plugin builds; it is not an OS sandbox
+around what agy itself may do once a run starts.
+
 ### Shared temporary directories (POSIX)
 
 The job state root, the per-workspace directory created under it, the

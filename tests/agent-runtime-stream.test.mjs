@@ -64,7 +64,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
   },
 });
 
-const { runAgyPrint, parseAgyStream, probeAgy, AUTH_LINE_PATTERNS } = await import(
+const { runAgyPrint, parseAgyStream, probeAgy, AUTH_LINE_PATTERNS, printTimeoutArg, PRINT_TIMEOUT_NO_DEADLINE } = await import(
   '../scripts/lib/agent-runtime.mjs'
 );
 
@@ -585,6 +585,105 @@ describe('runAgyPrint — stdin stream-json transport', () => {
       autoExit = true;
       exitOnSigkill = false;
     }
+  });
+});
+
+// ───────────────────── D1 --print-timeout / D2 --disable-slash-commands ─────────────────────
+
+describe('printTimeoutArg — budget-to-duration mapping (D1)', () => {
+  const cases = [
+    { timeoutMs: 1_800_000, expected: '1860s', label: 'the 30-minute default' },
+    { timeoutMs: 1, expected: '61s', label: '1 ms rounds up to a whole second' },
+    { timeoutMs: 60 * 60 * 1000, expected: '3660s', label: '1 hour' },
+    { timeoutMs: 0, expected: PRINT_TIMEOUT_NO_DEADLINE, label: '0 ("no deadline")' },
+    { timeoutMs: -1, expected: PRINT_TIMEOUT_NO_DEADLINE, label: 'a negative value' },
+    { timeoutMs: NaN, expected: PRINT_TIMEOUT_NO_DEADLINE, label: 'a non-finite value' },
+  ];
+  for (const { timeoutMs, expected, label } of cases) {
+    it(`${label} -> ${expected}`, () => {
+      assert.equal(printTimeoutArg(timeoutMs), expected);
+    });
+  }
+
+  it('never emits a fractional or negative second value, and never emits "0s"', () => {
+    for (const timeoutMs of [1, 999, 1500, 1_800_000, 0, -5000]) {
+      const value = printTimeoutArg(timeoutMs);
+      assert.notEqual(value, '0s');
+      if (value.endsWith('s')) {
+        const seconds = value.slice(0, -1);
+        assert.match(seconds, /^[0-9]+$/, `expected whole seconds, got ${value}`);
+      } else {
+        assert.equal(value, PRINT_TIMEOUT_NO_DEADLINE);
+      }
+    }
+  });
+});
+
+describe('runAgyPrint argv — --print-timeout and --disable-slash-commands (D1 / D2)', () => {
+  it('print mode: both flags land before the always-on tail, using the default budget', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [resultLine() + '\n'];
+    nextExitCode = 0;
+    await runAgyPrint({ prompt: 'p', bin: 'agy', timeoutMs: 1_800_000 });
+    const { args } = spawnCalls[0];
+    const timeoutIdx = args.indexOf('--print-timeout');
+    const disableIdx = args.indexOf('--disable-slash-commands');
+    const tailIdx = args.indexOf('--input-format');
+    assert.ok(timeoutIdx > -1, 'expected --print-timeout in argv');
+    assert.equal(args[timeoutIdx + 1], '1860s');
+    assert.ok(disableIdx > -1, 'expected --disable-slash-commands in argv');
+    assert.ok(timeoutIdx < tailIdx, '--print-timeout must precede the stream-json tail');
+    assert.ok(disableIdx < tailIdx, '--disable-slash-commands must precede the stream-json tail');
+    assert.deepEqual(
+      args.slice(-6),
+      ['--input-format', 'stream-json', '--output-format', 'stream-json', '--print', ''],
+    );
+  });
+
+  it('print mode: timeoutMs 0 forwards the 24h ceiling, never "0s"', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [resultLine() + '\n'];
+    nextExitCode = 0;
+    await runAgyPrint({ prompt: 'p', bin: 'agy', timeoutMs: 0 });
+    const { args } = spawnCalls[0];
+    const timeoutIdx = args.indexOf('--print-timeout');
+    assert.equal(args[timeoutIdx + 1], PRINT_TIMEOUT_NO_DEADLINE);
+  });
+
+  it('continue mode: both flags land after --continue and before the tail', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [resultLine() + '\n'];
+    nextExitCode = 0;
+    await runAgyPrint({ prompt: 'p', bin: 'agy', mode: 'continue', timeoutMs: 1 });
+    const { args } = spawnCalls[0];
+    assert.deepEqual(args.slice(0, 1), ['--continue']);
+    const timeoutIdx = args.indexOf('--print-timeout');
+    assert.ok(timeoutIdx > 0);
+    assert.equal(args[timeoutIdx + 1], '61s');
+    assert.ok(args.includes('--disable-slash-commands'));
+    assert.ok(timeoutIdx < args.indexOf('--input-format'));
+  });
+
+  it('conversation mode: both flags land after --conversation <id> and before the tail', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [resultLine() + '\n'];
+    nextExitCode = 0;
+    await runAgyPrint({
+      prompt: 'p', bin: 'agy', mode: 'conversation', conversationId: 'thr_1', timeoutMs: 60 * 60 * 1000,
+    });
+    const { args } = spawnCalls[0];
+    assert.deepEqual(args.slice(0, 2), ['--conversation', 'thr_1']);
+    const timeoutIdx = args.indexOf('--print-timeout');
+    assert.equal(args[timeoutIdx + 1], '3660s');
+    assert.ok(args.includes('--disable-slash-commands'));
+    assert.ok(timeoutIdx < args.indexOf('--input-format'));
+    assert.ok(args.indexOf('--disable-slash-commands') < args.indexOf('--input-format'));
+  });
+
+  it('the --version probe never receives --print-timeout or --disable-slash-commands', async () => {
+    spawnCalls.length = 0;
+    await probeAgy({ bin: 'agy', platform: 'linux' });
+    assert.deepEqual(spawnCalls[0].args, ['--version']);
   });
 });
 
