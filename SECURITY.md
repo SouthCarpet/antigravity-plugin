@@ -115,6 +115,18 @@ in a labeled data block that tells the model the content is untrusted
 repository data, not instructions — this narrows, but does not eliminate,
 prompt injection from repository content (see "Out of scope").
 
+### Headless denial reporting
+
+When a tool is auto-denied in headless mode (agy >= 1.1.20), the plugin only
+reports it — on stderr, in `--json`, and in `status`/`result` — with a
+remedy for the caller to apply on the next invocation. It never auto-grants
+the denied action, never retries with `--dangerously-skip-permissions`, and
+never writes a permission rule on the caller's behalf. Since agy 1.1.27 the
+JSON `denied_actions` field is parsed as untrusted, agy-reported diagnostic
+text: each `action`/`display_name` string is validated, length-capped, and
+stripped of control characters before it is ever rendered or written to a
+job record.
+
 ### Slash and skill commands in prompts
 
 Every print-mode `agy` invocation (`review`, `rescue`, `task`, `vision`)

@@ -62,7 +62,11 @@ mock.module('../scripts/lib/process-adapter.mjs', {
   },
 });
 
-const { runAgyPrint, detectAutoDenial, parseAgyStream } = await import('../scripts/lib/agent-runtime.mjs');
+const {
+  runAgyPrint, detectAutoDenial, parseAgyStream,
+  normalizeDeniedActions, mergeDeniedActions,
+  MAX_DENIED_ACTIONS, MAX_DENIED_ACTION_STRING_LENGTH,
+} = await import('../scripts/lib/agent-runtime.mjs');
 
 function resultLine(overrides = {}) {
   return JSON.stringify({
@@ -79,10 +83,11 @@ function resultLine(overrides = {}) {
   });
 }
 
-function arm({ response = '', status = 'SUCCESS', stderr = '', error, exitCode = 0 } = {}) {
+function arm({ response = '', status = 'SUCCESS', stderr = '', error, exitCode = 0, deniedActions } = {}) {
   spawnCalls.length = 0;
   const overrides = { response, status };
   if (error !== undefined) overrides.error = error;
+  if (deniedActions !== undefined) overrides.denied_actions = deniedActions;
   nextStdout = [resultLine(overrides) + '\n'];
   nextStderr = stderr ? [stderr + '\n'] : [];
   nextExitCode = exitCode;
@@ -199,6 +204,193 @@ describe('parseAgyStream — resultError', () => {
     assert.equal(parseAgyStream(line({ error: 'timeout waiting for response' })).resultError,
       'timeout waiting for response');
     assert.equal(parseAgyStream(line({ error: '' })).resultError, null, 'empty string is not a reason');
+  });
+});
+
+// Plan 085 T2: structured `denied_actions` (agy 1.1.27) parsing, merging
+// with the stderr sentinel, and the field on `runAgyPrint`'s result.
+const READ_URL_MEMBER = { action: 'read_url', display_name: 'ReadUrlContent' };
+
+describe('normalizeDeniedActions', () => {
+  it('normalizes the verbatim 1.1.27 single-member fixture', () => {
+    assert.deepEqual(normalizeDeniedActions([READ_URL_MEMBER]), [
+      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+    ]);
+  });
+
+  it('accepts several distinct members', () => {
+    const out = normalizeDeniedActions([
+      READ_URL_MEMBER,
+      { action: 'run_command', display_name: 'RunCommand' },
+    ]);
+    assert.equal(out.length, 2);
+    assert.equal(out[0].action, 'read_url');
+    assert.equal(out[1].action, 'run_command');
+  });
+
+  it('skips malformed members: missing action, non-string action, non-object, blank after sanitizing', () => {
+    const out = normalizeDeniedActions([
+      { display_name: 'NoAction' },
+      { action: 42 },
+      'not-an-object',
+      null,
+      { action: '   ' },
+      READ_URL_MEMBER,
+    ]);
+    assert.deepEqual(out, [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }]);
+  });
+
+  it('deduplicates exact repeats (same action + displayName)', () => {
+    const out = normalizeDeniedActions([READ_URL_MEMBER, { ...READ_URL_MEMBER }, READ_URL_MEMBER]);
+    assert.equal(out.length, 1);
+  });
+
+  it('keeps two members with the same action but a different displayName distinct', () => {
+    const out = normalizeDeniedActions([
+      READ_URL_MEMBER,
+      { action: 'read_url', display_name: 'OtherName' },
+    ]);
+    assert.equal(out.length, 2);
+  });
+
+  it('caps the list at MAX_DENIED_ACTIONS', () => {
+    const many = Array.from({ length: MAX_DENIED_ACTIONS + 10 }, (_, i) => ({
+      action: `tool_${i}`, display_name: `Tool ${i}`,
+    }));
+    assert.equal(normalizeDeniedActions(many).length, MAX_DENIED_ACTIONS);
+  });
+
+  it('caps each string at MAX_DENIED_ACTION_STRING_LENGTH and neutralises control characters', () => {
+    const longAction = 'a'.repeat(300);
+    const withControlChars = `read\x00_\x1furl\x7f`;
+    const out = normalizeDeniedActions([
+      { action: longAction },
+      { action: withControlChars, display_name: 'x\x01y' },
+    ]);
+    assert.equal(out[0].action.length, MAX_DENIED_ACTION_STRING_LENGTH);
+    assert.equal(out[1].action, 'read_url');
+    assert.equal(out[1].displayName, 'xy');
+  });
+
+  it('accepts a member with no display_name (null, not a missing key)', () => {
+    assert.deepEqual(normalizeDeniedActions([{ action: 'read_url' }]), [
+      { action: 'read_url', displayName: null, source: 'json' },
+    ]);
+  });
+
+  it('returns an empty array for a non-array, undefined, or empty input', () => {
+    assert.deepEqual(normalizeDeniedActions(undefined), []);
+    assert.deepEqual(normalizeDeniedActions('not-a-list'), []);
+    assert.deepEqual(normalizeDeniedActions([]), []);
+  });
+});
+
+describe('mergeDeniedActions', () => {
+  const jsonList = [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }];
+  const sentinel = { tool: 'read_file', line: 'jetski: ... auto-denied ...' };
+
+  it('the JSON list wins when present, even alongside a sentinel', () => {
+    assert.deepEqual(mergeDeniedActions(jsonList, sentinel), jsonList);
+  });
+
+  it('falls back to one stderr-sourced member when there is no JSON list', () => {
+    assert.deepEqual(mergeDeniedActions(null, sentinel), [
+      { action: 'read_file', displayName: null, source: 'stderr' },
+    ]);
+    assert.deepEqual(mergeDeniedActions([], sentinel), [
+      { action: 'read_file', displayName: null, source: 'stderr' },
+    ]);
+  });
+
+  it('is null when neither source has anything', () => {
+    assert.equal(mergeDeniedActions(null, null), null);
+    assert.equal(mergeDeniedActions([], null), null);
+  });
+});
+
+describe('parseAgyStream — deniedActions', () => {
+  it('is null when the result has no denied_actions field', () => {
+    const line = JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }) + '\n';
+    assert.equal(parseAgyStream(line).deniedActions, null);
+  });
+
+  it('normalizes the verbatim 1.1.27 fixture', () => {
+    const line = resultLine({ denied_actions: [READ_URL_MEMBER] }) + '\n';
+    assert.deepEqual(parseAgyStream(line).deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+    ]);
+  });
+
+  it('keeps the last result event\'s denied_actions when several are present', () => {
+    const first = resultLine({ denied_actions: [READ_URL_MEMBER] });
+    const second = resultLine({ denied_actions: [{ action: 'run_command' }] });
+    const out = parseAgyStream(`${first}\n${second}\n`);
+    assert.deepEqual(out.deniedActions, [{ action: 'run_command', displayName: null, source: 'json' }]);
+  });
+});
+
+describe('runAgyPrint — deniedActions on the result', () => {
+  it('structured-only: JSON denied_actions with no stderr sentinel', async () => {
+    arm({ response: 'answer', deniedActions: [READ_URL_MEMBER] });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.deepEqual(res.deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+    ]);
+  });
+
+  it('stderr-only: the sentinel with no JSON denied_actions field (older agy)', async () => {
+    arm({ response: '', stderr: DENIAL_LINE });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.deepEqual(res.deniedActions, [{ action: 'read_file', displayName: null, source: 'stderr' }]);
+  });
+
+  it('both together: the JSON list wins and the stderr member is not duplicated', async () => {
+    arm({ response: 'answer', stderr: DENIAL_LINE, deniedActions: [READ_URL_MEMBER] });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.deniedActions.length, 1);
+    assert.equal(res.deniedActions[0].action, 'read_url');
+  });
+
+  it('several members reach the result unduplicated', async () => {
+    arm({
+      response: 'answer',
+      deniedActions: [READ_URL_MEMBER, { action: 'run_command', display_name: 'RunCommand' }],
+    });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.deniedActions.length, 2);
+  });
+
+  it('is null on a clean run with no denial at all', async () => {
+    arm({ response: 'fine' });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.deniedActions, null);
+  });
+
+  it('is still reported on a non-SUCCESS result (UNVERIFIED shape, but must not crash)', async () => {
+    arm({ response: '', status: 'CANCELED', deniedActions: [READ_URL_MEMBER] });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.deepEqual(res.deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+    ]);
+  });
+
+  // Item 1: "keep the existing fail-vs-warn decision... exactly as today".
+  // That decision is keyed on the stderr sentinel alone, so a JSON-only
+  // denial (no stderr line) with an empty response stays `completed` — the
+  // new data is detail, never a second way to fail a run. The t0a live
+  // fixture always carries both together (deniedActions here would be
+  // reported as a warning-free `completed` run without ever surfacing in
+  // `warnings`, which only the sentinel path populates).
+  it('a JSON-only denial with an empty response does not change the completed/failed decision', async () => {
+    arm({ response: '', deniedActions: [READ_URL_MEMBER] });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.deepEqual(res.warnings, []);
+    assert.equal(res.denial, null);
+    assert.deepEqual(res.deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+    ]);
   });
 });
 

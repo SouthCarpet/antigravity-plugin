@@ -165,6 +165,8 @@ async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
     recommendedAction: derived.recommendedAction ?? null,
     answerBytes,
     answerLines,
+    deniedActions: result.deniedActions ?? null,
+    deniedActionsCount: Array.isArray(result.deniedActions) ? result.deniedActions.length : 0,
     // Fix round 1 F3: keyed off the raw `result.status` this dropped agy's
     // stderr for `auth_required`/`timeout` jobs, since neither raw status is
     // literally "failed" (only `derived.status`, job-helpers.mjs's mapping

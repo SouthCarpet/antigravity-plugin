@@ -315,11 +315,16 @@ function createNdjsonLineFeeder() {
  * measured on 1.1.24). Without it the caller only learns the status word and
  * has to guess what went wrong.
  *
+ * `deniedActions` carries `result.denied_actions` normalized via
+ * {@link normalizeDeniedActions} — `null` when the field was absent on every
+ * `result` event seen, an array (possibly empty) once one carried it.
+ *
  * @param {string} text - full accumulated stdout (or any concatenation of
  *   chunks — reassembly across chunk boundaries falls out of `\n`-splitting
  *   the joined string, so callers never need to pre-align chunks).
  * @returns {{ response: string|null, usage: object|null, durationSeconds: number|null,
  *   conversationId: string|null, resultStatus: string|null, resultError: string|null,
+ *   deniedActions: { action: string, displayName: string | null, source: 'json' }[] | null,
  *   sawResult: boolean }}
  */
 export function parseAgyStream(text) {
@@ -330,6 +335,7 @@ export function parseAgyStream(text) {
     conversationId: null,
     resultStatus: null,
     resultError: null,
+    deniedActions: null,
     sawResult: false,
   };
   if (typeof text !== 'string' || !text.length) return out;
@@ -351,6 +357,9 @@ export function parseAgyStream(text) {
     out.conversationId = r.conversation_id ?? out.conversationId;
     out.resultStatus = r.status ?? out.resultStatus;
     out.resultError = typeof r.error === 'string' && r.error ? r.error : out.resultError;
+    out.deniedActions = Array.isArray(r.denied_actions)
+      ? normalizeDeniedActions(r.denied_actions)
+      : out.deniedActions;
     out.sawResult = true;
   }
   return out;
@@ -368,6 +377,92 @@ export function parseAgyStream(text) {
  */
 function agyResultErrorNote(resultError) {
   return resultError ? `\nagent-runtime: agy reported error: ${resultError}` : '';
+}
+
+/** Bound on the number of `denied_actions` members carried through per run
+ * (agy 1.1.27's shape beyond the single-member fixture is UNVERIFIED; a
+ * runaway list must never grow the job record without limit). */
+export const MAX_DENIED_ACTIONS = 32;
+
+/** Bound on each `action`/`display_name` string's length after sanitizing. */
+export const MAX_DENIED_ACTION_STRING_LENGTH = 200;
+
+/**
+ * Strip C0 control characters and DEL, trim, and cap the length of one
+ * `denied_actions` string field. Returns `null` for anything that is not a
+ * non-empty string once sanitized, so a caller can treat that as "missing".
+ *
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function sanitizeDeniedActionString(value) {
+  if (typeof value !== 'string') return null;
+  const stripped = value.replace(/[\x00-\x1f\x7f]/g, '').trim();
+  if (!stripped) return null;
+  return stripped.length > MAX_DENIED_ACTION_STRING_LENGTH
+    ? stripped.slice(0, MAX_DENIED_ACTION_STRING_LENGTH)
+    : stripped;
+}
+
+/**
+ * Validate and normalize one raw `result.denied_actions` member into
+ * `{ action, displayName, source: "json" }`. A member with no usable
+ * `action` string is malformed and is skipped (returns `null`).
+ *
+ * @param {unknown} member
+ * @returns {{ action: string, displayName: string | null, source: 'json' } | null}
+ */
+function normalizeJsonDeniedAction(member) {
+  if (!member || typeof member !== 'object') return null;
+  const action = sanitizeDeniedActionString(member.action);
+  if (!action) return null;
+  return { action, displayName: sanitizeDeniedActionString(member.display_name), source: 'json' };
+}
+
+/**
+ * Normalize agy's `result.denied_actions` array (T0a: 0..n members, repeats,
+ * and the field on a non-SUCCESS result are all UNVERIFIED beyond the single-
+ * member SUCCESS fixture) into a bounded, de-duplicated list: malformed
+ * members are skipped, exact repeats (same action + displayName) are
+ * dropped, and the result is capped at {@link MAX_DENIED_ACTIONS}.
+ *
+ * @param {unknown} rawList
+ * @returns {{ action: string, displayName: string | null, source: 'json' }[]}
+ */
+export function normalizeDeniedActions(rawList) {
+  if (!Array.isArray(rawList)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const member of rawList) {
+    const normalized = normalizeJsonDeniedAction(member);
+    if (!normalized) continue;
+    const key = `${normalized.action} ${normalized.displayName ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+    if (out.length >= MAX_DENIED_ACTIONS) break;
+  }
+  return out;
+}
+
+/**
+ * Merge the structured JSON `denied_actions` list with the stderr
+ * auto-denial sentinel ({@link detectAutoDenial}) into the one list every
+ * output path renders: the JSON list wins when agy reported one at all; the
+ * sentinel becomes a single `source: "stderr"` member only when no JSON list
+ * was present, so older agy (no `denied_actions` field) still surfaces its
+ * one known denial, never duplicated once agy 1.1.27's own list also carries
+ * it. `null` when neither source has anything (the additive "no
+ * information" contract T2 item 2 requires).
+ *
+ * @param {{ action: string, displayName: string | null }[] | null} jsonList
+ * @param {{ tool: string, line: string } | null} sentinelDenial
+ * @returns {{ action: string, displayName: string | null, source: 'json' | 'stderr' }[] | null}
+ */
+export function mergeDeniedActions(jsonList, sentinelDenial) {
+  if (jsonList && jsonList.length) return jsonList;
+  if (sentinelDenial) return [{ action: sentinelDenial.tool, displayName: null, source: 'stderr' }];
+  return null;
 }
 
 /**
@@ -817,12 +912,22 @@ function detectResponseAuthSignal({ status, oauthUrl, eligible, responseText, lo
  * `detectAutoDenial`), in the order documented on `runAgyPrint`. A no-op
  * (returns `status` unchanged) once a status is already set.
  *
+ * `deniedActions` ({@link mergeDeniedActions} of `parsed.deniedActions` and
+ * the stderr sentinel) is computed and returned on every branch, including
+ * the ones that never reach the sentinel-driven `denial` check below: the
+ * fail-vs-warn decision (`denial`/`nextStatus`) stays keyed on the stderr
+ * sentinel exactly as before (T2 item 1's "keep the existing fail-vs-warn
+ * decision"); `deniedActions` only adds detail.
+ *
  * @param {{ status?: string, exitCode: number, parsed: ReturnType<typeof parseAgyStream>,
  *   stderr: string, warnings: string[] }} args
- * @returns {{ status: string, stderr: string, denial: { tool: string, line: string } | null }}
+ * @returns {{ status: string, stderr: string, denial: { tool: string, line: string } | null,
+ *   deniedActions: { action: string, displayName: string | null, source: 'json' | 'stderr' }[] | null }}
  */
 function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings }) {
-  if (status) return { status, stderr, denial: null };
+  const sentinel = detectAutoDenial(stderr);
+  const deniedActions = mergeDeniedActions(parsed.deniedActions, sentinel);
+  if (status) return { status, stderr, denial: null, deniedActions };
   let denial = null;
   let nextStatus;
   let nextStderr = stderr;
@@ -835,7 +940,7 @@ function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings }) {
     nextStatus = 'failed';
     nextStderr += `\nagent-runtime: agy result status was "${parsed.resultStatus ?? 'unknown'}", not SUCCESS`;
   } else {
-    denial = detectAutoDenial(nextStderr);
+    denial = sentinel;
     const answered = typeof parsed.response === 'string' && parsed.response.trim().length > 0;
     if (denial && !answered) {
       nextStatus = 'failed';
@@ -848,7 +953,7 @@ function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings }) {
     }
   }
   nextStderr += agyResultErrorNote(parsed.resultError);
-  return { status: nextStatus, stderr: nextStderr, denial };
+  return { status: nextStatus, stderr: nextStderr, denial, deniedActions };
 }
 
 /**
@@ -902,6 +1007,7 @@ function classifyRunResult({ session, exitCode }) {
     agyConversationId: parsed.conversationId ?? null,
     warnings: session.warnings,
     denial: finalized.denial,
+    deniedActions: finalized.deniedActions,
     spawnError: session.spawnError,
   };
 }
@@ -974,7 +1080,7 @@ function classifyRunResult({ session, exitCode }) {
  *
  * Returns `{ status, stdout, stderr, exitCode, oauthUrl, usage,
  * durationSeconds, agyConversationId, rawStdout, warnings, denial,
- * spawnError }`. `spawnError` is the child's `error` event message (for
+ * deniedActions, spawnError }`. `spawnError` is the child's `error` event message (for
  * example `spawn agy ENOENT`) when the process never started, else `null`.
  * `status` is one of `completed`, `failed`, `auth_required`, `cancelled`,
  * `timeout`. `exitCode === 0` with no `result` event is `failed`, never a
@@ -998,6 +1104,15 @@ function classifyRunResult({ session, exitCode }) {
  *       is not a failure, but it is never swallowed either.
  * A SUCCESS with an empty response and NO denial line stays `completed`: a
  * model may legitimately say nothing.
+ *
+ * `deniedActions` (additive, T2/plan 085) is the structured detail behind
+ * `denial`: agy 1.1.27's `result.denied_actions` JSON list
+ * ({@link normalizeDeniedActions}) merged with the stderr sentinel
+ * ({@link mergeDeniedActions}) — the JSON list wins when present, so an
+ * older agy without the field still surfaces its one sentinel-detected
+ * denial unchanged. `null` when nothing was denied. This never changes
+ * `status` or the exit code; job-helpers.mjs's `denialRemedy` turns each
+ * `action` into the caller-facing remedy sentence.
  *
  * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
  * @returns {Promise<import('./types.mjs').RuntimeResult>}

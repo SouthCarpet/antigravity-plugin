@@ -202,6 +202,23 @@ export function mergeJobDetail(job, storedJob) {
 }
 
 /**
+ * The `deniedActions`/`deniedActionsCount` projection carried through
+ * enrichment (plan 085 T2): `enrichJob` drops the nested `result` object
+ * below, so these top-level job fields (job-helpers.mjs persists both as
+ * job fields, not only inside `result`) are what a status view reads.
+ * Split out to keep `enrichJob` itself under the complexity ceiling.
+ *
+ * @param {import('./types.mjs').JobRecord} source
+ * @returns {{ deniedActions: import('./types.mjs').DeniedAction[] | null, deniedActionsCount: number }}
+ */
+function deniedActionsProjection(source) {
+  return {
+    deniedActions: source.deniedActions ?? null,
+    deniedActionsCount: source.deniedActionsCount ?? 0,
+  };
+}
+
+/**
  * @param {string} workspaceRoot the resolved workspace root
  * @param {import('./types.mjs').JobIndexEntry} job
  * @param {{ maxProgressLines?: number, now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
@@ -228,6 +245,7 @@ function enrichJob(workspaceRoot, job, options = {}) {
     recommendedAction:
       runtimeHealth.recommendedAction ?? source.recommendedAction ?? null,
     oauthUrl: source.oauthUrl ?? null,
+    ...deniedActionsProjection(source),
     lastHeartbeatAt: source.lastHeartbeatAt ?? null,
     lastProgressAt: source.lastProgressAt ?? null,
     lastModelOutputAt: source.lastModelOutputAt ?? null,

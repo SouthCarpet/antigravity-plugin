@@ -17,6 +17,7 @@ import {
   renderCancelReport,
   renderSetupReport,
   outputCommandResult,
+  renderDeniedActionLines,
 } from '../scripts/lib/render.mjs';
 
 describe('createJsonEnvelope', () => {
@@ -133,6 +134,44 @@ describe('renderStatusSnapshot', () => {
     });
     assert.match(out, /\| a\\\\\\\|b c \|/);
   });
+
+  // Plan 085 T2 item 4: a trailing Denied column on both tables — a count,
+  // or "-" when none/absent. Appended after existing columns so it never
+  // disturbs a sequential-column assertion elsewhere in this file.
+  it('shows a Denied column with a count, or "-" when none, on both tables', () => {
+    const now = new Date().toISOString();
+    const out = renderStatusSnapshot({
+      workspaceRoot: '/tmp',
+      config: {},
+      running: [{ id: 'r1', kind: 'task', status: 'running', startedAt: now, deniedActionsCount: 2 }],
+      latestFinished: null,
+      recent: [
+        { id: 'd1', kind: 'task', status: 'completed', startedAt: now, completedAt: now, deniedActionsCount: 1 },
+        { id: 'd2', kind: 'task', status: 'completed', startedAt: now, completedAt: now },
+      ],
+      needsReview: false,
+    });
+    assert.match(out, /\| Denied \|/);
+    assert.match(out, /\| r1 \|.*\| 2 \|/);
+    assert.match(out, /\| d1 \|.*\| 1 \|/);
+    assert.match(out, /\| d2 \|.*\| - \|/);
+  });
+
+  it('falls back to deniedActions.length when deniedActionsCount is absent', () => {
+    const now = new Date().toISOString();
+    const out = renderStatusSnapshot({
+      workspaceRoot: '/tmp',
+      config: {},
+      running: [],
+      latestFinished: null,
+      recent: [{
+        id: 'd3', kind: 'task', status: 'completed', startedAt: now, completedAt: now,
+        deniedActions: [{ action: 'read_url', displayName: null, source: 'json' }],
+      }],
+      needsReview: false,
+    });
+    assert.match(out, /\| d3 \|.*\| 1 \|/);
+  });
 });
 
 describe('renderSingleJobStatus', () => {
@@ -167,6 +206,49 @@ describe('renderSingleJobStatus', () => {
     assert.match(out, /segfault/);
     assert.match(out, /## Recent Progress/);
     assert.match(out, /line a/);
+  });
+
+  // Plan 085 T2: `job.deniedActions` here is expected to already carry
+  // `remedy` (the caller's contract — status.mjs attaches it).
+  it('renders a "## Denied Actions" section, one line per action with its remedy', () => {
+    const job = {
+      id: 'job3', status: 'failed',
+      deniedActions: [
+        { action: 'read_url', displayName: 'ReadUrlContent', remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
+        { action: 'write_to_file', displayName: null, remedy: 'Pass --mode accept-edits to grant file edits inside the workspace for this run.' },
+      ],
+    };
+    const out = renderSingleJobStatus(job);
+    assert.match(out, /## Denied Actions/);
+    assert.match(out, /read_url \(ReadUrlContent\)/);
+    assert.match(out, /cannot grant "read_url"/);
+    assert.match(out, /write_to_file/);
+    assert.match(out, /--mode accept-edits/);
+  });
+
+  it('has no Denied Actions section when the job has no denials', () => {
+    const out = renderSingleJobStatus({ id: 'job4', status: 'completed' });
+    assert.doesNotMatch(out, /Denied Actions/);
+  });
+});
+
+describe('renderDeniedActionLines', () => {
+  it('is empty for null, undefined, or an empty list', () => {
+    assert.deepEqual(renderDeniedActionLines(null), []);
+    assert.deepEqual(renderDeniedActionLines(undefined), []);
+    assert.deepEqual(renderDeniedActionLines([]), []);
+  });
+
+  it('one line per action, with the display name in parentheses when present', () => {
+    const lines = renderDeniedActionLines([
+      { action: 'read_url', displayName: 'ReadUrlContent', remedy: 'r1' },
+      { action: 'write_to_file', displayName: null, remedy: 'r2' },
+    ]);
+    assert.equal(lines[0], '');
+    assert.equal(lines[1], '## Denied Actions');
+    assert.equal(lines[2], '');
+    assert.equal(lines[3], '- **read_url (ReadUrlContent)**: r1');
+    assert.equal(lines[4], '- **write_to_file**: r2');
   });
 });
 

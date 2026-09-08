@@ -38,7 +38,7 @@ by agy version. The plugin does not update itself.
 
 ## Why this plugin
 
-- **Detect denied headless tools.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool.
+- **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it.
 - **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24.
 - **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
 - **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.

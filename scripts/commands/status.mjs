@@ -22,6 +22,7 @@ import {
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { readUpdateNotice } from "../lib/update.mjs";
+import { deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
@@ -51,9 +52,9 @@ export async function run(argv = [], ctx = {}) {
 
   try {
     if (reference) {
-      const snapshot = builders.single(cwd, reference);
+      const snapshot = withDenialRemedies(builders.single(cwd, reference));
       if (options.wait) {
-        const finished = await waitForSingleJob(cwd, reference, options, builders.single);
+        const finished = withDenialRemedies(await waitForSingleJob(cwd, reference, options, builders.single));
         const rendered = renderSingleJobStatus(finished);
         maybeAnnotateOAuth(finished.job);
         outputCommandResult(statusEnvelope(finished), rendered, json);
@@ -82,6 +83,24 @@ export async function run(argv = [], ctx = {}) {
     process.stderr.write(`antigravity:status — ${friendlyStateError(err)}\n`);
     return 1;
   }
+}
+
+/**
+ * Attach denial remedies to a single-job snapshot's `job.deniedActions`
+ * (plan 085 T2 item 4): the raw `{ action, displayName, source }` list
+ * job-control.mjs carries through becomes `{ action, displayName, remedy }`
+ * here, using the job's own `kind` — computed fresh (not persisted) so a
+ * remedy wording change never rewrites a stored record. A no-op when the
+ * job has no denials, or when `snapshot.job` is missing (a `--wait` timeout
+ * on a vanished record).
+ *
+ * @param {{ job?: import('../lib/types.mjs').JobRecord } | null | undefined} snapshot
+ * @returns {{ job?: import('../lib/types.mjs').JobRecord } | null | undefined}
+ */
+function withDenialRemedies(snapshot) {
+  const list = deniedActionsWithRemedy(snapshot?.job?.deniedActions, snapshot?.job?.kind);
+  if (!list) return snapshot;
+  return { ...snapshot, job: { ...snapshot.job, deniedActions: list } };
 }
 
 function statusEnvelope(snapshot) {

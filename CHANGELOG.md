@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Structured denial reporting.** Since agy 1.1.27, a headless run's
+  `denied_actions` JSON list is parsed (validated, deduplicated, and
+  bounded), merged with the existing stderr sentinel, and surfaced with a
+  computed remedy (`--add-dir <dir>` for reads, `--mode accept-edits` for
+  edits, or a plain statement that headless mode cannot grant the action) on
+  every output path: `--json`'s `details.deniedActions` on a completed
+  foreground envelope, `status <id> --json`, and `result <id> --json`; a
+  per-job `deniedActionsCount` in `status`'s job lists; a "## Denied
+  Actions" markdown section on `status <id>` and `result`; and a `Denied`
+  column on the `status` job tables. Older agy without the field still gets
+  its one known denial from the stderr sentinel, unchanged. The fail-vs-warn
+  decision and every exit code are unchanged — this is additive detail.
+
 ### Fixed
 
 - **Long runs no longer end at agy's 5-minute default.** Every print-mode

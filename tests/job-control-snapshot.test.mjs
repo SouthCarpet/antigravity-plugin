@@ -187,6 +187,32 @@ describe('buildSingleJobSnapshot', () => {
     assert.ok(Array.isArray(snap.job.recentProgress));
     assert.ok(snap.job.recentProgress.length >= 1);
   });
+
+  // Plan 085 T2: enrichJob drops the nested `result` object for status
+  // views, so the top-level `deniedActions`/`deniedActionsCount` (persisted
+  // as job fields, not only inside `result`) are what must carry the
+  // projection through.
+  it('carries deniedActions and deniedActionsCount through enrichment despite dropping result', async () => {
+    const denied = [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }];
+    const job = await seedJob({
+      id: 'denied1',
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      deniedActions: denied,
+      deniedActionsCount: 1,
+    });
+    const snap = buildSingleJobSnapshot(workCwd, job.id);
+    assert.deepEqual(snap.job.deniedActions, denied);
+    assert.equal(snap.job.deniedActionsCount, 1);
+    assert.equal(snap.job.result, undefined, 'the nested result object is still dropped for status views');
+  });
+
+  it('a legacy job without deniedActions enriches to null/0', async () => {
+    const job = await seedJob({ id: 'legacy1', status: 'completed', completedAt: new Date().toISOString() });
+    const snap = buildSingleJobSnapshot(workCwd, job.id);
+    assert.equal(snap.job.deniedActions, null);
+    assert.equal(snap.job.deniedActionsCount, 0);
+  });
 });
 
 describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => {
