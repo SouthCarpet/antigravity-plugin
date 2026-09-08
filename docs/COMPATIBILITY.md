@@ -5,8 +5,8 @@ later 1.x releases. The implementation at 0.2.4 is the baseline from which
 the contract was frozen. A behavior is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 1.2.0 is this package's version number. agy 1.1.15, 1.1.17, and
-1.1.24 are versions of Google's Antigravity CLI, which is an external
+Plugin 1.2.0 is this package's version number. agy 1.1.15, 1.1.17, 1.1.24,
+and 1.1.27 are versions of Google's Antigravity CLI, which is an external
 program. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
@@ -15,9 +15,9 @@ not change the plugin version.
 | Surface | Supported in 1.x |
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
-| Operating systems | Linux, Windows, and macOS. All three run the full CI suite; macOS was tested in CI cell `macos-latest` (runner image `macos-26-arm64`, Node 22.3.x and 24, run 34280679647 on 2026-09-08: 802 tests, 789 passed, 13 skipped, 0 failed, on Node 22.3.x). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live table below) have not happened on macOS; that coverage stays best-effort until they do. |
+| Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15, 1.1.17, and 1.1.24. These versions form the tested and supported matrix. Live coverage differs by version as shown below. |
+| Google Antigravity CLI | `agy` 1.1.15, 1.1.17, 1.1.24, and 1.1.27. These versions form the tested and supported matrix. Live coverage differs by version as shown below. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -42,6 +42,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.1.15 | All eight: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, and `cancel` | 2026-08-21 |
 | 1.1.17 | All eight: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, and `cancel` | 2026-08-21 |
 | 1.1.24 | `rescue`, `task`, `vision`, and `result` | 2026-09-02 |
+| 1.1.27 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-09 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -51,6 +52,37 @@ job. The runs also covered headless auto-denial detection and the
 `--print-timeout` error shape. `review`, `status`, `cancel`, and `setup` use
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
+
+The newest version measured live is agy 1.1.27, on 2026-09-09, from commit
+`4f9b317`. One transcript file was saved per run. The table below lists every
+file. `setup` has no 1.1.27 transcript.
+
+| Verb | Flags | agy | Date | Result | Transcript |
+|---|---|---|---|---|---|
+| `task` | `--foreground --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "completed"`, answer `PROBE.` | `t5-live-task-foreground.txt` |
+| `task` | `--foreground --json`, prompt `/model` then `Reply with exactly OK.` | 1.1.27 | 2026-09-09 | exit 0, `status: "completed"`, answer `OK.` Slash text was inert. | `t5-live-task-slash-inert.txt` |
+| `task` | `--foreground --effort low --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "completed"`, answer `LOW` | `t5-live-task-effort-low.txt` |
+| `task` | `--foreground --effort high --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "completed"`, answer `HIGH` | `t5-live-task-effort-high.txt` |
+| `task` | `--json` (background default) | 1.1.27 | 2026-09-09 | exit 0, `status: "queued"`, job `1cd3190f559c` | `t5-live-task-background-start.txt` |
+| `task` | `--foreground --json`, URL-read prompt | 1.1.27 | 2026-09-09 | exit 1, no stdout envelope. stderr: `Headless runs cannot grant "read_url"; the host must run this step itself.` | `t5-live-task-denied-foreground.txt` |
+| `rescue` | `--json` | 1.1.27 | 2026-09-09 | exit 0, `status: "completed"`, answer `RESCUE` | `t5-live-rescue-foreground.txt` |
+| `status` | `--json` | 1.1.27 | 2026-09-09 | exit 0, `status: "ok"` | `t5-live-status-list.txt` |
+| `status` | (none) | 1.1.27 | 2026-09-09 | exit 0. Table includes a `Denied` column (`1` on the failed job, `-` on the others). | `t5-live-status-list-md.txt` |
+| `status` | `1cd3190f559c --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "completed"` | `t5-live-status-single-json.txt` |
+| `status` | `1cd3190f559c` | 1.1.27 | 2026-09-09 | exit 0, markdown job view | `t5-live-status-single-md.txt` |
+| `result` | `1cd3190f559c --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "completed"`, answer `BG`. stderr `usage: total=14186 in=14117 out=69` | `t5-live-result-json.txt` |
+| `status` | `--json` | 1.1.27 | 2026-09-09 | exit 0, `status: "ok"` (second list snapshot) | `t5-live-status-list-json-2.txt` |
+| `status` | `fbbab048795d --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "failed"`. `details.job.deniedActions`: `action` `read_url`, `displayName` `ReadUrlContent`, `remedy` `Headless runs cannot grant "read_url"; the host must run this step itself.` `deniedActionsCount` `1` | `t5-live-status-denied-json.txt` |
+| `status` | `fbbab048795d` | 1.1.27 | 2026-09-09 | exit 0. `## Denied Actions` line: `- **read_url (ReadUrlContent)**: Headless runs cannot grant "read_url"; the host must run this step itself.` | `t5-live-status-denied-md.txt` |
+| `result` | `fbbab048795d --json` | 1.1.27 | 2026-09-09 | exit 1, `status: "failed"`. `details.deniedActions`: `action` `read_url`, `displayName` `ReadUrlContent`, `remedy` `Headless runs cannot grant "read_url"; the host must run this step itself.` stderr `usage: total=14342 in=14131 out=211` | `t5-live-result-denied-json.txt` |
+| `vision` | `<png> --prompt "Reply with the single word PROBE and the color you see."` | 1.1.27 | 2026-09-09 | exit 0. stderr `usage: total=33567 in=30598 out=2969` | `t5-live-vision.txt` |
+| `review` | `--json` | 1.1.27 | 2026-09-09 | exit 0, `status: "no_changes"`, `jobId` `null` | `t5-live-review.txt` |
+| `task` | `--json` (long prompt, for cancel) | 1.1.27 | 2026-09-09 | exit 0, `status: "queued"`, job `0ad4b1632d38` | `t5-live-task-cancel-start.txt` |
+| `cancel` | `0ad4b1632d38 --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "cancelled"` | `t5-live-cancel.txt` |
+| `status` | `0ad4b1632d38 --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "cancelled"` | `t5-live-status-cancelled-json.txt` |
+
+The denied member from agy 1.1.27 was `read_url` (`displayName` `ReadUrlContent`).
+The printed remedy line was `Headless runs cannot grant "read_url"; the host must run this step itself.`
 
 agy 1.1.24 changes how an MCP image result reaches the model. agy writes a
 large result to a file in the conversation directory and gives the model the

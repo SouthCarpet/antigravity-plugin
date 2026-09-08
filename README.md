@@ -28,23 +28,26 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 > This does not mean finished — it means the surface stops moving. See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 1.2.0 is this package's version number. agy 1.1.15, 1.1.17, and
-1.1.24 are versions of Google's Antigravity CLI. The two version lines
+Plugin 1.2.0 is this package's version number. agy 1.1.15, 1.1.17, 1.1.24,
+and 1.1.27 are versions of Google's Antigravity CLI. The two version lines
 advance independently. A new agy release does not change the plugin version.
 
-Plugin 1.2.0 is tested with agy 1.1.15, 1.1.17, and 1.1.24. See
+Plugin 1.2.0 is tested with agy 1.1.15, 1.1.17, 1.1.24, and 1.1.27. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for behavior that differs
 by agy version. The plugin does not update itself.
 
 ## Why this plugin
 
-- **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it.
-- **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24.
+- **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
+- **Forward `--effort <low|medium|high>` on `task` and `rescue`.** The plugin forwards the flag to agy as `--effort <value>`. It has no default. When the flag is absent, nothing is forwarded.
+- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds. agy's default `--print-timeout 5m0s` no longer ends a longer run first. A `0` budget forwards `24h`.
+- **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
+- **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
 - **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
 - **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
 - **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
 - **Verify releases.** npm provenance and signed tags connect a package to its source commit.
-- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux, Windows, and macOS, with Node 22.3 and Node 24, on every change.
+- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux, Windows, and macOS, with Node 22.3.x and Node 24, on every change.
 
 ## Quick start
 
@@ -140,7 +143,7 @@ For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15, 1.1.17, or 1.1.24 on `PATH`. These versions form the tested matrix.
+- agy 1.1.15, 1.1.17, 1.1.24, or 1.1.27 on `PATH`. These versions form the tested matrix.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy
@@ -210,7 +213,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 1.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu and Windows with Node 22.3 and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 1.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu, Windows, and macOS with Node 22.3.x and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
 
 The package has no runtime dependencies. `devDependencies` holds one entry, `eslint@^10.10.0`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
 

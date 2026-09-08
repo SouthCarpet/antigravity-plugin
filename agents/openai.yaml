@@ -32,9 +32,9 @@ commands:
   - name: review
     description: "Hand the current git diff (or `--base <ref>`) to agy for a structured code review. Foreground by default; pass --background to fork a worker and poll with $antigravity status."
   - name: rescue
-    description: "Delegate an investigation or fix request to agy — e.g. 'why are the tests failing on main'. Foreground by default; --background returns a job id for $antigravity status / result."
+    description: "Delegate an investigation or fix request to agy, for example 'why are the tests failing on main'. Foreground by default; --background returns a job id for $antigravity status / result. Supports --model and --effort <low|medium|high>."
   - name: task
-    description: "Generic long-running task delegation. Background by default; --foreground to inline, --wait to block. Supports --continue / --conversation <id> / --add-dir / --model for follow-up agy conversations."
+    description: "Generic long-running task delegation. Background by default; --foreground to inline, --wait to block. Supports --continue / --conversation <id> / --add-dir / --model / --effort <low|medium|high> for follow-up agy conversations."
   - name: vision
     description: "Ask agy to look at one or more image files (--prompt, --model, --json). Foreground-only; requires setup to have registered the vision MCP server."
   - name: status
