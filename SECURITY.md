@@ -89,11 +89,16 @@ servers.
 ### `vision` (per invocation)
 
 `vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array of the
-absolute paths named on that command, then starts agy. The MCP server:
+absolute paths named on that command, resolved to their realpath, then
+starts agy. The MCP server:
 
 - grants **no** image access when that value is missing or invalid;
-- rejects every path not on the list;
-- rejects symlink/junction resolution to a different file;
+- rejects every path not on the list, checked both as given and by its own
+  realpath — an ancestor directory symlink (macOS's `os.tmpdir()` resolves
+  through `/var` -> `/private/var`) is accepted when the resolved path is
+  itself an authorized entry, never merely because it resolves to something;
+- rejects the requested file itself being a symlink, unconditionally, even
+  when its target is also an authorized entry;
 - accepts only `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, ≤ 10 MiB each.
 
 Reading through a checked file handle closes stat-then-read substitution and

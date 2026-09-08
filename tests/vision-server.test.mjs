@@ -56,7 +56,13 @@ let pngPath;
 const tmpDirs = [];
 
 before(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-'));
+  // Realpath'd up front: on macOS os.tmpdir() sits under /var, a symlink to
+  // /private/var, and scripts/commands/vision.mjs records the allowlist in
+  // its resolved form (084-T4 F3). Every allowlist entry built from tmpDir
+  // below must already be in that same resolved form to exercise the
+  // realistic (production) shape rather than the ancestor-symlink case the
+  // dedicated tests further down cover explicitly.
+  tmpDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-')));
   tmpDirs.push(tmpDir);
   pngPath = path.join(tmpDir, 'probe.png');
   fs.writeFileSync(pngPath, Buffer.from(TINY_PNG_BASE64, 'base64'));
@@ -133,6 +139,43 @@ describe('vision-server.loadImageResult', () => {
     const linkedPath = path.join(linkDir, 'secret.png');
 
     const out = loadImageResult(linkedPath, tmpDir, [linkedPath]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /symlink|junction/);
+  });
+
+  // 084-T4 F3: an ancestor directory symlink (macOS's os.tmpdir() resolving
+  // through /var -> /private/var is the real-world case) must not be
+  // refused merely because it exists, as long as the request's own
+  // realpath is itself the authorized (already-canonical) entry.
+  it('accepts an image reached through an ancestor directory symlink', () => {
+    const realDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-ancestor-real-'));
+    tmpDirs.push(realDir);
+    const realImg = path.join(realDir, 'via-link.png');
+    fs.writeFileSync(realImg, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    const linkDir = path.join(tmpDir, 'ancestor-link');
+    fs.symlinkSync(realDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
+    const viaLink = path.join(linkDir, 'via-link.png');
+    // Mirrors scripts/commands/vision.mjs: the allowlist holds the realpath,
+    // not the symlinked spelling the request below still uses.
+    const canonical = fs.realpathSync.native(viaLink);
+
+    const out = loadImageResult(viaLink, tmpDir, [canonical]);
+    assert.equal(out.isError, undefined, out.content?.[0]?.text);
+    const imagePart = out.content.find((c) => c.type === 'image');
+    assert.ok(imagePart, 'expected an image content block');
+    assert.equal(imagePart.data, TINY_PNG_BASE64);
+  });
+
+  // 084-T4 F3: the final component itself must stay refused even though an
+  // ancestor symlink is now accepted — an authorized NAME must always read
+  // the file that name itself is, not whatever it currently points at.
+  it('refuses an image file that is itself a symlink', () => {
+    const realImg = path.join(tmpDir, 'real-target.png');
+    fs.writeFileSync(realImg, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    const symlinkImg = path.join(tmpDir, 'link-to-real.png');
+    fs.symlinkSync(realImg, symlinkImg, process.platform === 'win32' ? 'file' : undefined);
+
+    const out = loadImageResult(symlinkImg, tmpDir, [symlinkImg]);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /symlink|junction/);
   });
@@ -226,7 +269,9 @@ describe('vision-server.loadImageResult', () => {
 
   // Oracle for the race, cap and descriptor cases: binding brief 076-T2 R1.
   it('refuses a real junction/symlink substitution scheduled after the pre-open stat', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-race-'));
+    // Realpath'd (084-T4 F3): the pre-swap authorization check must see the
+    // allowlist entry and the request agree before the race even starts.
+    const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-race-')));
     tmpDirs.push(dir);
     const allowedDir = path.join(dir, 'allowed');
     const outsideDir = path.join(dir, 'unlisted');
