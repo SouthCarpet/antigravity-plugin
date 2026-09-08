@@ -119,6 +119,46 @@ describe('--add-dir reaches agy argv verbatim and in order', () => {
   });
 });
 
+describe('--print-timeout and --disable-slash-commands reach agy argv on every print-mode path (D1 / D2)', () => {
+  const DEFAULT_BUDGET_ARGV_TAIL = [
+    '--print-timeout', '1860s',
+    '--disable-slash-commands',
+    '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+  ];
+
+  it('rescue (foreground): both flags appear once, before the stream-json tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'read it'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), DEFAULT_BUDGET_ARGV_TAIL);
+  });
+
+  it('task --foreground: both flags appear once, before the stream-json tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['task', 'read it', '--foreground'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), DEFAULT_BUDGET_ARGV_TAIL);
+  });
+
+  it('task (background worker): both flags reach argv the same way', () => {
+    const { work, data } = freshDirs();
+    const env = makeEnv(data);
+    const queued = runVerb(['task', 'read it', '--wait', '--json'], env, work);
+    assert.equal(queued.status, 1, queued.stderr);
+    const { jobId } = JSON.parse(queued.stdout);
+    const stored = runVerb(['result', jobId, '--json'], env, work);
+    const argv = argvOf(JSON.parse(stored.stdout).details.result.stderr);
+    assert.deepEqual(argv, DEFAULT_BUDGET_ARGV_TAIL);
+  });
+
+  it('rescue --conversation <id>: both flags appear after --conversation and before the tail', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'continue it', '--conversation', 'thr_1'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--conversation', 'thr_1', ...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+});
+
 describe('--mode <plan|accept-edits> reaches agy argv; anything else is an ArgsError', () => {
   it('rescue --mode plan lands as `--mode plan` after --add-dir and before the tail', () => {
     const { work, data } = freshDirs();

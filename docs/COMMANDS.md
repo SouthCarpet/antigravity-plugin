@@ -48,6 +48,16 @@ ignored with a warning. Background jobs store this setting at enqueue and
 use the full stored budget when the worker starts agy, excluding queue time.
 Older job records without the setting use 30 minutes.
 
+Every print-mode invocation also forwards agy's own `--print-timeout` as
+`<budget + 60 second headroom>`, rounded up to whole seconds (`1860s` for
+the 30-minute default). Without this, agy's own default `--print-timeout
+5m0s` ends any run over five minutes with `status: ERROR`/`"timeout waiting
+for response"` while the plugin's own budget above is still open. The
+headroom keeps the plugin's own deadline first in line, so agy's timeout is
+only a backstop. A `0` budget ("no deadline") forwards a fixed `24h`
+ceiling instead of `0s` — agy treats a literal `0` as an immediate timeout,
+not as disabled.
+
 When the budget expires, the plugin terminates the agy process tree and
 stores a failed job with `agy did not finish within <ms> ms`. Output above
 16 MiB on stdout or 4 MiB on stderr also terminates the tree and fails with

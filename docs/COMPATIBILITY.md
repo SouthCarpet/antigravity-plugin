@@ -244,6 +244,22 @@ wildcard. `--add-dir` is forwarded verbatim and in order on `rescue` and
 `task`, foreground and background. `vision` does not take it; its images
 travel through the MCP tool with a per-run allowlist.
 
+## Slash and skill command expansion in print mode
+
+Every print-mode invocation (`review`, `rescue`, `task`, `vision`;
+foreground, background, plain, `--continue`, and `--conversation`) forwards
+agy's `--disable-slash-commands` flag. Without it, prompt text starting with
+`/` — including untrusted diff, review, rescue, or task content this plugin
+sends as a plain prompt — is parsed and executed as an agy slash command
+instead of reaching the model as text (measured: `/model\n<rest>` sent as a
+prompt was executed as the `/model` command and failed with `/model takes no
+arguments, got "<rest>"`, exit 2, before this flag was added). This is a
+print-mode parsing switch, not an OS sandbox: it stops slash/skill expansion
+of the prompt this plugin sends, not what a tool agy itself later chooses to
+run mid-conversation. The argv shape (quoted): `... --print-timeout <duration>
+--disable-slash-commands --input-format stream-json --output-format
+stream-json --print ""`.
+
 ## Environment variables
 
 These variables have direct semantics in the shipped code:
