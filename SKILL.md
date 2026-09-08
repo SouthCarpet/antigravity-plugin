@@ -23,7 +23,7 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 |----------|--------------|
 | `setup`  | One-time OAuth wizard. Runs an authenticated `agy --print` probe in the foreground so the user can complete the Google OAuth flow visibly. Idempotent. Also registers the vision MCP server (`--skip-vision` to opt out, `--remove-vision` to undo plugin-owned entries). Foreground-only. |
 | `review` | Reviews the current git diff (or `--base <ref>`). Foreground by default; pass `--background` to fork a worker and get a job id. |
-| `rescue` | Delegates an investigation or fix to agy — e.g. `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. |
+| `rescue` | Delegates an investigation or fix to agy, for example `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. Supports `--model <id>` and `--effort <low|medium|high>`. |
 | `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--model <id>`, `--effort <low|medium|high>`, `--json`. |
 | `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
 | `status` | Shows current and recent jobs for this repository. Surfaces any pending OAuth URL prominently. |

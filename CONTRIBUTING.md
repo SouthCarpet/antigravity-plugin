@@ -4,7 +4,7 @@ Open an issue before you propose a behavior change.
 
 ## Gates
 
-Every pull request runs these five gates on Ubuntu and Windows, with Node 22.3 and Node 24 (the lint gate runs on the Node 24 job only):
+Every pull request runs these five gates on Ubuntu, Windows, and macOS, with Node 22.3.x and Node 24 (the lint gate runs on the Node 24 jobs only):
 
 ```bash
 npm run lint

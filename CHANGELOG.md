@@ -10,70 +10,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Structured denial reporting.** Since agy 1.1.27, a headless run's
-  `denied_actions` JSON list is parsed (validated, deduplicated, and
-  bounded), merged with the existing stderr sentinel, and surfaced with a
-  computed remedy (`--add-dir <dir>` for reads, `--mode accept-edits` for
-  edits, or a plain statement that headless mode cannot grant the action) on
-  every output path: `--json`'s `details.deniedActions` on a completed
-  foreground envelope and `result <id> --json`, and `details.job.deniedActions`
-  on `status <id> --json`; a per-job `deniedActionsCount` in `status`'s job
-  lists; a "## Denied
-  Actions" markdown section on `status <id>` and `result`; and a `Denied`
-  column on the `status` job tables. Older agy without the field still gets
-  its one known denial from the stderr sentinel, unchanged. The fail-vs-warn
-  decision and every exit code are unchanged — this is additive detail.
-- **`--effort <low|medium|high>` on `task` and `rescue`.** Both verbs now
-  accept `--effort` and forward it to agy verbatim as `--effort <value>`,
-  foreground and background, right after `--model` (or in its place when
-  there is no model). No plugin default: when the flag is absent, nothing is
-  forwarded and agy keeps its own choice. The plugin does not probe what agy
-  does with the value beyond forwarding it.
+  `denied_actions` JSON list is parsed. The plugin validates each member,
+  drops exact repeats, and caps the list at 32 members and 200 characters
+  per string. It merges that list with the existing stderr sentinel. The
+  JSON list wins when it is present. Older agy without the field still gets
+  one denial from the stderr sentinel. Each member gets a computed remedy:
+  `--add-dir <dir>` for read-type actions, `--mode accept-edits` for
+  edit-type actions, or `Headless runs cannot grant "<action>"; the host
+  must run this step itself.` for every other action. `--json` sets
+  `details.deniedActions` on a completed foreground envelope and on
+  `result <id> --json`. `--json` sets `details.job.deniedActions` on
+  `status <id> --json`. Job lists carry `deniedActionsCount`. Markdown
+  `status <id>` and `result` add a `## Denied Actions` section. The
+  `status` tables add a `Denied` column. A live 1.1.27 denial of `read_url`
+  (`displayName` `ReadUrlContent`) printed `Headless runs cannot grant
+  "read_url"; the host must run this step itself.` A failed foreground
+  `--json` run still writes no stdout envelope. The fail-vs-warn decision
+  and every exit code stay unchanged.
+- **`--effort <low|medium|high>` on `task` and `rescue`.** Both verbs accept
+  `--effort`. They forward it to agy as `--effort <value>`. This applies in
+  the foreground and in the background. The flag sits right after `--model`,
+  or in its place when there is no model. The plugin has no default. When
+  the flag is absent, nothing is forwarded. Live 1.1.27 runs with
+  `--effort low` and `--effort high` completed. The plugin does not probe
+  what agy does with the value beyond forwarding it.
 
 ### Changed
 
-- **CI matrix.** `macos-latest` joins `ubuntu-latest` and `windows-latest` in
-  the test matrix (Node 22.3.x and 24); the lint gate still runs on the
-  Node 24 jobs only, now on all three operating systems.
+- **CI matrix.** `macos-latest` joins `ubuntu-latest` and `windows-latest`.
+  The test matrix uses Node 22.3.x and Node 24. The lint gate still runs on
+  the Node 24 jobs only. It now runs on all three operating systems.
+  Release-tree CI run 34289858536 on commit `4f9b317` was green on all six
+  cells.
 
 ### Fixed
 
 - **Long runs no longer end at agy's 5-minute default.** Every print-mode
   `agy` invocation (`review`, `rescue`, `task`, `vision`; foreground,
-  background, plain, `--continue`, and `--conversation`) now forwards agy's
-  own `--print-timeout` as `<the plugin's execution budget + 60 second
-  headroom>`, so the plugin's own (usually longer) deadline fires first and
-  agy's default `--print-timeout 5m0s` no longer ends the run early with
-  `status: ERROR`/`"timeout waiting for response"`. A `0` budget ("no
-  deadline") forwards a fixed `24h` ceiling instead of a literal `0`, which
-  agy treats as an immediate timeout, not as disabled.
+  background, plain, `--continue`, and `--conversation`) now forwards
+  `--print-timeout` as the plugin execution budget plus 60 seconds of
+  headroom (`1860s` for the 30-minute default). The plugin deadline fires
+  first. agy's default `--print-timeout 5m0s` no longer ends the run early
+  with `status: ERROR` / `"timeout waiting for response"`. A `0` budget
+  forwards a fixed `24h` ceiling. agy treats a literal `0` as an immediate
+  timeout.
 - **Vision allowlist on macOS.** The vision MCP server refused every image
-  on macOS: `os.tmpdir()` sits under `/var`, a symlink to `/private/var`, so
-  the resolved path never matched the request's own logical spelling.
-  `vision` now records the allowlist in its resolved (realpath) form, and
-  the server accepts a request whose own realpath is itself an authorized
+  on macOS. `os.tmpdir()` sits under `/var`, a symlink to `/private/var`,
+  so the resolved path never matched the request's own logical spelling.
+  `vision` now records the allowlist in its resolved (realpath) form. The
+  server accepts a request whose own realpath is itself an authorized
   entry. The requested file's own final component being a symlink is still
-  refused unconditionally, and the identity checks made while reading an
-  image are unchanged.
-- **Workspace-root canonicalization.** The job state directory is now keyed
-  off the realpath of the workspace root, so a background worker (whose own
-  `process.cwd()` is already the physical path after `chdir`) and a caller
-  holding the logical, symlinked form of the same directory (again, macOS's
-  `os.tmpdir()`) agree on where job state lives. An existing install's jobs,
-  stored under the pre-085 logical-path leaf, stay reachable until that
-  leaf is explicitly moved: a realpath leaf is preferred once it exists, but
-  the logical leaf is still read until then. A background job's worker now
-  receives the parent's exact workspace spelling instead of re-deriving one
-  from its own (already-physical) `process.cwd()`, so a job started through
-  a logical spelling stays under the leaf it was created in rather than
-  splitting into a second, realpath-keyed leaf.
+  refused. The identity checks made while reading an image are unchanged.
+- **Workspace-root canonicalization.** The job state directory is keyed off
+  the realpath of the workspace root. A caller that holds a logical,
+  symlinked spelling of the same directory (macOS `os.tmpdir()`) and a
+  background worker whose `process.cwd()` is already the physical path
+  therefore use the same leaf. An existing install's jobs, stored under the
+  pre-085 logical-path leaf, stay reachable until that leaf is moved. A
+  realpath leaf is preferred once it exists. The logical leaf is still read
+  until then. A background job's worker receives the parent's exact
+  workspace spelling. A job started through a logical spelling stays under
+  the leaf it was created in.
 
 ### Security
 
 - **Slash expansion disabled.** Every print-mode `agy` invocation now
-  forwards `--disable-slash-commands`, so prompt text starting with `/` —
-  including untrusted diff, review, rescue, or task content — reaches the
-  model as plain text instead of being parsed and executed as an agy slash
-  command or skill.
+  forwards `--disable-slash-commands`. Prompt text that starts with `/`,
+  including untrusted diff, review, rescue, or task content, reaches the
+  model as plain text. It is not parsed as an agy slash command or skill.
+  A live 1.1.27 `task` whose prompt began with `/model` completed with
+  answer `OK.`
 
 ## [1.2.0] — 2026-09-06
 
