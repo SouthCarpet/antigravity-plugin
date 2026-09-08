@@ -19,10 +19,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 
 const TMPROOT = portableTmpRoot();
+
+// Mirrors scripts/lib/state.mjs's private slugify()+hashPath(), the same way
+// tests/lib-units.test.mjs does, so a test can predict a state leaf's name
+// without depending on resolveStateDir's own resolution.
+function leafFor(dirPath) {
+  const slug = path.basename(dirPath)
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48);
+  const hash = createHash('sha256').update(dirPath).digest('hex').slice(0, 12);
+  return `${slug}-${hash}`;
+}
 
 const runtime = {
   next: {
@@ -425,6 +438,84 @@ describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () =>
       rendered.includes('agy: token expired, please re-authenticate'),
       'expected the preserved stderr text in the rendered status',
     );
+  });
+});
+
+// 085-T4 F1 fix round 2: the worker must key state with the SAME spelling
+// its parent used, not re-derive one from its own process.cwd() (already the
+// physical path per POSIX getcwd() after a chdir). Without the argv root, a
+// job the parent created (and addressed) through a logical/symlinked
+// spelling would be written by the worker under a different, realpath-keyed
+// leaf — splitting the job's state in two and leaving it stuck `queued`.
+describe('_worker.mjs uses the parent-supplied workspace root spelling (085-T4 F1 fix round 2)', () => {
+  it('a logical-spelling caller and a physical-cwd worker reuse the same (logical) leaf', async (t) => {
+    const linkTarget = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-target-'));
+    const linkParent = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-parent-'));
+    const linkPath = path.join(linkParent, 'workspace-link');
+    try {
+      fs.symlinkSync(linkTarget, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+      t.skip(`symlink/junction creation needs elevated privileges: ${err.message}`);
+      return;
+    }
+
+    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-data-'));
+    const jobId = 'job' + randomBytes(3).toString('hex');
+    const physicalRoot = fs.realpathSync.native(linkTarget);
+    const logicalLeafDir = path.join(dataDir, 'state', leafFor(linkPath));
+    const realpathLeafDir = path.join(dataDir, 'state', leafFor(physicalRoot));
+
+    const origCwd = process.cwd();
+    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    const origArgv = process.argv;
+
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    // The worker's own process.cwd() must already be the PHYSICAL path
+    // (matching a chdir'd POSIX child) regardless of whether this host
+    // resolves a chdir through the junction, so chdir straight into the
+    // real directory rather than through the link.
+    process.chdir(linkTarget);
+
+    let exitMock;
+    try {
+      fs.mkdirSync(logicalLeafDir, { recursive: true });
+      // Pre-create the job under the logical leaf, as the parent (which
+      // addresses the workspace by its symlinked spelling) would via
+      // createTrackedJob/writeJobFile.
+      await upsertJob(linkPath, {
+        id: jobId, kind: 'task', status: 'queued', phase: 'queued',
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      });
+      await writeJobFile(linkPath, jobId, {
+        id: jobId, status: 'queued',
+        request: { prompt: 'hello', mode: 'print', addDirs: [], extraArgs: [] },
+        result: null,
+      });
+
+      let resolveExit;
+      const exited = new Promise((resolve) => { resolveExit = resolve; });
+      exitMock = mock.method(process, 'exit', (code) => { resolveExit(code); });
+      // argv[2] = jobId, argv[3] = the parent's exact (logical) spelling.
+      process.argv = [origArgv[0], origArgv[1], jobId, linkPath];
+
+      await import('../scripts/commands/_worker.mjs?args=' + encodeURIComponent('legacy-' + jobId));
+      await exited;
+
+      const stored = readJobFile(linkPath, jobId);
+      assert.equal(stored.status, 'completed');
+      assert.equal(fs.existsSync(realpathLeafDir), false, 'no realpath-keyed leaf should have been created');
+    } finally {
+      exitMock?.mock.restore();
+      process.chdir(origCwd);
+      process.argv = origArgv;
+      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+      else delete process.env.CLAUDE_PLUGIN_DATA;
+      removeTestDir(linkPath);
+      removeTestDir(linkTarget);
+      removeTestDir(linkParent);
+      removeTestDir(dataDir);
+    }
   });
 });
 

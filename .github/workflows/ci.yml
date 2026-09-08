@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         # mock.module() and --experimental-test-module-mocks landed in Node
         # 22.3.0. This is also the package.json engines.node floor, so the full
         # suite now exercises the oldest supported runtime instead of relying
@@ -44,8 +44,8 @@ jobs:
         run: npm ci
 
       # The lint gate (cyclomatic complexity) runs on the Node 24 jobs only
-      # (both OSes) — it is a code-quality gate, not a per-runtime behaviour
-      # check, so it does not need to run on the Node 22.3 jobs too.
+      # (all three OSes) — it is a code-quality gate, not a per-runtime
+      # behaviour check, so it does not need to run on the Node 22.3 jobs too.
       - name: Lint
         if: matrix.node == '24'
         run: npm run lint

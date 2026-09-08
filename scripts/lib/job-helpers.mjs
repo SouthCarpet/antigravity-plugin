@@ -669,7 +669,8 @@ function deniedActionsDetails(result, kind) {
 
 /**
  * Resolve the absolute OS filesystem path to the background worker script
- * (scripts/commands/_worker.mjs), for spawning via `node <path> <jobId>`.
+ * (scripts/commands/_worker.mjs), for spawning via
+ * `node <path> <jobId> <workspaceRoot>`.
  *
  * Uses `fileURLToPath`, NOT `URL.pathname` — on Windows, `.pathname` yields
  * a POSIX-shaped path (`/A:/projects-vault/...`) that does not exist on
@@ -690,7 +691,7 @@ export function resolveWorkerPath() {
  * given mode. Returns the queued job index entry.
  *
  * The worker script lives at scripts/commands/_worker.mjs and is invoked as
- * `node <worker.mjs> <jobId>`.
+ * `node <worker.mjs> <jobId> <workspaceRoot>`.
  *
  * @param {import('./types.mjs').ProcessRequest & { workspaceRoot: string,
  *   kind: import('./types.mjs').JobKind, title?: string | null,
@@ -737,7 +738,7 @@ export async function startBackgroundJob({
   let child;
   let spawned = false;
   try {
-    child = spawnWorker(process.execPath, [workerPath, job.id], {
+    child = spawnWorker(process.execPath, [workerPath, job.id, workspaceRoot], {
       cwd: workspaceRoot,
       detached: true,
       stdio: ["ignore", "ignore", "ignore"],

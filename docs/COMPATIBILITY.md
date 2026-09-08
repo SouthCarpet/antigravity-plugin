@@ -15,7 +15,7 @@ not change the plugin version.
 | Surface | Supported in 1.x |
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
-| Operating systems | Linux and Windows. Both run the full CI suite. macOS and other Node platforms are best-effort, not part of the compatibility promise. |
+| Operating systems | Linux, Windows, and macOS. All three run the full CI suite; macOS was tested in CI cell `macos-latest` (runner image `macos-26-arm64`, Node 22.3.x and 24, run 34280679647 on 2026-09-08: 802 tests, 789 passed, 13 skipped, 0 failed, on Node 22.3.x). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live table below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
 | Google Antigravity CLI | `agy` 1.1.15, 1.1.17, and 1.1.24. These versions form the tested and supported matrix. Live coverage differs by version as shown below. |
 
@@ -327,7 +327,17 @@ the normal Node fashion but have no plugin-specific compatibility promise.
 
 The workspace is the Git repository root when one can be resolved, otherwise
 the command's working directory. Each workspace gets a leaf named from a
-sanitized directory basename plus a 12-character hash of the resolved path:
+sanitized directory basename plus a 12-character hash of the resolved
+(realpath) path, since this version. A leaf written under the workspace's
+logical, pre-resolution spelling by an older version keeps being used until
+the resolved-path leaf exists, so an existing install's jobs do not become
+invisible when the workspace is reached through a symlink or junction. A
+background job's worker process receives the caller's exact workspace
+spelling and reuses it, so a job started against a logical (symlinked)
+spelling stays under the leaf it was created in rather than splitting across
+two leaves. A caller that addresses the same workspace by a different
+spelling while only the older leaf exists starts a new leaf there instead of
+finding the existing one: use one spelling consistently, or move the leaf.
 
 ```text
 <state-root>/<workspace-slug>-<path-hash>/

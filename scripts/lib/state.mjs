@@ -39,6 +39,15 @@ function hashPath(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
+function leafFor(root) {
+  return `${slugify(path.basename(root))}-${hashPath(root)}`;
+}
+
+/** @param {(string | undefined)[]} candidates @returns {string | undefined} */
+function firstExistingLeaf(candidates) {
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
+}
+
 function defaultState() {
   return {
     version: STATE_VERSION,
@@ -65,33 +74,63 @@ export function resolveStateRoot(env = process.env) {
 }
 
 /**
+ * Canonicalise a workspace root before it becomes a state-directory key.
+ * `fs.realpathSync.native` resolves a symlinked ancestor (macOS's
+ * `os.tmpdir()` sits under `/var`, itself a symlink to `/private/var`) so a
+ * process that received the logical form and one that received the already-
+ * resolved form (a `chdir`'d worker's own `process.cwd()` returns the
+ * physical path per POSIX `getcwd()`) land on the same key. Falls back to
+ * the input unchanged when the path does not exist yet (085-T4).
+ *
+ * @param {string} root
+ * @returns {string}
+ */
+function canonicalWorkspaceRoot(root) {
+  try {
+    return fs.realpathSync.native(root);
+  } catch {
+    return root;
+  }
+}
+
+/**
  * Resolve the state directory for a workspace. `cwd` must already be the
  * resolved workspace root (076-T6 R4) — callers resolve it once via
  * `resolveWorkspaceRoot` and pass it down; this function no longer
- * re-resolves it, so a status snapshot over several stored jobs spawns at
- * most the one `git` call its caller already made, not one per state
- * access.
+ * re-resolves it via git, so a status snapshot over several stored jobs
+ * spawns at most the one `git` call its caller already made, not one per
+ * state access. It does still canonicalise the given root (a cheap syscall,
+ * not a git spawn) so two differently-spelled but identical directories key
+ * to the same state.
  *
  * @param {string} cwd the resolved workspace root
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
 export function resolveStateDir(cwd, env = process.env) {
-  const root = String(cwd);
-  const slug = slugify(path.basename(root));
-  const hash = hashPath(root);
-  const leaf = `${slug}-${hash}`;
+  const logicalRoot = String(cwd);
+  const root = canonicalWorkspaceRoot(logicalRoot);
   const selected = resolveStateRoot(env);
-  const preferred = path.join(selected.root, leaf);
+  const preferred = path.join(selected.root, leafFor(root));
+  if (fs.existsSync(preferred)) return preferred;
+
+  // A workspace reached through a symlink or junction (macOS's os.tmpdir()
+  // resolving through /var -> /private/var, or a user-created link) hashes
+  // to a different leaf than the pre-085 logical spelling did. An existing
+  // 1.x install's jobs stay reachable under that logical leaf until it is
+  // explicitly moved.
+  const logicalLeaf = root !== logicalRoot ? leafFor(logicalRoot) : undefined;
+  const candidates = [logicalLeaf && path.join(selected.root, logicalLeaf)];
 
   // Before Codex/agy host roots were recognized, those hosts wrote to the
   // standalone temp root. Keep using an existing legacy workspace directory
   // until it is explicitly moved, so upgrades do not make old jobs vanish.
   if (selected.source !== "CLAUDE_PLUGIN_DATA" && selected.source !== "standalone-temp") {
-    const legacy = path.join(FALLBACK_STATE_ROOT_DIR, leaf);
-    if (!fs.existsSync(preferred) && fs.existsSync(legacy)) return legacy;
+    candidates.push(path.join(FALLBACK_STATE_ROOT_DIR, leafFor(root)));
+    if (logicalLeaf) candidates.push(path.join(FALLBACK_STATE_ROOT_DIR, logicalLeaf));
   }
-  return preferred;
+
+  return firstExistingLeaf(candidates) ?? preferred;
 }
 
 /** @param {string} cwd the resolved workspace root @returns {string} */

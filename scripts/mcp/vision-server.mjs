@@ -95,20 +95,56 @@ export function loadImageResult(
   const allowed = new Set(
     allowedPaths.map((allowedPath) => canonicalComparePath(pathApi.resolve(cwd, allowedPath), seam)),
   );
-  if (!allowed.has(canonicalComparePath(p, seam))) {
-    return errorContent("ERROR: path is not authorized for this vision invocation");
-  }
 
-  let realPath;
+  let realPath = null;
   try {
     realPath = fsImpl.realpathSync.native(p);
   } catch {
+    // Leave realPath null. A request that never matches the allowlist below
+    // (lexically or via its realpath) is refused as unauthorized without
+    // depending on this failure; one that does match is a real missing file.
+  }
+  const canonicalRealPath = realPath === null ? null : canonicalComparePath(realPath, seam);
+  // An ancestor directory symlink (macOS's os.tmpdir() resolves through
+  // /var -> /private/var) makes the request's own lexical form differ from
+  // an allowlist entry that scripts/commands/vision.mjs already recorded in
+  // its resolved form. Accept that divergence only when the request's own
+  // realpath is itself an authorized entry — never merely because the path
+  // resolves to *something*.
+  const authorized =
+    allowed.has(canonicalComparePath(p, seam)) || (canonicalRealPath !== null && allowed.has(canonicalRealPath));
+  if (!authorized) {
+    return errorContent("ERROR: path is not authorized for this vision invocation");
+  }
+  if (realPath === null) {
     return errorContent("ERROR: file not found");
   }
-  // Compare after realpath: a symlink/junction may look allowed lexically but
-  // resolve elsewhere. Requiring equality rejects that escape before reading.
-  const canonicalPath = canonicalComparePath(realPath, seam);
-  if (canonicalPath !== canonicalComparePath(p, seam)) {
+
+  // The final path component itself must never be a symlink: an authorized
+  // NAME must always read the file that name itself is, not whatever it
+  // currently points at. Reconstruct the request from its own ancestor's
+  // realpath plus the given (literal, unresolved) basename; if that matches
+  // the full realpath above, every difference between `p` and its realpath
+  // came from an ancestor (an ancestor symlink is accepted below, via the
+  // allowlist membership check). If it does not match, the final component
+  // itself is a symlink — refused unconditionally, even to another
+  // authorized entry. (`lstatSync` on `p` cannot answer this directly on
+  // every platform: a junction-bearing ancestor makes a literal lstat on
+  // the full path fail rather than report on the terminal entry.)
+  let finalIsSymlink;
+  try {
+    const ancestorResolvedPath = pathApi.join(
+      fsImpl.realpathSync.native(pathApi.dirname(p)),
+      pathApi.basename(p),
+    );
+    finalIsSymlink = canonicalComparePath(ancestorResolvedPath, seam) !== canonicalRealPath;
+  } catch {
+    finalIsSymlink = true; // Cannot prove the final component is not a symlink; fail closed.
+  }
+  // A symlinked ancestor whose resolved target is NOT itself an authorized
+  // entry (a permitted-looking name that actually escapes elsewhere) is
+  // refused here even though the lexical/ancestor check above let it through.
+  if (finalIsSymlink || !allowed.has(canonicalRealPath)) {
     return errorContent("ERROR: authorized path resolves through a symlink or junction; refusing access");
   }
 
@@ -120,7 +156,7 @@ export function loadImageResult(
     );
   }
 
-  return readCheckedImage(p, realPath, canonicalPath, mimeType, seam);
+  return readCheckedImage(p, realPath, canonicalRealPath, mimeType, seam);
 }
 
 function readCheckedImage(p, realPath, canonicalPath, mimeType, seam) {

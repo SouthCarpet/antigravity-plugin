@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forwarded and agy keeps its own choice. The plugin does not probe what agy
   does with the value beyond forwarding it.
 
+### Changed
+
+- **CI matrix.** `macos-latest` joins `ubuntu-latest` and `windows-latest` in
+  the test matrix (Node 22.3.x and 24); the lint gate still runs on the
+  Node 24 jobs only, now on all three operating systems.
+
 ### Fixed
 
 - **Long runs no longer end at agy's 5-minute default.** Every print-mode
@@ -40,6 +46,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `status: ERROR`/`"timeout waiting for response"`. A `0` budget ("no
   deadline") forwards a fixed `24h` ceiling instead of a literal `0`, which
   agy treats as an immediate timeout, not as disabled.
+- **Vision allowlist on macOS.** The vision MCP server refused every image
+  on macOS: `os.tmpdir()` sits under `/var`, a symlink to `/private/var`, so
+  the resolved path never matched the request's own logical spelling.
+  `vision` now records the allowlist in its resolved (realpath) form, and
+  the server accepts a request whose own realpath is itself an authorized
+  entry. The requested file's own final component being a symlink is still
+  refused unconditionally, and the identity checks made while reading an
+  image are unchanged.
+- **Workspace-root canonicalization.** The job state directory is now keyed
+  off the realpath of the workspace root, so a background worker (whose own
+  `process.cwd()` is already the physical path after `chdir`) and a caller
+  holding the logical, symlinked form of the same directory (again, macOS's
+  `os.tmpdir()`) agree on where job state lives. An existing install's jobs,
+  stored under the pre-085 logical-path leaf, stay reachable until that
+  leaf is explicitly moved: a realpath leaf is preferred once it exists, but
+  the logical leaf is still read until then. A background job's worker now
+  receives the parent's exact workspace spelling instead of re-deriving one
+  from its own (already-physical) `process.cwd()`, so a job started through
+  a logical spelling stays under the leaf it was created in rather than
+  splitting into a second, realpath-keyed leaf.
 
 ### Security
 

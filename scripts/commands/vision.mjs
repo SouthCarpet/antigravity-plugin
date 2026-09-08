@@ -21,7 +21,7 @@
  * FOREGROUND ONLY in this version — no --background/--wait. See vision.md.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
 
 import { readCommandInput } from "../lib/args.mjs";
@@ -114,9 +114,22 @@ export async function run(argv = [], ctx = {}) {
   const model = options.model ? String(options.model) : DEFAULT_MODEL;
   const prompt = buildVisionPrompt({ imagePaths, userPrompt });
   const title = `vision: ${imagePaths.map((p) => basename(p)).join(", ")}`;
+  // Record the allowlist in its resolved (realpath) form: an ancestor
+  // directory symlink (macOS's os.tmpdir() resolves through /var ->
+  // /private/var) would otherwise make the MCP server's own realpath check
+  // on the request disagree with the exact string authorized here.
+  // `imageProblem` above already confirmed each path exists; the fallback
+  // keeps the original path if it somehow vanishes before this runs.
+  const allowlistPaths = imagePaths.map((imagePath) => {
+    try {
+      return realpathSync(imagePath);
+    } catch {
+      return imagePath;
+    }
+  });
   const env = {
     ...process.env,
-    [VISION_ALLOWLIST_ENV]: encodeVisionAllowlist(imagePaths),
+    [VISION_ALLOWLIST_ENV]: encodeVisionAllowlist(allowlistPaths),
   };
 
   const { job, result } = await runForegroundJob({
