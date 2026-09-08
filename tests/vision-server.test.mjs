@@ -166,18 +166,35 @@ describe('vision-server.loadImageResult', () => {
     assert.equal(imagePart.data, TINY_PNG_BASE64);
   });
 
-  // 084-T4 F3: the final component itself must stay refused even though an
-  // ancestor symlink is now accepted — an authorized NAME must always read
-  // the file that name itself is, not whatever it currently points at.
-  it('refuses an image file that is itself a symlink', () => {
+  // 084-T4 F3, pinned 085-T4 F2: the final component itself must stay refused
+  // even though an ancestor symlink is now accepted, and even when its target
+  // is ALSO authorized — an authorized NAME must always read the file that
+  // name itself is, not whatever it currently points at. Authorizing only the
+  // symlink (as an earlier version of this test did) left `!allowed.has(
+  // canonicalRealPath)` alone able to refuse the request, so deleting the
+  // dedicated `finalIsSymlink` guard stayed green; authorizing both pins it.
+  it('refuses an image file that is itself a symlink, even when its target is also authorized', () => {
     const realImg = path.join(tmpDir, 'real-target.png');
     fs.writeFileSync(realImg, Buffer.from(TINY_PNG_BASE64, 'base64'));
     const symlinkImg = path.join(tmpDir, 'link-to-real.png');
     fs.symlinkSync(realImg, symlinkImg, process.platform === 'win32' ? 'file' : undefined);
 
+    const out = loadImageResult(symlinkImg, tmpDir, [symlinkImg, realImg]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /authorized path resolves through a symlink or junction/);
+  });
+
+  // The companion case: an authorized NAME whose realpath is not itself
+  // authorized is refused with the same error, not a different one.
+  it('refuses an authorized name whose realpath is not authorized', () => {
+    const realImg = path.join(tmpDir, 'real-target-2.png');
+    fs.writeFileSync(realImg, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    const symlinkImg = path.join(tmpDir, 'link-to-real-2.png');
+    fs.symlinkSync(realImg, symlinkImg, process.platform === 'win32' ? 'file' : undefined);
+
     const out = loadImageResult(symlinkImg, tmpDir, [symlinkImg]);
     assert.equal(out.isError, true);
-    assert.match(out.content[0].text, /symlink|junction/);
+    assert.match(out.content[0].text, /authorized path resolves through a symlink or junction/);
   });
 
   it('still refuses a real junction after short-name canonicalization', () => {

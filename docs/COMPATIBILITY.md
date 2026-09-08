@@ -294,7 +294,11 @@ the normal Node fashion but have no plugin-specific compatibility promise.
 
 The workspace is the Git repository root when one can be resolved, otherwise
 the command's working directory. Each workspace gets a leaf named from a
-sanitized directory basename plus a 12-character hash of the resolved path:
+sanitized directory basename plus a 12-character hash of the resolved
+(realpath) path, since this version. A leaf written under the workspace's
+logical, pre-resolution spelling by an older version keeps being used until
+the resolved-path leaf exists, so an existing install's jobs do not become
+invisible when the workspace is reached through a symlink or junction:
 
 ```text
 <state-root>/<workspace-slug>-<path-hash>/

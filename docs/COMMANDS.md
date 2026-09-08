@@ -273,8 +273,10 @@ current directory and must name existing regular files.
 - `--model` defaults to `gemini-3.6-flash-high` and is forwarded to agy.
 - Vision is foreground-only. `--background` and `--wait` are not public flags.
 - The MCP server accepts `.png`, `.jpg`, `.jpeg`, `.webp`, and `.gif`, with a
-  10 MiB maximum per source file. It rejects symlink/junction resolution and
-  every path not named by this invocation.
+  10 MiB maximum per source file. A directory symlink among the ancestors is
+  accepted only when the resolved file is itself named by this invocation; a
+  requested file that is itself a symlink or junction is always refused;
+  every path not named by this invocation is refused.
 - `vision` applies the same extension list and the same 10 MiB cap before it
   starts agy, and exits 1 on the first file that breaks either limit, so a
   file the server would refuse costs no tokens.

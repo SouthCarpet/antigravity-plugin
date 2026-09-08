@@ -36,7 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   off the realpath of the workspace root, so a background worker (whose own
   `process.cwd()` is already the physical path after `chdir`) and a caller
   holding the logical, symlinked form of the same directory (again, macOS's
-  `os.tmpdir()`) agree on where job state lives.
+  `os.tmpdir()`) agree on where job state lives. An existing install's jobs,
+  stored under the pre-085 logical-path leaf, stay reachable until that
+  leaf is explicitly moved: a realpath leaf is preferred once it exists, but
+  the logical leaf is still read until then.
 
 ### Security
 

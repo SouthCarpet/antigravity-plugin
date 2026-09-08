@@ -10,6 +10,7 @@ import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -295,6 +296,20 @@ describe('atomic-state', () => {
 
 // ───────────────────────────── state ─────────────────────────────
 
+// Mirrors scripts/lib/state.mjs's private slugify()+hashPath(): a sanitized
+// basename plus a 12-character sha256 hex slice of the given path. Kept in
+// sync deliberately (not exported product code) so a test can predict a
+// state leaf's name without depending on resolveStateDir's own resolution.
+function leafFor(dirPath) {
+  const slug = path.basename(dirPath)
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48);
+  const hash = createHash('sha256').update(dirPath).digest('hex').slice(0, 12);
+  return `${slug}-${hash}`;
+}
+
 describe('state — persistence + reconciliation', () => {
   let tmpData;
   let workCwd;
@@ -343,6 +358,67 @@ describe('state — persistence + reconciliation', () => {
       try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch {}
       try { fs.rmSync(linkTarget, { recursive: true, force: true }); } catch {}
       try { fs.rmSync(linkParent, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  // 085-T4 F1: an existing 1.x install wrote its state leaf under the
+  // logical (pre-canonicalization) spelling of a symlinked workspace. Once
+  // resolveStateDir started hashing the realpath instead, that leaf became
+  // unreachable unless a fallback keeps reading it until the realpath leaf
+  // is created.
+  it('returns a pre-existing logical-keyed leaf when no realpath leaf exists', (t) => {
+    const linkTarget = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-legacy-target-'));
+    const linkParent = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-legacy-parent-'));
+    const linkPath = path.join(linkParent, 'workspace-link');
+    try {
+      fs.symlinkSync(linkTarget, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+      t.skip(`symlink/junction creation needs elevated privileges: ${err.message}`);
+      return;
+    }
+    const logicalLeafDir = path.join(tmpData, 'state', leafFor(linkPath));
+    try {
+      fs.mkdirSync(logicalLeafDir, { recursive: true });
+      assert.equal(resolveStateDir(linkPath), logicalLeafDir);
+    } finally {
+      try { fs.rmSync(logicalLeafDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkTarget, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkParent, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('prefers the realpath leaf over a logical leaf once the realpath leaf exists', (t) => {
+    const linkTarget = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-both-target-'));
+    const linkParent = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-both-parent-'));
+    const linkPath = path.join(linkParent, 'workspace-link');
+    try {
+      fs.symlinkSync(linkTarget, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+      t.skip(`symlink/junction creation needs elevated privileges: ${err.message}`);
+      return;
+    }
+    const logicalLeafDir = path.join(tmpData, 'state', leafFor(linkPath));
+    const realpathLeafDir = path.join(tmpData, 'state', leafFor(fs.realpathSync.native(linkPath)));
+    try {
+      fs.mkdirSync(logicalLeafDir, { recursive: true });
+      fs.mkdirSync(realpathLeafDir, { recursive: true });
+      assert.equal(resolveStateDir(linkPath), realpathLeafDir);
+    } finally {
+      try { fs.rmSync(logicalLeafDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(realpathLeafDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkTarget, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkParent, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('resolves a non-symlinked workspace to a single candidate, unaffected by the legacy-leaf lookup', () => {
+    const plainCwd = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-plain-'));
+    try {
+      assert.equal(resolveStateDir(plainCwd), path.join(tmpData, 'state', leafFor(plainCwd)));
+    } finally {
+      try { fs.rmSync(plainCwd, { recursive: true, force: true }); } catch {}
     }
   });
 
