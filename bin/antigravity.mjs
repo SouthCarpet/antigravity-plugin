@@ -51,6 +51,7 @@ const COMMAND_HELP = {
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
     '  --model <id>            agy model id for this run\n' +
+    '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   task:
@@ -63,6 +64,7 @@ const COMMAND_HELP = {
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
     '  --model <id>            agy model id for this run\n' +
+    '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --json                  emit JSON\n' +
     '  --cwd <path>            override working directory',
   vision:

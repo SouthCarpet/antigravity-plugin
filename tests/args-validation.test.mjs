@@ -165,6 +165,28 @@ describe('parseArgs valueChoices', () => {
   });
 });
 
+// Plan 085 T3: AGY_EFFORTS choices, the same valueChoices mechanism --mode uses.
+describe('parseArgs valueChoices — AGY_EFFORTS', () => {
+  const schema = { valueOptions: ['effort'], valueChoices: { effort: ['low', 'medium', 'high'] } };
+
+  it('accepts each listed value', () => {
+    for (const value of ['low', 'medium', 'high']) {
+      assert.equal(parseArgs(['--effort', value], schema).options.effort, value);
+    }
+  });
+
+  it('throws an ArgsError naming the flag, the value and the choices for anything else', () => {
+    assert.throws(
+      () => parseArgs(['--effort', 'max'], schema),
+      (err) => err instanceof ArgsError && /invalid value for --effort: "max" \(expected low\|medium\|high\)/.test(err.message),
+    );
+  });
+
+  it('leaves an absent option alone', () => {
+    assert.equal(parseArgs([], schema).options.effort, undefined);
+  });
+});
+
 describe('parseArgs conflicting flags', () => {
   const taskSchema = {
     valueOptions: ['conversation', 'cwd', 'add-dir'],

@@ -17,6 +17,7 @@ import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
 import {
+  AGY_EFFORTS,
   AGY_MODES,
   DEFAULT_AGY_TIMEOUT_MS,
   applyDenialHint,
@@ -34,6 +35,32 @@ function unsupportedStoredFlag(extraArgs) {
   if (extraArgs.length === 0) return null;
   if (extraArgs[0] !== "--mode" || !AGY_MODES.includes(extraArgs[1])) return String(extraArgs[0]);
   return extraArgs.length === 2 ? null : String(extraArgs[2]);
+}
+
+/**
+ * Neutralise control characters in a value about to be echoed into an error
+ * message (item 3: the worker's own revalidation failure text).
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function sanitizeEchoedValue(value) {
+  return String(value).replace(/[\x00-\x1f\x7f]/g, "");
+}
+
+/**
+ * Revalidate a stored `request.effort` against {@link AGY_EFFORTS} before
+ * running: a legacy or hand-edited job file is not guaranteed to carry a
+ * value the CLI parser would have accepted. Returns `null` when the field is
+ * absent or valid, else the sanitized value for the failure message.
+ *
+ * @param {unknown} effort
+ * @returns {string | null}
+ */
+function unsupportedStoredEffort(effort) {
+  if (effort === undefined || effort === null || effort === "") return null;
+  if (AGY_EFFORTS.includes(String(effort))) return null;
+  return sanitizeEchoedValue(effort);
 }
 
 /**
@@ -96,12 +123,17 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
     if (flag !== null) {
       throw new Error(`stored request carries an unsupported agy flag: ${flag}`);
     }
+    const badEffort = unsupportedStoredEffort(request.effort);
+    if (badEffort !== null) {
+      throw new Error(`stored request carries an unsupported effort: ${badEffort}`);
+    }
     const result = await runAgyPrint({
       prompt,
       mode: request.mode ?? "print",
       conversationId: request.conversationId,
       addDirs: request.addDirs ?? [],
       model: request.model,
+      effort: request.effort,
       extraArgs,
       cwd: request.cwd ?? workspaceRoot,
       timeoutMs: request.timeoutMs ?? DEFAULT_AGY_TIMEOUT_MS,

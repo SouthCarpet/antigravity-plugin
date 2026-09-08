@@ -16,11 +16,11 @@ alwaysApply: true
 ## Contract (frozen for 1.x, docs/COMPATIBILITY.md and docs/COMMANDS.md)
 - setup [--skip-vision|--remove-vision]
 - review [--base <ref>] [--scope auto|working-tree|branch] [--background] [--wait] [--continue|--conversation <id>] [--json] [--cwd <p>]
-- rescue <prompt...> [--background] [--wait] [--resume|--continue|--fresh] [--conversation <id>] [--add-dir <p>]... [--mode plan|accept-edits] [--model <id>] [--json] [--cwd <p>]
-- task <prompt...> [--background|--foreground] [--wait] [--continue|--conversation <id>] [--add-dir <p>]... [--mode plan|accept-edits] [--model <id>] [--json] [--cwd <p>]
+- rescue <prompt...> [--background] [--wait] [--resume|--continue|--fresh] [--conversation <id>] [--add-dir <p>]... [--mode plan|accept-edits] [--model <id>] [--effort low|medium|high] [--json] [--cwd <p>]
+- task <prompt...> [--background|--foreground] [--wait] [--continue|--conversation <id>] [--add-dir <p>]... [--mode plan|accept-edits] [--model <id>] [--effort low|medium|high] [--json] [--cwd <p>]
 - vision <image>... [--prompt <text>] [--model <id>] [--json] [--cwd <p>] (foreground only; no --add-dir)
 - status [<ref>] [--wait] [--timeout-ms <ms>] [--json] [--cwd <p>]; result [<ref>] [--head <n>] [--tail <n>] [--json] [--cwd <p>]; cancel [<ref>] [--json] [--cwd <p>]
-- New flags/fields are additive only: --model on task/rescue, --head/--tail on result, answerBytes/answerLines on the job index, details.truncated on --json. Never change an existing meaning.
+- New flags/fields are additive only: --model on task/rescue, --effort on task/rescue, --head/--tail on result, answerBytes/answerLines on the job index, details.truncated on --json. Never change an existing meaning.
 - Exit codes are per verb: 0 success or queued, 1 failure, 2 a cancelled agy outcome (and dispatcher misuse), 127 dispatcher AGY_BIN preflight. No global taxonomy.
 - --json stdout is exactly one envelope: { schemaVersion: 1, command, status, jobId, answer, details } plus model and imagePaths on vision. `answer` is opaque model text; `details` is unstable except documented additive fields.
 - State: <state-root>/<slug>-<hash>/state.json and jobs/<id>.json|.log; root from CLAUDE_PLUGIN_DATA, CODEX_PLUGIN_DATA, AGY_PLUGIN_DATA, else os.tmpdir()/antigravity.

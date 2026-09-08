@@ -173,7 +173,7 @@ rescue <prompt...>
        [--background] [--wait]
        [--resume] [--continue] [--fresh] [--conversation <id>]
        [--add-dir <path>]... [--mode <plan|accept-edits>]
-       [--model <id>] [--json] [--cwd <path>]
+       [--model <id>] [--effort <low|medium|high>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -202,6 +202,11 @@ task text as one argument to preserve its boundaries.
   and agy is not started.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy exactly as `vision`'s `--model` already was.
+- `--effort <low|medium|high>` (additive) selects agy's reasoning effort for
+  this run, forwarded verbatim as `--effort <value>`. No plugin default:
+  when absent, nothing is forwarded and agy keeps its own choice. Any other
+  value is an argument error (exit 1) and agy is not started. The plugin
+  does not probe what agy does with the value beyond forwarding it.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
   foreground and `--wait` has no additional effect.
@@ -219,7 +224,7 @@ task <prompt...>
      [--background | --foreground] [--wait]
      [--continue | --conversation <id>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
-     [--model <id>] [--json] [--cwd <path>]
+     [--model <id>] [--effort <low|medium|high>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -243,6 +248,9 @@ required unless `--continue` or `--conversation` is supplied.
   `rescue`. Any other value is an argument error.
 - `--model <id>` (additive) is forwarded to agy on both paths, as under
   `rescue` and `vision`.
+- `--effort <low|medium|high>` (additive) is forwarded to agy on both paths,
+  as under `rescue`: verbatim as `--effort <value>`, no plugin default, any
+  other value is an argument error.
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
