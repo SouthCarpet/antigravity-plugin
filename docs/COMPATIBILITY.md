@@ -220,6 +220,39 @@ is not stable, and the sentinel is not a distinct exit status.
 it cannot prompt for is auto-denied and the run still reports success; the
 plugin turns an auto-denial that starved the answer into a failure and keeps
 one that did not as a warning (stderr, and `details.warnings` in `--json`).
+This fail-vs-warn decision, and every exit code, are unchanged by the
+structured reporting below — the new data only adds detail.
+
+Since agy 1.1.27, a denied run's JSON result also carries a structured
+`denied_actions` list (`[{ "action": "read_url", "display_name":
+"ReadUrlContent" }]`, measured on 1.1.27), in addition to the stderr
+sentinel agy has always printed. The plugin parses that list (skipping a
+malformed member, deduplicating exact repeats, capping at 32 members and 200
+characters per string, stripping control characters), merges it with the
+stderr sentinel (the JSON list wins when present; the sentinel supplies one
+entry only when an older agy has no `denied_actions` field at all), and
+surfaces the merged `deniedActions` list, each with a computed remedy, on
+every output path:
+
+- `--json`: `details.deniedActions` (an array of `{ action, displayName,
+  remedy }`) on a completed foreground envelope, on `status <id> --json`,
+  and on `result <id> --json`; a per-job `deniedActionsCount` on every job
+  entry in `status --json`'s job lists.
+- Markdown: one line per denied action with its remedy, in the single-job
+  `status <id>` view, in the foreground failure/warning text, and appended
+  to `result` when the stored result carries denials; the `status` job
+  tables gain a trailing `Denied` column (a count, or `-`).
+
+The remedy is table-driven by action, not derived from the action's name:
+a read-type action (`read_file` and similar) names `--add-dir <dir>`; an
+edit-type action (`write_to_file` and similar) names `--mode accept-edits`;
+everything else (`read_url`, command execution, MCP tools) states plainly
+that headless mode cannot grant that action and the host must run the step
+itself. `vision` always gets its own fixed hint (`view_image`, never
+`--add-dir`) regardless of which action was denied. No remedy ever suggests
+`--dangerously-skip-permissions` or implies a retry. A job record from
+before this field existed has no `deniedActions` at all — absent, not an
+empty array — and stays a valid, readable record.
 
 The way to give a headless `rescue` or `task` run read access to files is
 `--add-dir <dir>` on the invocation. It is not an allow rule in

@@ -366,6 +366,14 @@ answer) and `answerLines` (line count; a trailing newline does not add a
 line), set once the job reaches a terminal state. These fields are additive
 and `null`/absent on legacy records.
 
+A job with one or more headless denials (agy >= 1.1.20; see [headless read
+access](./COMPATIBILITY.md#headless-read-access)) carries a `Denied` column
+in both status tables (a count, or `-`), and `--json` carries a per-job
+`deniedActionsCount` on every job in a list. `status <id>` (single job) adds
+a "## Denied Actions" markdown section, one line per action with its remedy,
+and `--json`'s `details.job.deniedActions` carries the same list as
+`{ action, displayName, remedy }`. Absent on a clean run or a legacy record.
+
 ## `result`
 
 ```text
@@ -394,6 +402,13 @@ If measured usage was stored, the stable usage trailer is written to stderr.
 Exit status is 0 for a completed job, 1 for a failed, active, missing, or
 unreadable job, and 2 for a cancelled job. A failed or cancelled job can still
 produce a result payload before its nonzero exit.
+
+When the stored result carries one or more headless denials, the markdown
+output ends with a "## Denied Actions" section, one line per action with its
+remedy, and `--json` sets `details.deniedActions` to the same list as
+`{ action, displayName, remedy }`. This is appended after the answer text and
+is never folded into the opaque `answer` field. Absent when the run had no
+denial.
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is

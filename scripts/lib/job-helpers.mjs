@@ -190,8 +190,30 @@ export function currentSessionId(env = process.env) {
 }
 
 /**
- * The per-verb remedy for a headless auto-denial that starved the answer
- * (`result.denial` set and `status: failed`, see agent-runtime.mjs).
+ * agy tool ids where `--add-dir <dir>` grants read access, bounded to that
+ * directory, read-only, for the run (agy 1.1.24, measured: `read_file` and
+ * similar). Table-driven (item 3): a remedy is never derived by matching an
+ * action id against a naming pattern.
+ */
+const READ_GRANTABLE_ACTIONS = new Set([
+  "read_file", "list_dir", "find_by_name", "grep_search", "view_file", "read_resource",
+]);
+
+/** agy tool ids where `--mode accept-edits` grants file edits inside the
+ * workspace for the run. */
+const EDIT_GRANTABLE_ACTIONS = new Set([
+  "write_to_file", "replace_file_content", "multi_replace_file_content", "sed_file", "notebook_edit",
+]);
+
+/** `vision` never plumbs `--add-dir` on purpose: `read_file` on an image
+ * yields bytes, not pixels, so the fix is always the MCP `view_image` tool,
+ * independent of which action was actually denied. */
+const VISION_DENIAL_REMEDY =
+  "vision: the runtime must use the `view_image` MCP tool, not `read_file`.";
+
+/**
+ * One short sentence naming the remedy for a headless denial of `action` on
+ * a `verb` job (item 3: table-driven, no regex on free text).
  *
  * This lives here, not in agent-runtime, because the runtime is the
  * verb-agnostic spawn chokepoint and this module is already the one place
@@ -199,28 +221,59 @@ export function currentSessionId(env = process.env) {
  * `recommendedAction`); every verb path, foreground or worker, passes
  * through it with the job `kind` in hand.
  *
- * `--add-dir <dir>` is the only headless read grant that works on agy
- * 1.1.24 (bounded to that directory, read-only, per run); `vision` does not
- * plumb it on purpose, because `read_file` on an image yields bytes, not
- * pixels.
+ * `vision` always gets its fixed hint regardless of `action` (see
+ * {@link VISION_DENIAL_REMEDY}). For every other verb: a read-type action
+ * (`read_file` and similar) gets `--add-dir <dir>` — the only headless read
+ * grant that works on agy 1.1.24, bounded to that directory, read-only, per
+ * run; an edit-type action gets `--mode accept-edits`; everything else
+ * (`read_url`, command execution, MCP tools — no in-plugin grant exists for
+ * these) gets a plain statement naming the action and pointing at the
+ * host's own documented options. Never suggests
+ * `--dangerously-skip-permissions` and never implies a retry.
  *
- * @param {string} kind job kind (`rescue`, `task`, `vision`, `review`)
- * @returns {string | null}
+ * @param {string} action agy tool id (e.g. "read_file", "read_url")
+ * @param {string} verb job kind (`rescue`, `task`, `vision`, `review`)
+ * @returns {string}
  */
-export function headlessDenialHint(kind) {
-  if (kind === "vision") {
-    return "vision: the runtime must use the `view_image` MCP tool, not `read_file`.";
+export function denialRemedy(action, verb) {
+  if (verb === "vision") return VISION_DENIAL_REMEDY;
+  if (READ_GRANTABLE_ACTIONS.has(action)) {
+    return "Pass --add-dir <dir> to grant read access to that directory for this run.";
   }
-  if (kind === "rescue" || kind === "task") {
-    return `${kind}: pass --add-dir <dir> to grant read access to that directory for this run.`;
+  if (EDIT_GRANTABLE_ACTIONS.has(action)) {
+    return "Pass --mode accept-edits to grant file edits inside the workspace for this run.";
   }
-  return null;
+  return `Headless runs cannot grant "${action}"; the host must run this step itself.`;
 }
 
 /**
- * Fold the per-verb hint into a starved-by-denial result so every reader of
- * `result.stderr` (the verb's failure print, the stored `errorMessage`)
- * sees the remedy next to the reason. Returns the same object.
+ * Project a raw `deniedActions` list (`{ action, displayName, source }`,
+ * see agent-runtime.mjs#mergeDeniedActions) into the `{ action, displayName,
+ * remedy }` shape every output path renders (item 4), using
+ * {@link denialRemedy} with the job's own `kind`. `null` when there is
+ * nothing to project, so a caller can skip an empty `details` key the same
+ * way `warningDetails` does.
+ *
+ * @param {import('./types.mjs').DeniedAction[] | null | undefined} deniedActions
+ * @param {string} kind job kind (`rescue`, `task`, `vision`, `review`)
+ * @returns {import('./types.mjs').DeniedActionWithRemedy[] | null}
+ */
+export function deniedActionsWithRemedy(deniedActions, kind) {
+  if (!Array.isArray(deniedActions) || deniedActions.length === 0) return null;
+  return deniedActions.map(({ action, displayName }) => ({
+    action,
+    displayName: displayName ?? null,
+    remedy: denialRemedy(action, kind),
+  }));
+}
+
+/**
+ * Fold one remedy line per denied action into a starved-by-denial result so
+ * every reader of `result.stderr` (the verb's failure print, the stored
+ * `errorMessage`) sees the remedy next to the reason. Falls back to
+ * `result.denial.tool` alone when `result.deniedActions` is absent (a test
+ * double, or a `RuntimeResult` built before this field existed). Returns
+ * the same object.
  *
  * @param {import('./types.mjs').RuntimeResult} result
  * @param {string} kind job kind
@@ -228,9 +281,31 @@ export function headlessDenialHint(kind) {
  */
 export function applyDenialHint(result, kind) {
   if (result?.status !== "failed" || !result.denial) return result;
-  const hint = headlessDenialHint(kind);
-  if (hint) result.stderr = `${result.stderr ?? ""}\nagent-runtime: ${hint}`;
+  const actions = Array.isArray(result.deniedActions) && result.deniedActions.length
+    ? result.deniedActions
+    : [{ action: result.denial.tool }];
+  for (const { action } of actions) {
+    result.stderr = `${result.stderr ?? ""}\nagent-runtime: ${denialRemedy(action, kind)}`;
+  }
   return result;
+}
+
+/**
+ * Echo one remedy line per denied action to stderr on a completed run that
+ * still carries denials (item 4's foreground "warning text"):
+ * `reportWarnings` already echoes agy's own denial line(s) verbatim; this
+ * adds the plugin's own remedy underneath, one per action.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {void}
+ */
+export function reportDeniedActionHints(kind, result) {
+  const list = deniedActionsWithRemedy(result?.deniedActions, kind);
+  if (!list) return;
+  for (const { action, remedy } of list) {
+    process.stderr.write(`antigravity:${kind} — denied "${action}": ${remedy}\n`);
+  }
 }
 
 /**
@@ -276,7 +351,7 @@ export function deriveJobStatus(result, kind) {
           healthStatus: "failed",
           healthMessage:
             `agy auto-denied the "${result.denial.tool}" tool (headless mode cannot prompt) and produced no output.`,
-          recommendedAction: headlessDenialHint(kind),
+          recommendedAction: denialRemedy(result.denial.tool, kind),
         };
       }
       return {
@@ -448,7 +523,32 @@ export async function runForegroundJob({
   applyDenialHint(result, kind);
   const derived = deriveJobStatus(result, kind);
   const { answerBytes, answerLines } = deriveAnswerSize(result.stdout);
-  await patchJob(workspaceRoot, job.id, {
+  await patchJob(
+    workspaceRoot,
+    job.id,
+    buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answerLines }),
+  );
+  appendJobLog(
+    workspaceRoot,
+    job.id,
+    `[job] ${derived.status} exit=${result.exitCode} status=${result.status}`,
+  );
+  return { job: { ...job, status: derived.status }, result };
+}
+
+/**
+ * The terminal `patchJob` payload `runForegroundJob` writes once a run
+ * settles: every field is a plain default or projection off `result`/
+ * `derived`, with no control flow of its own worth inlining at the call
+ * site. Split out so `runForegroundJob` itself stays under the complexity
+ * ceiling (each `??`/ternary here is one branch).
+ *
+ * @param {{ result: import('./types.mjs').RuntimeResult, derived: ReturnType<typeof deriveJobStatus>,
+ *   completedAt: string, answerBytes: number | null, answerLines: number | null }} args
+ * @returns {Partial<import('./types.mjs').JobRecord>}
+ */
+function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answerLines }) {
+  return {
     status: derived.status,
     phase: derived.status,
     completedAt,
@@ -461,14 +561,10 @@ export async function runForegroundJob({
     recommendedAction: derived.recommendedAction ?? null,
     answerBytes,
     answerLines,
+    deniedActions: result.deniedActions ?? null,
+    deniedActionsCount: Array.isArray(result.deniedActions) ? result.deniedActions.length : 0,
     result: buildStoredResult(result),
-  });
-  appendJobLog(
-    workspaceRoot,
-    job.id,
-    `[job] ${derived.status} exit=${result.exitCode} status=${result.status}`,
-  );
-  return { job: { ...job, status: derived.status }, result };
+  };
 }
 
 /**
@@ -492,6 +588,7 @@ export function buildStoredResult(result) {
     durationSeconds: result.durationSeconds ?? null,
     agyConversationId: result.agyConversationId ?? null,
     warnings: result.warnings ?? [],
+    deniedActions: result.deniedActions ?? null,
   };
 }
 
@@ -532,6 +629,7 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
   }
 
   reportWarnings(kind, result);
+  reportDeniedActionHints(kind, result);
   beforeAnswer?.();
   outputCommandResult(
     createJsonEnvelope(kind, {
@@ -539,12 +637,27 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
       jobId: job.id,
       answer: result.stdout,
       ...extraFields,
-      details: { ...extraDetails, ...warningDetails(result) },
+      details: { ...extraDetails, ...deniedActionsDetails(result, kind), ...warningDetails(result) },
     }),
     result.stdout,
     Boolean(json),
   );
   return 0;
+}
+
+/**
+ * `{ deniedActions: [...] }` when `result` carries any, else `{}` — the same
+ * "absent key on a clean run" shape `warningDetails` uses, for the
+ * `{ action, displayName, remedy }` projection under `--json`'s
+ * `details.deniedActions` (item 4).
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {string} kind
+ * @returns {{ deniedActions?: import('./types.mjs').DeniedActionWithRemedy[] }}
+ */
+function deniedActionsDetails(result, kind) {
+  const list = deniedActionsWithRemedy(result.deniedActions, kind);
+  return list ? { deniedActions: list } : {};
 }
 
 /**

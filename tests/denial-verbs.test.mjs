@@ -37,7 +37,7 @@ const BIN = path.join(REPO_ROOT, 'bin', 'antigravity.mjs');
 const DENIAL_LINE =
   'jetski: no output produced — a tool required the "read_file" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_file(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
 
-function resultLine(response) {
+function resultLine(response, extra = {}) {
   return JSON.stringify({
     event: 'result',
     result: {
@@ -47,13 +47,22 @@ function resultLine(response) {
       duration_seconds: 1.2,
       num_turns: 1,
       usage: { input_tokens: 50, output_tokens: 5, total_tokens: 55 },
+      ...extra,
     },
   });
 }
 
+// Verbatim shape from the t0a fixture (agy 1.1.27, plan 085): the JSON list
+// and the unchanged stderr sentinel arrive together on a real denied run.
+const READ_URL_MEMBER = { action: 'read_url', display_name: 'ReadUrlContent' };
+const DENIAL_LINE_READ_URL =
+  'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied.';
+
 let stubDir;
 let starvedAgy;
 let answeredAgy;
+let starvedStructuredAgy;
+let answeredStructuredAgy;
 
 before(() => {
   stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-denial-e2e-'));
@@ -64,6 +73,16 @@ before(() => {
   answeredAgy = writeFakeAgy(stubDir, 'agy-answered', {
     stdout: resultLine('Answer without the file.') + '\n',
     stderr: DENIAL_LINE + '\n',
+  });
+  // Plan 085 T2: the structured JSON list travels alongside the stderr
+  // sentinel, matching the t0a fixture exactly.
+  starvedStructuredAgy = writeFakeAgy(stubDir, 'agy-starved-structured', {
+    stdout: resultLine('', { denied_actions: [READ_URL_MEMBER] }) + '\n',
+    stderr: DENIAL_LINE_READ_URL + '\n',
+  });
+  answeredStructuredAgy = writeFakeAgy(stubDir, 'agy-answered-structured', {
+    stdout: resultLine('Answer without the URL.', { denied_actions: [READ_URL_MEMBER] }) + '\n',
+    stderr: DENIAL_LINE_READ_URL + '\n',
   });
 });
 
@@ -163,5 +182,41 @@ describe('answered run (non-empty response + denial) completes with a warning', 
     assert.equal(res.status, 0, res.stderr);
     const payload = JSON.parse(res.stdout);
     assert.equal(Object.hasOwn(payload.details, 'warnings'), false);
+  });
+});
+
+// Plan 085 T2: end-to-end coverage for agy 1.1.27's structured denied_actions
+// list, verbatim-shaped like the t0a fixture (both the JSON list and the
+// unchanged stderr sentinel present together).
+const DENIED_READ_URL = /auto-denied[\s\S]*"read_url"|"read_url"[\s\S]*auto-denied/;
+
+describe('structured denial (agy 1.1.27 denied_actions) — starved run', () => {
+  it('task --foreground: exit 1, names read_url, and the remedy line for a non-grantable action', () => {
+    const res = runVerb(starvedStructuredAgy, ['task', 'read a url', '--foreground']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, DENIED_READ_URL);
+    assert.match(res.stderr, /cannot grant "read_url"/);
+    assert.doesNotMatch(res.stderr, /--add-dir/);
+    assert.equal(res.stdout, '');
+  });
+});
+
+describe('structured denial (agy 1.1.27 denied_actions) — answered run', () => {
+  it('task --foreground --json: details.deniedActions carries the remedy, count 1', () => {
+    const res = runVerb(answeredStructuredAgy, ['task', 'summarize', '--foreground', '--json']);
+    assert.equal(res.status, 0, res.stderr);
+    const payload = JSON.parse(res.stdout);
+    assert.equal(payload.status, 'completed');
+    assert.deepEqual(payload.details.deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
+    ]);
+  });
+
+  it('rescue: the remedy is also echoed to stderr beside agy\'s own denial line', () => {
+    const res = runVerb(answeredStructuredAgy, ['rescue', 'summarize']);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.stderr, DENIED_READ_URL);
+    assert.match(res.stderr, /denied "read_url"/);
+    assert.match(res.stderr, /cannot grant "read_url"/);
   });
 });

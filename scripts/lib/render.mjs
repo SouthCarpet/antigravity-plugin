@@ -114,6 +114,41 @@ function formatAnswerSize(job) {
 }
 
 /**
+ * A short marker for the status table (plan 085 T2 item 4): the denied-
+ * action count, or `-` when none/absent (legacy records, a clean run).
+ * Always a plain non-negative integer or a literal dash, so no table-cell
+ * escaping applies here (contrast `summaryForTableCell`).
+ *
+ * @param {{ deniedActionsCount?: number, deniedActions?: unknown[] | null }} job
+ * @returns {string}
+ */
+function formatDeniedMarker(job) {
+  const count = typeof job.deniedActionsCount === "number"
+    ? job.deniedActionsCount
+    : Array.isArray(job.deniedActions) ? job.deniedActions.length : 0;
+  return count > 0 ? String(count) : "-";
+}
+
+/**
+ * Markdown lines for a denied-actions list already carrying `remedy`
+ * (`job-helpers.mjs#deniedActionsWithRemedy`): one line per action under a
+ * "## Denied Actions" heading, used by the single-job status view and by
+ * `result` (plan 085 T2 item 4). Empty when there is nothing to show.
+ *
+ * @param {import('./types.mjs').DeniedActionWithRemedy[] | null | undefined} list
+ * @returns {string[]}
+ */
+export function renderDeniedActionLines(list) {
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const lines = ["", "## Denied Actions", ""];
+  for (const { action, displayName, remedy } of list) {
+    const label = displayName ? `${action} (${displayName})` : action;
+    lines.push(`- **${label}**: ${remedy}`);
+  }
+  return lines;
+}
+
+/**
  * Render a status snapshot as markdown.
  *
  * @param {{ workspaceRoot: string, config: object,
@@ -135,12 +170,12 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.running.length > 0) {
     lines.push("## Active Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Phase | Health | Last Progress | Elapsed | Summary |");
-    lines.push("|--------|------|--------|-------|--------|---------------|---------|---------|");
+    lines.push("| Job ID | Kind | Status | Phase | Health | Last Progress | Elapsed | Summary | Denied |");
+    lines.push("|--------|------|--------|-------|--------|---------------|---------|---------|--------|");
     for (const job of snapshot.running) {
       const elapsed = computeElapsedDisplay(job);
       lines.push(
-        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${job.healthStatus ?? "-"} | ${job.lastProgressAt ?? "-"} | ${elapsed} | ${summaryForTableCell(job.summary)} |`
+        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${job.healthStatus ?? "-"} | ${job.lastProgressAt ?? "-"} | ${elapsed} | ${summaryForTableCell(job.summary)} | ${formatDeniedMarker(job)} |`
       );
     }
     lines.push("");
@@ -150,12 +185,12 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.recent.length > 0) {
     lines.push("## Recent Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Duration | Size | Summary | Follow-up |");
-    lines.push("|--------|------|--------|----------|------|---------|-----------|");
+    lines.push("| Job ID | Kind | Status | Duration | Size | Summary | Follow-up | Denied |");
+    lines.push("|--------|------|--------|----------|------|---------|-----------|--------|");
     for (const job of snapshot.recent) {
       const duration = computeElapsedDisplay(job);
       const followUp = job.status === "completed" ? `/antigravity:result ${job.id}` : "-";
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} | ${summaryForTableCell(job.summary)} | ${followUp} |`);
+      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} | ${summaryForTableCell(job.summary)} | ${followUp} | ${formatDeniedMarker(job)} |`);
     }
     lines.push("");
   }
@@ -272,6 +307,12 @@ export function renderSingleJobStatus(snapshotOrJob, _options = {}) {
     ...renderJobHealthLines(job),
     ...renderJobRuntimeLines(job),
     ...renderJobErrorLines(job),
+    // `job.deniedActions` here is expected to already carry `remedy`
+    // (status.mjs attaches it via job-helpers.mjs#deniedActionsWithRemedy
+    // before calling this renderer) — a raw source/no-remedy list renders
+    // `remedy: undefined` as the literal string "undefined", which is the
+    // caller's contract to uphold, not this pure formatter's job to guess.
+    ...renderDeniedActionLines(job.deniedActions),
     ...renderJobRecentProgressLines(job),
   ];
   return `${lines.join("\n").trimEnd()}\n`;

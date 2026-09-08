@@ -47,6 +47,31 @@
  */
 
 /**
+ * One headless denial (plan 085 T2), from either agy 1.1.27's structured
+ * `result.denied_actions` JSON list or the stderr auto-denial sentinel
+ * (`agent-runtime.mjs#mergeDeniedActions`). `source` names which one
+ * produced it. `displayName` is `null` when the source did not carry one
+ * (always for `source: "stderr"`).
+ *
+ * @typedef {object} DeniedAction
+ * @property {string} action agy tool id (e.g. "read_file", "read_url")
+ * @property {string | null} displayName
+ * @property {'json' | 'stderr'} source
+ */
+
+/**
+ * A {@link DeniedAction} projected with its remedy
+ * (`job-helpers.mjs#deniedActionsWithRemedy`) — the shape every output path
+ * (foreground envelope, single-job status/result `--json`, and their
+ * markdown) renders under `deniedActions`.
+ *
+ * @typedef {object} DeniedActionWithRemedy
+ * @property {string} action
+ * @property {string | null} displayName
+ * @property {string} remedy
+ */
+
+/**
  * The request payload persisted alongside a job (`state.mjs`'s per-job
  * `.json` file, `request` field) so a background worker can replay it.
  *
@@ -78,6 +103,8 @@
  * @property {number | null} durationSeconds
  * @property {string | null} agyConversationId
  * @property {string[]} warnings
+ * @property {DeniedAction[] | null} [deniedActions] additive (plan 085 T2);
+ *   `null`/absent on legacy records and on a run with no denial
  */
 
 /**
@@ -115,6 +142,12 @@
  * @property {number | null} [answerLines] line count of the stored answer, a
  *   trailing newline does not add a line (076-T7 R1); additive, `null` on
  *   legacy records
+ * @property {DeniedAction[] | null} [deniedActions] raw (no remedy) headless
+ *   denials from the terminal run, set at job finish (plan 085 T2);
+ *   additive, `null`/absent on legacy records and a run with no denial
+ * @property {number} [deniedActionsCount] `deniedActions?.length ?? 0`, set
+ *   at job finish so a status list can show a marker without the full array
+ *   (plan 085 T2); additive, absent on legacy records
  */
 
 /**
@@ -143,6 +176,8 @@
  * @property {string | null} agyConversationId
  * @property {string[]} warnings
  * @property {{ tool: string, line: string } | null} [denial]
+ * @property {DeniedAction[] | null} [deniedActions] additive (plan 085 T2);
+ *   see `agent-runtime.mjs#mergeDeniedActions`
  * @property {string | null} [spawnError]
  */
 

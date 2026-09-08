@@ -16,9 +16,9 @@
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { mergeJobDetail, resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile, validateJobRecord } from "../lib/state.mjs";
-import { createJsonEnvelope, outputCommandResult, renderResultOutput } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines } from "../lib/render.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
-import { exitCodeForJobStatus } from "../lib/job-helpers.mjs";
+import { exitCodeForJobStatus, deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -174,6 +174,14 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
   const renderedOut = cut.truncated
     ? `${cut.text}${cut.text.endsWith("\n") ? "" : "\n"}(showing ${cut.shown} of ${cut.total} lines; full answer stored)\n`
     : rendered;
+  // Plan 085 T2 item 4: when the stored result carries denials, one markdown
+  // line per action with its remedy is appended after the answer text (never
+  // folded into the opaque `answer`/`rendered` text above), plus the same
+  // `{ action, displayName, remedy }` list under `details.deniedActions`.
+  const deniedList = deniedActionsWithRemedy(stored?.result?.deniedActions, job.kind);
+  const finalRendered = deniedList
+    ? `${renderedOut}${renderDeniedActionLines(deniedList).join("\n")}\n`
+    : renderedOut;
   const payload = createJsonEnvelope("result", {
     status: job.status,
     jobId: job.id,
@@ -181,9 +189,10 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
     details: {
       ...buildResultDetails(job, stored, cut),
       ...(cut.truncated ? { truncated: true } : {}),
+      ...(deniedList ? { deniedActions: deniedList } : {}),
     },
   });
-  return { rendered: renderedOut, payload };
+  return { rendered: finalRendered, payload };
 }
 
 /**

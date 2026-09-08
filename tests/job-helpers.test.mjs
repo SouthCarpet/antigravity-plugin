@@ -61,6 +61,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
 const {
   runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId,
   resolveWorkerPath, agyTimeoutMs, waitOutcomeLine, finishForeground,
+  denialRemedy, deniedActionsWithRemedy, applyDenialHint, buildStoredResult,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
@@ -557,4 +558,177 @@ describe('foreground runtime bounds integration', () => {
       assert.equal(result.status, 0, result.stderr);
     });
   }
+});
+
+// Plan 085 T2: the remedy table, its projection with remedy attached, the
+// starved-run stderr fold, the stored-result field, and the persisted
+// top-level job fields.
+describe('denialRemedy — remedy table per action class', () => {
+  it('a read-type action names --add-dir', () => {
+    for (const action of ['read_file', 'list_dir', 'find_by_name', 'grep_search', 'view_file', 'read_resource']) {
+      assert.match(denialRemedy(action, 'rescue'), /--add-dir <dir>/);
+    }
+  });
+
+  it('an edit-type action names --mode accept-edits', () => {
+    for (const action of ['write_to_file', 'replace_file_content', 'multi_replace_file_content', 'sed_file', 'notebook_edit']) {
+      assert.match(denialRemedy(action, 'task'), /--mode accept-edits/);
+    }
+  });
+
+  it('everything else (read_url, command execution, MCP tools) names the action and offers no grant', () => {
+    for (const action of ['read_url', 'run_command', 'command_status', 'call_mcp_tool']) {
+      const remedy = denialRemedy(action, 'task');
+      assert.match(remedy, new RegExp(`"${action}"`));
+      assert.match(remedy, /cannot grant/);
+      assert.doesNotMatch(remedy, /--add-dir/);
+      assert.doesNotMatch(remedy, /--mode/);
+    }
+  });
+
+  it('never suggests --dangerously-skip-permissions', () => {
+    for (const action of ['read_file', 'write_to_file', 'read_url']) {
+      assert.doesNotMatch(denialRemedy(action, 'task'), /dangerously-skip-permissions/);
+    }
+  });
+
+  it('vision always gets its fixed hint, regardless of action, and never --add-dir', () => {
+    for (const action of ['read_file', 'read_url', 'write_to_file']) {
+      const remedy = denialRemedy(action, 'vision');
+      assert.match(remedy, /view_image/);
+      assert.doesNotMatch(remedy, /--add-dir/);
+    }
+  });
+});
+
+describe('deniedActionsWithRemedy', () => {
+  it('projects each member with its remedy, using the given kind', () => {
+    const out = deniedActionsWithRemedy(
+      [{ action: 'read_url', displayName: 'ReadUrlContent' }, { action: 'write_to_file', displayName: null }],
+      'rescue',
+    );
+    assert.equal(out.length, 2);
+    assert.equal(out[0].action, 'read_url');
+    assert.equal(out[0].displayName, 'ReadUrlContent');
+    assert.match(out[0].remedy, /cannot grant/);
+    assert.match(out[1].remedy, /--mode accept-edits/);
+  });
+
+  it('is null for an absent, empty, or non-array list', () => {
+    assert.equal(deniedActionsWithRemedy(null, 'task'), null);
+    assert.equal(deniedActionsWithRemedy(undefined, 'task'), null);
+    assert.equal(deniedActionsWithRemedy([], 'task'), null);
+  });
+});
+
+describe('applyDenialHint — one line per denied action', () => {
+  it('folds one remedy line per deniedActions member into stderr on a starved run', () => {
+    const result = {
+      status: 'failed',
+      denial: { tool: 'read_url', line: 'sentinel' },
+      deniedActions: [{ action: 'read_url', displayName: null }, { action: 'write_to_file', displayName: null }],
+      stderr: 'base',
+    };
+    applyDenialHint(result, 'task');
+    assert.match(result.stderr, /base/);
+    assert.match(result.stderr, /cannot grant "read_url"/);
+    assert.match(result.stderr, /--mode accept-edits/);
+  });
+
+  it('falls back to result.denial.tool alone when deniedActions is absent', () => {
+    const result = { status: 'failed', denial: { tool: 'read_file' }, stderr: '' };
+    applyDenialHint(result, 'rescue');
+    assert.match(result.stderr, /--add-dir <dir>/);
+  });
+
+  it('is a no-op when the run did not fail on a denial', () => {
+    const completed = { status: 'completed', denial: null, stderr: '' };
+    applyDenialHint(completed, 'task');
+    assert.equal(completed.stderr, '');
+  });
+});
+
+describe('buildStoredResult — deniedActions field', () => {
+  it('carries the raw (no remedy) list through', () => {
+    const stored = buildStoredResult({
+      stdout: '', stderr: '', status: 'failed', exitCode: 1, warnings: [],
+      deniedActions: [{ action: 'read_url', displayName: null, source: 'json' }],
+    });
+    assert.deepEqual(stored.deniedActions, [{ action: 'read_url', displayName: null, source: 'json' }]);
+  });
+
+  it('is null when the run had no denial', () => {
+    const stored = buildStoredResult({ stdout: 'ok', stderr: '', status: 'completed', exitCode: 0, warnings: [] });
+    assert.equal(stored.deniedActions, null);
+  });
+});
+
+describe('finishForeground — details.deniedActions and warning-text hints', () => {
+  it('a completed run with structured denials gets details.deniedActions (with remedy)', () => {
+    const chunks = [];
+    const errChunks = [];
+    const outMock = mock.method(process.stdout, 'write', (s) => { chunks.push(s); return true; });
+    const errMock = mock.method(process.stderr, 'write', (s) => { errChunks.push(s); return true; });
+    let exit;
+    try {
+      exit = finishForeground('task', { id: 'j1' }, {
+        status: 'completed', stdout: 'answer', stderr: '', warnings: [],
+        deniedActions: [{ action: 'read_url', displayName: 'ReadUrlContent' }],
+      }, { json: true });
+    } finally {
+      outMock.mock.restore();
+      errMock.mock.restore();
+    }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(chunks.join(''));
+    assert.deepEqual(payload.details.deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', remedy: denialRemedy('read_url', 'task') },
+    ]);
+    assert.match(errChunks.join(''), /denied "read_url"/);
+  });
+
+  it('a clean completed run has no details.deniedActions key', () => {
+    const chunks = [];
+    const outMock = mock.method(process.stdout, 'write', (s) => { chunks.push(s); return true; });
+    const errMock = mock.method(process.stderr, 'write', () => true);
+    let exit;
+    try {
+      exit = finishForeground('task', { id: 'j2' }, {
+        status: 'completed', stdout: 'answer', stderr: '', warnings: [],
+      }, { json: true });
+    } finally {
+      outMock.mock.restore();
+      errMock.mock.restore();
+    }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(chunks.join(''));
+    assert.equal(Object.hasOwn(payload.details, 'deniedActions'), false);
+  });
+});
+
+describe('runForegroundJob — persists deniedActions and deniedActionsCount', () => {
+  it('a completed run with structured denials persists both fields', async () => {
+    freshWorkspace();
+    runtime.next = {
+      status: 'completed', exitCode: 0, stdout: 'answer', stderr: '',
+      deniedActions: [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }],
+    };
+    const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.deepEqual(stored.deniedActions, [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }]);
+    assert.equal(stored.deniedActionsCount, 1);
+    // The index projection (state.json) carries the same top-level fields.
+    const indexEntry = listJobs(workspaceRoot).find((j) => j.id === job.id);
+    assert.equal(indexEntry.deniedActionsCount, 1);
+    assert.deepEqual(stored.result.deniedActions, [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }]);
+  });
+
+  it('a clean completed run persists null/0 (old records stay valid: field just absent before this)', async () => {
+    freshWorkspace();
+    runtime.next = { status: 'completed', exitCode: 0, stdout: 'answer', stderr: '' };
+    const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.deniedActions, null);
+    assert.equal(stored.deniedActionsCount, 0);
+  });
 });
