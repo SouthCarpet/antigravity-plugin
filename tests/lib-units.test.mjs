@@ -320,6 +320,32 @@ describe('state — persistence + reconciliation', () => {
     assert.equal(resolveJobLogFile(workCwd, 'abc'), path.join(dir, 'jobs', 'abc.log'));
   });
 
+  // 084-T4 F2: on macOS, a cwd reached through the platform's own /var ->
+  // /private/var symlink (os.tmpdir()) and the same directory's realpath
+  // must key the same state directory, or a worker process (whose own
+  // process.cwd() is already the realpath) and a caller holding the
+  // logical form disagree on where jobs live.
+  it('resolveStateDir returns the same directory for a symlinked cwd and its realpath', (t) => {
+    const linkTarget = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-linktarget-'));
+    const linkParent = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-state-linkparent-'));
+    const linkPath = path.join(linkParent, 'workspace-link');
+    try {
+      fs.symlinkSync(linkTarget, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+      t.skip(`symlink/junction creation needs elevated privileges: ${err.message}`);
+      return;
+    }
+    try {
+      const viaSymlink = resolveStateDir(linkPath);
+      const viaRealpath = resolveStateDir(fs.realpathSync.native(linkPath));
+      assert.equal(viaSymlink, viaRealpath);
+    } finally {
+      try { fs.rmSync(linkPath, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkTarget, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(linkParent, { recursive: true, force: true }); } catch {}
+    }
+  });
+
   it('loadState returns defaults when nothing on disk', () => {
     const s = loadState(workCwd);
     assert.equal(s.version, 1);

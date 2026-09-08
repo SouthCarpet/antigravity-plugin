@@ -92,7 +92,11 @@ describe('git.ensureGitRepository / getCurrentBranch / getHeadSha', () => {
   it('returns repo root and branch metadata for a real repo', () => {
     const repo = freshRepo();
     const root = ensureGitRepository(repo);
-    assert.equal(canonicalComparePath(root), canonicalComparePath(repo));
+    // `git rev-parse --show-toplevel` returns the realpath (on macOS,
+    // os.tmpdir() sits under /var, a symlink to /private/var, and git
+    // resolves through it); compare against the repo's own realpath rather
+    // than the logical tmp path (084-T4 F1).
+    assert.equal(canonicalComparePath(root), canonicalComparePath(fs.realpathSync.native(repo)));
 
     const branch = getCurrentBranch(repo);
     assert.equal(branch, 'main');

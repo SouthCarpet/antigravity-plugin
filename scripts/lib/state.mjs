@@ -65,19 +65,41 @@ export function resolveStateRoot(env = process.env) {
 }
 
 /**
+ * Canonicalise a workspace root before it becomes a state-directory key.
+ * `fs.realpathSync.native` resolves a symlinked ancestor (macOS's
+ * `os.tmpdir()` sits under `/var`, itself a symlink to `/private/var`) so a
+ * process that received the logical form and one that received the already-
+ * resolved form (a `chdir`'d worker's own `process.cwd()` returns the
+ * physical path per POSIX `getcwd()`) land on the same key. Falls back to
+ * the input unchanged when the path does not exist yet (084-T4 F2).
+ *
+ * @param {string} root
+ * @returns {string}
+ */
+function canonicalWorkspaceRoot(root) {
+  try {
+    return fs.realpathSync.native(root);
+  } catch {
+    return root;
+  }
+}
+
+/**
  * Resolve the state directory for a workspace. `cwd` must already be the
  * resolved workspace root (076-T6 R4) — callers resolve it once via
  * `resolveWorkspaceRoot` and pass it down; this function no longer
- * re-resolves it, so a status snapshot over several stored jobs spawns at
- * most the one `git` call its caller already made, not one per state
- * access.
+ * re-resolves it via git, so a status snapshot over several stored jobs
+ * spawns at most the one `git` call its caller already made, not one per
+ * state access. It does still canonicalise the given root (a cheap syscall,
+ * not a git spawn) so two differently-spelled but identical directories key
+ * to the same state.
  *
  * @param {string} cwd the resolved workspace root
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
 export function resolveStateDir(cwd, env = process.env) {
-  const root = String(cwd);
+  const root = canonicalWorkspaceRoot(String(cwd));
   const slug = slugify(path.basename(root));
   const hash = hashPath(root);
   const leaf = `${slug}-${hash}`;
