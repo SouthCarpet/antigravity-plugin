@@ -445,6 +445,32 @@ meaning:
   there is no model). No plugin default: absent unless the caller passes it,
   and the plugin does not probe what agy does with the value beyond
   forwarding it.
+- `details.deniedActions` on a completed foreground `--json` envelope of
+  `review`, `rescue`, `task` and on `result <id> --json`. The field is an
+  array of `{ action, displayName, remedy }` for headless denials reported
+  by agy 1.1.27 `denied_actions` or by the stderr sentinel. The field is
+  absent when nothing was denied. Section "Headless read access" has the
+  detail. `docs/COMMANDS.md` `status` and `result` sections have the field
+  shapes.
+- `details.job.deniedActions` on `status <id> --json`. The single-job
+  envelope wraps the job snapshot under `details.job`.
+- `deniedActionsCount` on every job index entry (`status` job lists and
+  `status --json`). The count is `0` when nothing was denied.
+  `deniedActions` is stored on the job record and on the stored result.
+  Records written by older versions have neither field and still render.
+- Stored `request.effort` (string, one of `low|medium|high`) on job records
+  created with `--effort`. The field is absent otherwise. The background
+  worker revalidates it and fails the job before starting agy on an unknown
+  value.
+- Job state leaf keyed by the resolved (realpath) workspace path. The
+  legacy logical-path leaf is still read while the realpath leaf does not
+  exist. The background worker receives the caller's exact workspace
+  spelling. Section "Job state and configuration locations" has the rule.
+- Every print-mode `agy` invocation now carries `--print-timeout` derived
+  from the execution budget and `--disable-slash-commands`. This is
+  argv-internal (no new plugin flag). It is listed here because it changes
+  what agy receives. Sections "Slash and skill command expansion in print
+  mode" and the budget paragraph in `docs/COMMANDS.md` have the detail.
 - `--head <n>` / `--tail <n>` on `result`, cutting the stored answer to the
   named number of lines from the start and/or end.
 - `answerBytes` / `answerLines` on a finished job's index entry (`status`
