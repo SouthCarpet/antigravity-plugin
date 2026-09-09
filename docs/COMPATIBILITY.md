@@ -446,7 +446,7 @@ meaning:
   and the plugin does not probe what agy does with the value beyond
   forwarding it.
 - `details.deniedActions` on a completed foreground `--json` envelope of
-  `review`, `rescue`, `task` and on `result <id> --json`. The field is an
+  `review`, `rescue`, `task`, `vision` and on `result <id> --json`. The field is an
   array of `{ action, displayName, remedy }` for headless denials reported
   by agy 1.1.27 `denied_actions` or by the stderr sentinel. The field is
   absent when nothing was denied. Section "Headless read access" has the
