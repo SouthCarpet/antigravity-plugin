@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import {
   deriveRequired,
   listReadmeLinkedDocs,
+  listReadmeLinkedImages,
   readmeDeadLinkErrors,
 } from '../scripts/check-pack.mjs';
 
@@ -85,8 +86,15 @@ describe('check-pack: the documentation an installed copy needs', () => {
   it('`files` ships every required documentation entry', () => {
     const files = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).files;
     const shipped = (rel) => files.includes(rel) || files.includes(rel.split('/')[0]);
-    for (const rel of ['CHANGELOG.md', 'README.md', ...listReadmeLinkedDocs()]) {
+    for (const rel of ['CHANGELOG.md', 'README.md', ...listReadmeLinkedDocs(), ...listReadmeLinkedImages()]) {
       assert.ok(shipped(rel), `package.json "files" must cover ${rel}`);
     }
+  });
+
+  it('requires the README How-it-works image in the pack', () => {
+    const linked = listReadmeLinkedImages();
+    assert.deepEqual(linked, ['docs/how-it-works.svg']);
+    const required = deriveRequired();
+    assert.ok(required.has('docs/how-it-works.svg'), 'docs/how-it-works.svg must be required');
   });
 });

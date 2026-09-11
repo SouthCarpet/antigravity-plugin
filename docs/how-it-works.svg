@@ -1,0 +1,143 @@
+<svg id="agp-how-it-works" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" role="img"
+     aria-labelledby="hiw-title hiw-desc">
+  <title id="hiw-title">How a host command reaches Google</title>
+  <desc id="hiw-desc">A host command from Claude Code, Codex CLI, the agy TUI, or a plain shell — the eight verbs setup, review, rescue, task, vision, status, result, and cancel — enters the plugin runtime at bin/antigravity.mjs and scripts/. The runtime talks to agy --print over stream-json; agy talks to Google. Only the prompt, the selected diff, and named image bytes leave this machine; nothing else does. For vision, the runtime starts a local MCP server that exposes one allowlisted tool, view_image, and agy calls back into it. A background job's request, result, and log stay in the local job store on this machine; status, result, and cancel read that store and never reach Google. When agy refuses a tool in headless mode, the plugin reports the refused action and, since 1.4.0, the target it was refused on, tells the host to ask the user, and never grants the tool or prints a bypass flag.</desc>
+  <style>
+    :root {
+      --hiw-paper-default:#faf7f2; --hiw-ink-default:#1c1917; --hiw-muted-default:#6b6459;
+      --hiw-soft-default:#948c7e; --hiw-accent-default:#b5523a; --hiw-accent-tint-default:rgba(181,82,58,0.08);
+      --hiw-line-default:rgba(28,25,23,0.16);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --hiw-paper-default:#1c1917; --hiw-ink-default:#f2ede4; --hiw-muted-default:#b3aa9c;
+        --hiw-soft-default:#8a8074; --hiw-accent-default:#e8825f; --hiw-accent-tint-default:rgba(232,130,95,0.16);
+        --hiw-line-default:rgba(242,237,228,0.20);
+      }
+    }
+    #agp-how-it-works { color: var(--hiw-ink, var(--hiw-ink-default)); }
+    #agp-how-it-works .hiw-paper { fill: var(--hiw-paper, var(--hiw-paper-default)); }
+    #agp-how-it-works .hiw-ink   { fill: var(--hiw-ink, var(--hiw-ink-default)); }
+    #agp-how-it-works .hiw-ink-s { stroke: var(--hiw-ink, var(--hiw-ink-default)); }
+    #agp-how-it-works .hiw-muted { fill: var(--hiw-muted, var(--hiw-muted-default)); }
+    #agp-how-it-works .hiw-muted-s { stroke: var(--hiw-muted, var(--hiw-muted-default)); }
+    #agp-how-it-works .hiw-soft { fill: var(--hiw-soft, var(--hiw-soft-default)); }
+    #agp-how-it-works .hiw-accent { fill: var(--hiw-accent, var(--hiw-accent-default)); }
+    #agp-how-it-works .hiw-accent-s { stroke: var(--hiw-accent, var(--hiw-accent-default)); }
+    #agp-how-it-works .hiw-accent-tint { fill: var(--hiw-accent-tint, var(--hiw-accent-tint-default)); }
+    #agp-how-it-works .hiw-line-s { stroke: var(--hiw-line, var(--hiw-line-default)); }
+    #agp-how-it-works text { font-family: var(--font-sans, Inter, sans-serif); fill: currentColor; }
+    #agp-how-it-works .hiw-eyebrow { font: 700 8.5px/1 var(--font-mono, monospace); letter-spacing: .18em; }
+    #agp-how-it-works .hiw-title { font: 400 28px/1 var(--font-sans, Inter, sans-serif); }
+    #agp-how-it-works .hiw-subtitle { font: 400 12px/1.4 var(--font-sans, Inter, sans-serif); }
+    #agp-how-it-works .hiw-name { font: 600 12.5px/1.3 var(--font-sans, Inter, sans-serif); }
+    #agp-how-it-works .hiw-sub  { font: 400 9.5px/1.3 var(--font-mono, monospace); }
+    #agp-how-it-works .hiw-tag  { font: 500 8px/1 var(--font-mono, monospace); letter-spacing: .08em; text-transform: uppercase; }
+    #agp-how-it-works .hiw-arrlabel { font: 400 8.5px/1 var(--font-mono, monospace); letter-spacing: .05em; }
+  </style>
+
+  <defs>
+    <marker id="hiw-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" class="hiw-muted"/>
+    </marker>
+    <marker id="hiw-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" class="hiw-accent"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="28" class="hiw-eyebrow hiw-muted">ANTIGRAVITY &#183; HOW IT WORKS</text>
+  <text x="40" y="60" class="hiw-title hiw-ink">How a host command reaches Google</text>
+  <text x="40" y="80" class="hiw-subtitle hiw-muted">Claude Code &#183; Codex CLI &#183; agy TUI &#183; shell &#8594; runtime &#8594; agy --print &#8594; Google</text>
+
+  <!-- arrows -->
+  <path d="M 260,188 V 212" fill="none" class="hiw-muted-s" stroke-width="1" marker-end="url(#hiw-arrow)"/>
+  <path d="M 260,276 V 316" fill="none" class="hiw-muted-s" stroke-width="1" marker-end="url(#hiw-arrow)"/>
+  <path d="M 260,396 V 436" fill="none" class="hiw-muted-s" stroke-width="1" marker-end="url(#hiw-arrow)"/>
+  <rect x="196" y="404" width="128" height="12" rx="2" class="hiw-paper" stroke="var(--hiw-line, var(--hiw-line-default))" stroke-width="0.6"/>
+  <text x="260" y="413" text-anchor="middle" class="hiw-arrlabel hiw-muted">STREAM-JSON</text>
+
+  <path d="M 430,228 H 530" fill="none" class="hiw-muted-s" stroke-width="1" marker-end="url(#hiw-arrow)"/>
+  <rect x="444" y="214" width="72" height="12" rx="2" class="hiw-paper" stroke="var(--hiw-line, var(--hiw-line-default))" stroke-width="0.6"/>
+  <text x="480" y="223" text-anchor="middle" class="hiw-arrlabel hiw-muted">VISION</text>
+
+  <path d="M 530,256 H 500 V 348 H 430" fill="none" class="hiw-muted-s" stroke-width="1" marker-end="url(#hiw-arrow)"/>
+  <rect x="432" y="332" width="96" height="12" rx="2" class="hiw-paper" stroke="var(--hiw-line, var(--hiw-line-default))" stroke-width="0.6"/>
+  <text x="480" y="341" text-anchor="middle" class="hiw-arrlabel hiw-muted">agy CALLS BACK</text>
+
+  <path d="M 430,268 H 470 V 356 H 530" fill="none" class="hiw-muted-s" stroke-width="1" marker-end="url(#hiw-arrow)"/>
+  <rect x="432" y="276" width="76" height="12" rx="2" class="hiw-paper" stroke="var(--hiw-line, var(--hiw-line-default))" stroke-width="0.6"/>
+  <text x="470" y="285" text-anchor="middle" class="hiw-arrlabel hiw-muted">BACKGROUND</text>
+
+  <path d="M 700,436 V 396" fill="none" class="hiw-muted-s" stroke-width="1" marker-end="url(#hiw-arrow)"/>
+  <rect x="636" y="404" width="128" height="12" rx="2" class="hiw-paper" stroke="var(--hiw-line, var(--hiw-line-default))" stroke-width="0.6"/>
+  <text x="700" y="413" text-anchor="middle" class="hiw-arrlabel hiw-muted">NEVER GOOGLE</text>
+
+  <path d="M 430,380 H 500 V 584 H 530" fill="none" class="hiw-accent-s" stroke-width="1" marker-end="url(#hiw-arrow-accent)"/>
+  <rect x="432" y="500" width="96" height="12" rx="2" class="hiw-paper" stroke="var(--hiw-line, var(--hiw-line-default))" stroke-width="0.6"/>
+  <text x="480" y="509" text-anchor="middle" class="hiw-arrlabel hiw-accent">TOOL DENIED</text>
+
+  <!-- A: host command -->
+  <ellipse cx="260" cy="148" rx="170" ry="40" class="hiw-paper"/>
+  <ellipse cx="260" cy="148" rx="170" ry="40" fill="none" class="hiw-ink-s" stroke-width="1"/>
+  <text x="260" y="136" text-anchor="middle" class="hiw-name hiw-ink">Host command</text>
+  <text x="260" y="152" text-anchor="middle" class="hiw-sub hiw-muted">setup &#183; review &#183; rescue &#183; task</text>
+  <text x="260" y="166" text-anchor="middle" class="hiw-sub hiw-muted">vision &#183; status &#183; result &#183; cancel</text>
+
+  <!-- B: plugin runtime -->
+  <rect x="90" y="212" width="340" height="64" rx="6" class="hiw-paper"/>
+  <rect x="90" y="212" width="340" height="64" rx="6" fill="none" class="hiw-ink-s" stroke-width="1"/>
+  <text x="260" y="238" text-anchor="middle" class="hiw-name hiw-ink">Plugin runtime</text>
+  <text x="260" y="254" text-anchor="middle" class="hiw-sub hiw-muted">bin/antigravity.mjs &#183; scripts/</text>
+
+  <!-- C: agy print mode -->
+  <rect x="90" y="316" width="340" height="80" rx="6" class="hiw-paper"/>
+  <rect x="90" y="316" width="340" height="80" rx="6" fill="none" class="hiw-ink-s" stroke-width="1"/>
+  <text x="260" y="346" text-anchor="middle" class="hiw-name hiw-ink">agy print mode</text>
+  <text x="260" y="364" text-anchor="middle" class="hiw-sub hiw-muted">agy --print &#183; stream-json</text>
+  <text x="260" y="378" text-anchor="middle" class="hiw-sub hiw-muted">talks to Google</text>
+
+  <!-- D: Google (what leaves this machine) -->
+  <rect x="90" y="436" width="340" height="80" rx="6" class="hiw-accent-tint"/>
+  <rect x="90" y="436" width="340" height="80" rx="6" fill="none" class="hiw-accent-s" stroke-width="1.2"/>
+  <text x="260" y="462" text-anchor="middle" class="hiw-name hiw-ink">Google</text>
+  <text x="260" y="480" text-anchor="middle" class="hiw-sub hiw-muted">prompt &#183; selected diff &#183; named image bytes</text>
+  <text x="260" y="494" text-anchor="middle" class="hiw-sub hiw-muted">nothing else leaves this machine</text>
+
+  <!-- E: local MCP (vision) -->
+  <rect x="530" y="212" width="340" height="64" rx="6" class="hiw-paper"/>
+  <rect x="530" y="212" width="340" height="64" rx="6" fill="none" class="hiw-muted-s" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="700" y="238" text-anchor="middle" class="hiw-name hiw-ink">Local MCP server</text>
+  <text x="700" y="254" text-anchor="middle" class="hiw-sub hiw-muted">view_image &#183; allowlist</text>
+
+  <!-- F: local job store -->
+  <rect x="530" y="316" width="340" height="80" rx="6" class="hiw-paper"/>
+  <rect x="530" y="316" width="340" height="80" rx="6" fill="none" class="hiw-ink-s" stroke-width="1"/>
+  <text x="700" y="346" text-anchor="middle" class="hiw-name hiw-ink">Local job store</text>
+  <text x="700" y="364" text-anchor="middle" class="hiw-sub hiw-muted">jobs/&lt;id&gt;.json &#183; jobs/&lt;id&gt;.log</text>
+  <text x="700" y="378" text-anchor="middle" class="hiw-sub hiw-muted">request &#183; result &#183; log stay here</text>
+
+  <!-- G: job commands -->
+  <rect x="530" y="436" width="340" height="64" rx="6" class="hiw-paper"/>
+  <rect x="530" y="436" width="340" height="64" rx="6" fill="none" class="hiw-muted-s" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="700" y="462" text-anchor="middle" class="hiw-name hiw-ink">Job commands</text>
+  <text x="700" y="478" text-anchor="middle" class="hiw-sub hiw-muted">status &#183; result &#183; cancel</text>
+
+  <!-- H: headless refusal -->
+  <rect x="530" y="544" width="340" height="80" rx="6" class="hiw-accent-tint"/>
+  <rect x="530" y="544" width="340" height="80" rx="6" fill="none" class="hiw-accent-s" stroke-width="1.2"/>
+  <text x="700" y="564" text-anchor="middle" class="hiw-tag hiw-accent">SINCE 1.4.0</text>
+  <text x="700" y="580" text-anchor="middle" class="hiw-name hiw-ink">agy refused a tool</text>
+  <text x="700" y="596" text-anchor="middle" class="hiw-sub hiw-muted">denied_actions + target</text>
+  <text x="700" y="610" text-anchor="middle" class="hiw-sub hiw-muted">ask the user &#183; never grant &#183; no bypass flag</text>
+
+  <!-- legend -->
+  <line x1="40" y1="644" x2="920" y2="644" class="hiw-line-s" stroke-width="0.8"/>
+  <text x="40" y="662" class="hiw-tag hiw-muted">LEGEND</text>
+  <line x1="140" y1="658" x2="164" y2="658" class="hiw-muted-s" stroke-width="1"/>
+  <text x="172" y="662" class="hiw-sub hiw-muted">primary flow</text>
+  <line x1="280" y1="658" x2="304" y2="658" class="hiw-muted-s" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="312" y="662" class="hiw-sub hiw-muted">stays on this machine</text>
+  <rect x="490" y="652" width="16" height="12" rx="2" class="hiw-accent-tint"/>
+  <rect x="490" y="652" width="16" height="12" rx="2" fill="none" class="hiw-accent-s" stroke-width="1"/>
+  <text x="514" y="662" class="hiw-sub hiw-muted">leaves the machine / refusal</text>
+</svg>
