@@ -309,6 +309,58 @@ wildcard. `--add-dir` is forwarded verbatim and in order on `rescue` and
 `task`, foreground and background. `vision` does not take it; its images
 travel through the MCP tool with a per-run allowlist.
 
+## Print timeout and fatal-error reporting
+
+agy >= 1.1.28 changed two headless behaviours (measured on the installed agy
+1.2.1 through the plugin's own stream-json transport, plan 086 T1):
+
+- **Print-timeout truncation.** When agy's own `--print-timeout` deadline
+  expires while a turn is still in progress, the run exits 0 and writes
+  exactly one stderr line: `[agy] print timeout after <duration> with turn
+  in progress; returning partial output`. Before 1.1.28 this path failed
+  outright; now a truncated answer is indistinguishable from a complete one
+  for a caller that reads only the exit code and the response. The plugin
+  detects this marker (matching only the stable parts — `[agy] print
+  timeout` and `returning partial output` on the same line, not the full
+  sentence, since agy may reword the middle) and reports it as
+  `agyPrintTimeout: { limit: '<duration>' | null }`:
+  - `--json`: `details.agyPrintTimeout` on a completed foreground envelope
+    of `review`, `rescue`, `task`, `vision` and on `result <id> --json`;
+    `details.job.agyPrintTimeout` on `status <id> --json`; the same field on
+    every job entry in `status --json`'s job lists. This is a distinct key
+    from `details.truncated` (the pre-existing `--head`/`--tail` display
+    cut, a boolean, section "`result`" in `docs/COMMANDS.md`) — the two
+    never collide.
+  - Markdown: one "Note:" line in the single-job `status <id>` view and in
+    `result` naming the expired print timeout; the `status` job tables gain
+    a trailing `Partial` column (`partial`, or `-`).
+  - stderr: one warning line on the foreground path, next to the existing
+    warning and denied-action lines.
+  - The plugin's own execution budget still fires before agy's own ceiling
+    in the normal case (`--print-timeout` is forwarded as the budget plus 60
+    seconds of headroom), so this path is rare but reachable when the
+    plugin's own termination unwind overruns that headroom, or on a
+    `timeoutMs: 0` ("no deadline") job.
+  - The fail-vs-complete decision is unchanged when the run answered: a
+    non-empty response with the marker present stays `completed` — a
+    partial answer is still an answer. An **empty** response with the
+    marker present is reclassified `failed`, the same treatment a headless
+    denial that starved the answer already gets (see above); stderr gains
+    an `agent-runtime:` line naming the expired timeout.
+- **Fatal-error marker.** A fatal headless failure (for example an invalid
+  `--model` value) now writes a stable `error: <reason>` line on stderr,
+  measured verbatim: `error: invalid model selection (--model
+  "no-such-model-xyz" --effort ""): model no-such-model-xyz is not
+  recognized as a known model or custom model in settings`. When the run
+  failed and stderr carries such a line, that line (trimmed, sanitized, and
+  bounded) becomes the job's `errorMessage` instead of the raw stderr dump.
+  A run that succeeded never gets an `errorMessage` from this path, and a
+  plugin-authored termination reason (timeout, output-limit, cancellation)
+  always wins over agy's own marker when both are present.
+
+A job record from before this field existed has no `agyPrintTimeout` at all
+— absent, not `null` — and stays a valid, readable record.
+
 ## Slash and skill command expansion in print mode
 
 Every print-mode invocation (`review`, `rescue`, `task`, `vision`;
@@ -476,6 +528,23 @@ meaning:
 - `answerBytes` / `answerLines` on a finished job's index entry (`status`
   and `status --json`), and the `--json` `details.truncated` field on
   `result` when `--head`/`--tail` cut the answer.
+- `agyPrintTimeout` (plan 086 T1): `{ limit: string | null }` on the job
+  record and the stored result when agy's own print-timeout marker (agy >=
+  1.1.28) was seen on stderr, else `null`/absent. `details.agyPrintTimeout`
+  on a completed foreground `--json` envelope and on `result <id> --json`;
+  `details.job.agyPrintTimeout` on `status <id> --json`; the same field on
+  every job entry in `status --json`'s job lists. Distinct from the
+  pre-existing `details.truncated` boolean on `result` (`--head`/`--tail`).
+  Section "Print timeout and fatal-error reporting" has the detail. A run
+  that failed with an empty answer and the marker present is reclassified
+  `failed`, matching the treatment a starved headless denial already gets;
+  a non-empty answer with the marker stays `completed`.
+- `errorMessage` on a failed job now prefers agy's own stable `error:`
+  fatal-marker line (agy >= 1.1.28) over the raw stderr dump, when one is
+  present and no plugin-authored termination reason already explains the
+  failure. Section "Print timeout and fatal-error reporting" has the
+  detail. This does not add a field; it changes what a pre-existing
+  free-text field's value is derived from.
 
 ## Deprecation and compatibility changes
 

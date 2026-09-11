@@ -16,7 +16,7 @@
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { mergeJobDetail, resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile, validateJobRecord } from "../lib/state.mjs";
-import { createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines } from "../lib/render.mjs";
+import { createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote } from "../lib/render.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { exitCodeForJobStatus, deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
@@ -179,9 +179,20 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
   // folded into the opaque `answer`/`rendered` text above), plus the same
   // `{ action, displayName, remedy }` list under `details.deniedActions`.
   const deniedList = deniedActionsWithRemedy(stored?.result?.deniedActions, job.kind);
-  const finalRendered = deniedList
+  const withDenied = deniedList
     ? `${renderedOut}${renderDeniedActionLines(deniedList).join("\n")}\n`
     : renderedOut;
+  // Plan 086 T1 item 4: when the stored result carries agy's own
+  // print-timeout marker, one note line is appended after the denied-action
+  // section (never folded into the opaque `answer`/`rendered` text above),
+  // plus `details.agyPrintTimeout` on `--json` — distinct from
+  // `details.truncated` above, which already means the `--head`/`--tail`
+  // display cut.
+  const agyPrintTimeout = stored?.result?.agyPrintTimeout ?? null;
+  const printTimeoutNote = renderPrintTimeoutNote(agyPrintTimeout);
+  const finalRendered = printTimeoutNote.length
+    ? `${withDenied}${printTimeoutNote.join("\n")}\n`
+    : withDenied;
   const payload = createJsonEnvelope("result", {
     status: job.status,
     jobId: job.id,
@@ -190,6 +201,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
       ...buildResultDetails(job, stored, cut),
       ...(cut.truncated ? { truncated: true } : {}),
       ...(deniedList ? { deniedActions: deniedList } : {}),
+      ...(agyPrintTimeout ? { agyPrintTimeout } : {}),
     },
   });
   return { rendered: finalRendered, payload };

@@ -445,6 +445,80 @@ export function normalizeDeniedActions(rawList) {
   return out;
 }
 
+/** Bound on the captured `agyPrintTimeout.limit` string (e.g. "25s"). */
+export const MAX_PRINT_TIMEOUT_LIMIT_LENGTH = 32;
+
+/** Bound on the extracted fatal `error:` marker line ({@link extractFatalErrorMarker}). */
+export const MAX_FATAL_ERROR_LENGTH = 300;
+
+/**
+ * Strip C0 control characters and DEL, trim, and cap `value` at `maxLength`.
+ * Returns `null` for anything that is not a non-empty string once sanitized —
+ * the same technique {@link sanitizeDeniedActionString} applies to a
+ * `denied_actions` member, shared here because {@link detectPrintTimeoutTruncation}'s
+ * captured limit and {@link extractFatalErrorMarker}'s extracted line are
+ * both free text captured from agy's stderr, not a bounded schema field.
+ *
+ * @param {unknown} value
+ * @param {number} maxLength
+ * @returns {string | null}
+ */
+function sanitizeBoundedText(value, maxLength) {
+  if (typeof value !== "string") return null;
+  const stripped = value.replace(/[\x00-\x1f\x7f]/g, "").trim();
+  if (!stripped) return null;
+  return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped;
+}
+
+/**
+ * Detect agy's print-timeout truncation marker (agy >= 1.1.28, measured on
+ * 1.2.1 through the plugin's own stream-json transport,
+ * `t0d-stream-json-print-timeout.txt`): a stderr line naming a print timeout
+ * that also says the run is returning partial output, verbatim:
+ *   [agy] print timeout after 25s with turn in progress; returning partial output
+ * Matches on the stable parts only — `[agy] print timeout` and `returning
+ * partial output` on the same line — not the full sentence, since agy may
+ * reword the middle. Captures the duration it names (`25s`) when present,
+ * sanitized and bounded the same way a denied-action string is
+ * ({@link sanitizeBoundedText}).
+ *
+ * @param {string} stderr
+ * @returns {{ limit: string | null } | null}
+ */
+export function detectPrintTimeoutTruncation(stderr) {
+  if (typeof stderr !== "string" || !stderr.length) return null;
+  for (const rawLine of stderr.split("\n")) {
+    const line = rawLine.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    if (!line.includes("[agy] print timeout") || !line.includes("returning partial output")) continue;
+    const match = line.match(/print timeout after (\S+)/);
+    return { limit: match ? sanitizeBoundedText(match[1], MAX_PRINT_TIMEOUT_LIMIT_LENGTH) : null };
+  }
+  return null;
+}
+
+/**
+ * Extract agy's stable fatal-error marker from stderr: the first line
+ * starting with `error:` (agy >= 1.1.28's stable marker for a fatal headless
+ * failure, measured on 1.2.1: `error: invalid model selection (--model
+ * "no-such-model-xyz" --effort ""): model no-such-model-xyz is not
+ * recognized as a known model or custom model in settings`), trimmed,
+ * sanitized, and bounded ({@link sanitizeBoundedText}). When several
+ * `error:` lines are present, the first wins. `null` when no such line is
+ * present.
+ *
+ * @param {string} stderr
+ * @returns {string | null}
+ */
+export function extractFatalErrorMarker(stderr) {
+  if (typeof stderr !== "string" || !stderr.length) return null;
+  for (const rawLine of stderr.split("\n")) {
+    const line = rawLine.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    if (!line.startsWith("error:")) continue;
+    return sanitizeBoundedText(line, MAX_FATAL_ERROR_LENGTH);
+  }
+  return null;
+}
+
 /**
  * Merge the structured JSON `denied_actions` list with the stderr
  * auto-denial sentinel ({@link detectAutoDenial}) into the one list every
@@ -932,12 +1006,22 @@ function detectResponseAuthSignal({ status, oauthUrl, eligible, responseText, lo
  * sentinel exactly as before (T2 item 1's "keep the existing fail-vs-warn
  * decision"); `deniedActions` only adds detail.
  *
+ * `truncation` ({@link detectPrintTimeoutTruncation} of the raw stderr, plan
+ * 086 T1) joins `denial` as a second reason an otherwise-SUCCESS result with
+ * an empty response is reclassified `failed`: agy's own print timeout can
+ * expire before the model produced any text at all, which is the same
+ * "no answer was ever produced" shape a starved denial already gets. A
+ * non-empty response with the marker present stays `completed` — a partial
+ * answer is still an answer — and the marker rides through as
+ * `agyPrintTimeout` on the assembled result ({@link classifyRunResult}),
+ * independent of this function's fail-vs-complete decision.
+ *
  * @param {{ status?: string, exitCode: number, parsed: ReturnType<typeof parseAgyStream>,
- *   stderr: string, warnings: string[] }} args
+ *   stderr: string, warnings: string[], truncation: { limit: string | null } | null }} args
  * @returns {{ status: string, stderr: string, denial: { tool: string, line: string } | null,
  *   deniedActions: { action: string, displayName: string | null, source: 'json' | 'stderr' }[] | null }}
  */
-function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings }) {
+function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings, truncation }) {
   const sentinel = detectAutoDenial(stderr);
   const deniedActions = mergeDeniedActions(parsed.deniedActions, sentinel);
   if (status) return { status, stderr, denial: null, deniedActions };
@@ -955,11 +1039,17 @@ function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings }) {
   } else {
     denial = sentinel;
     const answered = typeof parsed.response === 'string' && parsed.response.trim().length > 0;
-    if (denial && !answered) {
+    if (!answered && (denial || truncation)) {
       nextStatus = 'failed';
-      nextStderr +=
-        `\nagent-runtime: agy produced no output because the "${denial.tool}" tool was ` +
-        `auto-denied (headless mode cannot prompt for it)`;
+      if (denial) {
+        nextStderr +=
+          `\nagent-runtime: agy produced no output because the "${denial.tool}" tool was ` +
+          `auto-denied (headless mode cannot prompt for it)`;
+      }
+      if (truncation) {
+        const limitNote = truncation.limit ? ` (${truncation.limit})` : '';
+        nextStderr += `\nagent-runtime: agy's print timeout expired${limitNote} before producing any output`;
+      }
     } else {
       nextStatus = 'completed';
       if (denial) warnings.push(denial.line);
@@ -998,18 +1088,28 @@ function classifyRunResult({ session, exitCode }) {
     looksLikeAuthSentinel: authContext.looksLikeAuthSentinel,
   });
 
+  const truncation = detectPrintTimeoutTruncation(session.stderr);
   const finalized = classifyFinalStatus({
     status: detected.status,
     exitCode,
     parsed,
     stderr: session.stderr,
     warnings: session.warnings,
+    truncation,
   });
+  // Only a run with no other explanation (no termination reason) falls back
+  // to agy's own `error:` marker — a termination message (timeout,
+  // output-limit, cancellation) is already the more specific, plugin-
+  // authored reason and must not be replaced by whatever agy happened to
+  // print before it was killed.
+  const fatalErrorLine = !session.errorMessage && finalized.status === 'failed'
+    ? extractFatalErrorMarker(session.stderr)
+    : null;
 
   return {
     status: finalized.status,
     stderr: session.errorMessage ? `${finalized.stderr}\n${session.errorMessage}` : finalized.stderr,
-    errorMessage: session.errorMessage,
+    errorMessage: session.errorMessage ?? fatalErrorLine,
     exitCode,
     oauthUrl: detected.oauthUrl,
     stdout: session.terminationReason === 'output_limit' ? session.stdout
@@ -1021,6 +1121,7 @@ function classifyRunResult({ session, exitCode }) {
     warnings: session.warnings,
     denial: finalized.denial,
     deniedActions: finalized.deniedActions,
+    agyPrintTimeout: truncation,
     spawnError: session.spawnError,
   };
 }
@@ -1096,29 +1197,36 @@ function classifyRunResult({ session, exitCode }) {
  *
  * Returns `{ status, stdout, stderr, exitCode, oauthUrl, usage,
  * durationSeconds, agyConversationId, rawStdout, warnings, denial,
- * deniedActions, spawnError }`. `spawnError` is the child's `error` event message (for
- * example `spawn agy ENOENT`) when the process never started, else `null`.
- * `status` is one of `completed`, `failed`, `auth_required`, `cancelled`,
- * `timeout`. `exitCode === 0` with no `result` event is `failed`, never a
- * silent success — stderr gains a diagnostic line explaining why. A `result`
- * event whose `status` isn't `SUCCESS` is also `failed`, with that status
- * string folded into stderr. A `result.error` reason is folded in as its own
- * `agent-runtime: agy reported error:` line, on the non-zero-exit path too:
- * a `--print-timeout` exits 1 with empty stderr, so the result event is the
- * only place the word "timeout" appears. Auth prompts are detected both in the raw
- * stdout text (as before) and in `result.response` — they can arrive either
- * way.
+ * deniedActions, agyPrintTimeout, spawnError }`. `spawnError` is the child's
+ * `error` event message (for example `spawn agy ENOENT`) when the process
+ * never started, else `null`. `status` is one of `completed`, `failed`,
+ * `auth_required`, `cancelled`, `timeout`. `exitCode === 0` with no `result`
+ * event is `failed`, never a silent success — stderr gains a diagnostic line
+ * explaining why. A `result` event whose `status` isn't `SUCCESS` is also
+ * `failed`, with that status string folded into stderr. A `result.error`
+ * reason is folded in as its own `agent-runtime: agy reported error:` line,
+ * on the non-zero-exit path too: a `--print-timeout` exits 1 with empty
+ * stderr, so the result event is the only place the word "timeout" appears.
+ * Auth prompts are detected both in the raw stdout text (as before) and in
+ * `result.response` — they can arrive either way.
  *
- * Headless auto-denials (agy >= 1.1.20, see `detectAutoDenial`) are
- * classified after those checks, in this order:
- *   (a) SUCCESS + empty/whitespace `response` + denial on stderr → `failed`;
- *       `denial` is set and stderr gains an `agent-runtime:` line naming the
- *       tool. Callers that know the verb add the per-verb hint.
+ * Headless auto-denials (agy >= 1.1.20, see `detectAutoDenial`) and agy's
+ * print-timeout truncation (agy >= 1.1.28, see `detectPrintTimeoutTruncation`)
+ * are classified after those checks, in this order:
+ *   (a) SUCCESS + empty/whitespace `response` + (denial on stderr OR the
+ *       print-timeout marker) → `failed`; `denial` is set when a denial was
+ *       present and stderr gains an `agent-runtime:` line naming the tool
+ *       and/or the expired print timeout. Callers that know the verb add the
+ *       per-verb hint.
  *   (b) SUCCESS + non-empty `response` + denial on stderr → `completed`;
  *       the denial line stays in stderr AND is listed in `warnings`. agy
  *       calls these denials benign, so a real answer with one missing input
  *       is not a failure, but it is never swallowed either.
- * A SUCCESS with an empty response and NO denial line stays `completed`: a
+ *   (c) SUCCESS + non-empty `response` + the print-timeout marker →
+ *       `completed`; a partial answer is still an answer. `agyPrintTimeout`
+ *       is set either way (a) or (c) has it; callers add their own warning
+ *       line for case (c) (job-helpers.mjs).
+ * A SUCCESS with an empty response and neither signal stays `completed`: a
  * model may legitimately say nothing.
  *
  * `deniedActions` (additive, T2/plan 085) is the structured detail behind
@@ -1129,6 +1237,17 @@ function classifyRunResult({ session, exitCode }) {
  * denial unchanged. `null` when nothing was denied. This never changes
  * `status` or the exit code; job-helpers.mjs's `denialRemedy` turns each
  * `action` into the caller-facing remedy sentence.
+ *
+ * `agyPrintTimeout` (additive, T1/plan 086) is `{ limit: string | null }`
+ * when {@link detectPrintTimeoutTruncation} found the marker on stderr, else
+ * `null`. It never changes the exit code by itself; only an empty response
+ * alongside it does (case (a) above), the same treatment a starved denial
+ * already gets.
+ *
+ * `errorMessage` also picks up agy's stable `error:` fatal marker
+ * ({@link extractFatalErrorMarker}, additive, T1/plan 086) when the run
+ * failed for a reason agy itself reported and no plugin-authored termination
+ * reason (timeout, output-limit, cancellation) already explains it.
  *
  * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
  * @returns {Promise<import('./types.mjs').RuntimeResult>}

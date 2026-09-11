@@ -750,3 +750,94 @@ describe('runForegroundJob — persists deniedActions and deniedActionsCount', (
     assert.equal(stored.deniedActionsCount, 0);
   });
 });
+
+describe('buildStoredResult — agyPrintTimeout field (plan 086 T1)', () => {
+  it('carries the marker through', () => {
+    const stored = buildStoredResult({
+      stdout: 'partial', stderr: '', status: 'completed', exitCode: 0, warnings: [],
+      agyPrintTimeout: { limit: '25s' },
+    });
+    assert.deepEqual(stored.agyPrintTimeout, { limit: '25s' });
+  });
+
+  it('is null when the run had no print-timeout marker', () => {
+    const stored = buildStoredResult({ stdout: 'ok', stderr: '', status: 'completed', exitCode: 0, warnings: [] });
+    assert.equal(stored.agyPrintTimeout, null);
+  });
+});
+
+describe('finishForeground — details.agyPrintTimeout and the stderr warning (plan 086 T1)', () => {
+  it('a completed run with the marker gets details.agyPrintTimeout and a stderr warning', () => {
+    const chunks = [];
+    const errChunks = [];
+    const outMock = mock.method(process.stdout, 'write', (s) => { chunks.push(s); return true; });
+    const errMock = mock.method(process.stderr, 'write', (s) => { errChunks.push(s); return true; });
+    let exit;
+    try {
+      exit = finishForeground('task', { id: 'j3' }, {
+        status: 'completed', stdout: 'partial answer', stderr: '', warnings: [],
+        agyPrintTimeout: { limit: '25s' },
+      }, { json: true });
+    } finally {
+      outMock.mock.restore();
+      errMock.mock.restore();
+    }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(chunks.join(''));
+    assert.deepEqual(payload.details.agyPrintTimeout, { limit: '25s' });
+    assert.match(errChunks.join(''), /print timeout expired \(25s\)/);
+  });
+
+  it('a clean completed run has no details.agyPrintTimeout key and no warning line', () => {
+    const chunks = [];
+    const errChunks = [];
+    const outMock = mock.method(process.stdout, 'write', (s) => { chunks.push(s); return true; });
+    const errMock = mock.method(process.stderr, 'write', (s) => { errChunks.push(s); return true; });
+    let exit;
+    try {
+      exit = finishForeground('task', { id: 'j4' }, {
+        status: 'completed', stdout: 'answer', stderr: '', warnings: [],
+      }, { json: true });
+    } finally {
+      outMock.mock.restore();
+      errMock.mock.restore();
+    }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(chunks.join(''));
+    assert.equal(Object.hasOwn(payload.details, 'agyPrintTimeout'), false);
+    assert.doesNotMatch(errChunks.join(''), /print timeout expired/);
+  });
+});
+
+describe('runForegroundJob — persists agyPrintTimeout (plan 086 T1)', () => {
+  it('a completed run with the marker persists it on the job and the stored result', async () => {
+    freshWorkspace();
+    runtime.next = {
+      status: 'completed', exitCode: 0, stdout: 'partial answer', stderr: '',
+      agyPrintTimeout: { limit: '25s' },
+    };
+    const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.deepEqual(stored.agyPrintTimeout, { limit: '25s' });
+    const indexEntry = listJobs(workspaceRoot).find((j) => j.id === job.id);
+    assert.deepEqual(indexEntry.agyPrintTimeout, { limit: '25s' });
+    assert.deepEqual(stored.result.agyPrintTimeout, { limit: '25s' });
+  });
+
+  it('a clean completed run persists null (old records stay valid: field just absent before this)', async () => {
+    freshWorkspace();
+    runtime.next = { status: 'completed', exitCode: 0, stdout: 'answer', stderr: '' };
+    const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 't', prompt: 'p' });
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.agyPrintTimeout, null);
+  });
+});
+
+describe('an old job record without agyPrintTimeout still renders (plan 086 T1)', () => {
+  it('renderSingleJobStatus and the status table render it as absent, not throw', async () => {
+    const { renderSingleJobStatus } = await import('../scripts/lib/render.mjs');
+    const legacy = { id: 'legacy1', status: 'completed' };
+    const out = renderSingleJobStatus(legacy);
+    assert.doesNotMatch(out, /print timeout/i);
+  });
+});

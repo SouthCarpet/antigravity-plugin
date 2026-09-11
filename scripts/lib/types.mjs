@@ -72,6 +72,17 @@
  */
 
 /**
+ * agy's print-timeout truncation marker (plan 086 T1,
+ * `agent-runtime.mjs#detectPrintTimeoutTruncation`), riding through
+ * `RuntimeResult`, `JobResult`, and the job record unchanged. `null`/absent
+ * when the run's stderr carried no such marker.
+ *
+ * @typedef {object} AgyPrintTimeout
+ * @property {string | null} limit the duration agy named (e.g. `"25s"`), or
+ *   `null` when the marker line carried none
+ */
+
+/**
  * The request payload persisted alongside a job (`state.mjs`'s per-job
  * `.json` file, `request` field) so a background worker can replay it.
  *
@@ -108,6 +119,9 @@
  * @property {string[]} warnings
  * @property {DeniedAction[] | null} [deniedActions] additive (plan 085 T2);
  *   `null`/absent on legacy records and on a run with no denial
+ * @property {AgyPrintTimeout | null} [agyPrintTimeout] additive (plan 086
+ *   T1); `null`/absent on legacy records and on a run with no print-timeout
+ *   marker
  */
 
 /**
@@ -151,6 +165,9 @@
  * @property {number} [deniedActionsCount] `deniedActions?.length ?? 0`, set
  *   at job finish so a status list can show a marker without the full array
  *   (plan 085 T2); additive, absent on legacy records
+ * @property {AgyPrintTimeout | null} [agyPrintTimeout] agy's print-timeout
+ *   truncation marker from the terminal run, set at job finish (plan 086
+ *   T1); additive, `null`/absent on legacy records and a run with no marker
  */
 
 /**
@@ -181,6 +198,8 @@
  * @property {{ tool: string, line: string } | null} [denial]
  * @property {DeniedAction[] | null} [deniedActions] additive (plan 085 T2);
  *   see `agent-runtime.mjs#mergeDeniedActions`
+ * @property {AgyPrintTimeout | null} [agyPrintTimeout] additive (plan 086
+ *   T1); see `agent-runtime.mjs#detectPrintTimeoutTruncation`
  * @property {string | null} [spawnError]
  */
 
@@ -201,6 +220,12 @@
  * @property {string[]} [imagePaths] vision only
  * @property {boolean} [details.truncated] `result` only, additive (076-T7
  *   R1): set when `--head`/`--tail` cut the stored answer
+ * @property {AgyPrintTimeout} [details.agyPrintTimeout] additive (plan 086
+ *   T1): present on a completed foreground envelope and on `result <id>
+ *   --json` when agy's print timeout truncated the answer;
+ *   `details.job.agyPrintTimeout` carries the same shape on `status <id>
+ *   --json`. Distinct from `details.truncated` above on purpose — that key
+ *   already means the `--head`/`--tail` display cut.
  */
 
 /**

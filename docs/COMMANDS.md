@@ -384,6 +384,14 @@ a "## Denied Actions" markdown section, one line per action with its remedy,
 and `--json`'s `details.job.deniedActions` carries the same list as
 `{ action, displayName, remedy }`. Absent on a clean run or a legacy record.
 
+A job whose answer was cut short by agy's own print timeout (agy >= 1.1.28;
+see [print timeout and fatal-error reporting](./COMPATIBILITY.md#print-timeout-and-fatal-error-reporting))
+carries a `Partial` column in both status tables (`partial`, or `-`), and
+`--json` carries the same `agyPrintTimeout` field on every job in a list.
+`status <id>` (single job) adds a "Note:" markdown line naming the expired
+timeout, and `--json`'s `details.job.agyPrintTimeout` carries
+`{ limit: string | null }`. Absent on a clean run or a legacy record.
+
 ## `result`
 
 ```text
@@ -419,6 +427,15 @@ remedy, and `--json` sets `details.deniedActions` to the same list as
 `{ action, displayName, remedy }`. This is appended after the answer text and
 is never folded into the opaque `answer` field. Absent when the run had no
 denial.
+
+When the stored result carries agy's own print-timeout marker (agy >= 1.1.28;
+see [print timeout and fatal-error reporting](./COMPATIBILITY.md#print-timeout-and-fatal-error-reporting)),
+the markdown output ends with a "Note:" line naming the expired timeout
+(appended after the denied-actions section when both are present), and
+`--json` sets `details.agyPrintTimeout` to `{ limit: string | null }`. This
+is a distinct key from `details.truncated` above, which already means the
+`--head`/`--tail` display cut — the two never collide. Absent when the run
+had no print-timeout marker.
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is

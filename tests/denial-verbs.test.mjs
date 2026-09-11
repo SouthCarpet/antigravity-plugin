@@ -58,11 +58,18 @@ const READ_URL_MEMBER = { action: 'read_url', display_name: 'ReadUrlContent' };
 const DENIAL_LINE_READ_URL =
   'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied.';
 
+// Plan 086 T1: agy's print-timeout truncation marker (verbatim from
+// t0d-stream-json-print-timeout.txt).
+const PRINT_TIMEOUT_LINE =
+  '[agy] print timeout after 25s with turn in progress; returning partial output';
+
 let stubDir;
 let starvedAgy;
 let answeredAgy;
 let starvedStructuredAgy;
 let answeredStructuredAgy;
+let printTimeoutAnsweredAgy;
+let printTimeoutEmptyAgy;
 
 before(() => {
   stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-denial-e2e-'));
@@ -83,6 +90,16 @@ before(() => {
   answeredStructuredAgy = writeFakeAgy(stubDir, 'agy-answered-structured', {
     stdout: resultLine('Answer without the URL.', { denied_actions: [READ_URL_MEMBER] }) + '\n',
     stderr: DENIAL_LINE_READ_URL + '\n',
+  });
+  // Plan 086 T1: the fake agy writes the print-timeout marker to stderr and
+  // a partial answer to stdout (non-empty), or an empty response (starved).
+  printTimeoutAnsweredAgy = writeFakeAgy(stubDir, 'agy-print-timeout-answered', {
+    stdout: resultLine('The Architecture of the Visible Voice: partial essay text') + '\n',
+    stderr: PRINT_TIMEOUT_LINE + '\n',
+  });
+  printTimeoutEmptyAgy = writeFakeAgy(stubDir, 'agy-print-timeout-empty', {
+    stdout: resultLine('') + '\n',
+    stderr: PRINT_TIMEOUT_LINE + '\n',
   });
 });
 
@@ -218,5 +235,38 @@ describe('structured denial (agy 1.1.27 denied_actions) — answered run', () =>
     assert.match(res.stderr, DENIED_READ_URL);
     assert.match(res.stderr, /denied "read_url"/);
     assert.match(res.stderr, /cannot grant "read_url"/);
+  });
+});
+
+// Plan 086 T1: end-to-end coverage for agy's print-timeout truncation
+// marker (>= 1.1.28), verbatim-shaped like t0d-stream-json-print-timeout.txt
+// (the marker on stderr, a `result` event on stdout).
+const PRINT_TIMEOUT_MARKER = /\[agy\] print timeout after 25s[\s\S]*returning partial output/;
+
+describe('agy print-timeout marker — non-empty answer (plan 086 T1)', () => {
+  it('task --foreground --json: exit 0, details.agyPrintTimeout carries the limit, a partial answer is still an answer', () => {
+    const res = runVerb(printTimeoutAnsweredAgy, ['task', 'write an essay', '--foreground', '--json']);
+    assert.equal(res.status, 0, res.stderr);
+    const payload = JSON.parse(res.stdout);
+    assert.equal(payload.status, 'completed');
+    assert.match(payload.answer, /partial essay text/);
+    assert.deepEqual(payload.details.agyPrintTimeout, { limit: '25s' });
+    assert.match(res.stderr, /print timeout expired \(25s\)/);
+  });
+
+  it('rescue: the print-timeout warning is echoed to stderr on a completed run', () => {
+    const res = runVerb(printTimeoutAnsweredAgy, ['rescue', 'summarize']);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.stderr, /antigravity:rescue — warning: agy's print timeout expired \(25s\)/);
+  });
+});
+
+describe('agy print-timeout marker — empty answer fails like a starved denial (plan 086 T1)', () => {
+  it('task --foreground: exit 1, names the print timeout as the reason', () => {
+    const res = runVerb(printTimeoutEmptyAgy, ['task', 'write an essay', '--foreground']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, PRINT_TIMEOUT_MARKER);
+    assert.match(res.stderr, /print timeout expired \(25s\) before producing any output/);
+    assert.equal(res.stdout, '');
   });
 });
