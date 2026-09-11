@@ -36,6 +36,10 @@
     #agp-how-it-works .hiw-arrlabel { font: 400 8.5px/1 var(--font-mono, monospace); letter-spacing: .05em; }
   </style>
 
+  <!-- The canvas paints itself: in an img the ink follows the reader's
+       colour scheme, but the page behind the image does not. -->
+  <rect x="0" y="0" width="960" height="680" class="hiw-paper"/>
+
   <defs>
     <marker id="hiw-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
       <polygon points="0 0,8 3,0 6" class="hiw-muted"/>
