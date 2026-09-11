@@ -27,6 +27,8 @@ import {
   resolveJobLogFile,
   ensureStateDir,
   resolveJobFile,
+  listJobs,
+  readJobFile,
 } from '../scripts/lib/state.mjs';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -1092,6 +1094,27 @@ describe('/antigravity:review', () => {
     assert.match(agyRuntime.calls[0].prompt, /brand-new\.txt/);
   });
 
+  // Plan 086 T2 D1 item 3: review never exposes --effort, so it must never
+  // gain the task/rescue default either.
+  it('never sends an effort value to runAgyPrint (no --effort flag exists)', async () => {
+    initEmptyGitRepo(tempDir);
+    fs.writeFileSync(path.join(tempDir, 'brand-new-2.txt'), 'never committed\n');
+
+    agyRuntime.calls = [];
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'review of new file', stderr: '' };
+    const { run } = await import('../scripts/commands/review.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.ok(agyRuntime.calls.length >= 1, 'expected runAgyPrint to be invoked');
+    assert.equal(agyRuntime.calls[0].effort, undefined);
+  });
+
   it('reviews a tracked-only working tree (no untracked files)', async () => {
     const gitEnv = initEmptyGitRepo(tempDir);
     fs.writeFileSync(path.join(tempDir, 'a.txt'), 'original\n');
@@ -1372,6 +1395,46 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.equal(exit, 0);
     assert.equal(agyRuntime.calls[0].effort, 'low');
   });
+
+  // Plan 086 T2 D1: no --effort defaults to medium so a delegated run is
+  // reproducible across machines; the explicit flag above still wins.
+  it('no --effort defaults request.effort to medium (foreground): reaches agy and is persisted', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(agyRuntime.calls[0].effort, 'medium');
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'medium');
+  });
+
+  it('no --effort on a background rescue stores request.effort medium', async () => {
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    let capturedRequest;
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--background'], {
+        cwd: tempDir,
+        startBackgroundJob: async (options) => {
+          capturedRequest = options.request;
+          return { job: { id: 'job-rescue-default-effort', status: 'queued' } };
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(capturedRequest.effort, 'medium');
+  });
 });
 
 describe('/antigravity:task argv parsing', () => {
@@ -1544,6 +1607,46 @@ describe('/antigravity:task argv parsing', () => {
         startBackgroundJob: async (options) => {
           capturedRequest = options.request;
           return { job: { id: 'job-effort-test', status: 'queued' } };
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(capturedRequest.effort, 'medium');
+  });
+
+  // Plan 086 T2 D1: no --effort defaults to medium so a delegated run is
+  // reproducible across machines; the explicit flag above still wins.
+  it('no --effort defaults request.effort to medium (foreground): reaches agy and is persisted', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--foreground'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(agyRuntime.calls[0].effort, 'medium');
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'medium');
+  });
+
+  it('no --effort on a background task stores request.effort medium', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    let capturedRequest;
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing'], {
+        cwd: tempDir,
+        startBackgroundJob: async (options) => {
+          capturedRequest = options.request;
+          return { job: { id: 'job-default-effort-test', status: 'queued' } };
         },
       });
     } finally {

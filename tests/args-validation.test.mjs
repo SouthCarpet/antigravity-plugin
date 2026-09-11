@@ -478,3 +478,23 @@ describe('unknown flags fail before command side effects', () => {
     });
   }
 });
+
+// Plan 086 T2 D1 item 3: neither review nor vision exposes --effort. A
+// value the CLI parser does not know rejects before any spawn, exactly as
+// --verbose does above.
+describe('review and vision reject --effort as an unknown flag (plan 086 T2)', () => {
+  for (const verb of ['review', 'vision']) {
+    it(verb + ' --effort medium prints one unknown-flag line and exits 1', async () => {
+      const { run } = await import('../scripts/commands/' + verb + '.mjs');
+      const cap = captureStdio();
+      let exit;
+      try {
+        exit = await run(['--effort', 'medium'], { cwd: tempDir });
+      } finally { cap.restore(); }
+      assert.equal(exit, 1);
+      assert.equal(cap.err.join(''), 'antigravity:' + verb + ' — unknown flag --effort; put prompt text after --\n');
+      assert.equal(cap.out.join(''), '');
+      assert.deepEqual(agyRuntime.calls, []);
+    });
+  }
+});

@@ -203,10 +203,15 @@ task text as one argument to preserve its boundaries.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy exactly as `vision`'s `--model` already was.
 - `--effort <low|medium|high>` (additive) selects agy's reasoning effort for
-  this run, forwarded verbatim as `--effort <value>`. No plugin default:
-  when absent, nothing is forwarded and agy keeps its own choice. Any other
-  value is an argument error (exit 1) and agy is not started. The plugin
-  does not probe what agy does with the value beyond forwarding it.
+  this run, forwarded verbatim as `--effort <value>`. When absent, the
+  plugin sends `medium` (plan 086 T2 default; a run without `--effort`
+  otherwise picks up whatever the machine has saved, so a delegated run is
+  not reproducible across machines). Any other value is an argument error
+  (exit 1) and agy is not started. The plugin does not probe what agy does
+  with the value beyond forwarding it. `medium` runs longer than `low`, so a
+  flag-less job is more likely to reach the execution budget above; a run
+  that reaches it stores a failed job with no answer. Pass `--effort low`
+  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
   foreground and `--wait` has no additional effect.
@@ -249,8 +254,10 @@ required unless `--continue` or `--conversation` is supplied.
 - `--model <id>` (additive) is forwarded to agy on both paths, as under
   `rescue` and `vision`.
 - `--effort <low|medium|high>` (additive) is forwarded to agy on both paths,
-  as under `rescue`: verbatim as `--effort <value>`, no plugin default, any
-  other value is an argument error.
+  as under `rescue`: verbatim as `--effort <value>`, `medium` when absent
+  (plan 086 T2 default), any other value is an argument error.
+
+`review` and `vision` have no `--effort` flag; they never send one.
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled

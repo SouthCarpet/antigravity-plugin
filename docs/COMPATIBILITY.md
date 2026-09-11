@@ -494,9 +494,24 @@ meaning:
   `vision`'s `--model` already was.
 - `--effort <low|medium|high>` on `task` and `rescue`, forwarded to agy
   verbatim as `--effort <value>` right after `--model` (or in its place when
-  there is no model). No plugin default: absent unless the caller passes it,
-  and the plugin does not probe what agy does with the value beyond
-  forwarding it.
+  there is no model); the plugin does not probe what agy does with the value
+  beyond forwarding it. **Default changed in 1.4.0 (plan 086 T2):** when the
+  caller passes no `--effort`, the plugin now sends `medium` (a run without
+  `--effort` otherwise picks up whatever the machine has saved, so a
+  delegated run was not reproducible across machines). `review` and `vision`
+  have no `--effort` flag and never send one. `medium` runs longer than
+  `low`, so a flag-less job is more likely to reach the agy execution
+  budget (docs/COMMANDS.md, "Execution budgets and failure messages"); a
+  run that reaches it stores a failed job with no answer. Pass `--effort
+  low` explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
+- **agy 1.2.1 vision MCP schema (plan 086 T2 D5):** `scripts/mcp/vision-server.mjs`'s
+  `view_image` tool now declares `additionalProperties: false` on its input
+  schema. agy 1.1.27 rejected an undeclared argument outright; agy 1.2.1
+  "preserves open object schemas ... instead of rejecting undeclared
+  arguments on schemas that allow them", so a schema with no
+  `additionalProperties` (open by JSON Schema default) would let an invented
+  argument reach the server again. `loadImageResult`'s own handling of the
+  `path` argument is unchanged.
 - `details.deniedActions` on a completed foreground `--json` envelope of
   `review`, `rescue`, `task`, `vision` and on `result <id> --json`. The field is an
   array of `{ action, displayName, remedy }` for headless denials reported
@@ -510,10 +525,12 @@ meaning:
   `status --json`). The count is `0` when nothing was denied.
   `deniedActions` is stored on the job record and on the stored result.
   Records written by older versions have neither field and still render.
-- Stored `request.effort` (string, one of `low|medium|high`) on job records
-  created with `--effort`. The field is absent otherwise. The background
-  worker revalidates it and fails the job before starting agy on an unknown
-  value.
+- Stored `request.effort` (string, one of `low|medium|high`) on `task` and
+  `rescue` job records: the caller's explicit `--effort` value, or `medium`
+  since 1.4.0 when the caller passed none (plan 086 T2 default). `task`/
+  `rescue` records written before 1.4.0 have no `request.effort` field;
+  `review`/`vision` records never do. The background worker revalidates the
+  stored value and fails the job before starting agy on an unknown one.
 - Job state leaf keyed by the resolved (realpath) workspace path. The
   legacy logical-path leaf is still read while the realpath leaf does not
   exist. The background worker receives the caller's exact workspace

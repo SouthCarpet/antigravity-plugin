@@ -189,6 +189,9 @@ describe('/antigravity:vision', () => {
     assert.match(cap.out.join(''), /red square/);
     assert.equal(runtime.calls.length, 1);
     assert.equal(runtime.calls[0].model, 'gemini-3.6-flash-high');
+    // vision has no --effort flag (plan 086 T2 D1 item 3), so it must never
+    // pick up task/rescue's default effort.
+    assert.equal(runtime.calls[0].effort, undefined);
     assert.match(runtime.calls[0].prompt, /view_image/);
     assert.match(runtime.calls[0].prompt, /what shape is this\?/);
     assert.match(runtime.calls[0].prompt, /VISION-UNAVAILABLE/);

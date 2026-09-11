@@ -30,6 +30,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plugin-authored termination reason (timeout, output-limit, cancellation)
   already explains the failure.
 
+### Changed
+
+- **`task` and `rescue` default `--effort` to `medium`.** A run without
+  `--effort` sent no effort field at all, so the value agy used came from
+  whatever that machine had saved — not reproducible across machines. When
+  the caller passes no `--effort`, the plugin now sends `medium`; an
+  explicit `--effort <value>` still wins. The stored `request.effort` on a
+  job record records the effective value either way. `review` and `vision`
+  have no `--effort` flag and are unaffected. `medium` runs longer than
+  `low`, so a flag-less job is more likely to reach the agy execution
+  budget, which stores a failed job with no answer; pass `--effort low`
+  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
+
+### Security
+
+- **Vision MCP tool schema closes to undeclared arguments.** agy 1.1.27
+  rejected an argument a server's schema never declared; agy 1.2.1
+  "preserves open object schemas ... instead of rejecting undeclared
+  arguments on schemas that allow them". `scripts/mcp/vision-server.mjs`'s
+  `view_image` schema declared no `additionalProperties`, which JSON Schema
+  treats as permissive, so on 1.2.1 an invented argument would reach the
+  server again. The schema now declares `additionalProperties: false`.
+
 ## [1.3.0] — 2026-09-09
 
 ### Added
