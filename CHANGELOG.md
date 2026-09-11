@@ -43,6 +43,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plugin-authored termination reason (timeout, output-limit, cancellation)
   already explains the failure.
 
+- **Self-contained How-it-works diagram.** The README now uses the
+  authored `docs/how-it-works.svg` instead of a Mermaid flowchart. It
+  shows the host command and all eight verbs, the plugin runtime, what
+  agy sends to Google, the local vision MCP server, the local job store
+  that `status`, `result`, and `cancel` read without reaching Google,
+  and the 1.4.0 denial path where the plugin reports the refused action
+  and target before the host asks the user with its own question tool.
+  The SVG title and description give screen readers the complete flow in
+  prose, and the README alt text uses the same sentences. The diagram
+  follows the reader's light or dark colour scheme and paints its own
+  background so it stays readable.
+
+- **README image pack gate.** The pack check now derives required
+  relative README images as it already did markdown links. It reports an
+  image that is absent from the source tree as a dead link and requires
+  an existing image in the package. Packagers can now catch a missing
+  diagram before publishing instead of silently shipping an npm README
+  whose relative image does not resolve in the unpacked install.
+
 ### Changed
 
 - **`task` and `rescue` default `--effort` to `medium`.** A run without
