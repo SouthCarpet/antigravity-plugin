@@ -219,6 +219,18 @@ function deniedActionsProjection(source) {
 }
 
 /**
+ * The `agyPrintTimeout` projection carried through enrichment (plan 086 T1):
+ * split out for the same reason {@link deniedActionsProjection} is — one
+ * fewer branch inline in `enrichJob` keeps it under the complexity ceiling.
+ *
+ * @param {import('./types.mjs').JobRecord} source
+ * @returns {{ agyPrintTimeout: import('./types.mjs').AgyPrintTimeout | null }}
+ */
+function printTimeoutProjection(source) {
+  return { agyPrintTimeout: source.agyPrintTimeout ?? null };
+}
+
+/**
  * @param {string} workspaceRoot the resolved workspace root
  * @param {import('./types.mjs').JobIndexEntry} job
  * @param {{ maxProgressLines?: number, now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
@@ -245,6 +257,7 @@ function enrichJob(workspaceRoot, job, options = {}) {
     recommendedAction:
       runtimeHealth.recommendedAction ?? source.recommendedAction ?? null,
     oauthUrl: source.oauthUrl ?? null,
+    ...printTimeoutProjection(source),
     ...deniedActionsProjection(source),
     lastHeartbeatAt: source.lastHeartbeatAt ?? null,
     lastProgressAt: source.lastProgressAt ?? null,

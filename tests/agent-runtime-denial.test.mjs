@@ -66,7 +66,21 @@ const {
   runAgyPrint, detectAutoDenial, parseAgyStream,
   normalizeDeniedActions, mergeDeniedActions,
   MAX_DENIED_ACTIONS, MAX_DENIED_ACTION_STRING_LENGTH,
+  detectPrintTimeoutTruncation, extractFatalErrorMarker,
+  MAX_PRINT_TIMEOUT_LIMIT_LENGTH, MAX_FATAL_ERROR_LENGTH,
 } = await import('../scripts/lib/agent-runtime.mjs');
+
+// Verbatim from agy 1.2.1 stderr, measured through the plugin's own
+// stream-json transport (plan 086 T1, controller correction,
+// t0d-stream-json-print-timeout.txt). Only `[agy] print timeout` and
+// `returning partial output` are treated as stable; agy may reword the
+// middle (the duration and the "with turn in progress" clause).
+const PRINT_TIMEOUT_LINE =
+  '[agy] print timeout after 25s with turn in progress; returning partial output';
+
+// Verbatim from agy 1.2.1 stderr (t0-agy-error-marker.txt).
+const FATAL_ERROR_LINE =
+  'error: invalid model selection (--model "no-such-model-xyz" --effort ""): model no-such-model-xyz is not recognized as a known model or custom model in settings';
 
 function resultLine(overrides = {}) {
   return JSON.stringify({
@@ -428,6 +442,133 @@ describe('runAgyPrint — deniedActions on the result', () => {
     assert.deepEqual(res.deniedActions, [
       { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
     ]);
+  });
+});
+
+// Plan 086 T1: agy's print-timeout truncation marker (>= 1.1.28) and its
+// stable `error:` fatal marker.
+describe('detectPrintTimeoutTruncation', () => {
+  it('matches the verbatim measured line and captures the duration', () => {
+    assert.deepEqual(detectPrintTimeoutTruncation(PRINT_TIMEOUT_LINE), { limit: '25s' });
+  });
+
+  it('matches with noise before and after, and a null limit when no duration is captured', () => {
+    const noDuration = '[agy] print timeout with turn in progress; returning partial output';
+    assert.deepEqual(
+      detectPrintTimeoutTruncation(`noise\n${noDuration}\nnoise`),
+      { limit: null },
+    );
+  });
+
+  it('does not match a line without the partial-output clause', () => {
+    const noPartialClause = '[agy] print timeout after 25s with turn in progress';
+    assert.equal(detectPrintTimeoutTruncation(noPartialClause), null);
+  });
+
+  it('returns null when nothing matches, empty, or undefined', () => {
+    assert.equal(detectPrintTimeoutTruncation('CLI settings initialized\n'), null);
+    assert.equal(detectPrintTimeoutTruncation(''), null);
+    assert.equal(detectPrintTimeoutTruncation(undefined), null);
+  });
+
+  it('strips a control character embedded in the captured duration', () => {
+    const dirty = '[agy] print timeout after 25\x00s with turn in progress; returning partial output';
+    assert.deepEqual(detectPrintTimeoutTruncation(dirty), { limit: '25s' });
+  });
+
+  it('caps an over-long captured duration at MAX_PRINT_TIMEOUT_LIMIT_LENGTH', () => {
+    const longDuration = 'a'.repeat(200) + 's';
+    const line = `[agy] print timeout after ${longDuration} with turn in progress; returning partial output`;
+    const out = detectPrintTimeoutTruncation(line);
+    assert.equal(out.limit.length, MAX_PRINT_TIMEOUT_LIMIT_LENGTH);
+  });
+});
+
+describe('extractFatalErrorMarker', () => {
+  it('extracts the verbatim measured line', () => {
+    assert.equal(extractFatalErrorMarker(FATAL_ERROR_LINE), FATAL_ERROR_LINE);
+  });
+
+  it('the first error: line wins when several are present', () => {
+    const two = 'error: first reason\nerror: second reason\n';
+    assert.equal(extractFatalErrorMarker(two), 'error: first reason');
+  });
+
+  it('returns null when no line starts with error:', () => {
+    assert.equal(extractFatalErrorMarker('CLI settings initialized\n'), null);
+    assert.equal(extractFatalErrorMarker(''), null);
+    assert.equal(extractFatalErrorMarker(undefined), null);
+  });
+
+  it('strips control characters and caps at MAX_FATAL_ERROR_LENGTH', () => {
+    const dirty = `error: bad\x00 model\x1f ${'x'.repeat(400)}`;
+    const out = extractFatalErrorMarker(dirty);
+    assert.equal(out.includes('\x00'), false);
+    assert.equal(out.length, MAX_FATAL_ERROR_LENGTH);
+  });
+});
+
+describe('runAgyPrint — agy print-timeout marker (plan 086 T1)', () => {
+  it('non-empty response + marker -> completed, agyPrintTimeout set, a partial answer is still an answer', async () => {
+    arm({ response: 'partial essay text...', stderr: PRINT_TIMEOUT_LINE });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.stdout, 'partial essay text...');
+    assert.deepEqual(res.agyPrintTimeout, { limit: '25s' });
+  });
+
+  it('empty response + marker -> failed, the same empty-answer treatment a starved denial gets', async () => {
+    arm({ response: '', stderr: PRINT_TIMEOUT_LINE });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.deepEqual(res.agyPrintTimeout, { limit: '25s' });
+    assert.match(res.stderr, /agy's print timeout expired \(25s\) before producing any output/);
+  });
+
+  it('a whitespace-only response with the marker also fails (counts as empty)', async () => {
+    arm({ response: ' \n\t ', stderr: PRINT_TIMEOUT_LINE });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+  });
+
+  it('is null on a clean run with no marker at all', async () => {
+    arm({ response: 'fine' });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.agyPrintTimeout, null);
+  });
+});
+
+describe('runAgyPrint — fatal error marker reaches errorMessage', () => {
+  it('a plain exit-1 failure with no result event picks up the error: marker', async () => {
+    spawnCalls.length = 0;
+    nextStdout = [];
+    nextStderr = [FATAL_ERROR_LINE + '\nAvailable models:\n  Gemini 3.8 Flash (High)\n'];
+    nextExitCode = 1;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.errorMessage, FATAL_ERROR_LINE);
+  });
+
+  it('a successful run never gets an errorMessage from this path', async () => {
+    arm({ response: 'fine' });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.errorMessage, null);
+  });
+
+  it('a plugin-authored termination reason wins over agy\'s own error: marker', async () => {
+    // An output-limit termination sets session.errorMessage synchronously as
+    // the offending chunk arrives — before the child's exit is ever
+    // processed — so that message must not be replaced even though agy's
+    // stderr also happens to carry an error: line.
+    spawnCalls.length = 0;
+    nextStdout = [];
+    nextStderr = [FATAL_ERROR_LINE + '\n'];
+    nextExitCode = 1;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy', maxStderrBytes: 1 });
+    assert.equal(res.status, 'failed');
+    assert.match(res.errorMessage, /agy output exceeded 1 bytes/);
+    assert.notEqual(res.errorMessage, FATAL_ERROR_LINE);
   });
 });
 

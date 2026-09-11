@@ -130,6 +130,32 @@ function formatDeniedMarker(job) {
 }
 
 /**
+ * A short marker for the status table (plan 086 T1): `partial` when agy's
+ * own print timeout truncated the job's answer, or `-` when absent (legacy
+ * records, a clean run). Plain text, no table-cell escaping needed.
+ *
+ * @param {{ agyPrintTimeout?: import('./types.mjs').AgyPrintTimeout | null }} job
+ * @returns {string}
+ */
+function formatPrintTimeoutMarker(job) {
+  return job.agyPrintTimeout ? "partial" : "-";
+}
+
+/**
+ * One note line when agy's own print timeout truncated the answer (plan 086
+ * T1): used by the single-job `status` view and by `result`. Empty when
+ * there is nothing to show.
+ *
+ * @param {import('./types.mjs').AgyPrintTimeout | null | undefined} marker
+ * @returns {string[]}
+ */
+export function renderPrintTimeoutNote(marker) {
+  if (!marker) return [];
+  const limitNote = marker.limit ? ` (${marker.limit})` : "";
+  return ["", `Note: the answer is partial. agy's print timeout expired${limitNote} before the run finished.`];
+}
+
+/**
  * Markdown lines for a denied-actions list already carrying `remedy`
  * (`job-helpers.mjs#deniedActionsWithRemedy`): one line per action under a
  * "## Denied Actions" heading, used by the single-job status view and by
@@ -170,12 +196,12 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.running.length > 0) {
     lines.push("## Active Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Phase | Health | Last Progress | Elapsed | Summary | Denied |");
-    lines.push("|--------|------|--------|-------|--------|---------------|---------|---------|--------|");
+    lines.push("| Job ID | Kind | Status | Phase | Health | Last Progress | Elapsed | Summary | Denied | Partial |");
+    lines.push("|--------|------|--------|-------|--------|---------------|---------|---------|--------|---------|");
     for (const job of snapshot.running) {
       const elapsed = computeElapsedDisplay(job);
       lines.push(
-        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${job.healthStatus ?? "-"} | ${job.lastProgressAt ?? "-"} | ${elapsed} | ${summaryForTableCell(job.summary)} | ${formatDeniedMarker(job)} |`
+        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${job.healthStatus ?? "-"} | ${job.lastProgressAt ?? "-"} | ${elapsed} | ${summaryForTableCell(job.summary)} | ${formatDeniedMarker(job)} | ${formatPrintTimeoutMarker(job)} |`
       );
     }
     lines.push("");
@@ -185,12 +211,12 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.recent.length > 0) {
     lines.push("## Recent Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Duration | Size | Summary | Follow-up | Denied |");
-    lines.push("|--------|------|--------|----------|------|---------|-----------|--------|");
+    lines.push("| Job ID | Kind | Status | Duration | Size | Summary | Follow-up | Denied | Partial |");
+    lines.push("|--------|------|--------|----------|------|---------|-----------|--------|---------|");
     for (const job of snapshot.recent) {
       const duration = computeElapsedDisplay(job);
       const followUp = job.status === "completed" ? `/antigravity:result ${job.id}` : "-";
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} | ${summaryForTableCell(job.summary)} | ${followUp} | ${formatDeniedMarker(job)} |`);
+      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} | ${summaryForTableCell(job.summary)} | ${followUp} | ${formatDeniedMarker(job)} | ${formatPrintTimeoutMarker(job)} |`);
     }
     lines.push("");
   }
@@ -307,6 +333,7 @@ export function renderSingleJobStatus(snapshotOrJob, _options = {}) {
     ...renderJobHealthLines(job),
     ...renderJobRuntimeLines(job),
     ...renderJobErrorLines(job),
+    ...renderPrintTimeoutNote(job.agyPrintTimeout),
     // `job.deniedActions` here is expected to already carry `remedy`
     // (status.mjs attaches it via job-helpers.mjs#deniedActionsWithRemedy
     // before calling this renderer) — a raw source/no-remedy list renders

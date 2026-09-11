@@ -332,6 +332,82 @@ describe('/antigravity:status', () => {
     const entry = payload.details.recent.find((j) => j.id === id);
     assert.equal(entry.deniedActionsCount, 1);
   });
+
+  // Plan 086 T1: a single-job status view carries agy's print-timeout
+  // marker under details.job.agyPrintTimeout, a "Note:" line in markdown,
+  // and the all-jobs list carries the same field per job (a `Partial`
+  // table marker in markdown).
+  it('single job --json carries details.job.agyPrintTimeout', async () => {
+    const id = 'jobp' + randomBytes(2).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      agyPrintTimeout: { limit: '25s' },
+    });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'partial answer' } });
+
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(cap.out.join(''));
+    assert.deepEqual(payload.details.job.agyPrintTimeout, { limit: '25s' });
+  });
+
+  it('single job markdown view renders a "Note:" line naming the print timeout', async () => {
+    const id = 'jobp' + randomBytes(2).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      agyPrintTimeout: { limit: '25s' },
+    });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'partial answer' } });
+
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const text = cap.out.join('');
+    assert.match(text, /Note: the answer is partial\. agy's print timeout expired \(25s\)/);
+  });
+
+  it('the all-jobs list shows a per-job agyPrintTimeout, and the markdown table gets a Partial marker', async () => {
+    const id = 'jobq' + randomBytes(2).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      agyPrintTimeout: { limit: '25s' },
+    });
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run(['--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(cap.out.join(''));
+    const entry = payload.details.recent.find((j) => j.id === id);
+    assert.deepEqual(entry.agyPrintTimeout, { limit: '25s' });
+
+    const cap2 = captureStdio();
+    let exit2;
+    try { exit2 = await run([], { cwd: tempDir }); }
+    finally { cap2.restore(); }
+    assert.equal(exit2, 0);
+    assert.match(cap2.out.join(''), new RegExp(`\\| ${id} \\|.*\\| partial \\|`));
+  });
 });
 
 // ───────────────────────────── result ─────────────────────────────
@@ -437,6 +513,73 @@ describe('/antigravity:result', () => {
     assert.match(text, /the answer/);
     assert.match(text, /## Denied Actions/);
     assert.match(text, /--mode accept-edits/);
+  });
+
+  // Plan 086 T1: `result` surfaces agy's print-timeout marker as
+  // `details.agyPrintTimeout` and a "Note:" markdown line, distinct from the
+  // pre-existing `details.truncated` boolean (076-T7, `--head`/`--tail`
+  // display cut) — the two must never collide.
+  it('carries agyPrintTimeout on --json and appends a "Note:" markdown line', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, kind: 'task', status: 'completed' });
+    await writeJobFile(tempDir, id, {
+      id, kind: 'task', status: 'completed',
+      result: { rawOutput: 'partial essay', agyPrintTimeout: { limit: '25s' } },
+    });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'partial essay\n' });
+    assert.deepEqual(payload.details.agyPrintTimeout, { limit: '25s' });
+    assert.equal(Object.hasOwn(payload.details, 'truncated'), false);
+
+    const cap2 = captureStdio();
+    let exit2;
+    try { exit2 = await run([id], { cwd: tempDir }); }
+    finally { cap2.restore(); }
+    assert.equal(exit2, 0);
+    assert.match(cap2.out.join(''), /Note: the answer is partial\. agy's print timeout expired \(25s\)/);
+  });
+
+  it('carries no agyPrintTimeout key on --json for a clean run', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, kind: 'task', status: 'completed' });
+    await writeJobFile(tempDir, id, { id, kind: 'task', status: 'completed', result: { rawOutput: 'clean' } });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'clean\n' });
+    assert.equal(Object.hasOwn(payload.details, 'agyPrintTimeout'), false);
+  });
+
+  // The pre-existing 076-T7 `--head`/`--tail` `details.truncated` boolean
+  // must keep working unchanged even on a job that also carries an
+  // agyPrintTimeout marker — the two fields are independent (plan 086 T1).
+  it('a job with both --head cutting and an agyPrintTimeout marker sets both details keys distinctly', async () => {
+    const id = randomBytes(6).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed', createdAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, {
+      id, kind: 'task', status: 'completed',
+      result: { rawOutput: 'one\ntwo\nthree\nfour\nfive', agyPrintTimeout: { limit: '25s' } },
+    });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--head', '2', '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'one\ntwo' });
+    assert.equal(payload.details.truncated, true);
+    assert.deepEqual(payload.details.agyPrintTimeout, { limit: '25s' });
   });
 
   it('keeps the metadata fallback and exit 0 for a valid completed empty answer', async () => {

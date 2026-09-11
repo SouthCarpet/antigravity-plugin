@@ -354,6 +354,66 @@ describe('_worker.mjs persists deniedActions and deniedActionsCount', () => {
   });
 });
 
+// Plan 086 T1: the background path persists the same top-level
+// agyPrintTimeout field the foreground path does (job-helpers.mjs's
+// buildTerminalJobPatch), via _worker.mjs's own patchJob call.
+describe('_worker.mjs persists agyPrintTimeout', () => {
+  it('a completed run with the print-timeout marker persists it on the job and the stored result', async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-timeout-'));
+    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-timeout-data-'));
+    const jobId = 'job' + randomBytes(3).toString('hex');
+    const savedNext = { ...runtime.next };
+
+    const origCwd = process.cwd();
+    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    const origArgv = process.argv;
+
+    runtime.next = {
+      status: 'completed', exitCode: 0, stdout: 'partial answer', stderr: '',
+      agyPrintTimeout: { limit: '25s' },
+    };
+
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    process.chdir(workspaceRoot);
+
+    ensureStateDir(workspaceRoot);
+    await upsertJob(workspaceRoot, {
+      id: jobId, kind: 'task', status: 'queued', phase: 'queued',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    await writeJobFile(workspaceRoot, jobId, {
+      id: jobId, status: 'queued',
+      request: { prompt: 'hello', mode: 'print', addDirs: [] },
+      result: null,
+    });
+
+    let resolveExit;
+    const exited = new Promise((resolve) => { resolveExit = resolve; });
+    const exitMock = mock.method(process, 'exit', (code) => { resolveExit(code); });
+    process.argv = [origArgv[0], origArgv[1], jobId];
+
+    let stored;
+    try {
+      await import('../scripts/commands/_worker.mjs?args=' + encodeURIComponent('timeout-' + jobId));
+      await exited;
+      stored = readJobFile(workspaceRoot, jobId);
+    } finally {
+      process.chdir(origCwd);
+      process.argv = origArgv;
+      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+      else delete process.env.CLAUDE_PLUGIN_DATA;
+      exitMock.mock.restore();
+      runtime.next = savedNext;
+      removeTestDir(workspaceRoot);
+      removeTestDir(dataDir);
+    }
+
+    assert.deepEqual(stored.agyPrintTimeout, { limit: '25s' });
+    assert.deepEqual(stored.result.agyPrintTimeout, { limit: '25s' });
+  });
+});
+
 describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () => {
   it('stores agy stderr as errorMessage and status <id> renders a ## Error section', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-'));

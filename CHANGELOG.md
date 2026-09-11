@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **agy print-timeout truncation reporting.** Since agy 1.1.28, a `--print-timeout`
+  that expires while a turn is still in progress exits 0 and writes one
+  stable stderr line instead of failing outright. The plugin detects that
+  marker and reports it as `agyPrintTimeout: { limit: '<duration>' | null }`
+  on the job record and the stored result. `--json` sets
+  `details.agyPrintTimeout` on a completed foreground envelope and on
+  `result <id> --json`, and `details.job.agyPrintTimeout` on `status <id>
+  --json`; job lists carry the same field per job. Markdown `status <id>`
+  and `result` add a "Note:" line; the `status` tables add a `Partial`
+  column. A non-empty answer with the marker present stays `completed` — a
+  partial answer is still an answer; an empty answer with the marker present
+  is reclassified `failed`, the same treatment a starved headless denial
+  already gets. This field is distinct from the pre-existing
+  `details.truncated` boolean on `result` (`--head`/`--tail`).
+- **agy fatal-error marker.** Since agy 1.1.28, a fatal headless failure
+  writes a stable `error: <reason>` line on stderr. When a run fails and
+  such a line is present, it becomes the job's `errorMessage` (trimmed,
+  sanitized, bounded) instead of the raw stderr dump, unless a
+  plugin-authored termination reason (timeout, output-limit, cancellation)
+  already explains the failure.
+
 ## [1.3.0] — 2026-09-09
 
 ### Added

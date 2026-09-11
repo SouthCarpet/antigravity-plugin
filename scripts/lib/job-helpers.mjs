@@ -570,6 +570,7 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
     answerLines,
     deniedActions: result.deniedActions ?? null,
     deniedActionsCount: Array.isArray(result.deniedActions) ? result.deniedActions.length : 0,
+    agyPrintTimeout: result.agyPrintTimeout ?? null,
     result: buildStoredResult(result),
   };
 }
@@ -596,6 +597,7 @@ export function buildStoredResult(result) {
     agyConversationId: result.agyConversationId ?? null,
     warnings: result.warnings ?? [],
     deniedActions: result.deniedActions ?? null,
+    agyPrintTimeout: result.agyPrintTimeout ?? null,
   };
 }
 
@@ -637,6 +639,7 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
 
   reportWarnings(kind, result);
   reportDeniedActionHints(kind, result);
+  reportPrintTimeoutHint(kind, result);
   beforeAnswer?.();
   outputCommandResult(
     createJsonEnvelope(kind, {
@@ -644,7 +647,12 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
       jobId: job.id,
       answer: result.stdout,
       ...extraFields,
-      details: { ...extraDetails, ...deniedActionsDetails(result, kind), ...warningDetails(result) },
+      details: {
+        ...extraDetails,
+        ...deniedActionsDetails(result, kind),
+        ...agyPrintTimeoutDetails(result),
+        ...warningDetails(result),
+      },
     }),
     result.stdout,
     Boolean(json),
@@ -665,6 +673,40 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
 function deniedActionsDetails(result, kind) {
   const list = deniedActionsWithRemedy(result.deniedActions, kind);
   return list ? { deniedActions: list } : {};
+}
+
+/**
+ * `{ agyPrintTimeout: {...} }` when the run's answer was cut short by agy's
+ * own print timeout ({@link runAgyPrint}, `agent-runtime.mjs#detectPrintTimeoutTruncation`),
+ * else `{}` — the same "absent key on a clean run" shape `warningDetails`/
+ * `deniedActionsDetails` use, for `details.agyPrintTimeout` on a completed
+ * foreground envelope (plan 086 T1). `result.mjs` and `status.mjs` project
+ * the same field for their own envelopes.
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {{ agyPrintTimeout?: import('./types.mjs').AgyPrintTimeout }}
+ */
+function agyPrintTimeoutDetails(result) {
+  return result?.agyPrintTimeout ? { agyPrintTimeout: result.agyPrintTimeout } : {};
+}
+
+/**
+ * Echo one warning line to stderr when a completed run's answer was cut
+ * short by agy's own print timeout — printed next to the existing warning
+ * and denied-action lines (item 4, plan 086 T1). A no-op on a clean run or a
+ * run that failed outright (the failure line already covers that case).
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {void}
+ */
+export function reportPrintTimeoutHint(kind, result) {
+  const marker = result?.agyPrintTimeout;
+  if (!marker) return;
+  const limitNote = marker.limit ? ` (${marker.limit})` : "";
+  process.stderr.write(
+    `antigravity:${kind} — warning: agy's print timeout expired${limitNote} before the turn finished; the answer may be partial.\n`,
+  );
 }
 
 /**
