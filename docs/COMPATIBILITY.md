@@ -5,9 +5,9 @@ later 1.x releases. The implementation at 0.2.4 is the baseline from which
 the contract was frozen. A behavior is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 1.3.0 is this package's version number. agy 1.1.15, 1.1.17, 1.1.24,
-and 1.1.27 are versions of Google's Antigravity CLI, which is an external
-program. The two version lines advance independently. A new agy release does
+Plugin 1.3.0 is this package's version number. agy 1.1.15 to 1.2.1 is the
+tested range of Google's Antigravity CLI, with 1.2.1 as the newest measured
+version. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
 ## Supported matrix
@@ -17,7 +17,7 @@ not change the plugin version.
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15, 1.1.17, 1.1.24, and 1.1.27. These versions form the tested and supported matrix. Live coverage differs by version as shown below. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.2.1; newest measured 1.2.1. This range forms the tested and supported matrix. Live coverage differs by version as shown below. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -43,6 +43,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.1.17 | All eight: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, and `cancel` | 2026-08-21 |
 | 1.1.24 | `rescue`, `task`, `vision`, and `result` | 2026-09-02 |
 | 1.1.27 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-09 |
+| 1.2.1 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-11 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -53,9 +54,9 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.1.27, on 2026-09-09, from commit
-`4f9b317`. One transcript file was saved per run. The table below lists every
-file. `setup` has no 1.1.27 transcript.
+The newest version measured live is agy 1.2.1, on 2026-09-11, from commit
+`3b75be6`. The table below lists the saved transcripts for 1.1.27 and 1.2.1.
+`setup` has no transcript for either version.
 
 | Verb | Flags | agy | Date | Result | Transcript |
 |---|---|---|---|---|---|
@@ -80,9 +81,22 @@ file. `setup` has no 1.1.27 transcript.
 | `task` | `--json` (long prompt, for cancel) | 1.1.27 | 2026-09-09 | exit 0, `status: "queued"`, job `0ad4b1632d38` | `t5-live-task-cancel-start.txt` |
 | `cancel` | `0ad4b1632d38 --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "cancelled"` | `t5-live-cancel.txt` |
 | `status` | `0ad4b1632d38 --json` | 1.1.27 | 2026-09-09 | exit 0, `status: "cancelled"` | `t5-live-status-cancelled-json.txt` |
+| `task` | `--foreground --json` | 1.2.1 | 2026-09-11 | exit 1 during a real `503 UNAVAILABLE` outage. The plugin used agy's `error:` line as the job's `errorMessage`. | `t5a-task-foreground-json.txt` |
+| `task` | `--foreground --json`, prompt `/model` then `Reply with exactly OK.` | 1.2.1 | 2026-09-11 | exit 0, `status: "completed"`, answer `OK`. Slash text was inert. | `t5a-task-slash-inert.txt` |
+| `task` | `--foreground --json`, no `--effort` | 1.2.1 | 2026-09-11 | exit 0, `status: "completed"`, answer `DEFAULT`. The job stored `request.effort: "medium"`. | `t5a-task-default-effort.txt` |
+| `task` | `--foreground --effort low --json` | 1.2.1 | 2026-09-11 | exit 0, `status: "completed"`, answer `LOW`. The job stored `request.effort: "low"`. | `t5a-task-effort-low.txt` |
+| `rescue` | `--json` | 1.2.1 | 2026-09-11 | exit 0, `status: "completed"`, answer `RESCUE` | `t5a-rescue-json.txt` |
+| `review` | `--json`, one staged line in a scratch repository | 1.2.1 | 2026-09-11 | exit 0, `status: "completed"`, verdict `APPROVE` | `t5a-review-json.txt` |
+| `task` | `--foreground --json`, URL-read prompt | 1.2.1 | 2026-09-11 | exit 1. The printed denial dropped agy's bypass advice and named `read_url` (`ReadUrlContent`) for target `example.com`. The stored result kept the complete upstream line. | `t5a-task-denied-url.txt`, `t5a-denied-job-record.txt` |
+| `task`, `status`, `result`, `cancel` | background lifecycle, JSON and Markdown status, JSON result, then cancellation | 1.2.1 | 2026-09-11 | exit 0 throughout. The first job moved from `queued` to `completed`; the second job became `cancelled`. | `t5a-background-lifecycle.txt` |
+| `vision` | `<png> --json` | 1.2.1 | 2026-09-11 | exit 0, `status: "completed"`, model `gemini-3.6-flash-high`. stderr carried a usage trailer. | `t5a-vision-json.txt` |
 
-The denied member from agy 1.1.27 was `read_url` (`displayName` `ReadUrlContent`).
-The printed remedy line was `Headless runs cannot grant "read_url"; the host must run this step itself.`
+The denied member from agy 1.1.27 was `read_url` (`displayName`
+`ReadUrlContent`). The printed remedy line was `Headless runs cannot grant
+"read_url"; the host must run this step itself.` The agy 1.2.1 run reported
+the same member and also carried `target: "example.com"`. The target came from
+the denied tool's `step_update` error message and was joined to the member by
+its `read_url` action name.
 
 agy 1.1.24 changes how an MCP image result reaches the model. agy writes a
 large result to a file in the conversation directory and gives the model the
@@ -334,8 +348,13 @@ travel through the MCP tool with a per-run allowlist.
 
 ## Print timeout and fatal-error reporting
 
-agy >= 1.1.28 changed two headless behaviours (measured on the installed agy
-1.2.1 through the plugin's own stream-json transport, plan 086 T1):
+agy >= 1.1.28 changed two headless behaviours. The fatal-error path was
+measured on the installed agy 1.2.1 through the plugin's own stream-json
+transport (plan 086 T1). The print-timeout behaviour was measured directly
+against agy 1.2.1 in `t0d-stream-json-print-timeout.txt`, not end to end
+through the plugin. An end-to-end run would have to run longer than agy's
+five-minute default because the plugin provides no way to select a shorter
+print timeout. The two behaviours are:
 
 - **Print-timeout truncation.** When agy's own `--print-timeout` deadline
   expires while a turn is still in progress, the run exits 0 and writes
