@@ -2,7 +2,7 @@
 description: Ask Google Antigravity (agy) to look at one or more image files via the vision MCP channel
 argument-hint: '<image-path> [<image-path>...] [--prompt "<question>"] [--model <id>] [--json]'
 disable-model-invocation: true
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
 STOP. This command runs a program. It is not a request for you to answer.
@@ -27,6 +27,10 @@ FOREGROUND ONLY: this verb has no `--background`/`--wait`. `agy --print` has no 
 
 Setup requirement:
 - Run `/antigravity:setup` at least once so it can register the `vision` MCP server and the exact permission `mcp(vision/view_image)` agy needs to answer image questions unattended. Without that registration agy still runs, but it cannot see the images.
+
+Denied actions:
+- If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves. `vision` has no `--conversation` flag, so the retry is a fresh `vision` call after the grant, not a resumed thread.
+- Never suggest `--dangerously-skip-permissions`.
 
 Auth note:
 - If the output says "Antigravity is not authenticated", run `/antigravity:setup` to complete the OAuth flow and then re-try.

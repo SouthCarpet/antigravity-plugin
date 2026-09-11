@@ -51,11 +51,17 @@
  * `result.denied_actions` JSON list or the stderr auto-denial sentinel
  * (`agent-runtime.mjs#mergeDeniedActions`). `source` names which one
  * produced it. `displayName` is `null` when the source did not carry one
- * (always for `source: "stderr"`).
+ * (always for `source: "stderr"`). `target` (additive, plan 086 T3) is the
+ * denied tool-parameter value agy's `step_update` error message named,
+ * joined onto the JSON-sourced member by action name
+ * (`agent-runtime.mjs#joinDeniedActionTargets`); `null` when no matching
+ * `step_update` was seen (always for `source: "stderr"`, which predates the
+ * step-update join).
  *
  * @typedef {object} DeniedAction
  * @property {string} action agy tool id (e.g. "read_file", "read_url")
  * @property {string | null} displayName
+ * @property {string | null} [target]
  * @property {'json' | 'stderr'} source
  */
 
@@ -68,6 +74,7 @@
  * @typedef {object} DeniedActionWithRemedy
  * @property {string} action
  * @property {string | null} displayName
+ * @property {string | null} target additive, plan 086 T3; `null` when unknown
  * @property {string} remedy
  */
 

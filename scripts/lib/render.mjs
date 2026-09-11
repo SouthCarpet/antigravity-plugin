@@ -66,9 +66,41 @@ export function warningDetails(result) {
 }
 
 /**
+ * agy's headless-denial sentinel repeats its own bypass advice on the same
+ * line as the allow-rule hint (measured 1.2.1,
+ * `t0-plugin-task-denied-url.txt`): "... Alternatively, re-run with
+ * `--dangerously-skip-permissions` to auto-approve all tools." Relaying that
+ * sentence on the plugin's own stderr contradicts `SECURITY.md` (the plugin
+ * never suggests bypassing headless permission checks), so this drops just
+ * that sentence from a line that contains the flag and keeps the rest of the
+ * line untouched — anchored on the flag name and the `Alternatively,`
+ * lead-in, the two parts of the sentence most likely to stay stable if agy
+ * rewords the rest (plan 086 T3 item 4).
+ *
+ * This only changes what reaches the console (`reportWarnings` below,
+ * `job-helpers.mjs#finishForeground`'s failure echo): the stored result and
+ * `result --json` keep the complete upstream line unmodified.
+ *
+ * @param {string} stderr
+ * @returns {string}
+ */
+export function stripBypassAdvice(stderr) {
+  if (typeof stderr !== "string" || !stderr.length) return stderr;
+  return stderr
+    .split("\n")
+    .map((line) => (line.includes("--dangerously-skip-permissions")
+      ? line.replace(/\s*Alternatively,[^\n]*$/, "")
+      : line))
+    .join("\n");
+}
+
+/**
  * Echo runtime warnings to stderr on a completed run. The verbs only print
  * `result.stderr` on failure, so without this a benign denial would reach
- * the stored job and `--json` but never the terminal.
+ * the stored job and `--json` but never the terminal. Each line is printed
+ * through {@link stripBypassAdvice} (plan 086 T3 item 4); the stored
+ * `result.warnings` array itself (and therefore `--json`'s
+ * `details.warnings`) is never mutated.
  *
  * @param {string} command
  * @param {{ warnings?: string[] }} result
@@ -76,7 +108,7 @@ export function warningDetails(result) {
  */
 export function reportWarnings(command, result) {
   for (const warning of warningDetails(result).warnings ?? []) {
-    process.stderr.write(`antigravity:${command} — warning: ${warning}\n`);
+    process.stderr.write(`antigravity:${command} — warning: ${stripBypassAdvice(warning)}\n`);
   }
 }
 
@@ -156,10 +188,28 @@ export function renderPrintTimeoutNote(marker) {
 }
 
 /**
+ * The one-line label naming a denied action, shared by the markdown "Denied
+ * Actions" list and the stderr denial hint (plan 086 T3 item 2): `action`,
+ * optionally `(displayName)`, optionally ` for "target"` when the target is
+ * known. `target` is untrusted model-chosen tool-parameter text — this only
+ * wraps the already-sanitized/capped string (`agent-runtime.mjs`) in quotes
+ * for display; it never assembles a `permissions.allow` line or a wildcard
+ * (item 3).
+ *
+ * @param {{ action: string, displayName?: string | null, target?: string | null }} entry
+ * @returns {string}
+ */
+export function formatDeniedActionLabel({ action, displayName, target }) {
+  const base = displayName ? `${action} (${displayName})` : action;
+  return target ? `${base} for "${target}"` : base;
+}
+
+/**
  * Markdown lines for a denied-actions list already carrying `remedy`
  * (`job-helpers.mjs#deniedActionsWithRemedy`): one line per action under a
  * "## Denied Actions" heading, used by the single-job status view and by
- * `result` (plan 085 T2 item 4). Empty when there is nothing to show.
+ * `result` (plan 085 T2 item 4; target added plan 086 T3 item 2). Empty when
+ * there is nothing to show.
  *
  * @param {import('./types.mjs').DeniedActionWithRemedy[] | null | undefined} list
  * @returns {string[]}
@@ -167,9 +217,8 @@ export function renderPrintTimeoutNote(marker) {
 export function renderDeniedActionLines(list) {
   if (!Array.isArray(list) || list.length === 0) return [];
   const lines = ["", "## Denied Actions", ""];
-  for (const { action, displayName, remedy } of list) {
-    const label = displayName ? `${action} (${displayName})` : action;
-    lines.push(`- **${label}**: ${remedy}`);
+  for (const entry of list) {
+    lines.push(`- **${formatDeniedActionLabel(entry)}**: ${entry.remedy}`);
   }
   return lines;
 }

@@ -316,15 +316,19 @@ function createNdjsonLineFeeder() {
  * has to guess what went wrong.
  *
  * `deniedActions` carries `result.denied_actions` normalized via
- * {@link normalizeDeniedActions} — `null` when the field was absent on every
- * `result` event seen, an array (possibly empty) once one carried it.
+ * {@link normalizeDeniedActions}, then joined with the denied target named
+ * in a `step_update` event's tool error message via
+ * {@link joinDeniedActionTargets}/{@link parseStepUpdateDeniedTargets} (plan
+ * 086 T3) — `null` when the field was absent on every `result` event seen,
+ * an array (possibly empty) once one carried it. `target` is `null` on a
+ * member no `step_update` matched.
  *
  * @param {string} text - full accumulated stdout (or any concatenation of
  *   chunks — reassembly across chunk boundaries falls out of `\n`-splitting
  *   the joined string, so callers never need to pre-align chunks).
  * @returns {{ response: string|null, usage: object|null, durationSeconds: number|null,
  *   conversationId: string|null, resultStatus: string|null, resultError: string|null,
- *   deniedActions: { action: string, displayName: string | null, source: 'json' }[] | null,
+ *   deniedActions: { action: string, displayName: string | null, target: string | null, source: 'json' }[] | null,
  *   sawResult: boolean }}
  */
 export function parseAgyStream(text) {
@@ -340,6 +344,7 @@ export function parseAgyStream(text) {
   };
   if (typeof text !== 'string' || !text.length) return out;
 
+  const stepTargets = parseStepUpdateDeniedTargets(text);
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -358,7 +363,7 @@ export function parseAgyStream(text) {
     out.resultStatus = r.status ?? out.resultStatus;
     out.resultError = typeof r.error === 'string' && r.error ? r.error : out.resultError;
     out.deniedActions = Array.isArray(r.denied_actions)
-      ? normalizeDeniedActions(r.denied_actions)
+      ? joinDeniedActionTargets(normalizeDeniedActions(r.denied_actions), stepTargets)
       : out.deniedActions;
     out.sawResult = true;
   }
@@ -443,6 +448,100 @@ export function normalizeDeniedActions(rawList) {
     if (out.length >= MAX_DENIED_ACTIONS) break;
   }
   return out;
+}
+
+/**
+ * agy's stable permission-denial message prefix (measured on 1.2.1, both
+ * `086-T3` fixtures): `permission check failed for <action> "<target>":`.
+ * The action is the first whitespace-free token; the target is the quoted
+ * text up to the first `":` that follows it — non-greedy so a target that
+ * happens to contain a bare `"` does not run past the real close.
+ */
+const PERMISSION_DENIAL_MESSAGE_PATTERN = /^permission check failed for (\S+) "([\s\S]*?)":/;
+
+/**
+ * Match one `step_update` tool error message against
+ * {@link PERMISSION_DENIAL_MESSAGE_PATTERN} and sanitize both captures the
+ * same way a `denied_actions` member's own strings are sanitized
+ * ({@link sanitizeDeniedActionString}: control characters stripped, capped
+ * at {@link MAX_DENIED_ACTION_STRING_LENGTH}) — the target is model-chosen
+ * tool-parameter text, so it is untrusted free text, not a bounded schema
+ * field, exactly like the stderr sentinel's captured tool name.
+ *
+ * @param {unknown} message
+ * @returns {{ action: string, target: string } | null}
+ */
+function matchPermissionDenialMessage(message) {
+  if (typeof message !== 'string') return null;
+  const match = message.match(PERMISSION_DENIAL_MESSAGE_PATTERN);
+  if (!match) return null;
+  const action = sanitizeDeniedActionString(match[1]);
+  const target = sanitizeDeniedActionString(match[2]);
+  if (!action || !target) return null;
+  return { action, target };
+}
+
+/**
+ * Scan an agy stream-json blob for `step_update` events reporting a
+ * headless permission denial (`state: 'ERROR'`, `step_type: 'tool'`) and
+ * extract the denied target from `tool_info.error.message` — the `result`
+ * event's `denied_actions` carries the action alone, never the target (plan
+ * 086 T3). {@link joinDeniedActionTargets} joins the result **by action
+ * name**, never by `tool_name`: on both measured fixtures the tool name
+ * differs from the action (`read_url_content` vs `read_url`, `run_command`
+ * vs `command`).
+ *
+ * Bounded the same way {@link normalizeDeniedActions} bounds its own list:
+ * capped at {@link MAX_DENIED_ACTIONS} entries, each string capped and
+ * control-character-stripped via {@link sanitizeDeniedActionString}, exact
+ * action+target repeats dropped. When the same action names more than one
+ * target, the first one seen wins the later join.
+ *
+ * @param {string} text
+ * @returns {{ action: string, target: string }[]}
+ */
+function parseStepUpdateDeniedTargets(text) {
+  if (typeof text !== 'string' || !text.length) return [];
+  const seen = new Set();
+  const out = [];
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue; // torn/partial line — stream noise, not a caller-facing error
+    }
+    const step = event?.event === 'step_update' ? event.step_update : null;
+    if (!step || step.state !== 'ERROR' || step.step_type !== 'tool') continue;
+    const found = matchPermissionDenialMessage(step.tool_info?.error?.message);
+    if (!found) continue;
+    const key = `${found.action}\0${found.target}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(found);
+    if (out.length >= MAX_DENIED_ACTIONS) break;
+  }
+  return out;
+}
+
+/**
+ * Join `{ target }` onto each normalized `denied_actions` member by action
+ * name (item 1, plan 086 T3): a member with no matching `stepTargets` entry
+ * keeps `target: null`; a `stepTargets` entry whose action matches no
+ * member is dropped (it never appends a new member).
+ *
+ * @param {{ action: string, displayName: string | null, source: 'json' }[]} jsonList
+ * @param {{ action: string, target: string }[]} stepTargets
+ * @returns {{ action: string, displayName: string | null, target: string | null, source: 'json' }[]}
+ */
+function joinDeniedActionTargets(jsonList, stepTargets) {
+  const targetByAction = new Map();
+  for (const { action, target } of stepTargets) {
+    if (!targetByAction.has(action)) targetByAction.set(action, target);
+  }
+  return jsonList.map((member) => ({ ...member, target: targetByAction.get(member.action) ?? null }));
 }
 
 /** Bound on the captured `agyPrintTimeout.limit` string (e.g. "25s"). */

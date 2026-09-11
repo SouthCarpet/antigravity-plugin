@@ -2,7 +2,7 @@
 description: Free-form Antigravity task with state tracking (background by default)
 argument-hint: '[--wait] [--foreground] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
 disable-model-invocation: true
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
 STOP. This command runs a program. It is not a request for you to answer.
@@ -30,6 +30,11 @@ Flags:
 
 Auth note:
 - If output mentions an OAuth URL or "not authenticated", run `/antigravity:setup` to complete the OAuth flow, then retry.
+
+Denied actions:
+- If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.
+- If the user wants it done here, do that step yourself, then re-run `task --conversation <id> ...` so the work continues in the same conversation.
+- Never suggest `--dangerously-skip-permissions`.
 
 Output rules:
 - Present the command output verbatim — do not paraphrase or summarize.
