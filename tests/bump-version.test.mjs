@@ -450,12 +450,11 @@ describe('bump-version README Status token', () => {
   ];
 
   for (const { label, arg, expected } of README_REWRITE_CASES) {
-    it(`rewrites only the version token and leaves freeze wording intact — ${label}`, () => {
+    it(`rewrites only the version token and leaves the rest of the README intact — ${label}`, () => {
       const root = makeTree();
       const current = currentVersion(root);
       const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
       assert.match(before, new RegExp(`^> \\*\\*v${escapeRe(current)}\\.\\*\\*`, 'm'));
-      assert.match(before, /frozen for 1\.x/);
       assert.match(before, /docs\/COMPATIBILITY\.md/);
 
       const expectedVersion = expected(current);
@@ -464,9 +463,17 @@ describe('bump-version README Status token', () => {
       const after = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
       assert.match(after, new RegExp(`^> \\*\\*v${escapeRe(expectedVersion)}\\.\\*\\*`, 'm'));
       assert.doesNotMatch(after, /Pre-release/);
-      assert.match(after, /frozen for 1\.x/);
       assert.match(after, /docs\/COMPATIBILITY\.md/);
       assert.match(after, /CHANGELOG\.md/);
+      // Every other byte must survive the bump. Blanking every version-shaped
+      // number on both sides turns "only version tokens moved" into one
+      // comparison, so this no longer breaks when the Status prose is reworded
+      // (it did on 2026-09-11, when the wording it used to pin was rewritten on
+      // purpose). A bare number match, not the current version, because the
+      // prose itself may name another version, such as the 2.0.0 this contract
+      // reserves for a breaking change.
+      const blankVersions = (text) => text.replace(/\d+\.\d+\.\d+/g, '<VERSION>');
+      assert.equal(blankVersions(before), blankVersions(after));
       assert.equal(readmeStatusVersion(root), expectedVersion);
 
       const check = runBump(root, ['--check']);
