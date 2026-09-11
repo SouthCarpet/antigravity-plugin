@@ -23,7 +23,14 @@ import {
 import { SESSION_ID_ENV } from "./job-control.mjs";
 import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
-import { createJsonEnvelope, outputCommandResult, reportWarnings, warningDetails } from "./render.mjs";
+import {
+  createJsonEnvelope,
+  outputCommandResult,
+  reportWarnings,
+  warningDetails,
+  formatDeniedActionLabel,
+  stripBypassAdvice,
+} from "./render.mjs";
 
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
 export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -263,12 +270,12 @@ export function denialRemedy(action, verb) {
 }
 
 /**
- * Project a raw `deniedActions` list (`{ action, displayName, source }`,
- * see agent-runtime.mjs#mergeDeniedActions) into the `{ action, displayName,
- * remedy }` shape every output path renders (item 4), using
- * {@link denialRemedy} with the job's own `kind`. `null` when there is
- * nothing to project, so a caller can skip an empty `details` key the same
- * way `warningDetails` does.
+ * Project a raw `deniedActions` list (`{ action, displayName, target,
+ * source }`, see agent-runtime.mjs#mergeDeniedActions) into the
+ * `{ action, displayName, target, remedy }` shape every output path renders
+ * (item 4; `target` added plan 086 T3 item 2), using {@link denialRemedy}
+ * with the job's own `kind`. `null` when there is nothing to project, so a
+ * caller can skip an empty `details` key the same way `warningDetails` does.
  *
  * @param {import('./types.mjs').DeniedAction[] | null | undefined} deniedActions
  * @param {string} kind job kind (`rescue`, `task`, `vision`, `review`)
@@ -276,9 +283,10 @@ export function denialRemedy(action, verb) {
  */
 export function deniedActionsWithRemedy(deniedActions, kind) {
   if (!Array.isArray(deniedActions) || deniedActions.length === 0) return null;
-  return deniedActions.map(({ action, displayName }) => ({
+  return deniedActions.map(({ action, displayName, target }) => ({
     action,
     displayName: displayName ?? null,
+    target: target ?? null,
     remedy: denialRemedy(action, kind),
   }));
 }
@@ -291,6 +299,13 @@ export function deniedActionsWithRemedy(deniedActions, kind) {
  * double, or a `RuntimeResult` built before this field existed). Returns
  * the same object.
  *
+ * When an entry's `target` is known (plan 086 T3 item 2) the line names it
+ * via {@link formatDeniedActionLabel} before the remedy sentence
+ * (`agent-runtime: read_url (ReadUrlContent) for "example.com": <remedy>`);
+ * when it is not, the line stays the exact 1.3.0 text
+ * (`agent-runtime: <remedy>`) — item 6's "1.3.0 behaviour with no target
+ * present is unchanged".
+ *
  * @param {import('./types.mjs').RuntimeResult} result
  * @param {string} kind job kind
  * @returns {import('./types.mjs').RuntimeResult}
@@ -300,8 +315,10 @@ export function applyDenialHint(result, kind) {
   const actions = Array.isArray(result.deniedActions) && result.deniedActions.length
     ? result.deniedActions
     : [{ action: result.denial.tool }];
-  for (const { action } of actions) {
-    result.stderr = `${result.stderr ?? ""}\nagent-runtime: ${denialRemedy(action, kind)}`;
+  for (const entry of actions) {
+    const remedy = denialRemedy(entry.action, kind);
+    const line = entry.target ? `${formatDeniedActionLabel(entry)}: ${remedy}` : remedy;
+    result.stderr = `${result.stderr ?? ""}\nagent-runtime: ${line}`;
   }
   return result;
 }
@@ -312,6 +329,12 @@ export function applyDenialHint(result, kind) {
  * `reportWarnings` already echoes agy's own denial line(s) verbatim; this
  * adds the plugin's own remedy underneath, one per action.
  *
+ * When `target` is known (plan 086 T3 item 2) the line names it via
+ * {@link formatDeniedActionLabel} (`read_url (ReadUrlContent) for
+ * "example.com"`); when it is not, the line stays the exact 1.3.0 text
+ * (`"<action>"`) — item 6's "1.3.0 behaviour with no target present is
+ * unchanged".
+ *
  * @param {string} kind
  * @param {import('./types.mjs').RuntimeResult} result
  * @returns {void}
@@ -319,8 +342,9 @@ export function applyDenialHint(result, kind) {
 export function reportDeniedActionHints(kind, result) {
   const list = deniedActionsWithRemedy(result?.deniedActions, kind);
   if (!list) return;
-  for (const { action, remedy } of list) {
-    process.stderr.write(`antigravity:${kind} — denied "${action}": ${remedy}\n`);
+  for (const entry of list) {
+    const label = entry.target ? formatDeniedActionLabel(entry) : `"${entry.action}"`;
+    process.stderr.write(`antigravity:${kind} — denied ${label}: ${entry.remedy}\n`);
   }
 }
 
@@ -644,7 +668,7 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
   }
   if (result.status !== "completed") {
     process.stderr.write(`\n${foregroundFailureLine(kind, result)}\n`);
-    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.stderr) process.stderr.write(stripBypassAdvice(result.stderr));
     return result.status === "cancelled" ? 2 : 1;
   }
 

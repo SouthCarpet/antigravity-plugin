@@ -38,6 +38,11 @@ Invocation:
 - `--model <id>` selects the agy model for this run. Forward it through unchanged when present.
 - `--effort <low|medium|high>` selects agy's reasoning effort for this run. Forward it through unchanged when present. Default `medium` when absent.
 
+Denied actions:
+- If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.
+- If the user wants it done here, do that step yourself, then re-run `rescue --conversation <id> ...` so the work continues in the same conversation.
+- Never suggest `--dangerously-skip-permissions`.
+
 Auth note:
 - If the helper output says Antigravity is missing or not authenticated, stop and ask the user to run `/antigravity:setup`.
 

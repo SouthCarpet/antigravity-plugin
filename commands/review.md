@@ -2,7 +2,7 @@
 description: Review uncommitted changes (or a branch diff) with Google Antigravity (agy)
 argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--continue] [--conversation <id>] [--json]'
 disable-model-invocation: true
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
 STOP. This command runs a program. It is not a request for you to answer.
@@ -25,6 +25,11 @@ Flags:
 - `--continue` resume the most recent review conversation.
 - `--conversation <id>` resume a specific conversation by id.
 - `--json` emit structured JSON instead of the rendered markdown review.
+
+Denied actions:
+- If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.
+- If the user wants it done here, do that step yourself, then re-run `review --conversation <id>` so the work continues in the same conversation.
+- Never suggest `--dangerously-skip-permissions`.
 
 Auth note:
 - If the output says "Antigravity is not authenticated", run `/antigravity:setup` to complete the OAuth flow and then re-try.

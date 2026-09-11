@@ -42,6 +42,8 @@ If a background worker hits the auth prompt (e.g. a fresh machine), it captures 
 
 Headless verbs (background jobs, and any host-wrapper invocation) are read-and-reason: reads are granted per invocation with `--add-dir <dir>`, but execution inside agy is all-or-nothing because headless mode cannot prompt for a permission. A task that needs a command actually run must either grant everything up front or run the command yourself and hand the seat the output to judge.
 
+When a run reports `deniedActions`, ask the user (Claude Code's `AskUserQuestion`, or the Codex equivalent) whether to run that step in the host instead or to grant the action themselves, then either do the step in the host or re-run the job with `--conversation <id>` (where the verb supports it) so the work continues in the same conversation. Never suggest `--dangerously-skip-permissions`.
+
 `setup` also registers the **vision MCP server + exact permission** `$antigravity vision` needs — `agy --print` has no native image ingestion path, so image questions only get real visual answers once `setup` has written `~/.gemini/config/mcp_config.json` (`mcpServers.vision`) and `~/.gemini/antigravity-cli/settings.json` (`permissions.allow` including only `mcp(vision/view_image)`). Each vision run confines the server to the user-named paths. Pass `setup --skip-vision` to opt out or `setup --remove-vision` to remove only plugin-owned entries.
 
 ## Example prompts

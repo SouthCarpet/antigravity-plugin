@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Denied-action target reporting.** agy's `result.denied_actions` names
+  only the action; a separate `step_update` event's tool error message
+  (`permission check failed for <action> "<target>":`, measured on agy
+  1.2.1) names what was actually refused. The plugin now extracts that
+  target and joins it onto the matching `denied_actions` member by the
+  action name parsed out of the message — never by the step's `tool_name`,
+  which differs from the action (`read_url_content` vs `read_url`,
+  `run_command` vs `command`). The target is additive on every
+  `deniedActions` output (`--json`'s `target` field, the markdown "Denied
+  Actions" line, the stderr denial hint), sanitized and capped the same way
+  `action`/`displayName` are, and `null` when no `step_update` matched.
+  Shown for context only: never assembled into a `permissions.allow` line,
+  never a wildcard.
 - **agy print-timeout truncation reporting.** Since agy 1.1.28, a `--print-timeout`
   that expires while a turn is still in progress exits 0 and writes one
   stable stderr line instead of failing outright. The plugin detects that
@@ -45,6 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The plugin no longer relays agy's bypass advice to its own stderr.**
+  agy's headless-denial sentinel ends with "Alternatively, re-run with
+  `--dangerously-skip-permissions` to auto-approve all tools." Printing that
+  sentence contradicted `SECURITY.md`'s own promise never to suggest
+  bypassing headless permission checks. The console echo of a failed run's
+  stderr now drops just that sentence; the stored result and
+  `result --json` still keep the complete upstream line unmodified.
 - **Vision MCP tool schema closes to undeclared arguments.** agy 1.1.27
   rejected an argument a server's schema never declared; agy 1.2.1
   "preserves open object schemas ... instead of rejecting undeclared

@@ -389,7 +389,10 @@ in both status tables (a count, or `-`), and `--json` carries a per-job
 `deniedActionsCount` on every job in a list. `status <id>` (single job) adds
 a "## Denied Actions" markdown section, one line per action with its remedy,
 and `--json`'s `details.job.deniedActions` carries the same list as
-`{ action, displayName, remedy }`. Absent on a clean run or a legacy record.
+`{ action, displayName, target, remedy }`. `target` (additive, plan 086 T3)
+is the denied tool-parameter value agy named, or `null` when it is unknown;
+the markdown line and `target` both name it when present. Absent on a clean
+run or a legacy record.
 
 A job whose answer was cut short by agy's own print timeout (agy >= 1.1.28;
 see [print timeout and fatal-error reporting](./COMPATIBILITY.md#print-timeout-and-fatal-error-reporting))
@@ -431,9 +434,11 @@ produce a result payload before its nonzero exit.
 When the stored result carries one or more headless denials, the markdown
 output ends with a "## Denied Actions" section, one line per action with its
 remedy, and `--json` sets `details.deniedActions` to the same list as
-`{ action, displayName, remedy }`. This is appended after the answer text and
-is never folded into the opaque `answer` field. Absent when the run had no
-denial.
+`{ action, displayName, target, remedy }`. `target` (additive, plan 086 T3)
+is the denied tool-parameter value agy named, or `null` when it is unknown;
+the markdown line and `target` both name it when present. This is appended
+after the answer text and is never folded into the opaque `answer` field.
+Absent when the run had no denial.
 
 When the stored result carries agy's own print-timeout marker (agy >= 1.1.28;
 see [print timeout and fatal-error reporting](./COMPATIBILITY.md#print-timeout-and-fatal-error-reporting)),

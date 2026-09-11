@@ -285,7 +285,7 @@ describe('/antigravity:status', () => {
     assert.equal(exit, 0);
     const payload = JSON.parse(cap.out.join(''));
     assert.deepEqual(payload.details.job.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
     ]);
   });
 
@@ -477,7 +477,7 @@ describe('/antigravity:result', () => {
     assert.equal(exit, 0);
     const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'partial answer\n' });
     assert.deepEqual(payload.details.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
     ]);
   });
 

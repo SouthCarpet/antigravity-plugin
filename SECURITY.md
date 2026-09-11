@@ -132,6 +132,16 @@ text: each `action`/`display_name` string is validated, length-capped, and
 stripped of control characters before it is ever rendered or written to a
 job record.
 
+Since plan 086 T3, the target agy named for the denial (model-chosen
+tool-parameter text, equally untrusted) is validated, length-capped, and
+control-character-stripped the same way before display. It is shown to the
+caller for context only; the plugin never assembles it into a
+`permissions.allow` rule and never writes a wildcard rule on the caller's
+behalf. agy's own headless-denial sentinel also ends with its own bypass
+suggestion ("... re-run with `--dangerously-skip-permissions` ..."); the
+plugin no longer prints that sentence to its own stderr (the stored result
+and `result --json` still keep the complete upstream line).
+
 ### Slash and skill commands in prompts
 
 Every print-mode `agy` invocation (`review`, `rescue`, `task`, `vision`)

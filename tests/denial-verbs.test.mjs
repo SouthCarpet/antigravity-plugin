@@ -63,6 +63,15 @@ const DENIAL_LINE_READ_URL =
 const PRINT_TIMEOUT_LINE =
   '[agy] print timeout after 25s with turn in progress; returning partial output';
 
+// Plan 086 T3: the step_update line (verbatim from
+// t0e-denied-read-url-step.txt) that names the denied target, and agy's
+// full stderr sentinel including its own bypass advice (verbatim from
+// t0-plugin-task-denied-url.txt) — item 4 checks the plugin drops just that
+// one sentence from what it prints.
+const T0E_STEP_LINE = '{"event":"step_update","step_update":{"conversation_id":"594b90eb-80e4-4271-8563-da2453f36f62","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"read_url_content","duration_seconds":0.127872,"tool_info":{"name":"read_url_content","parameters":{"Url":"https://example.com/"},"error":{"type":"TOOL_ERROR","message":"permission check failed for read_url \\"example.com\\": user denied permission for read_url(example.com)"}}}}';
+const DENIAL_LINE_READ_URL_WITH_BYPASS =
+  'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_url(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
+
 let stubDir;
 let starvedAgy;
 let answeredAgy;
@@ -70,6 +79,8 @@ let starvedStructuredAgy;
 let answeredStructuredAgy;
 let printTimeoutAnsweredAgy;
 let printTimeoutEmptyAgy;
+let starvedWithTargetAgy;
+let answeredWithTargetAgy;
 
 before(() => {
   stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-denial-e2e-'));
@@ -100,6 +111,17 @@ before(() => {
   printTimeoutEmptyAgy = writeFakeAgy(stubDir, 'agy-print-timeout-empty', {
     stdout: resultLine('') + '\n',
     stderr: PRINT_TIMEOUT_LINE + '\n',
+  });
+  // Plan 086 T3: the step_update line carries the denied target; the
+  // stderr sentinel carries agy's own bypass advice the plugin must not
+  // repeat on its own stderr.
+  starvedWithTargetAgy = writeFakeAgy(stubDir, 'agy-starved-with-target', {
+    stdout: [T0E_STEP_LINE, resultLine('', { denied_actions: [READ_URL_MEMBER] })].join('\n') + '\n',
+    stderr: DENIAL_LINE_READ_URL_WITH_BYPASS + '\n',
+  });
+  answeredWithTargetAgy = writeFakeAgy(stubDir, 'agy-answered-with-target', {
+    stdout: [T0E_STEP_LINE, resultLine('Answer without the URL.', { denied_actions: [READ_URL_MEMBER] })].join('\n') + '\n',
+    stderr: DENIAL_LINE_READ_URL_WITH_BYPASS + '\n',
   });
 });
 
@@ -225,7 +247,7 @@ describe('structured denial (agy 1.1.27 denied_actions) — answered run', () =>
     const payload = JSON.parse(res.stdout);
     assert.equal(payload.status, 'completed');
     assert.deepEqual(payload.details.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.' },
     ]);
   });
 
@@ -268,5 +290,64 @@ describe('agy print-timeout marker — empty answer fails like a starved denial 
     assert.match(res.stderr, PRINT_TIMEOUT_MARKER);
     assert.match(res.stderr, /print timeout expired \(25s\) before producing any output/);
     assert.equal(res.stdout, '');
+  });
+});
+
+// Plan 086 T3: end to end, the denied target flows into every output path,
+// and the plugin's console output never repeats agy's own bypass advice
+// (item 4) even though it is present in what agy actually printed.
+describe('denied-action target end to end, and bypass-advice filtering (plan 086 T3)', () => {
+  it('starved run, task --foreground: stderr names the target and drops the bypass sentence', () => {
+    const res = runVerb(starvedWithTargetAgy, ['task', 'read a url', '--foreground']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, /read_url \(ReadUrlContent\) for "example\.com"/);
+    assert.match(res.stderr, /Add an allow-rule under permissions\.allow/);
+    assert.doesNotMatch(res.stderr, /--dangerously-skip-permissions/);
+  });
+
+  it('answered run, task --foreground --json: details.deniedActions carries the target', () => {
+    const res = runVerb(answeredWithTargetAgy, ['task', 'summarize', '--foreground', '--json']);
+    assert.equal(res.status, 0, res.stderr);
+    const payload = JSON.parse(res.stdout);
+    assert.deepEqual(payload.details.deniedActions, [
+      {
+        action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com',
+        remedy: 'Headless runs cannot grant "read_url"; the host must run this step itself.',
+      },
+    ]);
+  });
+
+  it('answered run, rescue: the stderr hint names the target and the bypass sentence is absent', () => {
+    const res = runVerb(answeredWithTargetAgy, ['rescue', 'summarize']);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.stderr, /denied read_url \(ReadUrlContent\) for "example\.com"/);
+    assert.doesNotMatch(res.stderr, /--dangerously-skip-permissions/);
+  });
+
+  it('result --json after a background run: the stored result still has the full upstream line', () => {
+    // Background start, wait, and result must share one workspace/data
+    // directory pair, unlike runVerb's per-call fresh dirs, so this uses its
+    // own env across the three sequential calls.
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-denial-bg-work-'));
+    const data = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-denial-bg-data-'));
+    const env = {
+      ...process.env,
+      AGY_BIN: starvedWithTargetAgy,
+      CLAUDE_PLUGIN_DATA: data,
+      ANTIGRAVITY_PLUGIN_SESSION_ID: 'denial-e2e-bg-' + randomBytes(3).toString('hex'),
+    };
+    try {
+      const start = spawnSync(process.execPath, [BIN, 'task', 'read a url', '--json'], { cwd: work, encoding: 'utf8', env });
+      assert.equal(start.status, 0, start.stderr);
+      const jobId = JSON.parse(start.stdout).jobId;
+      const statusRes = spawnSync(process.execPath, [BIN, 'status', jobId, '--wait', '--json'], { cwd: work, encoding: 'utf8', env });
+      assert.equal(statusRes.status, 0, statusRes.stderr);
+      const resultRes = spawnSync(process.execPath, [BIN, 'result', jobId, '--json'], { cwd: work, encoding: 'utf8', env });
+      const payload = JSON.parse(resultRes.stdout);
+      assert.match(payload.details.result.stderr, /--dangerously-skip-permissions/);
+    } finally {
+      try { fs.rmSync(work, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(data, { recursive: true, force: true }); } catch {}
+    }
   });
 });

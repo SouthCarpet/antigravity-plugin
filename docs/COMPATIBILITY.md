@@ -267,13 +267,28 @@ surfaces the merged `deniedActions` list, each with a computed remedy, on
 every output path:
 
 - `--json`: `details.deniedActions` (an array of `{ action, displayName,
-  remedy }`) on a completed foreground envelope and on `result <id>
+  target, remedy }`) on a completed foreground envelope and on `result <id>
   --json`; `details.job.deniedActions` on `status <id> --json`; a per-job
   `deniedActionsCount` on every job entry in `status --json`'s job lists.
 - Markdown: one line per denied action with its remedy, in the single-job
   `status <id>` view, in the foreground failure/warning text, and appended
   to `result` when the stored result carries denials; the `status` job
   tables gain a trailing `Denied` column (a count, or `-`).
+
+**Target (additive, plan 086 T3).** agy's `result.denied_actions` names only
+the action; what was actually refused arrives separately, in a `step_update`
+event whose `tool_info.error.message` begins `permission check failed for
+<action> "<target>":` (measured on agy 1.2.1). The plugin extracts that
+target and joins it onto the matching `denied_actions` member **by the
+action name parsed out of that message, never by the step's `tool_name`**
+(agy's own tool name and action differ: `read_url_content` vs `read_url`,
+`run_command` vs `command`). `target` is `null` on a member no `step_update`
+matched, and on every member sourced from the stderr sentinel alone (older
+agy). The target is model-chosen tool-parameter text, so every output path
+above (`--json`'s `target` field, the markdown line, and the stderr hint)
+shows it sanitized and capped the same way `action`/`displayName` are, and
+never assembles it into a `permissions.allow` line or a wildcard — a rule a
+user would add is described in prose, never handed over ready to paste.
 
 The remedy is table-driven by action, not derived from the action's name:
 a read-type action (`read_file` and similar) names `--add-dir <dir>`; an
@@ -285,6 +300,14 @@ itself. `vision` always gets its own fixed hint (`view_image`, never
 `--dangerously-skip-permissions` or implies a retry. A job record from
 before this field existed has no `deniedActions` at all — absent, not an
 empty array — and stays a valid, readable record.
+
+**The plugin no longer relays agy's own bypass advice (plan 086 T3 item 4).**
+agy's headless-denial sentinel ends with "Alternatively, re-run with
+`--dangerously-skip-permissions` to auto-approve all tools." Printing that
+sentence on the plugin's own stderr would repeat advice `SECURITY.md`
+disclaims, so the console echo of a failed run's stderr drops just that
+sentence. The stored result and `result --json` still keep the complete
+upstream line unmodified.
 
 The way to give a headless `rescue` or `task` run read access to files is
 `--add-dir <dir>` on the invocation. It is not an allow rule in
@@ -514,13 +537,17 @@ meaning:
   `path` argument is unchanged.
 - `details.deniedActions` on a completed foreground `--json` envelope of
   `review`, `rescue`, `task`, `vision` and on `result <id> --json`. The field is an
-  array of `{ action, displayName, remedy }` for headless denials reported
-  by agy 1.1.27 `denied_actions` or by the stderr sentinel. The field is
-  absent when nothing was denied. Section "Headless read access" has the
-  detail. `docs/COMMANDS.md` `status` and `result` sections have the field
-  shapes.
+  array of `{ action, displayName, target, remedy }` for headless denials
+  reported by agy 1.1.27 `denied_actions` or by the stderr sentinel. The
+  field is absent when nothing was denied. Section "Headless read access"
+  has the detail. `docs/COMMANDS.md` `status` and `result` sections have the
+  field shapes.
 - `details.job.deniedActions` on `status <id> --json`. The single-job
   envelope wraps the job snapshot under `details.job`.
+- `target` (plan 086 T3) on every `deniedActions` member above: the denied
+  tool-parameter value agy named in a `step_update` error message, joined by
+  action name, or `null` when unknown. Section "Headless read access" has
+  the join rule and the sanitizing/display rules.
 - `deniedActionsCount` on every job index entry (`status` job lists and
   `status --json`). The count is `0` when nothing was denied.
   `deniedActions` is stored on the job record and on the stored result.

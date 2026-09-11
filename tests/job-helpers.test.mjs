@@ -62,6 +62,7 @@ const {
   runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId,
   resolveWorkerPath, agyTimeoutMs, waitOutcomeLine, finishForeground,
   denialRemedy, deniedActionsWithRemedy, applyDenialHint, buildStoredResult,
+  reportDeniedActionHints,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
@@ -664,6 +665,30 @@ describe('applyDenialHint — one line per denied action', () => {
     applyDenialHint(completed, 'task');
     assert.equal(completed.stderr, '');
   });
+
+  // Plan 086 T3 item 2: names the target when known, on the shared
+  // starved-run stderr fold this exercises via t0-plugin-task-denied-url.txt.
+  it('names the target before the remedy sentence when known', () => {
+    const result = {
+      status: 'failed',
+      denial: { tool: 'read_url', line: 'sentinel' },
+      deniedActions: [{ action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com' }],
+      stderr: '',
+    };
+    applyDenialHint(result, 'task');
+    assert.match(result.stderr, /read_url \(ReadUrlContent\) for "example\.com": Headless runs cannot grant "read_url"/);
+  });
+
+  it('keeps the exact 1.3.0 text when target is unknown (item 6)', () => {
+    const result = {
+      status: 'failed',
+      denial: { tool: 'read_url', line: 'sentinel' },
+      deniedActions: [{ action: 'read_url', displayName: 'ReadUrlContent' }],
+      stderr: '',
+    };
+    applyDenialHint(result, 'task');
+    assert.equal(result.stderr, '\nagent-runtime: Headless runs cannot grant "read_url"; the host must run this step itself.');
+  });
 });
 
 describe('buildStoredResult — deniedActions field', () => {
@@ -700,7 +725,7 @@ describe('finishForeground — details.deniedActions and warning-text hints', ()
     assert.equal(exit, 0);
     const payload = JSON.parse(chunks.join(''));
     assert.deepEqual(payload.details.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', remedy: denialRemedy('read_url', 'task') },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, remedy: denialRemedy('read_url', 'task') },
     ]);
     assert.match(errChunks.join(''), /denied "read_url"/);
   });
@@ -721,6 +746,71 @@ describe('finishForeground — details.deniedActions and warning-text hints', ()
     assert.equal(exit, 0);
     const payload = JSON.parse(chunks.join(''));
     assert.equal(Object.hasOwn(payload.details, 'deniedActions'), false);
+  });
+});
+
+// Plan 086 T3 item 2: target carried through deniedActionsWithRemedy, and
+// shown by the stderr hint when known — the exact 1.3.0 text otherwise
+// (item 6: "1.3.0 behaviour with no target present is unchanged").
+describe('deniedActionsWithRemedy — target (plan 086 T3)', () => {
+  it('passes a known target through as an additive field', () => {
+    const out = deniedActionsWithRemedy(
+      [{ action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com' }], 'task',
+    );
+    assert.equal(out[0].target, 'example.com');
+  });
+
+  it('defaults target to null when the member has none', () => {
+    const out = deniedActionsWithRemedy([{ action: 'read_url', displayName: 'ReadUrlContent' }], 'task');
+    assert.equal(out[0].target, null);
+  });
+});
+
+describe('reportDeniedActionHints — target (plan 086 T3)', () => {
+  it('names the target in the shape "action (displayName) for \\"target\\"" when known', () => {
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    try {
+      reportDeniedActionHints('task', {
+        status: 'completed',
+        deniedActions: [{ action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com' }],
+      });
+    } finally { errMock.mock.restore(); }
+    assert.match(chunks.join(''), /denied read_url \(ReadUrlContent\) for "example\.com": /);
+  });
+
+  it('keeps the exact 1.3.0 text ("<action>") when target is unknown', () => {
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    try {
+      reportDeniedActionHints('task', {
+        status: 'completed',
+        deniedActions: [{ action: 'read_url', displayName: 'ReadUrlContent' }],
+      });
+    } finally { errMock.mock.restore(); }
+    assert.match(chunks.join(''), /denied "read_url": /);
+    assert.doesNotMatch(chunks.join(''), /ReadUrlContent/);
+  });
+});
+
+// Plan 086 T3 item 4: finishForeground's console echo of a failed run's
+// stderr drops the bypass sentence; the RuntimeResult object it was given
+// (and therefore whatever a caller stores from it) is never mutated.
+describe('finishForeground — failed run stderr echo drops the bypass sentence', () => {
+  it('the printed stderr has no bypass flag; the source result.stderr is untouched', () => {
+    const BYPASS_LINE =
+      'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_url(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
+    const result = { status: 'failed', exitCode: 1, stderr: BYPASS_LINE };
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    let exit;
+    try {
+      exit = finishForeground('task', { id: 'j3' }, result, { json: false });
+    } finally { errMock.mock.restore(); }
+    assert.equal(exit, 1);
+    assert.doesNotMatch(chunks.join(''), /--dangerously-skip-permissions/);
+    // the object handed in (what a caller would persist as the stored result) is unchanged
+    assert.match(result.stderr, /--dangerously-skip-permissions/);
   });
 });
 

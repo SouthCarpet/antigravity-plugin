@@ -6,7 +6,7 @@
  * elapsed buckets, follow-up commands) are covered.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -18,6 +18,9 @@ import {
   renderSetupReport,
   outputCommandResult,
   renderDeniedActionLines,
+  formatDeniedActionLabel,
+  reportWarnings,
+  stripBypassAdvice,
 } from '../scripts/lib/render.mjs';
 
 describe('createJsonEnvelope', () => {
@@ -249,6 +252,96 @@ describe('renderDeniedActionLines', () => {
     assert.equal(lines[2], '');
     assert.equal(lines[3], '- **read_url (ReadUrlContent)**: r1');
     assert.equal(lines[4], '- **write_to_file**: r2');
+  });
+
+  // Plan 086 T3 item 2: the target, when known, is named in the line;
+  // absent target renders exactly as before (item 6).
+  it('names the target when present, in the shape "action (displayName) for \\"target\\""', () => {
+    const lines = renderDeniedActionLines([
+      { action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com', remedy: 'r1' },
+      { action: 'command', displayName: 'RunCommand', target: 'echo hello', remedy: 'r2' },
+      { action: 'write_to_file', displayName: null, target: null, remedy: 'r3' },
+    ]);
+    assert.equal(lines[3], '- **read_url (ReadUrlContent) for "example.com"**: r1');
+    assert.equal(lines[4], '- **command (RunCommand) for "echo hello"**: r2');
+    assert.equal(lines[5], '- **write_to_file**: r3');
+  });
+});
+
+describe('formatDeniedActionLabel', () => {
+  it('action alone when there is no displayName and no target', () => {
+    assert.equal(formatDeniedActionLabel({ action: 'read_url' }), 'read_url');
+  });
+
+  it('action (displayName) when there is no target', () => {
+    assert.equal(
+      formatDeniedActionLabel({ action: 'read_url', displayName: 'ReadUrlContent' }),
+      'read_url (ReadUrlContent)',
+    );
+  });
+
+  it('action for "target" when there is no displayName', () => {
+    assert.equal(
+      formatDeniedActionLabel({ action: 'read_url', target: 'example.com' }),
+      'read_url for "example.com"',
+    );
+  });
+
+  it('action (displayName) for "target" when both are known', () => {
+    assert.equal(
+      formatDeniedActionLabel({ action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com' }),
+      'read_url (ReadUrlContent) for "example.com"',
+    );
+  });
+});
+
+// Plan 086 T3 item 4: the plugin no longer relays agy's own bypass advice.
+describe('stripBypassAdvice', () => {
+  const BYPASS_LINE =
+    'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_url(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
+
+  it('drops only the bypass sentence, keeping the rest of the line', () => {
+    const out = stripBypassAdvice(BYPASS_LINE);
+    assert.doesNotMatch(out, /--dangerously-skip-permissions/);
+    assert.doesNotMatch(out, /Alternatively/);
+    assert.match(out, /Add an allow-rule under permissions\.allow in settings\.json \(e\.g\. read_url\(<target>\)\)\.$/);
+  });
+
+  it('leaves a line with no bypass flag untouched', () => {
+    assert.equal(stripBypassAdvice('agent-runtime: Headless runs cannot grant "read_url".'),
+      'agent-runtime: Headless runs cannot grant "read_url".');
+  });
+
+  it('is a no-op on empty, null, or non-string input', () => {
+    assert.equal(stripBypassAdvice(''), '');
+    assert.equal(stripBypassAdvice(null), null);
+    assert.equal(stripBypassAdvice(undefined), undefined);
+  });
+
+  it('strips the sentence on only the matching line in a multi-line blob, leaving other lines intact', () => {
+    const blob = `first line\n${BYPASS_LINE}\nlast line`;
+    const out = stripBypassAdvice(blob);
+    assert.match(out, /^first line\n/);
+    assert.match(out, /\nlast line$/);
+    assert.doesNotMatch(out, /--dangerously-skip-permissions/);
+  });
+});
+
+// Plan 086 T3 item 4: reportWarnings prints each warning through
+// stripBypassAdvice; the source `result.warnings` array (and therefore
+// `--json`'s `details.warnings`) is never mutated.
+describe('reportWarnings — drops the bypass sentence, never mutates result.warnings', () => {
+  it('the printed line has no bypass flag; result.warnings keeps the full text', () => {
+    const BYPASS_LINE =
+      'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_url(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
+    const result = { warnings: [BYPASS_LINE] };
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    try {
+      reportWarnings('rescue', result);
+    } finally { errMock.mock.restore(); }
+    assert.doesNotMatch(chunks.join(''), /--dangerously-skip-permissions/);
+    assert.match(result.warnings[0], /--dangerously-skip-permissions/);
   });
 });
 

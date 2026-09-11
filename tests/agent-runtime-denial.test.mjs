@@ -354,7 +354,7 @@ describe('parseAgyStream — the t0a live fixture, verbatim', () => {
     assert.equal(out.sawResult, true);
     assert.equal(out.resultStatus, 'SUCCESS');
     assert.deepEqual(out.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, source: 'json' },
     ]);
   });
 });
@@ -368,7 +368,7 @@ describe('parseAgyStream — deniedActions', () => {
   it('normalizes the verbatim 1.1.27 fixture', () => {
     const line = resultLine({ denied_actions: [READ_URL_MEMBER] }) + '\n';
     assert.deepEqual(parseAgyStream(line).deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, source: 'json' },
     ]);
   });
 
@@ -376,7 +376,142 @@ describe('parseAgyStream — deniedActions', () => {
     const first = resultLine({ denied_actions: [READ_URL_MEMBER] });
     const second = resultLine({ denied_actions: [{ action: 'run_command' }] });
     const out = parseAgyStream(`${first}\n${second}\n`);
-    assert.deepEqual(out.deniedActions, [{ action: 'run_command', displayName: null, source: 'json' }]);
+    assert.deepEqual(out.deniedActions, [
+      { action: 'run_command', displayName: null, target: null, source: 'json' },
+    ]);
+  });
+});
+
+// Plan 086 T3: agy's result.denied_actions names only the action; the
+// denied target arrives separately, in a step_update event's tool error
+// message (`permission check failed for <action> "<target>":`). These two
+// fixtures are the verbatim step_update + result lines from
+// t0e-denied-read-url-step.txt and t0c-ask-permission-headless.txt
+// (086_antigravity-plugin-1.4 agent run, agy 1.2.1).
+const T0E_STEP_LINE = '{"event":"step_update","step_update":{"conversation_id":"594b90eb-80e4-4271-8563-da2453f36f62","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"read_url_content","duration_seconds":0.127872,"tool_info":{"name":"read_url_content","parameters":{"Url":"https://example.com/"},"error":{"type":"TOOL_ERROR","message":"permission check failed for read_url \\"example.com\\": user denied permission for read_url(example.com)"}}}}';
+const T0E_RESULT_LINE = '{"event":"result","result":{"conversation_id":"594b90eb-80e4-4271-8563-da2453f36f62","status":"SUCCESS","response":"","duration_seconds":3.4518673,"num_turns":1,"usage":{"input_tokens":5793,"output_tokens":193,"thinking_tokens":149,"cache_read_tokens":8124,"total_tokens":5986},"denied_actions":[{"action":"read_url","display_name":"ReadUrlContent"}]}}';
+
+const T0C_STEP_LINE = '{"event":"step_update","step_update":{"conversation_id":"02358caf-ef58-47b4-8f58-2ef2c92a48cf","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"echo hello"},"error":{"type":"TOOL_ERROR","message":"permission check failed for command \\"echo hello\\": user denied permission to run command:\\necho hello"}}}}';
+const T0C_RESULT_LINE = '{"event":"result","result":{"conversation_id":"02358caf-ef58-47b4-8f58-2ef2c92a48cf","status":"SUCCESS","response":"","duration_seconds":3.5404118,"num_turns":1,"usage":{"input_tokens":5790,"output_tokens":648,"thinking_tokens":581,"cache_read_tokens":8124,"total_tokens":6438},"denied_actions":[{"action":"command","display_name":"RunCommand"}]}}';
+
+describe('parseAgyStream — denied-action target join, verbatim fixtures (plan 086 T3)', () => {
+  it('t0e (read_url): joins the target parsed from the step_update error message', () => {
+    const out = parseAgyStream(`${T0E_STEP_LINE}\n${T0E_RESULT_LINE}\n`);
+    assert.deepEqual(out.deniedActions, [
+      { action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com', source: 'json' },
+    ]);
+  });
+
+  it('t0c (command): joins by the action name parsed from the message, never by tool_name', () => {
+    // tool_name is "run_command"; the action inside the message and inside
+    // denied_actions is "command". A tool_name-keyed join would never match.
+    const out = parseAgyStream(`${T0C_STEP_LINE}\n${T0C_RESULT_LINE}\n`);
+    assert.deepEqual(out.deniedActions, [
+      { action: 'command', displayName: 'RunCommand', target: 'echo hello', source: 'json' },
+    ]);
+  });
+
+  it('a member with no matching step keeps target: null', () => {
+    const line = JSON.stringify({
+      event: 'result',
+      result: { status: 'SUCCESS', response: '', denied_actions: [{ action: 'call_mcp_tool' }] },
+    }) + '\n';
+    const out = parseAgyStream(`${T0E_STEP_LINE}\n${line}`);
+    assert.deepEqual(out.deniedActions, [
+      { action: 'call_mcp_tool', displayName: null, target: null, source: 'json' },
+    ]);
+  });
+
+  it('a step whose action matches no denied_actions member is dropped, never appending a new member', () => {
+    // Only the read_url step is present; "command" has no matching step, so
+    // its member is still present with target: null and no extra member
+    // was appended for the read_url step.
+    const line = JSON.stringify({
+      event: 'result',
+      result: { status: 'SUCCESS', response: '', denied_actions: [{ action: 'command' }] },
+    }) + '\n';
+    const out = parseAgyStream(`${T0E_STEP_LINE}\n${line}`);
+    assert.equal(out.deniedActions.length, 1);
+    assert.equal(out.deniedActions[0].action, 'command');
+    assert.equal(out.deniedActions[0].target, null);
+  });
+
+  it('ignores a step_update that is not an ERROR tool step', () => {
+    const nonErrorStep = JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        state: 'DONE', step_type: 'tool', tool_name: 'read_url_content',
+        tool_info: { error: { message: 'permission check failed for read_url "example.com": denied' } },
+      },
+    });
+    const line = JSON.stringify({
+      event: 'result', result: { status: 'SUCCESS', response: '', denied_actions: [{ action: 'read_url' }] },
+    }) + '\n';
+    const out = parseAgyStream(`${nonErrorStep}\n${line}`);
+    assert.equal(out.deniedActions[0].target, null);
+  });
+
+  it('sanitizes and caps the target the same way action/displayName are', () => {
+    const dirty = 'a'.repeat(300) + '\x00\x1f';
+    const stepLine = JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        state: 'ERROR', step_type: 'tool', tool_name: 'read_url_content',
+        tool_info: { error: { message: `permission check failed for read_url "${dirty}": denied` } },
+      },
+    });
+    const line = JSON.stringify({
+      event: 'result', result: { status: 'SUCCESS', response: '', denied_actions: [{ action: 'read_url' }] },
+    }) + '\n';
+    const out = parseAgyStream(`${stepLine}\n${line}`);
+    assert.equal(out.deniedActions[0].target.length, MAX_DENIED_ACTION_STRING_LENGTH);
+    assert.doesNotMatch(out.deniedActions[0].target, /[\x00-\x1f\x7f]/);
+  });
+
+  it('deduplicated exact action+target repeats do not consume the MAX_DENIED_ACTIONS budget', () => {
+    const repeatedStep = JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        state: 'ERROR', step_type: 'tool', tool_name: 'x',
+        tool_info: { error: { message: 'permission check failed for read_url "example.com": denied' } },
+      },
+    });
+    const repeats = Array.from({ length: MAX_DENIED_ACTIONS + 10 }, () => repeatedStep).join('\n');
+    const distinctStep = JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        state: 'ERROR', step_type: 'tool', tool_name: 'x',
+        tool_info: { error: { message: 'permission check failed for command "echo hi": denied' } },
+      },
+    });
+    const line = JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'SUCCESS', response: '',
+        denied_actions: [{ action: 'read_url' }, { action: 'command' }],
+      },
+    }) + '\n';
+    const out = parseAgyStream(`${repeats}\n${distinctStep}\n${line}`);
+    assert.equal(out.deniedActions[0].target, 'example.com');
+    assert.equal(out.deniedActions[1].target, 'echo hi');
+  });
+
+  it('caps the number of distinct step_update-derived targets at MAX_DENIED_ACTIONS', () => {
+    const steps = Array.from({ length: MAX_DENIED_ACTIONS + 1 }, (_, i) => JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        state: 'ERROR', step_type: 'tool', tool_name: 'x',
+        tool_info: { error: { message: `permission check failed for tool_${i} "target_${i}": denied` } },
+      },
+    })).join('\n');
+    // The scan stops at MAX_DENIED_ACTIONS distinct entries, so the one
+    // beyond the cap (index MAX_DENIED_ACTIONS) was never collected.
+    const line = JSON.stringify({
+      event: 'result',
+      result: { status: 'SUCCESS', response: '', denied_actions: [{ action: `tool_${MAX_DENIED_ACTIONS}` }] },
+    }) + '\n';
+    const out = parseAgyStream(`${steps}\n${line}`);
+    assert.equal(out.deniedActions[0].target, null);
   });
 });
 
@@ -385,7 +520,7 @@ describe('runAgyPrint — deniedActions on the result', () => {
     arm({ response: 'answer', deniedActions: [READ_URL_MEMBER] });
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.deepEqual(res.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, source: 'json' },
     ]);
   });
 
@@ -422,7 +557,7 @@ describe('runAgyPrint — deniedActions on the result', () => {
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'failed');
     assert.deepEqual(res.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, source: 'json' },
     ]);
   });
 
@@ -440,7 +575,7 @@ describe('runAgyPrint — deniedActions on the result', () => {
     assert.deepEqual(res.warnings, []);
     assert.equal(res.denial, null);
     assert.deepEqual(res.deniedActions, [
-      { action: 'read_url', displayName: 'ReadUrlContent', source: 'json' },
+      { action: 'read_url', displayName: 'ReadUrlContent', target: null, source: 'json' },
     ]);
   });
 });
