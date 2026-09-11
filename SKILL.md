@@ -30,6 +30,8 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 | `result` | Prints the final output of a completed job by id. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
 
+For `task` and `rescue`, the plugin sends `medium` when `--effort` is absent; because `medium` runs longer than `low`, a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer, so pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
+
 ## Auth requirements
 
 agy 1.0.x is **OAuth-only** — there is no API-key path yet (tracked upstream as `antigravity-cli#78`).

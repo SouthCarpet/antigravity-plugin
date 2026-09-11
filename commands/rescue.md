@@ -36,10 +36,11 @@ Invocation:
 - Strip `--background` and `--wait` from the task text — they are Claude Code execution flags.
 - Everything remaining after stripping flags is the task text — pass it through as the trailing positional.
 - `--model <id>` selects the agy model for this run. Forward it through unchanged when present.
-- `--effort <low|medium|high>` selects agy's reasoning effort for this run. Forward it through unchanged when present. Default `medium` when absent.
+- `--effort <low|medium|high>` selects agy's reasoning effort for this run. Forward it through unchanged when present. Default `medium` when absent. `medium` runs longer than `low`, so a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer; pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
 
 Denied actions:
 - If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.
+- The plugin never edits `settings.json`; any grant is the user's decision in their own configuration, and the plugin's only narrow grant is `--add-dir <dir>` for reads.
 - If the user wants it done here, do that step yourself, then re-run `rescue --conversation <id> ...` so the work continues in the same conversation.
 - Never suggest `--dangerously-skip-permissions`.
 

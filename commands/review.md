@@ -28,6 +28,7 @@ Flags:
 
 Denied actions:
 - If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.
+- The plugin never edits `settings.json`; any grant is the user's decision in their own configuration, and the plugin's only narrow grant is `--add-dir <dir>` for reads.
 - If the user wants it done here, do that step yourself, then re-run `review --conversation <id>` so the work continues in the same conversation.
 - Never suggest `--dangerously-skip-permissions`.
 

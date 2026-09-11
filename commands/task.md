@@ -25,7 +25,7 @@ Flags:
 - `--conversation <id>` resume a specific conversation.
 - `--add-dir <path>` extra workspace directory (repeatable).
 - `--model <id>` agy model id for this run.
-- `--effort <low|medium|high>` agy reasoning effort for this run. Default `medium` when absent.
+- `--effort <low|medium|high>` agy reasoning effort for this run. Default `medium` when absent. `medium` runs longer than `low`, so a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer; pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
 - `--json` emit structured JSON.
 
 Auth note:
@@ -33,6 +33,7 @@ Auth note:
 
 Denied actions:
 - If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.
+- The plugin never edits `settings.json`; any grant is the user's decision in their own configuration, and the plugin's only narrow grant is `--add-dir <dir>` for reads.
 - If the user wants it done here, do that step yourself, then re-run `task --conversation <id> ...` so the work continues in the same conversation.
 - Never suggest `--dangerously-skip-permissions`.
 
