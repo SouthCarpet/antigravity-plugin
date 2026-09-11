@@ -133,7 +133,7 @@
   <text x="700" y="580" text-anchor="middle" class="hiw-name hiw-ink">agy refused a tool</text>
   <text x="700" y="596" text-anchor="middle" class="hiw-sub hiw-muted">denied_actions + target</text>
   <text x="700" y="610" text-anchor="middle" class="hiw-sub hiw-muted">the host asks you &#183; AskUserQuestion</text>
-    <text x="700" y="626" text-anchor="middle" class="hiw-sub hiw-muted">never grant &#183; no bypass flag</text>
+  <text x="700" y="626" text-anchor="middle" class="hiw-sub hiw-muted">never grant &#183; no bypass flag</text>
 
   <!-- legend -->
   <line x1="40" y1="644" x2="920" y2="644" class="hiw-line-s" stroke-width="0.8"/>
