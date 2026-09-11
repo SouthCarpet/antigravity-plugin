@@ -36,7 +36,7 @@ Invocation:
 - Strip `--background` and `--wait` from the task text — they are Claude Code execution flags.
 - Everything remaining after stripping flags is the task text — pass it through as the trailing positional.
 - `--model <id>` selects the agy model for this run. Forward it through unchanged when present.
-- `--effort <low|medium|high>` selects agy's reasoning effort for this run. Forward it through unchanged when present.
+- `--effort <low|medium|high>` selects agy's reasoning effort for this run. Forward it through unchanged when present. Default `medium` when absent.
 
 Auth note:
 - If the helper output says Antigravity is missing or not authenticated, stop and ask the user to run `/antigravity:setup`.

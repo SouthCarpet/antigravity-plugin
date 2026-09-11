@@ -51,6 +51,11 @@ const TOOLS = [
       type: "object",
       properties: { path: { type: "string" } },
       required: ["path"],
+      // agy 1.2.1 "preserves open object schemas ... instead of rejecting
+      // undeclared arguments on schemas that allow them" — an object schema
+      // with no additionalProperties is open by JSON Schema default, so an
+      // invented argument would reach the server again (plan 086 T2 D5).
+      additionalProperties: false,
     },
   },
 ];

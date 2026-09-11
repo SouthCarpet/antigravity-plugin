@@ -491,6 +491,27 @@ describe('vision-server (real MCP stdio process)', () => {
     }
   });
 
+  // Plan 086 T2 D5: agy 1.2.1 "preserves open object schemas ... instead of
+  // rejecting undeclared arguments on schemas that allow them", so the
+  // declared schema itself must close the object. loadImageResult's own
+  // behaviour is unchanged — an undeclared argument never reached the
+  // handler before this fix (dispatchToolsCall only ever reads `.path`) and
+  // still does not; the client-side schema check is the new gate.
+  it('declares additionalProperties: false so agy 1.2.1 rejects undeclared arguments before they reach the handler', async () => {
+    const srv = startServer(tmpDir);
+    try {
+      const list = await srv.send('tools/list', {});
+      assert.deepEqual(list.result.tools[0].inputSchema, {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+        additionalProperties: false,
+      });
+    } finally {
+      srv.close();
+    }
+  });
+
   it('denies a real MCP call when no paths were authorized for the process', async () => {
     const srv = startServer(tmpDir);
     try {

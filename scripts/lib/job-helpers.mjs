@@ -56,9 +56,20 @@ export function newJobId() {
 export const AGY_MODES = ["plan", "accept-edits"];
 
 /** Values agy accepts for `--effort` (agy 1.1.27 `--help`: "Reasoning effort
- * for the current CLI session (low|medium|high)"). No plugin default: the
- * flag is forwarded only when the caller supplies one of these three. */
+ * for the current CLI session (low|medium|high)"). `review` and `vision`
+ * never expose `--effort`; only `task` and `rescue` forward it. */
 export const AGY_EFFORTS = ["low", "medium", "high"];
+
+/**
+ * The `--effort` value `task` and `rescue` apply when the caller passes
+ * none (plan 086 T2, disclosed 1.x default). Measured basis: a run without
+ * `--effort` sends no effort field at all, so the value agy uses comes from
+ * whatever that machine has saved — a delegated run is not reproducible
+ * across machines without a plugin default. `review` and `vision` do not
+ * read this constant: neither exposes `--effort`, so neither gets a
+ * default.
+ */
+export const DEFAULT_AGY_EFFORT = "medium";
 
 /**
  * agy argv for a validated `--mode` value; empty when the flag was not given.

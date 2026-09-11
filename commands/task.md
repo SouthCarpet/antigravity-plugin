@@ -25,7 +25,7 @@ Flags:
 - `--conversation <id>` resume a specific conversation.
 - `--add-dir <path>` extra workspace directory (repeatable).
 - `--model <id>` agy model id for this run.
-- `--effort <low|medium|high>` agy reasoning effort for this run.
+- `--effort <low|medium|high>` agy reasoning effort for this run. Default `medium` when absent.
 - `--json` emit structured JSON.
 
 Auth note:
