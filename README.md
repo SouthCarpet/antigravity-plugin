@@ -93,18 +93,9 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 ## How it works
 
-```mermaid
-flowchart LR
-    Host[Host command] --> Runtime[Plugin runtime<br/>bin/antigravity.mjs and scripts/]
-    Runtime -->|stream-json| Agy[agy --print]
-    Agy --> Google[Google]
-    Runtime -->|vision| MCP[Local MCP server<br/>view_image allowlist]
-    MCP --> Agy
-    Runtime -->|background job| Store[Local job store]
-    JobCommands[status, result, cancel] --> Store
-```
+![A host command from Claude Code, Codex CLI, the agy TUI, or a plain shell enters the plugin runtime at bin/antigravity.mjs and scripts/. The eight verbs are setup, review, rescue, task, vision, status, result, and cancel. The runtime talks to agy --print over stream-json; agy talks to Google. Only the prompt, the selected diff, and named image bytes leave this machine; nothing else does. For vision, the runtime starts a local MCP server that exposes one allowlisted tool, view_image, and agy calls back into it. A background job's request, result, and log stay in the local job store on this machine; status, result, and cancel read that store and never reach Google. When agy refuses a tool in headless mode, the plugin reports the refused action and, since 1.4.0, the target it was refused on. The host then asks you with its own question tool, AskUserQuestion in Claude Code, whether to do that step in the host or to grant the action. The plugin never grants the tool and never prints a bypass flag.](./docs/how-it-works.svg)
 
-The runtime sends prompts, selected diffs, and named image bytes through agy to Google. Background job requests, results, and logs stay in the local job store. The plugin does not create persistent wildcard grants. `setup` writes only user-level files under `~/.gemini`, not the current repository.
+The runtime sends prompts, selected diffs, and named image bytes through agy to Google. Background job requests, results, and logs stay in the local job store. When agy refuses a headless tool, the plugin reports the action and its target and tells the host to ask the user; it never grants the tool and never prints a bypass flag. The plugin does not create persistent wildcard grants. `setup` writes only user-level files under `~/.gemini`, not the current repository.
 
 ## Commands
 

@@ -35,7 +35,9 @@
  *      this gate by itself. A link to a markdown file inside the package
  *      that is not on disk fails the gate on its own: the required set is
  *      derived from the links, so a deleted document would otherwise leave
- *      a live link behind and still pass.
+ *      a live link behind and still pass. The same derivation covers
+ *      relative README images (the How-it-works SVG): a packed README that
+ *      points at a diagram the tarball omits is a dead image.
  *
  * The walk follows static `from`/`import` specifiers and literal
  * `import("…")` / `import('…')`. It cannot see a computed specifier
@@ -148,17 +150,24 @@ function walkImportGraph(entryRels) {
  * and a link that escapes the package root is dropped. Whether the target
  * is on disk is the caller's question.
  */
-function readmeLinkTargets(readmeRel) {
+const README_LINK_RE = /\]\(\s*(\.{0,2}\/[^)\s#]+|[A-Za-z0-9_][^):\s#]*)\s*(?:#[^)\s]*)?\)/g;
+const README_IMAGE_EXT = /\.(?:svg|png|jpe?g|gif|webp)$/i;
+
+/**
+ * Relative README `](…)` targets whose original link text passes `keep`.
+ * The same regex matches both `[text](url)` and `![alt](url)`.
+ */
+function readmeRelativeTargets(readmeRel, keep) {
   const abs = join(root, readmeRel);
   if (!existsSync(abs)) return [];
   const src = readFileSync(abs, 'utf8');
-  const LINK_RE = /\]\(\s*(\.{0,2}\/[^)\s#]+|[A-Za-z0-9_][^):\s#]*)\s*(?:#[^)\s]*)?\)/g;
   /** @type {Map<string, string>} */
   const out = new Map();
+  README_LINK_RE.lastIndex = 0;
   let match;
-  while ((match = LINK_RE.exec(src))) {
+  while ((match = README_LINK_RE.exec(src))) {
     const link = match[1];
-    if (!link.endsWith('.md')) continue;
+    if (!keep(link)) continue;
     const resolved = toPosix(relative(root, normalize(join(root, dirname(readmeRel), link))));
     if (resolved.startsWith('../') || resolved === '..') continue;
     if (!out.has(resolved)) out.set(resolved, link);
@@ -166,6 +175,14 @@ function readmeLinkTargets(readmeRel) {
   return [...out]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([resolved, link]) => ({ link, resolved }));
+}
+
+function readmeLinkTargets(readmeRel) {
+  return readmeRelativeTargets(readmeRel, (link) => link.endsWith('.md'));
+}
+
+function readmeImageTargets(readmeRel) {
+  return readmeRelativeTargets(readmeRel, (link) => README_IMAGE_EXT.test(link));
 }
 
 /**
@@ -180,15 +197,36 @@ export function listReadmeLinkedDocs(readmeRel = 'README.md') {
 }
 
 /**
+ * Every image the README embeds with a relative `![…](…)` (or a relative
+ * `[…](…)` to an image extension) that is on disk, as package-relative
+ * posix paths. Absent targets are dead links, which
+ * {@link readmeDeadLinkErrors} reports.
+ */
+export function listReadmeLinkedImages(readmeRel = 'README.md') {
+  return readmeImageTargets(readmeRel)
+    .filter(({ resolved }) => existsSync(join(root, resolved)))
+    .map(({ resolved }) => resolved);
+}
+
+/**
  * README links to a markdown file inside the package that does not exist.
  * The required set is derived from the links, so without this rule a
  * deleted document with a live README link would pass the gate: its target
  * would simply drop out of the required list.
  */
 export function readmeDeadLinkErrors(readmeRel = 'README.md') {
-  return readmeLinkTargets(readmeRel)
-    .filter(({ resolved }) => !existsSync(join(root, resolved)))
-    .map(({ link, resolved }) => `${readmeRel} links ${link} but ${resolved} is not on disk`);
+  const missing = [
+    ...readmeLinkTargets(readmeRel),
+    ...readmeImageTargets(readmeRel),
+  ].filter(({ resolved }) => !existsSync(join(root, resolved)));
+  const seen = new Set();
+  const out = [];
+  for (const { link, resolved } of missing) {
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push(`${readmeRel} links ${link} but ${resolved} is not on disk`);
+  }
+  return out;
 }
 
 /**
@@ -256,6 +294,9 @@ export function deriveRequired() {
   add(required, 'CHANGELOG.md', 'release history, linked from the README');
   for (const rel of listReadmeLinkedDocs()) {
     add(required, rel, 'README link target (a README-linked .md must not be a dead link)');
+  }
+  for (const rel of listReadmeLinkedImages()) {
+    add(required, rel, 'README image (a README-linked image must not be a dead link)');
   }
 
   const graphEntries = ['bin/antigravity.mjs', ...commandModules, ...mcpModules];
@@ -327,7 +368,7 @@ function runCli() {
   console.log(`npm pack would produce ${pack.filename} (${files.size} files)`);
   console.log(
     `derived ${required.size} required entries from host discovery, commands/*.md, ` +
-      `scripts/commands/*.mjs, scripts/mcp/*.mjs, the import graph, and the README links`,
+      `scripts/commands/*.mjs, scripts/mcp/*.mjs, the import graph, and the README links and images`,
   );
 
   const missingRequired = [];
