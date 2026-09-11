@@ -21,6 +21,7 @@ import {
   formatDeniedActionLabel,
   reportWarnings,
   stripBypassAdvice,
+  redactBypassFlag,
 } from '../scripts/lib/render.mjs';
 
 describe('createJsonEnvelope', () => {
@@ -324,6 +325,35 @@ describe('stripBypassAdvice', () => {
     assert.match(out, /^first line\n/);
     assert.match(out, /\nlast line$/);
     assert.doesNotMatch(out, /--dangerously-skip-permissions/);
+  });
+});
+
+// Plan 086 T5e F3: a denied target whose text IS the bypass flag itself
+// (model-chosen, not agy's own advisory sentence) must not reach the
+// plugin's own stderr echo either.
+describe('redactBypassFlag', () => {
+  it('replaces the flag wherever it appears, not only after "Alternatively,"', () => {
+    const line = 'antigravity:task — denied command (RunCommand) for "--dangerously-skip-permissions": Headless runs cannot grant "command"; the host must run this step itself.';
+    const out = redactBypassFlag(line);
+    assert.doesNotMatch(out, /--dangerously-skip-permissions/);
+    assert.match(out, /for "\[flag redacted\]"/);
+  });
+
+  it('replaces every occurrence when the flag appears more than once', () => {
+    const out = redactBypassFlag('--dangerously-skip-permissions and --dangerously-skip-permissions again');
+    assert.doesNotMatch(out, /--dangerously-skip-permissions/);
+    assert.equal(out, '[flag redacted] and [flag redacted] again');
+  });
+
+  it('leaves a line with no flag untouched', () => {
+    assert.equal(redactBypassFlag('agent-runtime: Headless runs cannot grant "read_url".'),
+      'agent-runtime: Headless runs cannot grant "read_url".');
+  });
+
+  it('is a no-op on empty, null, or non-string input', () => {
+    assert.equal(redactBypassFlag(''), '');
+    assert.equal(redactBypassFlag(null), null);
+    assert.equal(redactBypassFlag(undefined), undefined);
   });
 });
 

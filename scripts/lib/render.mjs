@@ -94,6 +94,29 @@ export function stripBypassAdvice(stderr) {
     .join("\n");
 }
 
+/** The one string SECURITY.md promises the plugin's own stderr never prints. */
+const BYPASS_FLAG = "--dangerously-skip-permissions";
+
+/**
+ * Replace every literal occurrence of {@link BYPASS_FLAG} in `text` with a
+ * fixed placeholder (plan 086 T5e F3): unlike {@link stripBypassAdvice}
+ * (which only trims agy's own "Alternatively, ..." suggestion sentence),
+ * this strips the flag itself wherever it appears — including inside
+ * model-chosen `target` text on a plugin-authored denial label. A denied
+ * action's `target` is the tool parameter the model itself supplied, so a
+ * target that IS this flag would otherwise reach the plugin's own stderr
+ * echo verbatim (`job-helpers.mjs#reportDeniedActionHints`,
+ * `#applyDenialHint`) even without agy's own advisory sentence attached.
+ * The stored result and `result --json` are unaffected: they render the
+ * untouched label via {@link formatDeniedActionLabel}.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function redactBypassFlag(text) {
+  return typeof text === "string" ? text.replaceAll(BYPASS_FLAG, "[flag redacted]") : text;
+}
+
 /**
  * Echo runtime warnings to stderr on a completed run. The verbs only print
  * `result.stderr` on failure, so without this a benign denial would reach

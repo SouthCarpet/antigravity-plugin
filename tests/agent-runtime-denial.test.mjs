@@ -154,16 +154,21 @@ describe('runAgyPrint — auto-denial classification', () => {
     assert.equal(res.denial.tool, 'read_file');
   });
 
-  it('SUCCESS + empty response + NO denial line stays completed', async () => {
-    // A model may legitimately say nothing (for example when asked to
-    // stay silent). Without a denial on stderr there is no evidence of a
-    // starved run, so this is not reclassified.
+  // Plan 086 T5e F1: an "unexplained" empty response (no stderr sentinel, no
+  // structured denial, no print-timeout marker) used to stay `completed` —
+  // "a model may legitimately say nothing". None of the four verbs' prompts
+  // ask for a genuinely silent answer (review/vision demand a fixed
+  // non-empty shape; rescue/task forward the caller's prompt verbatim with
+  // no silence contract — see `runAgyPrint`'s doc comment), so this is now a
+  // failure like any other unexplained empty answer.
+  it('SUCCESS + empty response + NO denial/timeout evidence now fails (was: stays completed)', async () => {
     arm({ response: '', stderr: 'CLI settings initialized: permissions=&{Allow:[]}' });
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.status, 'completed');
+    assert.equal(res.status, 'failed');
     assert.equal(res.stdout, '');
     assert.deepEqual(res.warnings, []);
     assert.equal(res.denial, null);
+    assert.match(res.stderr, /agent-runtime: agy reported SUCCESS with an empty response and no denial or timeout evidence to explain it/);
   });
 
   it('keeps the CANCELED path for older agy: non-SUCCESS result is failed', async () => {
@@ -286,6 +291,17 @@ describe('normalizeDeniedActions', () => {
     assert.equal(out[1].displayName, 'xy');
   });
 
+  // Plan 086 T5e F5: U+2028 (LINE SEPARATOR), U+2029 (PARAGRAPH SEPARATOR),
+  // and the C1 control range (U+0080-U+009F) survived the original
+  // C0/DEL-only filter and could break a single-line stderr echo or a
+  // markdown label across lines the same way a raw CR/LF would.
+  it('strips U+2028, U+2029, and the C1 control range', () => {
+    const dirty = 'read\u2028_\u2029url\u0090end';
+    const out = normalizeDeniedActions([{ action: dirty }]);
+    assert.equal(out[0].action, 'read_urlend');
+    assert.doesNotMatch(out[0].action, /[\u2028\u2029\u0080-\u009f]/);
+  });
+
   it('accepts a member with no display_name (null, not a missing key)', () => {
     assert.deepEqual(normalizeDeniedActions([{ action: 'read_url' }]), [
       { action: 'read_url', displayName: null, source: 'json' },
@@ -380,6 +396,25 @@ describe('parseAgyStream — deniedActions', () => {
       { action: 'run_command', displayName: null, target: null, source: 'json' },
     ]);
   });
+
+  // Plan 086 T5e F2: a second `result` event used to merge field-by-field
+  // (`?? out.X`), so a later event that omits a field silently kept the
+  // earlier event's value for that field. A minimal `result` object (only
+  // `status`) here has no `response`/`usage`/`denied_actions` at all; the
+  // fix replaces the whole snapshot on each event, so none of the first
+  // event's fields survive.
+  it('a later result event with fewer fields replaces the whole snapshot, not just the ones it names', () => {
+    const first = resultLine({
+      response: 'first answer', usage: { total_tokens: 5 }, denied_actions: [READ_URL_MEMBER],
+    });
+    const secondBare = JSON.stringify({ event: 'result', result: { status: 'SUCCESS' } });
+    const out = parseAgyStream(`${first}\n${secondBare}\n`);
+    assert.equal(out.response, null, 'the earlier response must not survive');
+    assert.equal(out.usage, null, 'the earlier usage must not survive');
+    assert.equal(out.deniedActions, null, 'the earlier deniedActions must not survive');
+    assert.equal(out.resultStatus, 'SUCCESS');
+    assert.equal(out.sawResult, true);
+  });
 });
 
 // Plan 086 T3: agy's result.denied_actions names only the action; the
@@ -408,6 +443,44 @@ describe('parseAgyStream — denied-action target join, verbatim fixtures (plan 
     const out = parseAgyStream(`${T0C_STEP_LINE}\n${T0C_RESULT_LINE}\n`);
     assert.deepEqual(out.deniedActions, [
       { action: 'command', displayName: 'RunCommand', target: 'echo hello', source: 'json' },
+    ]);
+  });
+
+  // Plan 086 T5e F2: `normalizeDeniedActions` keeps two members with the
+  // same action but a different displayName distinct (a real shape — two
+  // denied calls to the same tool for different reasons), so mapping every
+  // same-action member onto the FIRST step_update target would give two
+  // different denied calls the same target. Occurrence order: the Nth
+  // same-action member gets the Nth same-action step_update target.
+  it('two members with the same action but different targets each get their own target, in order', () => {
+    const stepA = JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        state: 'ERROR', step_type: 'tool', tool_name: 'read_url_content',
+        tool_info: { error: { message: 'permission check failed for read_url "first.example.com": denied' } },
+      },
+    });
+    const stepB = JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        state: 'ERROR', step_type: 'tool', tool_name: 'read_url_content',
+        tool_info: { error: { message: 'permission check failed for read_url "second.example.com": denied' } },
+      },
+    });
+    const line = JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'SUCCESS', response: '',
+        denied_actions: [
+          { action: 'read_url', display_name: 'First' },
+          { action: 'read_url', display_name: 'Second' },
+        ],
+      },
+    }) + '\n';
+    const out = parseAgyStream(`${stepA}\n${stepB}\n${line}`);
+    assert.deepEqual(out.deniedActions, [
+      { action: 'read_url', displayName: 'First', target: 'first.example.com', source: 'json' },
+      { action: 'read_url', displayName: 'Second', target: 'second.example.com', source: 'json' },
     ]);
   });
 
@@ -516,12 +589,19 @@ describe('parseAgyStream — denied-action target join, verbatim fixtures (plan 
 });
 
 describe('runAgyPrint — deniedActions on the result', () => {
-  it('structured-only: JSON denied_actions with no stderr sentinel', async () => {
+  // Plan 086 T5e F1: "a JSON denial with a real answer still completes and
+  // keeps the warning" — a structured JSON-only denial (no stderr sentinel)
+  // is reported as a warning the same way a sentinel-detected denial is, so
+  // an answered run is never silently missing that context.
+  it('structured-only: JSON denied_actions with no stderr sentinel completes and warns', async () => {
     arm({ response: 'answer', deniedActions: [READ_URL_MEMBER] });
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
     assert.deepEqual(res.deniedActions, [
       { action: 'read_url', displayName: 'ReadUrlContent', target: null, source: 'json' },
     ]);
+    assert.equal(res.warnings.length, 1);
+    assert.match(res.warnings[0], /read_url \(ReadUrlContent\)/);
   });
 
   it('stderr-only: the sentinel with no JSON denied_actions field (older agy)', async () => {
@@ -561,22 +641,21 @@ describe('runAgyPrint — deniedActions on the result', () => {
     ]);
   });
 
-  // Item 1: "keep the existing fail-vs-warn decision... exactly as today".
-  // That decision is keyed on the stderr sentinel alone, so a JSON-only
-  // denial (no stderr line) with an empty response stays `completed` — the
-  // new data is detail, never a second way to fail a run. The t0a live
-  // fixture always carries both together (deniedActions here would be
-  // reported as a warning-free `completed` run without ever surfacing in
-  // `warnings`, which only the sentinel path populates).
-  it('a JSON-only denial with an empty response does not change the completed/failed decision', async () => {
+  // Plan 086 T5e F1: a structured JSON-only denial (no stderr sentinel) is
+  // now denial evidence exactly like the sentinel is, so an empty response
+  // is `failed`, not `completed` with nothing in it (the bug the 1.1.0 work
+  // existed to close). Before this fix the item 1 comment here read "the new
+  // data is detail, never a second way to fail a run" — that was the bug.
+  it('a JSON-only denial with an empty response now fails (was: stayed completed)', async () => {
     arm({ response: '', deniedActions: [READ_URL_MEMBER] });
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.status, 'completed');
+    assert.equal(res.status, 'failed');
     assert.deepEqual(res.warnings, []);
     assert.equal(res.denial, null);
     assert.deepEqual(res.deniedActions, [
       { action: 'read_url', displayName: 'ReadUrlContent', target: null, source: 'json' },
     ]);
+    assert.match(res.stderr, /agent-runtime: agy produced no output; agy reported 1 denied action\(s\) with no stderr auto-denial line: read_url \(ReadUrlContent\)/);
   });
 });
 

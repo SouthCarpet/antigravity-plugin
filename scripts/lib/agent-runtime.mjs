@@ -306,9 +306,13 @@ function createNdjsonLineFeeder() {
  *
  * Lines that fail to parse (a chunk boundary split a line; the process was
  * killed mid-write) are skipped, never thrown. If more than one `result`
- * event appears, the last one wins. When no `result` event is found,
- * `sawResult` is `false` and every other field stays `null` — nothing is
- * guessed from `step_update`/`init` events.
+ * event appears, the last one wins — atomically: each `result` event
+ * replaces the whole prior snapshot rather than filling in gaps field by
+ * field, so a later event that omits a field never keeps an earlier event's
+ * value for that field (plan 086 T5e F2; before this fix a `?? out.X` merge
+ * let a torn/partial later `result` inherit stale data from an earlier one).
+ * When no `result` event is found, `sawResult` is `false` and every other
+ * field stays `null` — nothing is guessed from `step_update`/`init` events.
  *
  * `resultError` carries `result.error`, the one-line reason agy attaches to a
  * failed result (`"timeout waiting for response"` on `--print-timeout`,
@@ -355,19 +359,38 @@ export function parseAgyStream(text) {
       continue; // torn/partial line — stream noise, not a caller-facing error
     }
     if (event?.event !== 'result' || !event.result) continue;
-    const r = event.result;
-    out.response = typeof r.response === 'string' ? r.response : out.response;
-    out.usage = r.usage ?? out.usage;
-    out.durationSeconds = r.duration_seconds ?? out.durationSeconds;
-    out.conversationId = r.conversation_id ?? out.conversationId;
-    out.resultStatus = r.status ?? out.resultStatus;
-    out.resultError = typeof r.error === 'string' && r.error ? r.error : out.resultError;
-    out.deniedActions = Array.isArray(r.denied_actions)
-      ? joinDeniedActionTargets(normalizeDeniedActions(r.denied_actions), stepTargets)
-      : out.deniedActions;
-    out.sawResult = true;
+    Object.assign(out, resultEventSnapshot(event.result, stepTargets));
   }
   return out;
+}
+
+/**
+ * The complete field snapshot for one `result` event, replacing (never
+ * merging with) whatever an earlier `result` event in the same stream left
+ * behind — see {@link parseAgyStream}'s "last one wins, atomically" contract
+ * (plan 086 T5e F2). A field this event does not carry becomes `null`, not
+ * "whatever the previous event had".
+ *
+ * @param {object} r the `result` field of one `result` event
+ * @param {{ action: string, target: string }[]} stepTargets
+ * @returns {{ response: string|null, usage: object|null, durationSeconds: number|null,
+ *   conversationId: string|null, resultStatus: string|null, resultError: string|null,
+ *   deniedActions: { action: string, displayName: string | null, target: string | null, source: 'json' }[] | null,
+ *   sawResult: true }}
+ */
+function resultEventSnapshot(r, stepTargets) {
+  return {
+    response: typeof r.response === 'string' ? r.response : null,
+    usage: r.usage ?? null,
+    durationSeconds: r.duration_seconds ?? null,
+    conversationId: r.conversation_id ?? null,
+    resultStatus: r.status ?? null,
+    resultError: typeof r.error === 'string' && r.error ? r.error : null,
+    deniedActions: Array.isArray(r.denied_actions)
+      ? joinDeniedActionTargets(normalizeDeniedActions(r.denied_actions), stepTargets)
+      : null,
+    sawResult: true,
+  };
 }
 
 /**
@@ -393,16 +416,29 @@ export const MAX_DENIED_ACTIONS = 32;
 export const MAX_DENIED_ACTION_STRING_LENGTH = 200;
 
 /**
- * Strip C0 control characters and DEL, trim, and cap the length of one
- * `denied_actions` string field. Returns `null` for anything that is not a
- * non-empty string once sanitized, so a caller can treat that as "missing".
+ * Strip C0 control characters, DEL, the C1 range (U+0080-U+009F), and the
+ * Unicode line/paragraph separators (U+2028, U+2029), trim, and cap the
+ * length of one `denied_actions` string field. Returns `null` for anything
+ * that is not a non-empty string once sanitized, so a caller can treat that
+ * as "missing".
+ *
+ * U+2028/U+2029 and the C1 range survived the original C0/DEL-only filter
+ * (plan 086 T5e F5): both can break a single-line stderr echo or a markdown
+ * label across lines the same way a raw CR/LF would, and this string is
+ * untrusted agy-reported (or, for a `target`, model-chosen) text. Quote
+ * characters are left unescaped on purpose: every display site renders this
+ * value as plain text inside a fixed `for "<value>"`/markdown-bullet
+ * template, never as parsed markdown, HTML, or a shell/eval argument, and
+ * `--json` output already gets correct quote escaping from
+ * `JSON.stringify` — an unescaped quote here can look confusing but cannot
+ * break out of any of those contexts.
  *
  * @param {unknown} value
  * @returns {string | null}
  */
 function sanitizeDeniedActionString(value) {
   if (typeof value !== 'string') return null;
-  const stripped = value.replace(/[\x00-\x1f\x7f]/g, '').trim();
+  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '').trim();
   if (!stripped) return null;
   return stripped.length > MAX_DENIED_ACTION_STRING_LENGTH
     ? stripped.slice(0, MAX_DENIED_ACTION_STRING_LENGTH)
@@ -528,7 +564,16 @@ function parseStepUpdateDeniedTargets(text) {
 
 /**
  * Join `{ target }` onto each normalized `denied_actions` member by action
- * name (item 1, plan 086 T3): a member with no matching `stepTargets` entry
+ * name, occurrence-aware (item 1, plan 086 T3; made occurrence-aware plan
+ * 086 T5e F2): `normalizeDeniedActions` keeps two members with the same
+ * `action` distinct when their `displayName` differs (a real shape: two
+ * denied calls to the same tool for different reasons), so mapping every
+ * same-action member onto the FIRST `stepTargets` entry for that action
+ * would hand two different denied calls the same target. Instead each
+ * `action`'s `stepTargets` entries are consumed in order: the Nth
+ * `jsonList` member with a given action gets the Nth `stepTargets` entry
+ * for that action, so distinct step-reported targets never collapse onto
+ * one member. A member with no remaining `stepTargets` entry for its action
  * keeps `target: null`; a `stepTargets` entry whose action matches no
  * member is dropped (it never appends a new member).
  *
@@ -537,11 +582,19 @@ function parseStepUpdateDeniedTargets(text) {
  * @returns {{ action: string, displayName: string | null, target: string | null, source: 'json' }[]}
  */
 function joinDeniedActionTargets(jsonList, stepTargets) {
-  const targetByAction = new Map();
+  const targetsByAction = new Map();
   for (const { action, target } of stepTargets) {
-    if (!targetByAction.has(action)) targetByAction.set(action, target);
+    if (!targetsByAction.has(action)) targetsByAction.set(action, []);
+    targetsByAction.get(action).push(target);
   }
-  return jsonList.map((member) => ({ ...member, target: targetByAction.get(member.action) ?? null }));
+  const consumedByAction = new Map();
+  return jsonList.map((member) => {
+    const index = consumedByAction.get(member.action) ?? 0;
+    consumedByAction.set(member.action, index + 1);
+    const queue = targetsByAction.get(member.action);
+    const target = queue && index < queue.length ? queue[index] : null;
+    return { ...member, target };
+  });
 }
 
 /** Bound on the captured `agyPrintTimeout.limit` string (e.g. "25s"). */
@@ -1093,6 +1146,92 @@ function detectResponseAuthSignal({ status, oauthUrl, eligible, responseText, lo
 }
 
 /**
+ * A short, human-readable name for one normalized `denied_actions` member:
+ * `action (displayName)` when a display name is known, else `action` alone.
+ * Shared by the two structured-denial stderr/warning notes below so a
+ * reader sees the same shape agy itself reported, not just an action id.
+ *
+ * @param {{ action: string, displayName: string | null }} member
+ * @returns {string}
+ */
+function describeDeniedActionMember(member) {
+  return member.displayName ? `${member.action} (${member.displayName})` : member.action;
+}
+
+/**
+ * The stderr note appended when a SUCCESS result produced no answer text and
+ * the only denial evidence is agy's structured `denied_actions` JSON list —
+ * no stderr sentinel line (plan 086 T5e F1: `classifyFinalStatus` used to
+ * treat only the sentinel as denial evidence, so this exact shape passed as
+ * `completed` with nothing in it).
+ *
+ * @param {{ action: string, displayName: string | null }[]} deniedActionsList
+ * @returns {string}
+ */
+function structuredDenialEmptyNote(deniedActionsList) {
+  const names = deniedActionsList.map(describeDeniedActionMember).join(', ');
+  return `\nagent-runtime: agy produced no output; agy reported ${deniedActionsList.length} ` +
+    `denied action(s) with no stderr auto-denial line: ${names}`;
+}
+
+/**
+ * The warning pushed when a SUCCESS result answered despite carrying a
+ * structured JSON-only denial (no stderr sentinel) — mirrors the sentinel
+ * path's `warnings.push(denial.line)` (plan 086 T5e F1) so a real answer
+ * with one denied input is reported the same way regardless of which
+ * evidence source (stderr sentinel or JSON list) named the denial.
+ *
+ * @param {{ action: string, displayName: string | null }[]} deniedActionsList
+ * @returns {string}
+ */
+function structuredDenialAnsweredWarning(deniedActionsList) {
+  const names = deniedActionsList.map(describeDeniedActionMember).join(', ');
+  return `agy reported ${deniedActionsList.length} denied action(s) despite answering: ${names}`;
+}
+
+/**
+ * Stderr note(s) for a SUCCESS result that produced no answer text: one
+ * line per explanation actually present (a stderr-sentinel denial, a
+ * structured JSON-only denial, agy's own print-timeout marker), or one
+ * generic line when none of them explain it (plan 086 T5e F1 — "an
+ * unexplained empty response" is a failure like any other, not a silent
+ * success).
+ *
+ * Verbs checked for a legitimately silent answer before this was widened:
+ * `review` and `vision` both demand a fixed non-empty output shape (a
+ * structured markdown review, or the transcription sections / the
+ * `VISION-UNAVAILABLE: <reason>` sentinel — see `prompt-templates.mjs`), so
+ * neither can produce a genuinely empty answer by design. `rescue` and
+ * `task` forward the caller's prompt verbatim with no built-in silence
+ * contract. No verb's prompt asks the model to reply with nothing, so this
+ * reclassification has no verb to spare at this (verb-agnostic) layer.
+ *
+ * @param {{ denial: { tool: string } | null, structuredDenial: boolean,
+ *   deniedActionsList: { action: string, displayName: string | null }[],
+ *   truncation: { limit: string | null } | null }} args
+ * @returns {string}
+ */
+function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncation }) {
+  let note = '';
+  if (denial) {
+    note +=
+      `\nagent-runtime: agy produced no output because the "${denial.tool}" tool was ` +
+      `auto-denied (headless mode cannot prompt for it)`;
+  } else if (structuredDenial) {
+    note += structuredDenialEmptyNote(deniedActionsList);
+  }
+  if (truncation) {
+    const limitNote = truncation.limit ? ` (${truncation.limit})` : '';
+    note += `\nagent-runtime: agy's print timeout expired${limitNote} before producing any output`;
+  }
+  if (!denial && !structuredDenial && !truncation) {
+    note += '\nagent-runtime: agy reported SUCCESS with an empty response and no denial or ' +
+      'timeout evidence to explain it';
+  }
+  return note;
+}
+
+/**
  * The final status classification once auth is ruled out: exit code, a
  * missing/non-SUCCESS result event, and headless auto-denials (see
  * `detectAutoDenial`), in the order documented on `runAgyPrint`. A no-op
@@ -1100,18 +1239,22 @@ function detectResponseAuthSignal({ status, oauthUrl, eligible, responseText, lo
  *
  * `deniedActions` ({@link mergeDeniedActions} of `parsed.deniedActions` and
  * the stderr sentinel) is computed and returned on every branch, including
- * the ones that never reach the sentinel-driven `denial` check below: the
- * fail-vs-warn decision (`denial`/`nextStatus`) stays keyed on the stderr
- * sentinel exactly as before (T2 item 1's "keep the existing fail-vs-warn
- * decision"); `deniedActions` only adds detail.
+ * the ones that never reach the fail-vs-answered check below; it also feeds
+ * that check now (plan 086 T5e F1): a structured JSON-only denial (no
+ * stderr sentinel) is denial evidence exactly like the sentinel is, so a
+ * `SUCCESS` result with an empty response and `denied_actions` present only
+ * in the JSON is `failed`, not `completed` with nothing in it. An empty
+ * response with no evidence at all (no sentinel, no structured denial, no
+ * print-timeout marker) is now also `failed` — see {@link emptyAnswerNote}
+ * for the verbs checked before this was widened.
  *
  * `truncation` ({@link detectPrintTimeoutTruncation} of the raw stderr, plan
- * 086 T1) joins `denial` as a second reason an otherwise-SUCCESS result with
- * an empty response is reclassified `failed`: agy's own print timeout can
- * expire before the model produced any text at all, which is the same
- * "no answer was ever produced" shape a starved denial already gets. A
- * non-empty response with the marker present stays `completed` — a partial
- * answer is still an answer — and the marker rides through as
+ * 086 T1) joins `denial`/structured-denial as a reason an otherwise-SUCCESS
+ * result with an empty response is reclassified `failed`: agy's own print
+ * timeout can expire before the model produced any text at all, which is
+ * the same "no answer was ever produced" shape a starved denial already
+ * gets. A non-empty response with the marker present stays `completed` — a
+ * partial answer is still an answer — and the marker rides through as
  * `agyPrintTimeout` on the assembled result ({@link classifyRunResult}),
  * independent of this function's fail-vs-complete decision.
  *
@@ -1137,21 +1280,17 @@ function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings, trunc
     nextStderr += `\nagent-runtime: agy result status was "${parsed.resultStatus ?? 'unknown'}", not SUCCESS`;
   } else {
     denial = sentinel;
+    const structuredDenial = Array.isArray(parsed.deniedActions) && parsed.deniedActions.length > 0;
     const answered = typeof parsed.response === 'string' && parsed.response.trim().length > 0;
-    if (!answered && (denial || truncation)) {
+    if (!answered) {
       nextStatus = 'failed';
-      if (denial) {
-        nextStderr +=
-          `\nagent-runtime: agy produced no output because the "${denial.tool}" tool was ` +
-          `auto-denied (headless mode cannot prompt for it)`;
-      }
-      if (truncation) {
-        const limitNote = truncation.limit ? ` (${truncation.limit})` : '';
-        nextStderr += `\nagent-runtime: agy's print timeout expired${limitNote} before producing any output`;
-      }
+      nextStderr += emptyAnswerNote({
+        denial, structuredDenial, deniedActionsList: parsed.deniedActions ?? [], truncation,
+      });
     } else {
       nextStatus = 'completed';
       if (denial) warnings.push(denial.line);
+      else if (structuredDenial) warnings.push(structuredDenialAnsweredWarning(parsed.deniedActions));
     }
   }
   nextStderr += agyResultErrorNote(parsed.resultError);
@@ -1309,24 +1448,30 @@ function classifyRunResult({ session, exitCode }) {
  * Auth prompts are detected both in the raw stdout text (as before) and in
  * `result.response` — they can arrive either way.
  *
- * Headless auto-denials (agy >= 1.1.20, see `detectAutoDenial`) and agy's
- * print-timeout truncation (agy >= 1.1.28, see `detectPrintTimeoutTruncation`)
- * are classified after those checks, in this order:
- *   (a) SUCCESS + empty/whitespace `response` + (denial on stderr OR the
- *       print-timeout marker) → `failed`; `denial` is set when a denial was
- *       present and stderr gains an `agent-runtime:` line naming the tool
- *       and/or the expired print timeout. Callers that know the verb add the
- *       per-verb hint.
- *   (b) SUCCESS + non-empty `response` + denial on stderr → `completed`;
- *       the denial line stays in stderr AND is listed in `warnings`. agy
- *       calls these denials benign, so a real answer with one missing input
- *       is not a failure, but it is never swallowed either.
+ * Headless auto-denials (agy >= 1.1.20, see `detectAutoDenial`), agy's
+ * structured `denied_actions` JSON list (agy >= 1.1.27, see
+ * `normalizeDeniedActions`), and agy's print-timeout truncation (agy >=
+ * 1.1.28, see `detectPrintTimeoutTruncation`) are classified after those
+ * checks, in this order:
+ *   (a) SUCCESS + empty/whitespace `response` + (a denial on stderr, OR a
+ *       structured `denied_actions` JSON list with no stderr sentinel, OR
+ *       the print-timeout marker) → `failed`; stderr gains an
+ *       `agent-runtime:` line naming the tool, the denied action(s), and/or
+ *       the expired print timeout. Callers that know the verb add the
+ *       per-verb hint. An empty response with NONE of these three present
+ *       is also `failed` (plan 086 T5e F1: "unexplained empty" is a failure
+ *       like any other), with a generic `agent-runtime:` line — see
+ *       {@link emptyAnswerNote} for the verbs checked before this was
+ *       widened.
+ *   (b) SUCCESS + non-empty `response` + a denial (on stderr, or a
+ *       structured `denied_actions` JSON list with no stderr sentinel) →
+ *       `completed`; the denial is listed in `warnings`. agy calls these
+ *       denials benign, so a real answer with one missing input is not a
+ *       failure, but it is never swallowed either.
  *   (c) SUCCESS + non-empty `response` + the print-timeout marker →
  *       `completed`; a partial answer is still an answer. `agyPrintTimeout`
  *       is set either way (a) or (c) has it; callers add their own warning
  *       line for case (c) (job-helpers.mjs).
- * A SUCCESS with an empty response and neither signal stays `completed`: a
- * model may legitimately say nothing.
  *
  * `deniedActions` (additive, T2/plan 085) is the structured detail behind
  * `denial`: agy 1.1.27's `result.denied_actions` JSON list

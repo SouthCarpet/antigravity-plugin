@@ -30,6 +30,7 @@ import {
   warningDetails,
   formatDeniedActionLabel,
   stripBypassAdvice,
+  redactBypassFlag,
 } from "./render.mjs";
 
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
@@ -333,7 +334,12 @@ export function applyDenialHint(result, kind) {
  * {@link formatDeniedActionLabel} (`read_url (ReadUrlContent) for
  * "example.com"`); when it is not, the line stays the exact 1.3.0 text
  * (`"<action>"`) — item 6's "1.3.0 behaviour with no target present is
- * unchanged".
+ * unchanged". `target` is model-chosen tool-parameter text, so the whole
+ * line runs through {@link redactBypassFlag} before it reaches this
+ * function's own stderr (plan 086 T5e F3): a denied target that IS the
+ * bypass flag must not print that flag on the plugin's own stderr, even
+ * though this line never carries agy's "Alternatively, ..." suggestion
+ * `stripBypassAdvice` is built to catch.
  *
  * @param {string} kind
  * @param {import('./types.mjs').RuntimeResult} result
@@ -344,7 +350,7 @@ export function reportDeniedActionHints(kind, result) {
   if (!list) return;
   for (const entry of list) {
     const label = entry.target ? formatDeniedActionLabel(entry) : `"${entry.action}"`;
-    process.stderr.write(`antigravity:${kind} — denied ${label}: ${entry.remedy}\n`);
+    process.stderr.write(redactBypassFlag(`antigravity:${kind} — denied ${label}: ${entry.remedy}\n`));
   }
 }
 
@@ -668,7 +674,13 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
   }
   if (result.status !== "completed") {
     process.stderr.write(`\n${foregroundFailureLine(kind, result)}\n`);
-    if (result.stderr) process.stderr.write(stripBypassAdvice(result.stderr));
+    // redactBypassFlag runs after stripBypassAdvice: stripBypassAdvice drops
+    // agy's own "Alternatively, ..." suggestion; redactBypassFlag then
+    // catches the flag string wherever else it appears on this echo, such
+    // as inside a plugin-authored denial label naming a model-chosen
+    // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
+    // `result.stderr` itself, so the stored record keeps the complete text.
+    if (result.stderr) process.stderr.write(redactBypassFlag(stripBypassAdvice(result.stderr)));
     return result.status === "cancelled" ? 2 : 1;
   }
 
@@ -878,14 +890,28 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
 
 /**
  * Persist and log the terminal state for a job whose worker vanished
- * without recording a result.
+ * without recording a result. Terminates the recorded `agyPid` FIRST, before
+ * the job flips to a terminal (non-cancelable) status: on POSIX agy is
+ * spawned detached in its own process group, so the worker dying does not
+ * take it with it, and `resolveCancelableJob` (job-control.mjs) only matches
+ * `running`/`queued` jobs — once this function's own `patchJob` call below
+ * lands, a later `/antigravity:cancel` can no longer find the job at all, so
+ * a live `agyPid` would be orphaned with no reachable way to stop it (plan
+ * 086 T5e F4). Termination failures are swallowed (`.catch(() => {})`): a
+ * pid that cannot be killed here is no worse than the pre-fix behaviour, and
+ * must never block persisting the terminal state.
  *
  * @param {string} workspaceRoot
  * @param {string} jobId
  * @param {number} workerPid
+ * @param {number | null | undefined} agyPid
+ * @param {typeof terminateProcessTree} terminateTree
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
-async function markWorkerVanished(workspaceRoot, jobId, workerPid) {
+async function markWorkerVanished(workspaceRoot, jobId, workerPid, agyPid, terminateTree) {
+  if (Number.isInteger(agyPid) && agyPid > 0) {
+    await terminateTree(agyPid).catch(() => {});
+  }
   const failed = await patchJob(workspaceRoot, jobId, {
     status: "failed",
     phase: "worker_missing",
@@ -908,6 +934,7 @@ export async function waitForJob(
     isProcessAlive = processIsAlive,
     now = () => Date.now(),
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+    terminateTree = terminateProcessTree,
   } = {},
 ) {
   const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
@@ -917,7 +944,7 @@ export async function waitForJob(
     if (!job || TERMINAL.has(job.status)) return job;
     const workerPid = Number(job?.workerPid ?? job?.pid);
     if (isWorkerVanished(job, workerPid, isProcessAlive)) {
-      return markWorkerVanished(workspaceRoot, jobId, workerPid);
+      return markWorkerVanished(workspaceRoot, jobId, workerPid, Number(job?.agyPid), terminateTree);
     }
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);

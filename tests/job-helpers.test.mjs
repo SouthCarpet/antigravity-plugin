@@ -354,6 +354,59 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     assert.match(finalJob.errorMessage, /no longer running/);
   });
 
+  // Plan 086 T5e F4: on POSIX agy is spawned detached in its own process
+  // group, so a dead worker does not take it with it, and once the job is
+  // no longer running/queued `resolveCancelableJob` can never find it again
+  // — terminating the recorded agyPid here is the only remaining chance.
+  it('waitForJob terminates the recorded agy pid before flipping a vanished-worker job to failed', async () => {
+    freshWorkspace();
+    const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy' });
+    await patchJob(workspaceRoot, job.id, {
+      status: 'running', workerPid: 909091, pid: 909091, agyPid: 424242,
+    });
+    const terminated = [];
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 5,
+      timeoutMs: 2000,
+      isProcessAlive: () => false,
+      terminateTree: async (pid) => { terminated.push(pid); return { outcome: 'killed', pid }; },
+    });
+    assert.equal(finalJob.status, 'failed');
+    assert.equal(finalJob.phase, 'worker_missing');
+    assert.deepEqual(terminated, [424242]);
+  });
+
+  it('waitForJob attempts no termination when no agy pid was ever recorded', async () => {
+    freshWorkspace();
+    const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-no-agy' });
+    await patchJob(workspaceRoot, job.id, { status: 'running', workerPid: 909092, pid: 909092 });
+    const terminated = [];
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 5,
+      timeoutMs: 2000,
+      isProcessAlive: () => false,
+      terminateTree: async (pid) => { terminated.push(pid); return { outcome: 'killed', pid }; },
+    });
+    assert.equal(finalJob.status, 'failed');
+    assert.deepEqual(terminated, []);
+  });
+
+  it('waitForJob still marks the job failed when terminating the agy pid itself fails', async () => {
+    freshWorkspace();
+    const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy-unkillable' });
+    await patchJob(workspaceRoot, job.id, {
+      status: 'running', workerPid: 909093, pid: 909093, agyPid: 434343,
+    });
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 5,
+      timeoutMs: 2000,
+      isProcessAlive: () => false,
+      terminateTree: async () => { throw new Error('denied'); },
+    });
+    assert.equal(finalJob.status, 'failed');
+    assert.equal(finalJob.phase, 'worker_missing');
+  });
+
   it('newJobId returns unique 12-char ids; currentSessionId reads SESSION_ID_ENV', () => {
     const a = newJobId(), b = newJobId();
     assert.notEqual(a, b);
@@ -791,6 +844,24 @@ describe('reportDeniedActionHints — target (plan 086 T3)', () => {
     assert.match(chunks.join(''), /denied "read_url": /);
     assert.doesNotMatch(chunks.join(''), /ReadUrlContent/);
   });
+
+  // Plan 086 T5e F3: the target is model-chosen tool-parameter text. A
+  // denied target whose text IS the bypass flag must not reach the
+  // plugin's own stderr, even though this echo never carries agy's own
+  // "Alternatively, ..." advisory sentence stripBypassAdvice is built for.
+  it('redacts a target that is exactly the bypass flag', () => {
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    try {
+      reportDeniedActionHints('task', {
+        status: 'completed',
+        deniedActions: [{ action: 'command', displayName: 'RunCommand', target: '--dangerously-skip-permissions' }],
+      });
+    } finally { errMock.mock.restore(); }
+    const printed = chunks.join('');
+    assert.doesNotMatch(printed, /--dangerously-skip-permissions/);
+    assert.match(printed, /for "\[flag redacted\]"/);
+  });
 });
 
 // Plan 086 T3 item 4: finishForeground's console echo of a failed run's
@@ -809,6 +880,25 @@ describe('finishForeground — failed run stderr echo drops the bypass sentence'
     } finally { errMock.mock.restore(); }
     assert.equal(exit, 1);
     assert.doesNotMatch(chunks.join(''), /--dangerously-skip-permissions/);
+    // the object handed in (what a caller would persist as the stored result) is unchanged
+    assert.match(result.stderr, /--dangerously-skip-permissions/);
+  });
+
+  // Plan 086 T5e F3: a plugin-authored denial label (applyDenialHint, in the
+  // stderr this failure branch echoes) can itself contain the flag when the
+  // denied target IS that exact string — no "Alternatively," suffix is
+  // present, so stripBypassAdvice alone would not have caught it.
+  it('also redacts the flag when it arrives via a plugin-authored denial label, not agy\'s own sentinel', () => {
+    const labelLine = 'agent-runtime: command (RunCommand) for "--dangerously-skip-permissions": Headless runs cannot grant "command"; the host must run this step itself.';
+    const result = { status: 'failed', exitCode: 1, stderr: labelLine };
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    try {
+      finishForeground('task', { id: 'j4' }, result, { json: false });
+    } finally { errMock.mock.restore(); }
+    const printed = chunks.join('');
+    assert.doesNotMatch(printed, /--dangerously-skip-permissions/);
+    assert.match(printed, /for "\[flag redacted\]"/);
     // the object handed in (what a caller would persist as the stored result) is unchanged
     assert.match(result.stderr, /--dangerously-skip-permissions/);
   });
