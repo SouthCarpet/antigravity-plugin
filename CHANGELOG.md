@@ -64,6 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Supported agy matrix.** The tested range now runs from agy 1.1.15 to
+  1.2.1, with 1.2.1 as the newest measured version.
+
 - **`task` and `rescue` default `--effort` to `medium`.** A run without
   `--effort` sent no effort field at all, so the value agy used came from
   whatever that machine had saved — not reproducible across machines. When
