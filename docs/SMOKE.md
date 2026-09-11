@@ -14,8 +14,9 @@ treat an older number in a leftover note as the target.
 ## Prerequisites (do once)
 
 - [ ] `node --version` → ≥ 22.3.0
-- [ ] `agy --version` -> 1.1.15, 1.1.17, 1.1.24, or 1.1.27 (the tested matrix; other versions
-      are not promised)
+- [ ] `agy --version` -> 1.1.15 to 1.2.1; newest measured 1.2.1 (see
+      [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table; other
+      versions are not promised)
 - [ ] Logged into a Google account that can use `agy` (run `agy --print 'hi'`
       once outside the plugin if the token cache is empty)
 - [ ] No shell-rc overrides that would confuse host detection

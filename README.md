@@ -18,23 +18,26 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 
 ## What it is
 
-This plugin starts `agy --print` from the host that you already use. It gives Claude Code, Codex CLI, agy, and the standalone CLI the same eight verbs, has no runtime dependencies, and publishes releases through npm trusted publishing with a provenance attestation and SSH-signed tags. It is a maintained fork of [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin), with credit to the original author for the plugin architecture. It replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) because Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
+This plugin starts `agy --print` from the host that you already use. It gives Claude Code, Codex CLI, agy, and the standalone CLI the same eight verbs. You can review a diff, run a delegated prompt, analyze named images, and inspect or stop a background job from that host.
 
 ## Status
 
-> **v1.3.0.** The eight verbs, their flags, exit codes, `--json` envelope,
-> state locations, and supported hosts are frozen for 1.x; breaking them
-> needs 2.0.0. That contract is in [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md).
-> This does not mean finished — it means the surface stops moving. See
+> **v1.3.0.** While the first number of this version stays 1, an update
+> does not break a command or an output that already works. If a command,
+> flag, exit code, `--json` envelope, state location, or supported host is
+> removed, release notes and documentation first mark it deprecated. It
+> then stays for at least one more release that still starts with 1. It is
+> removed only in version 2.0.0. That contract is in
+> [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 1.3.0 is this package's version number. agy 1.1.15, 1.1.17, 1.1.24,
-and 1.1.27 are versions of Google's Antigravity CLI. The two version lines
-advance independently. A new agy release does not change the plugin version.
+Plugin 1.3.0 is this package's version number. agy is Google's Antigravity
+CLI. The two version lines advance independently. A new agy release does
+not change the plugin version.
 
-Plugin 1.3.0 is tested with agy 1.1.15, 1.1.17, 1.1.24, and 1.1.27. See
-[`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for behavior that differs
-by agy version. The plugin does not update itself.
+Plugin 1.3.0 is tested with agy 1.1.15 to 1.2.1; newest measured 1.2.1. See
+[`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+The plugin does not update itself.
 
 ## Why this plugin
 
@@ -143,7 +146,7 @@ For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15, 1.1.17, 1.1.24, or 1.1.27 on `PATH`. These versions form the tested matrix.
+- agy 1.1.15 to 1.2.1 on `PATH`; newest measured 1.2.1. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy
@@ -223,6 +226,6 @@ All previously tracked items, including [#5](https://github.com/SouthCarpet/anti
 
 ## Acknowledgements and license
 
-This project is a maintained fork of [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin). Credit goes to the original author for the plugin architecture. The project replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google's Gemini CLI retirement notice for free and personal users.
+This project is a maintained fork of [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin). Credit goes to the original author for the plugin architecture. The project replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) because Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
 
 The code uses the MIT License. See [`LICENSE`](./LICENSE). Antigravity and Gemini are Google's trademarks. Claude Code is Anthropic's trademark. Codex is OpenAI's trademark. This project is not affiliated with or endorsed by these companies.
