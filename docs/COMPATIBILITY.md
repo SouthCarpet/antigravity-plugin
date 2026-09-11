@@ -499,7 +499,11 @@ meaning:
   caller passes no `--effort`, the plugin now sends `medium` (a run without
   `--effort` otherwise picks up whatever the machine has saved, so a
   delegated run was not reproducible across machines). `review` and `vision`
-  have no `--effort` flag and never send one.
+  have no `--effort` flag and never send one. `medium` runs longer than
+  `low`, so a flag-less job is more likely to reach the agy execution
+  budget (docs/COMMANDS.md, "Execution budgets and failure messages"); a
+  run that reaches it stores a failed job with no answer. Pass `--effort
+  low` explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - **agy 1.2.1 vision MCP schema (plan 086 T2 D5):** `scripts/mcp/vision-server.mjs`'s
   `view_image` tool now declares `additionalProperties: false` on its input
   schema. agy 1.1.27 rejected an undeclared argument outright; agy 1.2.1

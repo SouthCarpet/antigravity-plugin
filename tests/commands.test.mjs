@@ -27,6 +27,8 @@ import {
   resolveJobLogFile,
   ensureStateDir,
   resolveJobFile,
+  listJobs,
+  readJobFile,
 } from '../scripts/lib/state.mjs';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -1396,7 +1398,7 @@ describe('/antigravity:rescue argv parsing', () => {
 
   // Plan 086 T2 D1: no --effort defaults to medium so a delegated run is
   // reproducible across machines; the explicit flag above still wins.
-  it('no --effort defaults request.effort to medium (foreground)', async () => {
+  it('no --effort defaults request.effort to medium (foreground): reaches agy and is persisted', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
     agyRuntime.calls = [];
     const { run } = await import('../scripts/commands/rescue.mjs');
@@ -1409,6 +1411,9 @@ describe('/antigravity:rescue argv parsing', () => {
     }
     assert.equal(exit, 0);
     assert.equal(agyRuntime.calls[0].effort, 'medium');
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'medium');
   });
 
   it('no --effort on a background rescue stores request.effort medium', async () => {
@@ -1613,7 +1618,7 @@ describe('/antigravity:task argv parsing', () => {
 
   // Plan 086 T2 D1: no --effort defaults to medium so a delegated run is
   // reproducible across machines; the explicit flag above still wins.
-  it('no --effort defaults request.effort to medium (foreground)', async () => {
+  it('no --effort defaults request.effort to medium (foreground): reaches agy and is persisted', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
     agyRuntime.calls = [];
     const { run } = await import('../scripts/commands/task.mjs');
@@ -1626,6 +1631,9 @@ describe('/antigravity:task argv parsing', () => {
     }
     assert.equal(exit, 0);
     assert.equal(agyRuntime.calls[0].effort, 'medium');
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'medium');
   });
 
   it('no --effort on a background task stores request.effort medium', async () => {

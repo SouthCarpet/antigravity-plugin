@@ -208,7 +208,10 @@ task text as one argument to preserve its boundaries.
   otherwise picks up whatever the machine has saved, so a delegated run is
   not reproducible across machines). Any other value is an argument error
   (exit 1) and agy is not started. The plugin does not probe what agy does
-  with the value beyond forwarding it.
+  with the value beyond forwarding it. `medium` runs longer than `low`, so a
+  flag-less job is more likely to reach the execution budget above; a run
+  that reaches it stores a failed job with no answer. Pass `--effort low`
+  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
   foreground and `--wait` has no additional effect.

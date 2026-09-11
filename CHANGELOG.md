@@ -38,7 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the caller passes no `--effort`, the plugin now sends `medium`; an
   explicit `--effort <value>` still wins. The stored `request.effort` on a
   job record records the effective value either way. `review` and `vision`
-  have no `--effort` flag and are unaffected.
+  have no `--effort` flag and are unaffected. `medium` runs longer than
+  `low`, so a flag-less job is more likely to reach the agy execution
+  budget, which stores a failed job with no answer; pass `--effort low`
+  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 
 ### Security
 

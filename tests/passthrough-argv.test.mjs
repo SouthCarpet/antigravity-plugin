@@ -247,6 +247,19 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     );
   });
 
+  it('rescue --model with no --effort still lands the default `--effort medium` right after --model', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(
+      ['rescue', 'x', '--model', 'gemini-x'],
+      makeEnv(data), work,
+    );
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(
+      argvOf(res.stderr),
+      ['--model', 'gemini-x', '--effort', 'medium', ...DEFAULT_BUDGET_ARGV_TAIL],
+    );
+  });
+
   it('task (background worker): --effort survives the job file and reaches argv', () => {
     const { work, data } = freshDirs();
     const env = makeEnv(data);
