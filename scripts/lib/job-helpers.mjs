@@ -748,9 +748,16 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
     // as inside a plugin-authored denial label naming a model-chosen
     // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
     // `result.stderr` itself, so the stored record keeps the complete text.
-    if (result.stderr) process.stderr.write(redactBypassFlag(stripBypassAdvice(result.stderr)));
+    const echoed = result.stderr ? redactBypassFlag(stripBypassAdvice(result.stderr)) : "";
+    if (echoed) process.stderr.write(echoed);
     const resumeLine = resumeHintLine(kind, result);
-    if (resumeLine) process.stderr.write(`${resumeLine}\n`);
+    // agy's own stderr does not always end in a newline, so without this the
+    // resume line lands glued to the end of the denial line and a caller
+    // reading stderr line by line sees one line where there are two.
+    if (resumeLine) {
+      const separator = echoed && !echoed.endsWith("\n") ? "\n" : "";
+      process.stderr.write(`${separator}${resumeLine}\n`);
+    }
     return result.status === "cancelled" ? 2 : 1;
   }
 

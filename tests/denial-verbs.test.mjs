@@ -200,6 +200,13 @@ describe('resume hint on a denied foreground run (plan 086 T5k F1)', () => {
     const res = runVerb(starvedAgy, ['task', 'read the notes', '--foreground']);
     assert.equal(res.status, 1, res.stderr);
     assert.match(res.stderr, /antigravity:task — resume with: \/antigravity:task --conversation c-e2e/);
+    // The resume hint is its own line. agy's stderr does not always end in a
+    // newline, and a caller reading stderr line by line must not find the
+    // hint glued to the end of the denial line before it.
+    assert.ok(
+      res.stderr.split('\n').some((line) => line.startsWith('antigravity:task — resume with: ')),
+      `the resume hint must start a line, got:\n${res.stderr}`,
+    );
   });
 
   it('vision: no resume hint — vision has no --conversation flag', () => {
