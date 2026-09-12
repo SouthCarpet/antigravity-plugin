@@ -1,8 +1,9 @@
-# Antigravity plugin 1.x compatibility contract
+# Antigravity plugin 2.x compatibility contract
 
-This document defines the public contract for `antigravity-plugin` 1.0.0 and
-later 1.x releases. The implementation at 0.2.4 is the baseline from which
-the contract was frozen. A behavior is public only when this document or the
+This document defines the public contract for `antigravity-plugin` 2.0.0 and
+later 2.x releases. The implementation at 0.2.4 is the baseline from which
+the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
+is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
 Plugin 1.3.0 is this package's version number. agy 1.1.15 to 1.2.1 is the
@@ -12,7 +13,7 @@ not change the plugin version.
 
 ## Supported matrix
 
-| Surface | Supported in 1.x |
+| Surface | Supported in 2.x |
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. |
@@ -134,7 +135,7 @@ The public verbs are exactly:
 Their positional arguments, flags, defaults, conflicts, and foreground versus
 background behavior are defined in [COMMANDS.md](./COMMANDS.md). Verb names,
 documented flag names, documented positional meanings, and documented defaults
-are stable through 1.x subject to the deprecation and emergency rules below.
+are stable through 2.x subject to the deprecation and emergency rules below.
 
 The standalone dispatcher's `help`, `-h`/`--help`, and `-v`/`--version` entry
 points are also public. They are dispatcher conveniences, not ninth and tenth
@@ -145,7 +146,7 @@ same carve-out: it is reachable only through the standalone dispatcher
 `node bin/antigravity.mjs update`), no host wrapper exposes it, it changes an
 installed copy only with `--apply`, and its `--json` output uses the envelope
 shape but is a convenience whose fields and `command` value are unstable in
-1.x. `status` may print one advisory line on stderr when a cached `update`
+2.x. `status` may print one advisory line on stderr when a cached `update`
 check knows a newer version; `status` itself never calls the network.
 
 The following are not promised command surface:
@@ -202,14 +203,14 @@ reaches a normal output path with `--json`, its entire stdout stream is exactly
 one pretty-printed JSON object followed by a newline. The object has these
 fields in envelope version 1:
 
-| Field | 1.x contract |
+| Field | 2.x contract |
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
 | `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, or `cancel`, matching the invoked verb. |
 | `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. |
-| `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 1.x; consumers must tolerate additions, removals, and changes within it. |
+| `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 2.x; consumers must tolerate additions, removals, and changes within it. |
 
 Consumers must tolerate additive top-level fields. `vision` additionally
 promises top-level `model` (string) and `imagePaths` (an array of absolute path
@@ -260,14 +261,16 @@ JSON vision field) and returns 0 when agy otherwise reported success. The
 prefix and one-line form are stable machine-readable signals. The reason text
 is not stable, and the sentinel is not a distinct exit status.
 
-## Headless read access
-
 `agy --print` cannot prompt for a tool permission. Since agy 1.1.20 a tool
-it cannot prompt for is auto-denied and the run still reports success; the
-plugin turns an auto-denial that starved the answer into a failure and keeps
-one that did not as a warning (stderr, and `details.warnings` in `--json`).
-This fail-vs-warn decision, and every exit code, are unchanged by the
-structured reporting below — the new data only adds detail.
+it cannot prompt for is auto-denied and the run still reports success. The
+plugin treats a SUCCESS result with an empty or whitespace-only answer as
+`failed` (exit 1 on the foreground path) when any of these hold: the stderr
+denial sentinel, agy's JSON `denied_actions` list, agy's print-timeout
+marker, or none of those (an unexplained empty answer). A SUCCESS result
+with a non-empty answer stays `completed` (exit 0 on the foreground path).
+A denial in that case is a warning on stderr and in `details.warnings`. The
+structured fields below name the denied action and target. They do not
+replace this rule.
 
 Since agy 1.1.27, a denied run's JSON result also carries a structured
 `denied_actions` list (`[{ "action": "read_url", "display_name":
@@ -444,7 +447,7 @@ the priority above.
 command-module directory. That directory must contain this plugin's manifest
 (`plugin.json` with `"name": "antigravity"`); otherwise the dispatcher exits 1
 with one line before it imports anything. It exists for tests and is
-explicitly not a public 1.x integration point.
+explicitly not a public 2.x integration point.
 
 All other inherited environment variables are passed to child processes in
 the normal Node fashion but have no plugin-specific compatibility promise.
@@ -494,10 +497,12 @@ existing jobs disappear. New workspaces use the host-owned root. Transient
 workspace lock directories live under
 `${os.tmpdir()}/antigravity-state-locks`.
 
-If a 1.x release moves or changes persistent state, it must preserve access to
-existing 1.x jobs through automatic migration or a compatibility read path.
+If a 2.x release moves or changes persistent state, it must preserve access to
+existing jobs, including jobs written by 1.x, through automatic migration or a
+compatibility read path.
 It must not silently orphan existing state. A manual migration may be required
 only when automatic migration cannot be made safe, and must be documented in
+the release notes before the new location becomes the default.
 the release notes before the new location becomes the default.
 
 ### Vision configuration
@@ -526,7 +531,7 @@ credentials, images, and job state are preserved. If the named MCP entry has
 changed ownership or the JSON/config shape is unsafe, removal fails without
 applying a partial configuration change.
 
-## Additive surface added within 1.x
+## Additive surface added after 1.0.0
 
 These shipped after 1.0.0 as additive changes (docs/COMMANDS.md has the full
 flag/field detail); none changes an existing verb, flag, exit code, or field
@@ -537,7 +542,7 @@ meaning:
 - `--effort <low|medium|high>` on `task` and `rescue`, forwarded to agy
   verbatim as `--effort <value>` right after `--model` (or in its place when
   there is no model); the plugin does not probe what agy does with the value
-  beyond forwarding it. **Default changed in 1.4.0 (plan 086 T2):** when the
+  beyond forwarding it. **Default changed in 2.0.0 (plan 086 T2):** when the
   caller passes no `--effort`, the plugin now sends `medium` (a run without
   `--effort` otherwise picks up whatever the machine has saved, so a
   delegated run was not reproducible across machines). `review` and `vision`
@@ -545,14 +550,16 @@ meaning:
   `low`, so a flag-less job is more likely to reach the agy execution
   budget (docs/COMMANDS.md, "Execution budgets and failure messages"); a
   run that reaches it stores a failed job with no answer. Pass `--effort
-  low` explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
+  low` explicitly, pass `--effort agy-default`, or raise
+  `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - `agy-default` (plan 086 T5i) as a fourth accepted `--effort` value on
   `task` and `rescue`: the plugin sends no `--effort` flag at all, so the
   user's own agy configuration decides, and the run is therefore not
-  reproducible across machines — the same behaviour releases before 1.4.0
-  had when `--effort` was absent. `review` and `vision` still have no
-  `--effort` flag. Stored `request.effort` keeps `"agy-default"` verbatim;
-  the background worker's revalidation accepts it.
+  reproducible across machines. That is the same argv shape releases through
+  1.3.0 had when `--effort` was absent. It is an opt-in value, not the
+  default. `review` and `vision` still have no `--effort` flag. Stored
+  `request.effort` keeps `"agy-default"` verbatim; the background worker's
+  revalidation accepts it.
 - **agy 1.2.1 vision MCP schema (plan 086 T2 D5):** `scripts/mcp/vision-server.mjs`'s
   `view_image` tool now declares `additionalProperties: false` on its input
   schema. agy 1.1.27 rejected an undeclared argument outright; agy 1.2.1
@@ -580,8 +587,8 @@ meaning:
   Records written by older versions have neither field and still render.
 - Stored `request.effort` (string, one of `low|medium|high|agy-default`) on
   `task` and `rescue` job records: the caller's explicit `--effort` value, or
-  `medium` since 1.4.0 when the caller passed none (plan 086 T2 default).
-  `task`/`rescue` records written before 1.4.0 have no `request.effort`
+  `medium` since 2.0.0 when the caller passed none (plan 086 T2 default).
+  `task`/`rescue` records written before 2.0.0 have no `request.effort`
   field; `review`/`vision` records never do. The background worker revalidates the
   stored value and fails the job before starting agy on an unknown one.
 - Job state leaf keyed by the resolved (realpath) workspace path. The
@@ -640,22 +647,25 @@ meaning:
 
 ## Deprecation and compatibility changes
 
-A documented public 1.x surface will be marked deprecated in release notes
-and documentation and retained through at least one subsequent 1.x minor
+2.0.0 changed the documented default on `task` and `rescue`: with no
+`--effort`, the plugin now sends `medium`. Through 1.3.0 it sent no flag.
+
+A documented public 2.x surface will be marked deprecated in release notes
+and documentation and retained through at least one subsequent 2.x minor
 release. Ordinary removal or another backward-incompatible change then waits
-for 2.0.0. Additive commands, flags, fields, and behavior may ship in a 1.x
+for 3.0.0. Additive commands, flags, fields, and behavior may ship in a 2.x
 minor release.
 
 There are two exceptions:
 
 - An urgent security or privacy fix may disable or remove unsafe behavior in a
-  1.x patch without the normal deprecation period. The release notes must name
+  2.x patch without the normal deprecation period. The release notes must name
   the affected surface, risk, and replacement or mitigation.
 - An upstream agy change that breaks agy's own interface may force an
   immediate transport, flag, output-parsing, or supported-version change.
-  The plugin may make that smallest necessary change in a 1.x patch and must
+  The plugin may make that smallest necessary change in a 2.x patch and must
   document the upstream break and resulting compatibility boundary.
 
 Neither exception authorizes unrelated breaking changes. Explicitly unstable
-surfaces may change in 1.x without deprecation, but the change must still be
+surfaces may change in 2.x without deprecation, but the change must still be
 called out when it affects observable output.

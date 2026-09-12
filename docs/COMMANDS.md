@@ -1,9 +1,9 @@
 # Commands reference
 
-This is the argument and execution reference for the eight public 1.x verbs,
+This is the argument and execution reference for the eight public 2.x verbs,
 and for the standalone `update` convenience at the end. The broader
 versioning, output, environment, and state promises are in the
-[1.x compatibility contract](./COMPATIBILITY.md).
+[2.x compatibility contract](./COMPATIBILITY.md).
 
 ## Invocation forms
 
@@ -25,7 +25,7 @@ Repeating a scalar value flag uses its last value; repeating `--add-dir`
 preserves all values. Unknown flags return exit 1 with
 `antigravity:<verb> — unknown flag --<name>; put prompt text after --`.
 Put prompt words that begin with `--` after the `--` terminator. Undocumented
-extra positionals may be ignored and may become errors in 1.x.
+extra positionals may be ignored and may become errors in 2.x.
 
 `--cwd <path>` changes the working directory used to resolve the workspace on
 every verb except `setup`. A Git repository root is used when one can be
@@ -236,8 +236,8 @@ task text as one argument to preserve its boundaries.
   otherwise picks up whatever the machine has saved, so a delegated run is
   not reproducible across machines). `agy-default` (plan 086 T5i) makes the
   plugin send no `--effort` flag at all, so the user's own agy configuration
-  decides instead — the run is therefore not reproducible across machines,
-  the same as a pre-1.4.0 run with no `--effort` flag at all. Any other
+  decides instead. The run is therefore not reproducible across machines,
+  the same as a run through 1.3.0 with no `--effort` flag at all. Any other
   value is an argument error (exit 1) and agy is not started. The plugin
   does not probe what agy does with the value beyond forwarding it. `medium`
   runs longer than `low`, so a flag-less job is more likely to reach the
@@ -533,7 +533,7 @@ update [--apply] [--json]
 ```
 
 `update` is a standalone dispatcher convenience, not one of the eight verbs.
-No host wrapper reaches it, and its `--json` output is unstable in 1.x. It
+No host wrapper reaches it, and its `--json` output is unstable in 2.x. It
 reads the running version, asks the npm registry for the latest version
 (cached 24 hours), and prints the update command of every host it finds on
 `PATH`. Without `--apply` it changes nothing.

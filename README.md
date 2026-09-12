@@ -22,12 +22,12 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 
 ## Status
 
-> **v1.3.0.** While the first number of this version stays 1, an update
-> does not break a command or an output that already works. If a command,
-> flag, exit code, `--json` envelope, state location, or supported host is
-> removed, release notes and documentation first mark it deprecated. It
-> then stays for at least one more release that still starts with 1. It is
-> removed only in version 2.0.0. That contract is in
+> **v1.3.0.** From 2.0.0 forward, while the first number of this version
+> stays 2, an update does not break a command or an output that already
+> works. If a command, flag, exit code, `--json` envelope, state location,
+> or supported host is removed, release notes and documentation first mark
+> it deprecated. It then stays for at least one more release that still
+> starts with 2. It is removed only in version 3.0.0. That contract is in
 > [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
@@ -42,7 +42,7 @@ The plugin does not update itself.
 ## Why this plugin
 
 - **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
-- **Forward `--effort <low|medium|high>` on `task` and `rescue`.** The plugin forwards an explicit flag to agy as `--effort <value>`. When the flag is absent, it sends `medium`. `review` and `vision` do not support this flag.
+- **Forward `--effort <low|medium|high|agy-default>` on `task` and `rescue`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. When the flag is absent, it sends `medium`. `agy-default` sends no `--effort` flag, so the user's own agy configuration decides. `review` and `vision` do not support this flag.
 - **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds. agy's default `--print-timeout 5m0s` no longer ends a longer run first. A `0` budget forwards `24h`.
 - **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
 - **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
@@ -198,7 +198,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 - [Installation](./docs/INSTALL.md): per-host setup recipes.
 - [Troubleshooting](./docs/INSTALL.md#troubleshooting): command failures and corrective actions.
-- [1.x compatibility contract](./docs/COMPATIBILITY.md): supported matrix, outputs, state, and versioning promises.
+- [2.x compatibility contract](./docs/COMPATIBILITY.md): supported matrix, outputs, state, and versioning promises.
 - [Commands reference](./docs/COMMANDS.md): all eight verbs, flags, defaults, and exit behavior.
 - [Security](./SECURITY.md): reporting channel, scope, and what leaves the machine.
 - [Release smoke checklist](./docs/SMOKE.md): four-host pre-release pass.
@@ -207,7 +207,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 1.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu, Windows, and macOS with Node 22.3.x and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 2.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu, Windows, and macOS with Node 22.3.x and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
 
 The package has no runtime dependencies. `devDependencies` holds one entry, `eslint@^10.10.0`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
 
