@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-09-12
+
 This major release exists because a documented default changed.
 `task` and `rescue` without `--effort` now send `medium`.
 
@@ -874,7 +876,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.1.2...v1.1.3

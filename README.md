@@ -22,7 +22,7 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 
 ## Status
 
-> **v1.3.0.** From 2.0.0 forward, while the first number of this version
+> **v2.0.0.** From 2.0.0 forward, while the first number of this version
 > stays 2, an update does not break a command or an output that already
 > works. If a command, flag, exit code, `--json` envelope, state location,
 > or supported host is removed, release notes and documentation first mark
@@ -31,11 +31,11 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 > [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 1.3.0 is this package's version number. agy is Google's Antigravity
+Plugin 2.0.0 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 1.3.0 is tested with agy 1.1.15 to 1.2.1; newest measured 1.2.1. See
+Plugin 2.0.0 is tested with agy 1.1.15 to 1.2.1; newest measured 1.2.1. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
@@ -93,7 +93,7 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 ## How it works
 
-![A host command from Claude Code, Codex CLI, the agy TUI, or a plain shell enters the plugin runtime at bin/antigravity.mjs and scripts/. The eight verbs are setup, review, rescue, task, vision, status, result, and cancel. The runtime talks to agy --print over stream-json; agy talks to Google. Only the prompt, the selected diff, and named image bytes leave this machine; nothing else does. For vision, the runtime starts a local MCP server that exposes one allowlisted tool, view_image, and agy calls back into it. A background job's request, result, and log stay in the local job store on this machine; status, result, and cancel read that store and never reach Google. When agy refuses a tool in headless mode, the plugin reports the refused action and, since 1.4.0, the target it was refused on. The host then asks you with its own question tool, AskUserQuestion in Claude Code, whether to do that step in the host or to grant the action. The plugin never grants the tool and never prints a bypass flag.](./docs/how-it-works.svg)
+![A host command from Claude Code, Codex CLI, the agy TUI, or a plain shell enters the plugin runtime at bin/antigravity.mjs and scripts/. The eight verbs are setup, review, rescue, task, vision, status, result, and cancel. The runtime talks to agy --print over stream-json; agy talks to Google. Only the prompt, the selected diff, and named image bytes leave this machine; nothing else does. For vision, the runtime starts a local MCP server that exposes one allowlisted tool, view_image, and agy calls back into it. A background job's request, result, and log stay in the local job store on this machine; status, result, and cancel read that store and never reach Google. When agy refuses a tool in headless mode, the plugin reports the refused action and, since 2.0.0, the target it was refused on. The host then asks you with its own question tool, AskUserQuestion in Claude Code, whether to do that step in the host or to grant the action. The plugin never grants the tool and never prints a bypass flag.](./docs/how-it-works.svg)
 
 The runtime sends prompts, selected diffs, and named image bytes through agy to Google. Background job requests, results, and logs stay in the local job store. When agy refuses a headless tool, the plugin reports the action and its target and tells the host to ask the user; it never grants the tool and never prints a bypass flag. The plugin does not create persistent wildcard grants. `setup` writes only user-level files under `~/.gemini`, not the current repository.
 
