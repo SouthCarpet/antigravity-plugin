@@ -231,6 +231,22 @@ function printTimeoutProjection(source) {
 }
 
 /**
+ * The `agyConversationId` projection carried through enrichment (plan 086
+ * T5k F1 item 1): split out for the same reason {@link deniedActionsProjection}
+ * is — one fewer branch inline in `enrichJob` keeps it under the complexity
+ * ceiling. Distinct from the `conversationId` field `enrichJob` still sets
+ * inline: that is the id the *caller* passed in via `--conversation`; this
+ * is the id agy itself reported, present whenever agy reported one —
+ * including on a failed or denied run.
+ *
+ * @param {import('./types.mjs').JobRecord} source
+ * @returns {{ agyConversationId: string | null }}
+ */
+function agyConversationIdProjection(source) {
+  return { agyConversationId: source.agyConversationId ?? null };
+}
+
+/**
  * @param {string} workspaceRoot the resolved workspace root
  * @param {import('./types.mjs').JobIndexEntry} job
  * @param {{ maxProgressLines?: number, now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
@@ -258,6 +274,7 @@ function enrichJob(workspaceRoot, job, options = {}) {
       runtimeHealth.recommendedAction ?? source.recommendedAction ?? null,
     oauthUrl: source.oauthUrl ?? null,
     ...printTimeoutProjection(source),
+    ...agyConversationIdProjection(source),
     ...deniedActionsProjection(source),
     lastHeartbeatAt: source.lastHeartbeatAt ?? null,
     lastProgressAt: source.lastProgressAt ?? null,

@@ -361,6 +361,76 @@ describe('/antigravity:status', () => {
     assert.deepEqual(payload.details.job.agyPrintTimeout, { limit: '25s' });
   });
 
+  // Plan 086 T5k F1 items 1: a denied job's own agy conversation id is
+  // readable from the plugin's own output, not only from the job file on
+  // disk — the exact gap the controller found live. Distinct from
+  // `conversationId` (the id the *caller* passed in via `--conversation`).
+  it('single job --json carries details.job.agyConversationId on a denied job, distinct from conversationId', async () => {
+    const id = 'jobc' + randomBytes(2).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'failed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      conversationId: null,
+      agyConversationId: 'da51f5a1-0c12-4262-b636-2aee1b04137f',
+    });
+    await writeJobFile(tempDir, id, { id, status: 'failed', result: { rawOutput: '' } });
+
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(cap.out.join(''));
+    assert.equal(payload.details.job.agyConversationId, 'da51f5a1-0c12-4262-b636-2aee1b04137f');
+    assert.equal(payload.details.job.conversationId, null);
+  });
+
+  it('a legacy job with no agyConversationId carries it as null, not absent or undefined', async () => {
+    const id = 'jobc' + randomBytes(2).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'ok' } });
+
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(cap.out.join(''));
+    assert.equal(payload.details.job.agyConversationId, null);
+  });
+
+  it('the all-jobs list carries agyConversationId per job', async () => {
+    const id = 'jobc' + randomBytes(2).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'failed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      agyConversationId: 'conv-list-1',
+    });
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run(['--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(cap.out.join(''));
+    const entry = payload.details.recent.find((j) => j.id === id);
+    assert.equal(entry.agyConversationId, 'conv-list-1');
+  });
+
   it('single job markdown view renders a "Note:" line naming the print timeout', async () => {
     const id = 'jobp' + randomBytes(2).toString('hex');
     ensureStateDir(tempDir);
@@ -493,6 +563,43 @@ describe('/antigravity:result', () => {
     assert.equal(exit, 0);
     const payload = parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'clean\n' });
     assert.equal(Object.hasOwn(payload.details, 'deniedActions'), false);
+  });
+
+  // Plan 086 T5k F1 item 2: `result <id> --json` carries agy's own
+  // conversation id at the top level of `details`, the same place
+  // `status <id> --json`'s `details.job.agyConversationId` puts it — not
+  // only nested under `details.result.agyConversationId`.
+  it('carries agyConversationId at the top level of details, distinct from conversationId', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, kind: 'task', status: 'failed', conversationId: 'caller-passed' });
+    await writeJobFile(tempDir, id, {
+      id, kind: 'task', status: 'failed', conversationId: 'caller-passed',
+      result: { rawOutput: '', agyConversationId: 'agy-reported-id' },
+    });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 1);
+    const payload = JSON.parse(cap.out.join(''));
+    assert.equal(payload.details.agyConversationId, 'agy-reported-id');
+    assert.equal(payload.details.conversationId, 'caller-passed');
+    assert.equal(payload.details.result.agyConversationId, 'agy-reported-id');
+  });
+
+  it('carries agyConversationId as null when the stored result has none', async () => {
+    const id = '123456abcdef';
+    await upsertJob(tempDir, { id, kind: 'task', status: 'completed' });
+    await writeJobFile(tempDir, id, { id, kind: 'task', status: 'completed', result: { rawOutput: 'ok' } });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 0);
+    const payload = JSON.parse(cap.out.join(''));
+    assert.equal(payload.details.agyConversationId, null);
   });
 
   it('markdown output appends a "## Denied Actions" section after the answer, never inside --json answer', async () => {

@@ -615,6 +615,28 @@ meaning:
   failure. Section "Print timeout and fatal-error reporting" has the
   detail. This does not add a field; it changes what a pre-existing
   free-text field's value is derived from.
+- `agyConversationId` (plan 086 T5k F1): agy's own conversation id, distinct
+  from the pre-existing `conversationId` field (the id the *caller* passed
+  in via `--conversation`) — present whenever agy reported one, including on
+  a failed or denied run, so a host can resume the conversation even when it
+  passed none itself. On the job record and the stored result. `--json`:
+  `details.job.agyConversationId` on `status <id> --json` and per job in
+  `status --json`'s job lists; `details.agyConversationId` on `result <id>
+  --json` (already carried, nested, as `details.result.agyConversationId`
+  before this). A denied foreground run of `review`, `rescue`, or `task`
+  also prints it on stderr beside the existing denial line, as the exact
+  resume command: `antigravity:<verb> — resume with: /antigravity:<verb>
+  --conversation <id>`. `vision` has no conversation concept and is
+  excluded. `null`/absent on a legacy record or a run agy never reported an
+  id for. `docs/COMMANDS.md`'s "Denied runs" and `status`/`result` sections
+  have the detail.
+- The interactive retry prompt (plan 086 T5k F2): on a foreground
+  `review`/`rescue`/`task` invocation that ends denied, the runtime asks
+  once, on the terminal itself, whether to retry the same conversation or
+  stop — interactive-only, never triggered by an automated or `--json`
+  invocation. It never offers to grant a permission and never writes a
+  settings file. `docs/COMMANDS.md`'s "Denied runs" section has the exact
+  conditions and the two-choice contract.
 
 ## Deprecation and compatibility changes
 

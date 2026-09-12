@@ -10,6 +10,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
@@ -150,6 +151,35 @@ export function foregroundFailureLine(kind, result) {
   return result.spawnError
     ? `antigravity:${kind} — failed: ${result.spawnError}`
     : `antigravity:${kind} — failed (${result.status}).`;
+}
+
+/**
+ * Verbs whose foreground `--conversation <id>` flag actually resumes a run
+ * (`commands/task.md`, `commands/rescue.md`, `commands/review.md`,
+ * `SKILL.md` all document it). `vision` has no `--conversation` flag at all,
+ * so it is deliberately absent here (plan 086 T5k F1 item 3) — table-driven,
+ * like the denial-remedy tables below (`READ_GRANTABLE_ACTIONS` and
+ * friends), rather than derived from `kind` by pattern.
+ */
+const RESUMABLE_KINDS = new Set(["task", "rescue", "review"]);
+
+/**
+ * The one stderr line a denied foreground run of a resumable verb prints
+ * beside its own denial line: the exact command a host can run to resume the
+ * same agy conversation, with the id agy itself reported (plan 086 T5k F1
+ * item 3 — closes the gap where a host was told to pass `--conversation
+ * <id>` but never given one). `null` when the verb has no `--conversation`
+ * flag, the run was not a denial, or agy never reported a conversation id
+ * for it — never prints a line naming an id that does not exist.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {string | null}
+ */
+export function resumeHintLine(kind, result) {
+  if (!RESUMABLE_KINDS.has(kind)) return null;
+  if (!result?.denial || !result.agyConversationId) return null;
+  return `antigravity:${kind} — resume with: /antigravity:${kind} --conversation ${result.agyConversationId}`;
 }
 
 /**
@@ -642,6 +672,14 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
     deniedActions: result.deniedActions ?? null,
     deniedActionsCount: Array.isArray(result.deniedActions) ? result.deniedActions.length : 0,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
+    // Top-level, not only nested under `result` (plan 086 T5k F1 item 1):
+    // agy's own conversation id, present whenever agy reported one, including
+    // a failed or denied run — distinct from the top-level `conversationId`
+    // field, which is the id the *caller* passed in via `--conversation`.
+    // Lifting it to the top level (mirroring `deniedActionsCount` above)
+    // means `jobIndexProjection` (state.mjs) keeps it on the index entry too,
+    // so `status --json`'s job list carries it without a per-job disk read.
+    agyConversationId: result.agyConversationId ?? null,
     result: buildStoredResult(result),
   };
 }
@@ -711,6 +749,8 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
     // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
     // `result.stderr` itself, so the stored record keeps the complete text.
     if (result.stderr) process.stderr.write(redactBypassFlag(stripBypassAdvice(result.stderr)));
+    const resumeLine = resumeHintLine(kind, result);
+    if (resumeLine) process.stderr.write(`${resumeLine}\n`);
     return result.status === "cancelled" ? 2 : 1;
   }
 
@@ -735,6 +775,115 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
     Boolean(json),
   );
   return 0;
+}
+
+/**
+ * Set on every child `host-bootstrap.cjs` spawns (Claude Code and the agy
+ * TUI both reach every verb through it, per `commands/*.md`'s `node -e`
+ * snippet) so the runtime can tell a host-driven invocation apart from a
+ * human typing directly into the standalone CLI or an already-interactive
+ * shell, even when both happen to inherit a real TTY on stdio (plan 086
+ * T5k F2). Duplicated as a string literal in `host-bootstrap.cjs` — that
+ * module is CommonJS and must stay `require()`-able synchronously from a
+ * one-line snippet, the same reason it already duplicates
+ * `isPluginRoot`/message wording instead of importing this ES module.
+ */
+export const HOST_WRAPPER_ENV = "ANTIGRAVITY_HOST_WRAPPER";
+
+/**
+ * True when a denied foreground run may ask the user what to do next on the
+ * terminal itself (plan 086 T5k F2). All four conditions must hold:
+ *   - the caller did not pass `--json` (a prompt on a machine-readable
+ *     stream has nowhere safe to go);
+ *   - this process was not spawned by a host wrapper ({@link HOST_WRAPPER_ENV});
+ *   - both `stdin` and `stdout` are a real interactive terminal.
+ * A background job never reaches this function at all — `startBackgroundJob`
+ * and `_worker.mjs` never call `finishForeground` or anything downstream of
+ * it, and the worker's own stdio is spawned as `["ignore", "ignore",
+ * "ignore"]` besides — so there is no separate "is this a background job"
+ * flag to check here.
+ *
+ * @param {{ json?: boolean, stdin?: { isTTY?: boolean }, stdout?: { isTTY?: boolean },
+ *   env?: NodeJS.ProcessEnv }} [options]
+ * @returns {boolean}
+ */
+export function canPromptOnDenial({ json, stdin = process.stdin, stdout = process.stdout, env = process.env } = {}) {
+  if (json) return false;
+  if (env[HOST_WRAPPER_ENV]) return false;
+  return Boolean(stdin.isTTY) && Boolean(stdout.isTTY);
+}
+
+/**
+ * Ask on the terminal whether to retry the same conversation or stop, after
+ * a denied foreground run. Exactly two choices, never a third, and the
+ * plugin never offers to grant a permission or write a settings file here.
+ * Anything other than a case-insensitive "retry" (including EOF, a blank
+ * line, or an unrecognized word) resolves "stop" — the caller asks at most
+ * once, so a wrong or empty answer must fail safe, not repeat the question.
+ *
+ * @param {string} kind
+ * @param {{ input?: NodeJS.ReadableStream, output?: NodeJS.WritableStream,
+ *   createInterface?: typeof createInterface }} [io]
+ * @returns {Promise<"retry" | "stop">}
+ */
+export async function askRetryOrStop(kind, { input = process.stdin, output = process.stdout, createInterface: createIface = createInterface } = {}) {
+  const rl = createIface({ input, output, terminal: false });
+  try {
+    const answer = await new Promise((resolve) => {
+      rl.question(
+        `antigravity:${kind} — the run was denied. Retry the same conversation now, or stop? [retry/stop] `,
+        resolve,
+      );
+    });
+    return String(answer).trim().toLowerCase() === "retry" ? "retry" : "stop";
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * True when a foreground result is a candidate for the interactive retry
+ * offer: not completed, denied, and agy reported a conversation id to retry
+ * against. The same three facts {@link resumeHintLine} checks, reused here
+ * so the two never disagree about what counts as "a resumable denial".
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {boolean}
+ */
+function isRetryEligible(result) {
+  return result?.status !== "completed" && Boolean(result?.denial) && Boolean(result?.agyConversationId);
+}
+
+/**
+ * The foreground tail shared by `review`/`rescue`/`task`'s resumable path
+ * (plan 086 T5k F2): report the run exactly as {@link finishForeground}
+ * always has, then — only when the result is a resumable denial AND
+ * {@link canPromptOnDenial} allows it — ask once whether to retry the same
+ * conversation. Choosing "stop" (or any non-eligible/non-interactive path)
+ * returns the exit code the run already had, unchanged. Choosing "retry"
+ * runs `runOnce` exactly once more against the conversation id agy reported,
+ * reports THAT outcome the same way, and returns its exit code instead —
+ * denied again or not, this never asks a second time.
+ *
+ * @param {string} kind
+ * @param {(retryConversationId?: string) => Promise<{ job: object, result: import('./types.mjs').RuntimeResult }>} runOnce
+ *   runs one `runForegroundJob` call; called with no argument for the first
+ *   attempt, and with agy's own conversation id for the retry
+ * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void }} finishOptions
+ *   forwarded to `finishForeground` for both the first report and the retry's
+ * @param {{ canPrompt?: typeof canPromptOnDenial, ask?: typeof askRetryOrStop }} [deps]
+ * @returns {Promise<number>}
+ */
+export async function runForegroundWithRetryPrompt(kind, runOnce, finishOptions, { canPrompt = canPromptOnDenial, ask = askRetryOrStop } = {}) {
+  const first = await runOnce();
+  const exitCode = finishForeground(kind, first.job, first.result, finishOptions);
+  if (!isRetryEligible(first.result) || !canPrompt({ json: finishOptions.json })) return exitCode;
+
+  const choice = await ask(kind);
+  if (choice !== "retry") return exitCode;
+
+  const retry = await runOnce(first.result.agyConversationId);
+  return finishForeground(kind, retry.job, retry.result, finishOptions);
 }
 
 /**

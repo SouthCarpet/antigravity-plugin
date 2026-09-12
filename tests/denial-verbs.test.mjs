@@ -185,6 +185,62 @@ describe('starved run (empty response + denial) fails with a per-verb hint', () 
   });
 });
 
+// Plan 086 T5k F1: a denied foreground run of a resumable verb prints the
+// exact resume command, with the conversation id agy itself reported
+// (`c-e2e`, from `resultLine` above) — the gap the controller found live,
+// where the host was told to pass `--conversation <id>` but never given one.
+describe('resume hint on a denied foreground run (plan 086 T5k F1)', () => {
+  it('rescue: stderr names the exact resume command with the real id', () => {
+    const res = runVerb(starvedAgy, ['rescue', 'read the notes']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, /antigravity:rescue — resume with: \/antigravity:rescue --conversation c-e2e/);
+  });
+
+  it('task --foreground: stderr names the exact resume command with the real id', () => {
+    const res = runVerb(starvedAgy, ['task', 'read the notes', '--foreground']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, /antigravity:task — resume with: \/antigravity:task --conversation c-e2e/);
+  });
+
+  it('vision: no resume hint — vision has no --conversation flag', () => {
+    const img = path.join(stubDir, 'shot-resume.png');
+    fs.writeFileSync(img, 'not-a-real-png');
+    const res = runVerb(starvedAgy, ['vision', img, '--prompt', 'what text is visible?']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.doesNotMatch(res.stderr, /resume with/);
+  });
+});
+
+// Plan 086 T5k F2: the interactive retry prompt must never appear in any of
+// these real, non-interactive invocations. `spawnSync` here gives every
+// child a piped (non-TTY) stdin/stdout by default, so a bug that tried to
+// prompt anyway would either print the prompt text below or hang the child
+// waiting on input that never arrives (spawnSync would then block until the
+// test itself times out) — this is a real behavioural proof, not only a
+// unit test of the gate function.
+describe('the interactive retry prompt never appears in a non-interactive run (plan 086 T5k F2)', () => {
+  const NO_PROMPT = /retry the same conversation now, or stop/i;
+
+  it('task --foreground, plain text: no prompt text, exits promptly', () => {
+    const res = runVerb(starvedAgy, ['task', 'read the notes', '--foreground']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.doesNotMatch(res.stderr, NO_PROMPT);
+  });
+
+  it('task --foreground --json: no prompt text under --json either', () => {
+    const res = runVerb(starvedAgy, ['task', 'read the notes', '--foreground', '--json']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.doesNotMatch(res.stderr, NO_PROMPT);
+  });
+
+  it('task, default background: no prompt text, the queued start returns immediately', () => {
+    const res = runVerb(starvedAgy, ['task', 'read the notes', '--json']);
+    assert.equal(res.status, 0, res.stderr);
+    assert.doesNotMatch(res.stderr, NO_PROMPT);
+    assert.doesNotMatch(res.stdout, NO_PROMPT);
+  });
+});
+
 describe('answered run (non-empty response + denial) completes with a warning', () => {
   it('rescue --json: exit 0, details.warnings carries the denial, stderr keeps it', () => {
     const res = runVerb(answeredAgy, ['rescue', 'summarize', '--json']);

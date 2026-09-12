@@ -84,6 +84,34 @@ written to stdout. It returns the verb's existing nonzero exit and writes
 /antigravity:status <id>.` to stderr. If the record disappears while waiting,
 the line is `antigravity:<verb> — job record vanished while waiting.`
 
+## Denied runs: resuming and the interactive prompt
+
+`review`, `rescue`, and `task` accept `--conversation <id>` to resume a
+specific agy conversation; `vision` has no conversation concept and is never
+resumable. When one of the three is denied in the foreground, its own denial
+line on stderr is followed by one more line naming the exact command that
+resumes the same conversation, with the id agy itself reported:
+`antigravity:<verb> — resume with: /antigravity:<verb> --conversation <id>`.
+This line appears only when the run was an actual denial and agy reported a
+conversation id for it; it is never printed with an invented or missing id.
+
+On a foreground `review`/`rescue`/`task` invocation that ends denied, the
+runtime also asks once, on the terminal itself, whether to retry the same
+conversation or stop. The plugin never offers to grant a permission and never
+writes a settings file from this prompt. It asks only when every one of these
+holds: `--json` was not passed; both `stdin` and `stdout` are a real
+interactive terminal; and the process was not spawned by a host wrapper.
+Claude Code and the agy TUI both reach every verb through the same wrapper
+snippet (`scripts/lib/host-bootstrap.cjs`), which sets
+`ANTIGRAVITY_HOST_WRAPPER=1` on every child it spawns — so neither host is
+ever asked, even when its own process happens to inherit a real terminal,
+because the plugin's output there goes to a model, not a person at a
+keyboard. A background job is never asked either; the prompt exists only on
+the foreground path. Choosing "stop" leaves the exit code the run already
+had. Choosing "retry" re-runs the same verb against the same conversation
+exactly once; a second denial is reported the same way and the plugin stops
+— it never asks a second time.
+
 ## Summary
 
 | Verb | Positional arguments | Default execution |
@@ -408,6 +436,16 @@ carries a `Partial` column in both status tables (`partial`, or `-`), and
 timeout, and `--json`'s `details.job.agyPrintTimeout` carries
 `{ limit: string | null }`. Absent on a clean run or a legacy record.
 
+A job's own agy conversation id, whenever agy reported one, is carried at
+`--json`'s `details.job.agyConversationId` for `status <id>` and as a
+per-job `agyConversationId` field in the all-jobs list — present on a
+completed job and also on a failed or denied one, so a host can resume the
+conversation even when it never passed `--conversation` itself (see [denied
+runs](#denied-runs-resuming-and-the-interactive-prompt) above). This is
+distinct from `conversationId` (the same envelope's existing field), which
+is only the id the *caller* passed in via `--conversation`; `null` when agy
+never reported a conversation id, including on a legacy record.
+
 ## `result`
 
 ```text
@@ -454,6 +492,13 @@ the markdown output ends with a "Note:" line naming the expired timeout
 is a distinct key from `details.truncated` above, which already means the
 `--head`/`--tail` display cut — the two never collide. Absent when the run
 had no print-timeout marker.
+
+`--json` also carries the same agy-reported conversation id at the top level,
+`details.agyConversationId` — the same value already nested under
+`details.result.agyConversationId`, surfaced in the same place `status <id>
+--json` puts it (`details.job.agyConversationId`). Distinct from
+`details.conversationId` (the id the caller passed in). `null` when agy
+never reported one.
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is

@@ -214,6 +214,10 @@ async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
     deniedActions: result.deniedActions ?? null,
     deniedActionsCount: Array.isArray(result.deniedActions) ? result.deniedActions.length : 0,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
+    // Top-level, mirroring the foreground path's buildTerminalJobPatch
+    // (job-helpers.mjs, plan 086 T5k F1 item 1): agy's own conversation id,
+    // present whenever agy reported one, including a failed or denied run.
+    agyConversationId: result.agyConversationId ?? null,
     // Fix round 1 F3: keyed off the raw `result.status` this dropped agy's
     // stderr for `auth_required`/`timeout` jobs, since neither raw status is
     // literally "failed" (only `derived.status`, job-helpers.mjs's mapping

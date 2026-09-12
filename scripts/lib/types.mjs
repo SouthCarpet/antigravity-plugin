@@ -149,7 +149,12 @@
  * @property {number | null} [pid]
  * @property {number | null} [workerPid]
  * @property {number | null} [agyPid]
- * @property {string | null} [conversationId]
+ * @property {string | null} [conversationId] the id the *caller* passed via
+ *   `--conversation`; `null`/absent when the run started fresh or continued
+ * @property {string | null} [agyConversationId] the id *agy itself reported*
+ *   for the run, present whenever agy reported one — including a failed or
+ *   denied run — so a host can resume it even when the caller passed none
+ *   (plan 086 T5k F1); additive, `null`/absent on legacy records
  * @property {string} createdAt
  * @property {string} updatedAt
  * @property {string | null} [startedAt]

@@ -28,9 +28,9 @@ import {
   EFFORT_CHOICES,
   agyModeArgs,
   agyUnavailableLine,
-  finishForeground,
   reportQueuedJob,
   runForegroundJob,
+  runForegroundWithRetryPrompt,
   startBackgroundJob,
   waitAndExit,
   waitForJob,
@@ -51,23 +51,23 @@ function resolveRescueMode(options) {
 }
 
 async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, json }) {
-  const { job, result } = await runForegroundJob({
+  const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "rescue",
     title,
     prompt,
-    mode,
-    conversationId,
+    mode: retryConversationId ? "conversation" : mode,
+    conversationId: retryConversationId ?? conversationId,
     addDirs,
     model,
     effort,
     extraArgs,
     cwd: workspaceRoot,
-    request: { mode, addDirs, model, effort },
+    request: { mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
     onText: (delta) => process.stderr.write(delta),
   });
 
-  return finishForeground("rescue", job, result, { json });
+  return runForegroundWithRetryPrompt("rescue", runOnce, { json });
 }
 
 async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, options, ctx }) {

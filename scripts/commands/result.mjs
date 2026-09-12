@@ -65,7 +65,7 @@ function printMeasuredUsageTrailer(stored) {
  *   truncated, `details.result.rawOutput` gets the same cut text instead of
  *   the full stored answer, so the `--json` path saves the same bytes the
  *   markdown path does.
- * @returns {{ conversationId: string | null, result: object | null }}
+ * @returns {{ conversationId: string | null, agyConversationId: string | null, result: object | null }}
  */
 function buildResultDetails(job, stored, cut) {
   const result = stored?.result ?? null;
@@ -73,6 +73,12 @@ function buildResultDetails(job, stored, cut) {
     cut?.truncated && typeof result?.rawOutput === "string" ? cut.text : result?.rawOutput;
   return {
     conversationId: stored?.conversationId ?? job.conversationId ?? null,
+    // The id agy itself reported, distinct from `conversationId` above (the
+    // id the caller passed in) — already nested at `result.agyConversationId`
+    // via `buildStoredResult`; also surfaced at this top level (plan 086 T5k
+    // F1 item 2) so a host reading `result <id> --json` finds it in the same
+    // place `status <id> --json`'s `details.job.agyConversationId` puts it.
+    agyConversationId: stored?.result?.agyConversationId ?? null,
     result: result ? { ...result, rawOutput } : result,
   };
 }

@@ -31,9 +31,9 @@ import {
   agyModeArgs,
   agyUnavailableLine,
   exitCodeForJobStatus,
-  finishForeground,
   reportQueuedJob,
   runForegroundJob,
+  runForegroundWithRetryPrompt,
   startBackgroundJob,
   waitForJob,
   waitOutcomeLine,
@@ -65,23 +65,23 @@ function printCompletedRawOutput(final, json) {
 }
 
 async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, json }) {
-  const { job, result } = await runForegroundJob({
+  const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "task",
     title,
     prompt,
-    mode,
-    conversationId,
+    mode: retryConversationId ? "conversation" : mode,
+    conversationId: retryConversationId ?? conversationId,
     addDirs,
     model,
     effort,
     extraArgs,
     cwd: workspaceRoot,
-    request: { prompt, mode, addDirs, model, effort },
+    request: { prompt, mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
     onText: (delta) => process.stderr.write(delta),
   });
 
-  return finishForeground("task", job, result, { json });
+  return runForegroundWithRetryPrompt("task", runOnce, { json });
 }
 
 async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, options, ctx }) {
