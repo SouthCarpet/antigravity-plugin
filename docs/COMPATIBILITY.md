@@ -503,7 +503,6 @@ compatibility read path.
 It must not silently orphan existing state. A manual migration may be required
 only when automatic migration cannot be made safe, and must be documented in
 the release notes before the new location becomes the default.
-the release notes before the new location becomes the default.
 
 ### Vision configuration
 
