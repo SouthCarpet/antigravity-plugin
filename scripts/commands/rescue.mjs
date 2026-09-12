@@ -12,8 +12,10 @@
  *   --add-dir <path>      additional workspace dir (repeatable)
  *   --mode <plan|accept-edits>  agy execution mode for this run
  *   --model <id>          agy model id for this run
- *   --effort <low|medium|high>  agy reasoning effort for this run
- *                         (default: medium when absent, plan 086 T2)
+ *   --effort <low|medium|high|agy-default>  agy reasoning effort for this run
+ *                         (default: medium when absent, plan 086 T2;
+ *                         agy-default sends no --effort flag at all, so the
+ *                         user's own agy configuration decides, plan 086 T5i)
  *   --json                emit JSON instead of markdown
  */
 
@@ -21,9 +23,9 @@ import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import {
-  AGY_EFFORTS,
   AGY_MODES,
   DEFAULT_AGY_EFFORT,
+  EFFORT_CHOICES,
   agyModeArgs,
   agyUnavailableLine,
   finishForeground,
@@ -98,7 +100,7 @@ export async function run(argv = [], ctx = {}) {
     valueOptions: ["conversation", "model", "cwd", "add-dir", "mode", "effort"],
     booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json"],
     repeatableOptions: ["add-dir"],
-    valueChoices: { mode: AGY_MODES, effort: AGY_EFFORTS },
+    valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
       ["continue", "conversation"],
       ["resume", "conversation"],

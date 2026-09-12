@@ -80,6 +80,36 @@ export const AGY_EFFORTS = ["low", "medium", "high"];
 export const DEFAULT_AGY_EFFORT = "medium";
 
 /**
+ * The `--effort` value that means "send no `--effort` flag at all; let agy
+ * use whatever default the user configured on that machine" (plan 086 T5i).
+ * It is the fourth accepted `--effort` value on `task` and `rescue`, and the
+ * caller's way to reach the pre-1.4.0 behaviour `DEFAULT_AGY_EFFORT` replaced.
+ */
+export const AGY_DEFAULT_EFFORT = "agy-default";
+
+/**
+ * The four values `--effort` accepts on `task` and `rescue`: agy's own three
+ * ({@link AGY_EFFORTS}) plus the sentinel above. `review` and `vision` do not
+ * use this; neither exposes `--effort` at all.
+ */
+export const EFFORT_CHOICES = [...AGY_EFFORTS, AGY_DEFAULT_EFFORT];
+
+/**
+ * Translate a resolved `--effort` value into what `runAgyPrint` should
+ * forward: the sentinel becomes `undefined`, so the argv builder
+ * (`buildAgyArgs`, agent-runtime.mjs) appends no `--effort` flag at all;
+ * every other value, including `undefined`, passes through unchanged. The
+ * stored job request keeps the sentinel itself — only the value handed to
+ * the runtime call is translated.
+ *
+ * @param {string | undefined} effort
+ * @returns {string | undefined}
+ */
+export function agyEffortArg(effort) {
+  return effort === AGY_DEFAULT_EFFORT ? undefined : effort;
+}
+
+/**
  * agy argv for a validated `--mode` value; empty when the flag was not given.
  * Validation itself is the parser's job (`valueChoices`), so this never sees
  * an unknown value.
@@ -534,7 +564,7 @@ export async function runForegroundJob({
       conversationId,
       addDirs,
       model,
-      effort,
+      effort: agyEffortArg(effort),
       outputFormat,
       extraArgs,
       cwd: cwd ?? workspaceRoot,

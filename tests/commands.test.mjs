@@ -1435,6 +1435,47 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.equal(exit, 0);
     assert.equal(capturedRequest.effort, 'medium');
   });
+
+  // Plan 086 T5i: `agy-default` sends no --effort to runAgyPrint at all, so
+  // the user's own agy configuration decides; the stored request keeps the
+  // sentinel itself, not `undefined`, so a background re-run replays it.
+  it('--effort agy-default sends no effort to runAgyPrint, but stores the sentinel (foreground)', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--effort', 'agy-default'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(agyRuntime.calls[0].effort, undefined);
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'agy-default');
+  });
+
+  it('--effort agy-default on a background rescue stores the sentinel in request.effort', async () => {
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    let capturedRequest;
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--background', '--effort', 'agy-default'], {
+        cwd: tempDir,
+        startBackgroundJob: async (options) => {
+          capturedRequest = options.request;
+          return { job: { id: 'job-rescue-agy-default-effort', status: 'queued' } };
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(capturedRequest.effort, 'agy-default');
+  });
 });
 
 describe('/antigravity:task argv parsing', () => {
@@ -1654,6 +1695,47 @@ describe('/antigravity:task argv parsing', () => {
     }
     assert.equal(exit, 0);
     assert.equal(capturedRequest.effort, 'medium');
+  });
+
+  // Plan 086 T5i: `agy-default` sends no --effort to runAgyPrint at all, so
+  // the user's own agy configuration decides; the stored request keeps the
+  // sentinel itself, not `undefined`, so a background re-run replays it.
+  it('--effort agy-default sends no effort to runAgyPrint, but stores the sentinel (foreground)', async () => {
+    agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
+    agyRuntime.calls = [];
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--foreground', '--effort', 'agy-default'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(agyRuntime.calls[0].effort, undefined);
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'agy-default');
+  });
+
+  it('--effort agy-default on a background task stores the sentinel in request.effort', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    let capturedRequest;
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['do the thing', '--effort', 'agy-default'], {
+        cwd: tempDir,
+        startBackgroundJob: async (options) => {
+          capturedRequest = options.request;
+          return { job: { id: 'job-task-agy-default-effort', status: 'queued' } };
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0);
+    assert.equal(capturedRequest.effort, 'agy-default');
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {

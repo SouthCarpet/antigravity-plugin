@@ -29,9 +29,10 @@ import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
 import {
-  AGY_EFFORTS,
   AGY_MODES,
   DEFAULT_AGY_TIMEOUT_MS,
+  EFFORT_CHOICES,
+  agyEffortArg,
   applyDenialHint,
   buildStoredResult,
   deriveAnswerSize,
@@ -61,17 +62,18 @@ function sanitizeEchoedValue(value) {
 }
 
 /**
- * Revalidate a stored `request.effort` against {@link AGY_EFFORTS} before
- * running: a legacy or hand-edited job file is not guaranteed to carry a
- * value the CLI parser would have accepted. Returns `null` when the field is
- * absent or valid, else the sanitized value for the failure message.
+ * Revalidate a stored `request.effort` against {@link EFFORT_CHOICES} (agy's
+ * three plus the `agy-default` sentinel, plan 086 T5i) before running: a
+ * legacy or hand-edited job file is not guaranteed to carry a value the CLI
+ * parser would have accepted. Returns `null` when the field is absent or
+ * valid, else the sanitized value for the failure message.
  *
  * @param {unknown} effort
  * @returns {string | null}
  */
 function unsupportedStoredEffort(effort) {
   if (effort === undefined || effort === null || effort === "") return null;
-  if (AGY_EFFORTS.includes(String(effort))) return null;
+  if (EFFORT_CHOICES.includes(String(effort))) return null;
   return sanitizeEchoedValue(effort);
 }
 
@@ -145,7 +147,7 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
       conversationId: request.conversationId,
       addDirs: request.addDirs ?? [],
       model: request.model,
-      effort: request.effort,
+      effort: agyEffortArg(request.effort),
       extraArgs,
       cwd: request.cwd ?? workspaceRoot,
       timeoutMs: request.timeoutMs ?? DEFAULT_AGY_TIMEOUT_MS,

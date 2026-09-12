@@ -104,9 +104,12 @@
  *   legacy records without it fall back to `DEFAULT_AGY_TIMEOUT_MS`.
  * @property {string} [model] agy model id (076-T7 R3, additive on `task` and
  *   `rescue`; `vision` already had this field)
- * @property {string} [effort] agy reasoning effort, one of `AGY_EFFORTS`
- *   (`job-helpers.mjs`) (plan 085 T3, additive on `task` and `rescue`); no
- *   plugin default, absent unless the caller passed `--effort`
+ * @property {string} [effort] agy reasoning effort: one of `AGY_EFFORTS`, or
+ *   the `AGY_DEFAULT_EFFORT` sentinel meaning "send no `--effort` flag"
+ *   (`job-helpers.mjs`) (plan 085 T3, additive on `task` and `rescue`; plan
+ *   086 T2 added the `medium` default when the caller passes none; plan 086
+ *   T5i added the sentinel). Records written before 086 T2 have no
+ *   `request.effort` field.
  */
 
 /**

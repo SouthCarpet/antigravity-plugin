@@ -546,6 +546,13 @@ meaning:
   budget (docs/COMMANDS.md, "Execution budgets and failure messages"); a
   run that reaches it stores a failed job with no answer. Pass `--effort
   low` explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
+- `agy-default` (plan 086 T5i) as a fourth accepted `--effort` value on
+  `task` and `rescue`: the plugin sends no `--effort` flag at all, so the
+  user's own agy configuration decides, and the run is therefore not
+  reproducible across machines — the same behaviour releases before 1.4.0
+  had when `--effort` was absent. `review` and `vision` still have no
+  `--effort` flag. Stored `request.effort` keeps `"agy-default"` verbatim;
+  the background worker's revalidation accepts it.
 - **agy 1.2.1 vision MCP schema (plan 086 T2 D5):** `scripts/mcp/vision-server.mjs`'s
   `view_image` tool now declares `additionalProperties: false` on its input
   schema. agy 1.1.27 rejected an undeclared argument outright; agy 1.2.1
@@ -571,11 +578,11 @@ meaning:
   `status --json`). The count is `0` when nothing was denied.
   `deniedActions` is stored on the job record and on the stored result.
   Records written by older versions have neither field and still render.
-- Stored `request.effort` (string, one of `low|medium|high`) on `task` and
-  `rescue` job records: the caller's explicit `--effort` value, or `medium`
-  since 1.4.0 when the caller passed none (plan 086 T2 default). `task`/
-  `rescue` records written before 1.4.0 have no `request.effort` field;
-  `review`/`vision` records never do. The background worker revalidates the
+- Stored `request.effort` (string, one of `low|medium|high|agy-default`) on
+  `task` and `rescue` job records: the caller's explicit `--effort` value, or
+  `medium` since 1.4.0 when the caller passed none (plan 086 T2 default).
+  `task`/`rescue` records written before 1.4.0 have no `request.effort`
+  field; `review`/`vision` records never do. The background worker revalidates the
   stored value and fails the job before starting agy on an unknown one.
 - Job state leaf keyed by the resolved (realpath) workspace path. The
   legacy logical-path leaf is still read while the realpath leaf does not

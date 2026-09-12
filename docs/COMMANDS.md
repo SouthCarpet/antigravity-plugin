@@ -173,7 +173,7 @@ rescue <prompt...>
        [--background] [--wait]
        [--resume] [--continue] [--fresh] [--conversation <id>]
        [--add-dir <path>]... [--mode <plan|accept-edits>]
-       [--model <id>] [--effort <low|medium|high>] [--json] [--cwd <path>]
+       [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -202,16 +202,20 @@ task text as one argument to preserve its boundaries.
   and agy is not started.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy exactly as `vision`'s `--model` already was.
-- `--effort <low|medium|high>` (additive) selects agy's reasoning effort for
-  this run, forwarded verbatim as `--effort <value>`. When absent, the
-  plugin sends `medium` (plan 086 T2 default; a run without `--effort`
+- `--effort <low|medium|high|agy-default>` (additive) selects agy's reasoning
+  effort for this run, forwarded verbatim as `--effort <value>`. When absent,
+  the plugin sends `medium` (plan 086 T2 default; a run without `--effort`
   otherwise picks up whatever the machine has saved, so a delegated run is
-  not reproducible across machines). Any other value is an argument error
-  (exit 1) and agy is not started. The plugin does not probe what agy does
-  with the value beyond forwarding it. `medium` runs longer than `low`, so a
-  flag-less job is more likely to reach the execution budget above; a run
-  that reaches it stores a failed job with no answer. Pass `--effort low`
-  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
+  not reproducible across machines). `agy-default` (plan 086 T5i) makes the
+  plugin send no `--effort` flag at all, so the user's own agy configuration
+  decides instead — the run is therefore not reproducible across machines,
+  the same as a pre-1.4.0 run with no `--effort` flag at all. Any other
+  value is an argument error (exit 1) and agy is not started. The plugin
+  does not probe what agy does with the value beyond forwarding it. `medium`
+  runs longer than `low`, so a flag-less job is more likely to reach the
+  execution budget above; a run that reaches it stores a failed job with no
+  answer. Pass `--effort low` explicitly, or raise
+  `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
   foreground and `--wait` has no additional effect.
@@ -229,7 +233,7 @@ task <prompt...>
      [--background | --foreground] [--wait]
      [--continue | --conversation <id>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
-     [--model <id>] [--effort <low|medium|high>] [--json] [--cwd <path>]
+     [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -253,9 +257,11 @@ required unless `--continue` or `--conversation` is supplied.
   `rescue`. Any other value is an argument error.
 - `--model <id>` (additive) is forwarded to agy on both paths, as under
   `rescue` and `vision`.
-- `--effort <low|medium|high>` (additive) is forwarded to agy on both paths,
-  as under `rescue`: verbatim as `--effort <value>`, `medium` when absent
-  (plan 086 T2 default), any other value is an argument error.
+- `--effort <low|medium|high|agy-default>` (additive) is forwarded to agy on
+  both paths, as under `rescue`: verbatim as `--effort <value>`, `medium`
+  when absent (plan 086 T2 default), no `--effort` flag at all for
+  `agy-default` (plan 086 T5i, the user's own agy configuration decides),
+  any other value is an argument error.
 
 `review` and `vision` have no `--effort` flag; they never send one.
 
