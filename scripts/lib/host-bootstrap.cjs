@@ -28,6 +28,15 @@ const PLUGIN_MANIFEST_FILE = "plugin.json";
 const PLUGIN_MANIFEST_NAME = "antigravity";
 
 /**
+ * Mirrors `scripts/lib/job-helpers.mjs`'s `HOST_WRAPPER_ENV` constant
+ * (plan 086 T5k F2) — duplicated as a string literal, not imported, for the
+ * same reason `isPluginRoot`/message wording are already duplicated here:
+ * this module must stay loadable with a synchronous `require()` from a
+ * one-line `node -e` snippet, and `job-helpers.mjs` is an ES module.
+ */
+const HOST_WRAPPER_ENV = "ANTIGRAVITY_HOST_WRAPPER";
+
+/**
  * True when `root` holds this plugin's manifest. Mirrors
  * `scripts/lib/plugin-root.mjs#isPluginRoot`; duplicated here (not
  * imported) because this module must stay loadable with a synchronous
@@ -110,7 +119,14 @@ function run(root, verb, argv = process.argv.slice(1)) {
     console.error(missingRuntimeMessage(script, verb));
     return 1;
   }
-  const result = spawnSync(process.execPath, [script, ...argv], { stdio: "inherit" });
+  const result = spawnSync(process.execPath, [script, ...argv], {
+    stdio: "inherit",
+    // Every verb reached through this wrapper (Claude Code, the agy TUI —
+    // both go through the same `commands/*.md` `node -e` snippet) must never
+    // offer the interactive denial prompt (plan 086 T5k F2), even when
+    // `stdio: "inherit"` happens to hand the child a real TTY.
+    env: { ...process.env, [HOST_WRAPPER_ENV]: "1" },
+  });
   if (result.error) {
     console.error(
       `antigravity-plugin: failed to start ${script}: ${result.error.message}. ` +

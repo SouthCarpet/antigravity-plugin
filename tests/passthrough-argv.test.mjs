@@ -290,10 +290,67 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
       assert.equal(res.status, 1, res.stderr);
       assert.match(
         res.stderr,
-        /antigravity:(rescue|task) — invalid value for --effort: "max" \(expected low\|medium\|high\)/,
+        /antigravity:(rescue|task) — invalid value for --effort: "max" \(expected low\|medium\|high\|agy-default\)/,
       );
       assert.deepEqual(argvOf(res.stderr), [], 'agy must not be spawned');
     }
+  });
+
+  // Plan 086 T5i: `agy-default` is the sentinel meaning "send no --effort
+  // flag at all; let agy use whatever default the user configured on that
+  // machine" — the pre-1.4.0 behaviour, reached again as an explicit choice.
+  it('rescue --effort agy-default sends no --effort flag, with no --model', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['rescue', 'x', '--effort', 'agy-default'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), [...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('task --foreground --effort agy-default sends no --effort flag, with no --model', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(['task', 'x', '--foreground', '--effort', 'agy-default'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), [...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('rescue --effort agy-default --model gemini-x sends --model with no --effort flag', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(
+      ['rescue', 'x', '--model', 'gemini-x', '--effort', 'agy-default'],
+      makeEnv(data), work,
+    );
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--model', 'gemini-x', ...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('task --foreground --effort agy-default --model gemini-x sends --model with no --effort flag', () => {
+    const { work, data } = freshDirs();
+    const res = runVerb(
+      ['task', 'x', '--foreground', '--model', 'gemini-x', '--effort', 'agy-default'],
+      makeEnv(data), work,
+    );
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--model', 'gemini-x', ...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('task (background worker): --effort agy-default survives the job file and reaches argv with no --effort flag', () => {
+    const { work, data } = freshDirs();
+    const env = makeEnv(data);
+    const queued = runVerb(['task', 'x', '--effort', 'agy-default', '--wait', '--json'], env, work);
+    assert.equal(queued.status, 1, queued.stderr);
+    const { jobId } = JSON.parse(queued.stdout);
+    const stored = runVerb(['result', jobId, '--json'], env, work);
+    const payload = JSON.parse(stored.stdout);
+    assert.deepEqual(
+      argvOf(payload.details.result.stderr),
+      [...DEFAULT_BUDGET_ARGV_TAIL],
+    );
+    // The stored job record keeps the sentinel itself (item 2): a background
+    // worker re-run replays this exact request, not the runtime translation.
+    const records = fs.readdirSync(data, { recursive: true }).filter((file) => file.endsWith(jobId + '.json'));
+    assert.equal(records.length, 1);
+    const jobFile = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
+    assert.equal(jobFile.request.effort, 'agy-default');
   });
 
   it('a prompt that merely contains the words "--effort high" stays a prompt', () => {

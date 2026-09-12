@@ -30,6 +30,8 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 | `result` | Prints the final output of a completed job by id. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
 
+For `task` and `rescue`, the plugin sends `medium` when `--effort` is absent; because `medium` runs longer than `low`, a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer, so pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
+
 ## Auth requirements
 
 agy 1.0.x is **OAuth-only** — there is no API-key path yet (tracked upstream as `antigravity-cli#78`).
@@ -42,7 +44,7 @@ If a background worker hits the auth prompt (e.g. a fresh machine), it captures 
 
 Headless verbs (background jobs, and any host-wrapper invocation) are read-and-reason: reads are granted per invocation with `--add-dir <dir>`, but execution inside agy is all-or-nothing because headless mode cannot prompt for a permission. A task that needs a command actually run must either grant everything up front or run the command yourself and hand the seat the output to judge.
 
-When a run reports `deniedActions`, ask the user (Claude Code's `AskUserQuestion`, or the Codex equivalent) whether to run that step in the host instead or to grant the action themselves, then either do the step in the host or re-run the job with `--conversation <id>` (where the verb supports it) so the work continues in the same conversation. Never suggest `--dangerously-skip-permissions`.
+When a run reports `deniedActions`, ask with the host's own question tool where the host has one whether to run that step in the host instead or to grant the action themselves, then either do the step in the host or re-run the job with `--conversation <id>` (where the verb supports it); where the host has no question tool, report the denied action and stop rather than proceeding. Never suggest `--dangerously-skip-permissions`.
 
 `setup` also registers the **vision MCP server + exact permission** `$antigravity vision` needs — `agy --print` has no native image ingestion path, so image questions only get real visual answers once `setup` has written `~/.gemini/config/mcp_config.json` (`mcpServers.vision`) and `~/.gemini/antigravity-cli/settings.json` (`permissions.allow` including only `mcp(vision/view_image)`). Each vision run confines the server to the user-named paths. Pass `setup --skip-vision` to opt out or `setup --remove-vision` to remove only plugin-owned entries.
 

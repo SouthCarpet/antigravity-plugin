@@ -213,6 +213,29 @@ describe('buildSingleJobSnapshot', () => {
     assert.equal(snap.job.deniedActions, null);
     assert.equal(snap.job.deniedActionsCount, 0);
   });
+
+  // Plan 086 T5k F1 item 1: agy's own conversation id — distinct from
+  // `conversationId` (the id the *caller* passed in) — carries through
+  // enrichment on a denied/failed job, the same top-level-field pattern
+  // `deniedActions`/`deniedActionsCount` above already use.
+  it('carries agyConversationId through enrichment, distinct from the caller-passed conversationId', async () => {
+    const job = await seedJob({
+      id: 'convid1',
+      status: 'failed',
+      completedAt: new Date().toISOString(),
+      conversationId: 'caller-passed-id',
+      agyConversationId: 'agy-reported-id',
+    });
+    const snap = buildSingleJobSnapshot(workCwd, job.id);
+    assert.equal(snap.job.conversationId, 'caller-passed-id');
+    assert.equal(snap.job.agyConversationId, 'agy-reported-id');
+  });
+
+  it('a legacy job without agyConversationId enriches to null, not undefined', async () => {
+    const job = await seedJob({ id: 'legacy-convid', status: 'completed', completedAt: new Date().toISOString() });
+    const snap = buildSingleJobSnapshot(workCwd, job.id);
+    assert.equal(snap.job.agyConversationId, null);
+  });
 });
 
 describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => {

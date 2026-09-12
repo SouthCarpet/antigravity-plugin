@@ -22,9 +22,9 @@ import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   agyUnavailableLine,
-  finishForeground,
   reportQueuedJob,
   runForegroundJob,
+  runForegroundWithRetryPrompt,
   startBackgroundJob,
   waitAndExit,
   waitForJob,
@@ -60,19 +60,19 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
 }
 
 async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, json }) {
-  const { job, result } = await runForegroundJob({
+  const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "review",
     title,
     prompt,
-    mode,
-    conversationId,
+    mode: retryConversationId ? "conversation" : mode,
+    conversationId: retryConversationId ?? conversationId,
     cwd: workspaceRoot,
-    request: { scope: envelope.scope, base: base ?? null, mode },
+    request: { scope: envelope.scope, base: base ?? null, mode: retryConversationId ? "conversation" : mode },
     onText: (delta) => process.stderr.write(delta),
   });
 
-  return finishForeground("review", job, result, {
+  return runForegroundWithRetryPrompt("review", runOnce, {
     json,
     extraDetails: { scope: envelope.scope },
   });

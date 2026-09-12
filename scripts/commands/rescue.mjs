@@ -12,8 +12,10 @@
  *   --add-dir <path>      additional workspace dir (repeatable)
  *   --mode <plan|accept-edits>  agy execution mode for this run
  *   --model <id>          agy model id for this run
- *   --effort <low|medium|high>  agy reasoning effort for this run
- *                         (default: medium when absent, plan 086 T2)
+ *   --effort <low|medium|high|agy-default>  agy reasoning effort for this run
+ *                         (default: medium when absent, plan 086 T2;
+ *                         agy-default sends no --effort flag at all, so the
+ *                         user's own agy configuration decides, plan 086 T5i)
  *   --json                emit JSON instead of markdown
  */
 
@@ -21,14 +23,14 @@ import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import {
-  AGY_EFFORTS,
   AGY_MODES,
   DEFAULT_AGY_EFFORT,
+  EFFORT_CHOICES,
   agyModeArgs,
   agyUnavailableLine,
-  finishForeground,
   reportQueuedJob,
   runForegroundJob,
+  runForegroundWithRetryPrompt,
   startBackgroundJob,
   waitAndExit,
   waitForJob,
@@ -49,23 +51,23 @@ function resolveRescueMode(options) {
 }
 
 async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, json }) {
-  const { job, result } = await runForegroundJob({
+  const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "rescue",
     title,
     prompt,
-    mode,
-    conversationId,
+    mode: retryConversationId ? "conversation" : mode,
+    conversationId: retryConversationId ?? conversationId,
     addDirs,
     model,
     effort,
     extraArgs,
     cwd: workspaceRoot,
-    request: { mode, addDirs, model, effort },
+    request: { mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
     onText: (delta) => process.stderr.write(delta),
   });
 
-  return finishForeground("rescue", job, result, { json });
+  return runForegroundWithRetryPrompt("rescue", runOnce, { json });
 }
 
 async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, options, ctx }) {
@@ -98,7 +100,7 @@ export async function run(argv = [], ctx = {}) {
     valueOptions: ["conversation", "model", "cwd", "add-dir", "mode", "effort"],
     booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json"],
     repeatableOptions: ["add-dir"],
-    valueChoices: { mode: AGY_MODES, effort: AGY_EFFORTS },
+    valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
       ["continue", "conversation"],
       ["resume", "conversation"],

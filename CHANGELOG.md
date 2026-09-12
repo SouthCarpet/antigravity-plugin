@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+This major release exists because a documented default changed.
+`task` and `rescue` without `--effort` now send `medium`.
+
+### Breaking
+
+- **`task` and `rescue` without `--effort` now send `medium`.** A run without
+  `--effort` sent no effort field at all, so the value agy used came from
+  whatever that machine had saved, not reproducible across machines. When
+  the caller passes no `--effort`, the plugin now sends `medium`; an
+  explicit `--effort <value>` still wins. The stored `request.effort` on a
+  job record records the effective value either way. `review` and `vision`
+  have no `--effort` flag and are unaffected. `medium` runs longer than
+  `low`, so a flag-less job is more likely to reach the agy execution
+  budget, which stores a failed job with no answer; pass `--effort low`
+  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this. Pass
+  `--effort agy-default` to send no `--effort` flag, so the user's own agy
+  configuration decides. That value is new in this release. It is not the
+  default.
+
+- **Empty SUCCESS answers are now `failed`.** A run that agy reported as
+  SUCCESS with an empty or whitespace-only answer used to be stored as
+  `completed` with nothing in it when the only evidence was the JSON
+  `denied_actions` list, and when there was no denial and no print-timeout
+  marker at all. Both are now `failed` (exit 1 on the foreground path), the
+  same treatment a stderr-sentinel denial that starved the answer already
+  had. A non-empty answer with a denial stays `completed` and the denial is
+  a warning.
+
 ### Added
 
 - **Denied-action target reporting.** agy's `result.denied_actions` names
@@ -14,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`permission check failed for <action> "<target>":`, measured on agy
   1.2.1) names what was actually refused. The plugin now extracts that
   target and joins it onto the matching `denied_actions` member by the
-  action name parsed out of the message — never by the step's `tool_name`,
+  action name parsed out of the message, never by the step's `tool_name`,
   which differs from the action (`read_url_content` vs `read_url`,
   `run_command` vs `command`). The target is additive on every
   `deniedActions` output (`--json`'s `target` field, the markdown "Denied
@@ -31,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `result <id> --json`, and `details.job.agyPrintTimeout` on `status <id>
   --json`; job lists carry the same field per job. Markdown `status <id>`
   and `result` add a "Note:" line; the `status` tables add a `Partial`
-  column. A non-empty answer with the marker present stays `completed` — a
+  column. A non-empty answer with the marker present stays `completed`. A
   partial answer is still an answer; an empty answer with the marker present
   is reclassified `failed`, the same treatment a starved headless denial
   already gets. This field is distinct from the pre-existing
@@ -42,18 +70,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sanitized, bounded) instead of the raw stderr dump, unless a
   plugin-authored termination reason (timeout, output-limit, cancellation)
   already explains the failure.
+- **`--effort agy-default` on `task` and `rescue`.** A fourth accepted
+  value. The plugin sends no `--effort` flag, so the user's own agy
+  configuration decides. The run is therefore not reproducible across
+  machines. Stored `request.effort` keeps `agy-default` verbatim. This is
+  an opt-in. The default when the flag is absent is still `medium`.
 
 - **Self-contained How-it-works diagram.** The README now uses the
   authored `docs/how-it-works.svg` instead of a Mermaid flowchart. It
   shows the host command and all eight verbs, the plugin runtime, what
   agy sends to Google, the local vision MCP server, the local job store
   that `status`, `result`, and `cancel` read without reaching Google,
-  and the 1.4.0 denial path where the plugin reports the refused action
-  and target before the host asks the user with its own question tool.
-  The SVG title and description give screen readers the complete flow in
-  prose, and the README alt text uses the same sentences. The diagram
-  follows the reader's light or dark colour scheme and paints its own
-  background so it stays readable.
+  and the denial path where the plugin reports the refused action and
+  target. The SVG title and description give screen readers the complete
+  flow in prose, and the README alt text uses the same sentences. The
+  diagram follows the reader's light or dark colour scheme and paints its
+  own background so it stays readable.
 
 - **README image pack gate.** The pack check now derives required
   relative README images as it already did markdown links. It reports an
@@ -64,16 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`task` and `rescue` default `--effort` to `medium`.** A run without
-  `--effort` sent no effort field at all, so the value agy used came from
-  whatever that machine had saved — not reproducible across machines. When
-  the caller passes no `--effort`, the plugin now sends `medium`; an
-  explicit `--effort <value>` still wins. The stored `request.effort` on a
-  job record records the effective value either way. `review` and `vision`
-  have no `--effort` flag and are unaffected. `medium` runs longer than
-  `low`, so a flag-less job is more likely to reach the agy execution
-  budget, which stores a failed job with no answer; pass `--effort low`
-  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
+- **Supported agy matrix.** The tested range now runs from agy 1.1.15 to
+  1.2.1, with 1.2.1 as the newest measured version.
 
 ### Security
 

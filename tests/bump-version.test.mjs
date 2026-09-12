@@ -483,6 +483,30 @@ describe('bump-version README Status token', () => {
   }
 });
 
+// Plan 086 T5e F7: the byte-equivalence check above (README_REWRITE_CASES)
+// replaced an explicit assertion that README.md's Status blockquote kept its
+// frozen-1.x wording; it is deliberately prose-tolerant (a legitimate rewrite
+// of that wording must not fail it) but as a result it cannot detect a
+// candidate whose checked-in compatibility promise was already weakened or
+// contradicted before the bump ran. This test asserts the promise's
+// meaning-bearing tokens directly, on the real repo README (not a bump
+// fixture), without pinning the sentence's exact wording.
+describe('README compatibility-promise sentence (F7: prose-tolerant, not a full-paragraph pin)', () => {
+  it('the Status section still states: no break within 1.x, breaking changes need 2.0.0, docs/COMPATIBILITY.md is the contract', () => {
+    const readmeText = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+    const section = readmeText.match(/## Status\n\n([\s\S]*?)\n\n##/);
+    assert.ok(section, 'README.md "## Status" section not found');
+    const promise = section[1];
+    // Meaning-bearing tokens, not the sentence: any rewording that keeps
+    // these facts passes; a rewording (or removal) that drops one of them
+    // — the no-break claim, the 2.0.0 escape hatch, or the contract's
+    // location — fails.
+    assert.match(promise, /does not break/, 'no-break-within-1.x claim is missing');
+    assert.match(promise, /2\.0\.0/, '2.0.0 as the only breaking-change release is missing');
+    assert.match(promise, /docs\/COMPATIBILITY\.md/, 'the compatibility contract file is not named');
+  });
+});
+
 describe('bump-version documentation version phrases', () => {
   it('a bump rewrites the phrases in README.md and in a docs file', () => {
     const root = makeTree();

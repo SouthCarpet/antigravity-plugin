@@ -291,6 +291,59 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
     assert.equal(runtime.options.effort, undefined);
     assert.equal(stored.status, 'completed');
   });
+
+  // Plan 086 T5i: a stored `agy-default` is accepted by revalidation (the
+  // job completes, it is not rejected as an unsupported effort) and is
+  // translated to `undefined` for the runAgyPrint call, so agy receives no
+  // --effort flag at all.
+  it('a stored request.effort of agy-default forwards undefined and is not rejected', async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-agydefault-'));
+    const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-agydefault-data-'));
+    const jobId = 'job' + randomBytes(3).toString('hex');
+
+    const origCwd = process.cwd();
+    const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
+    const origPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    const origArgv = process.argv;
+
+    process.env.CLAUDE_PLUGIN_DATA = dataDir;
+    process.chdir(workspaceRoot);
+
+    ensureStateDir(workspaceRoot);
+    await upsertJob(workspaceRoot, {
+      id: jobId, kind: 'task', status: 'queued', phase: 'queued',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    await writeJobFile(workspaceRoot, jobId, {
+      id: jobId, status: 'queued',
+      request: { prompt: 'hello', mode: 'print', addDirs: [], effort: 'agy-default' },
+      result: null,
+    });
+
+    let resolveExit;
+    const exited = new Promise((resolve) => { resolveExit = resolve; });
+    const exitMock = mock.method(process, 'exit', (code) => { resolveExit(code); });
+    process.argv = [origArgv[0], origArgv[1], jobId];
+
+    let stored;
+    try {
+      await import('../scripts/commands/_worker.mjs?args=' + encodeURIComponent('agydefault-' + jobId));
+      await exited;
+      stored = readJobFile(workspaceRoot, jobId);
+    } finally {
+      process.chdir(origCwd);
+      process.argv = origArgv;
+      if (hadPluginDataEnv) process.env.CLAUDE_PLUGIN_DATA = origPluginData;
+      else delete process.env.CLAUDE_PLUGIN_DATA;
+      exitMock.mock.restore();
+      removeTestDir(workspaceRoot);
+      removeTestDir(dataDir);
+    }
+
+    assert.equal(runtime.options.effort, undefined);
+    assert.equal(stored.status, 'completed');
+    assert.equal(stored.request.effort, 'agy-default');
+  });
 });
 
 // Plan 085 T2: the background path persists the same top-level
@@ -657,9 +710,10 @@ describe('worker persisted-request allowlist', () => {
   }
 });
 
-// Plan 085 T3 item 3: the worker revalidates a stored request.effort against
-// AGY_EFFORTS before running — a hand-edited or legacy job file is not
-// guaranteed to carry a value the CLI parser would have accepted.
+// Plan 085 T3 item 3 (widened by plan 086 T5i): the worker revalidates a
+// stored request.effort against EFFORT_CHOICES (agy's three plus the
+// agy-default sentinel) before running — a hand-edited or legacy job file
+// is not guaranteed to carry a value the CLI parser would have accepted.
 describe('worker persisted-request effort revalidation', () => {
   const cases = [
     { effort: 'max', echoed: 'max' },

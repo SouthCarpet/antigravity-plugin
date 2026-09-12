@@ -1,9 +1,9 @@
 # Commands reference
 
-This is the argument and execution reference for the eight public 1.x verbs,
+This is the argument and execution reference for the eight public 2.x verbs,
 and for the standalone `update` convenience at the end. The broader
 versioning, output, environment, and state promises are in the
-[1.x compatibility contract](./COMPATIBILITY.md).
+[2.x compatibility contract](./COMPATIBILITY.md).
 
 ## Invocation forms
 
@@ -25,7 +25,7 @@ Repeating a scalar value flag uses its last value; repeating `--add-dir`
 preserves all values. Unknown flags return exit 1 with
 `antigravity:<verb> — unknown flag --<name>; put prompt text after --`.
 Put prompt words that begin with `--` after the `--` terminator. Undocumented
-extra positionals may be ignored and may become errors in 1.x.
+extra positionals may be ignored and may become errors in 2.x.
 
 `--cwd <path>` changes the working directory used to resolve the workspace on
 every verb except `setup`. A Git repository root is used when one can be
@@ -83,6 +83,34 @@ written to stdout. It returns the verb's existing nonzero exit and writes
 `antigravity:<verb> — wait timed out; job <id> is still <status>. Run
 /antigravity:status <id>.` to stderr. If the record disappears while waiting,
 the line is `antigravity:<verb> — job record vanished while waiting.`
+
+## Denied runs: resuming and the interactive prompt
+
+`review`, `rescue`, and `task` accept `--conversation <id>` to resume a
+specific agy conversation; `vision` has no conversation concept and is never
+resumable. When one of the three is denied in the foreground, its own denial
+line on stderr is followed by one more line naming the exact command that
+resumes the same conversation, with the id agy itself reported:
+`antigravity:<verb> — resume with: /antigravity:<verb> --conversation <id>`.
+This line appears only when the run was an actual denial and agy reported a
+conversation id for it; it is never printed with an invented or missing id.
+
+On a foreground `review`/`rescue`/`task` invocation that ends denied, the
+runtime also asks once, on the terminal itself, whether to retry the same
+conversation or stop. The plugin never offers to grant a permission and never
+writes a settings file from this prompt. It asks only when every one of these
+holds: `--json` was not passed; both `stdin` and `stdout` are a real
+interactive terminal; and the process was not spawned by a host wrapper.
+Claude Code and the agy TUI both reach every verb through the same wrapper
+snippet (`scripts/lib/host-bootstrap.cjs`), which sets
+`ANTIGRAVITY_HOST_WRAPPER=1` on every child it spawns — so neither host is
+ever asked, even when its own process happens to inherit a real terminal,
+because the plugin's output there goes to a model, not a person at a
+keyboard. A background job is never asked either; the prompt exists only on
+the foreground path. Choosing "stop" leaves the exit code the run already
+had. Choosing "retry" re-runs the same verb against the same conversation
+exactly once; a second denial is reported the same way and the plugin stops
+— it never asks a second time.
 
 ## Summary
 
@@ -173,7 +201,7 @@ rescue <prompt...>
        [--background] [--wait]
        [--resume] [--continue] [--fresh] [--conversation <id>]
        [--add-dir <path>]... [--mode <plan|accept-edits>]
-       [--model <id>] [--effort <low|medium|high>] [--json] [--cwd <path>]
+       [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -202,16 +230,20 @@ task text as one argument to preserve its boundaries.
   and agy is not started.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy exactly as `vision`'s `--model` already was.
-- `--effort <low|medium|high>` (additive) selects agy's reasoning effort for
-  this run, forwarded verbatim as `--effort <value>`. When absent, the
-  plugin sends `medium` (plan 086 T2 default; a run without `--effort`
+- `--effort <low|medium|high|agy-default>` (additive) selects agy's reasoning
+  effort for this run, forwarded verbatim as `--effort <value>`. When absent,
+  the plugin sends `medium` (plan 086 T2 default; a run without `--effort`
   otherwise picks up whatever the machine has saved, so a delegated run is
-  not reproducible across machines). Any other value is an argument error
-  (exit 1) and agy is not started. The plugin does not probe what agy does
-  with the value beyond forwarding it. `medium` runs longer than `low`, so a
-  flag-less job is more likely to reach the execution budget above; a run
-  that reaches it stores a failed job with no answer. Pass `--effort low`
-  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
+  not reproducible across machines). `agy-default` (plan 086 T5i) makes the
+  plugin send no `--effort` flag at all, so the user's own agy configuration
+  decides instead. The run is therefore not reproducible across machines,
+  the same as a run through 1.3.0 with no `--effort` flag at all. Any other
+  value is an argument error (exit 1) and agy is not started. The plugin
+  does not probe what agy does with the value beyond forwarding it. `medium`
+  runs longer than `low`, so a flag-less job is more likely to reach the
+  execution budget above; a run that reaches it stores a failed job with no
+  answer. Pass `--effort low` explicitly, or raise
+  `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
   foreground and `--wait` has no additional effect.
@@ -229,7 +261,7 @@ task <prompt...>
      [--background | --foreground] [--wait]
      [--continue | --conversation <id>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
-     [--model <id>] [--effort <low|medium|high>] [--json] [--cwd <path>]
+     [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -253,9 +285,11 @@ required unless `--continue` or `--conversation` is supplied.
   `rescue`. Any other value is an argument error.
 - `--model <id>` (additive) is forwarded to agy on both paths, as under
   `rescue` and `vision`.
-- `--effort <low|medium|high>` (additive) is forwarded to agy on both paths,
-  as under `rescue`: verbatim as `--effort <value>`, `medium` when absent
-  (plan 086 T2 default), any other value is an argument error.
+- `--effort <low|medium|high|agy-default>` (additive) is forwarded to agy on
+  both paths, as under `rescue`: verbatim as `--effort <value>`, `medium`
+  when absent (plan 086 T2 default), no `--effort` flag at all for
+  `agy-default` (plan 086 T5i, the user's own agy configuration decides),
+  any other value is an argument error.
 
 `review` and `vision` have no `--effort` flag; they never send one.
 
@@ -402,6 +436,16 @@ carries a `Partial` column in both status tables (`partial`, or `-`), and
 timeout, and `--json`'s `details.job.agyPrintTimeout` carries
 `{ limit: string | null }`. Absent on a clean run or a legacy record.
 
+A job's own agy conversation id, whenever agy reported one, is carried at
+`--json`'s `details.job.agyConversationId` for `status <id>` and as a
+per-job `agyConversationId` field in the all-jobs list — present on a
+completed job and also on a failed or denied one, so a host can resume the
+conversation even when it never passed `--conversation` itself (see [denied
+runs](#denied-runs-resuming-and-the-interactive-prompt) above). This is
+distinct from `conversationId` (the same envelope's existing field), which
+is only the id the *caller* passed in via `--conversation`; `null` when agy
+never reported a conversation id, including on a legacy record.
+
 ## `result`
 
 ```text
@@ -449,6 +493,13 @@ is a distinct key from `details.truncated` above, which already means the
 `--head`/`--tail` display cut — the two never collide. Absent when the run
 had no print-timeout marker.
 
+`--json` also carries the same agy-reported conversation id at the top level,
+`details.agyConversationId` — the same value already nested under
+`details.result.agyConversationId`, surfaced in the same place `status <id>
+--json` puts it (`details.job.agyConversationId`). Distinct from
+`details.conversationId` (the id the caller passed in). `null` when agy
+never reported one.
+
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is
 unreadable.` to stderr, exits 1, and writes no success envelope even with
@@ -482,7 +533,7 @@ update [--apply] [--json]
 ```
 
 `update` is a standalone dispatcher convenience, not one of the eight verbs.
-No host wrapper reaches it, and its `--json` output is unstable in 1.x. It
+No host wrapper reaches it, and its `--json` output is unstable in 2.x. It
 reads the running version, asks the npm registry for the latest version
 (cached 24 hours), and prints the update command of every host it finds on
 `PATH`. Without `--apply` it changes nothing.

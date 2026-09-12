@@ -62,7 +62,8 @@ const {
   runForegroundJob, startBackgroundJob, createTrackedJob, patchJob, waitForJob, newJobId, currentSessionId,
   resolveWorkerPath, agyTimeoutMs, waitOutcomeLine, finishForeground,
   denialRemedy, deniedActionsWithRemedy, applyDenialHint, buildStoredResult,
-  reportDeniedActionHints,
+  reportDeniedActionHints, resumeHintLine, HOST_WRAPPER_ENV, canPromptOnDenial,
+  askRetryOrStop, runForegroundWithRetryPrompt,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
@@ -352,6 +353,59 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     assert.equal(finalJob.status, 'failed');
     assert.equal(finalJob.phase, 'worker_missing');
     assert.match(finalJob.errorMessage, /no longer running/);
+  });
+
+  // Plan 086 T5e F4: on POSIX agy is spawned detached in its own process
+  // group, so a dead worker does not take it with it, and once the job is
+  // no longer running/queued `resolveCancelableJob` can never find it again
+  // — terminating the recorded agyPid here is the only remaining chance.
+  it('waitForJob terminates the recorded agy pid before flipping a vanished-worker job to failed', async () => {
+    freshWorkspace();
+    const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy' });
+    await patchJob(workspaceRoot, job.id, {
+      status: 'running', workerPid: 909091, pid: 909091, agyPid: 424242,
+    });
+    const terminated = [];
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 5,
+      timeoutMs: 2000,
+      isProcessAlive: () => false,
+      terminateTree: async (pid) => { terminated.push(pid); return { outcome: 'killed', pid }; },
+    });
+    assert.equal(finalJob.status, 'failed');
+    assert.equal(finalJob.phase, 'worker_missing');
+    assert.deepEqual(terminated, [424242]);
+  });
+
+  it('waitForJob attempts no termination when no agy pid was ever recorded', async () => {
+    freshWorkspace();
+    const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-no-agy' });
+    await patchJob(workspaceRoot, job.id, { status: 'running', workerPid: 909092, pid: 909092 });
+    const terminated = [];
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 5,
+      timeoutMs: 2000,
+      isProcessAlive: () => false,
+      terminateTree: async (pid) => { terminated.push(pid); return { outcome: 'killed', pid }; },
+    });
+    assert.equal(finalJob.status, 'failed');
+    assert.deepEqual(terminated, []);
+  });
+
+  it('waitForJob still marks the job failed when terminating the agy pid itself fails', async () => {
+    freshWorkspace();
+    const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy-unkillable' });
+    await patchJob(workspaceRoot, job.id, {
+      status: 'running', workerPid: 909093, pid: 909093, agyPid: 434343,
+    });
+    const finalJob = await waitForJob(workspaceRoot, job.id, {
+      pollMs: 5,
+      timeoutMs: 2000,
+      isProcessAlive: () => false,
+      terminateTree: async () => { throw new Error('denied'); },
+    });
+    assert.equal(finalJob.status, 'failed');
+    assert.equal(finalJob.phase, 'worker_missing');
   });
 
   it('newJobId returns unique 12-char ids; currentSessionId reads SESSION_ID_ENV', () => {
@@ -791,6 +845,24 @@ describe('reportDeniedActionHints — target (plan 086 T3)', () => {
     assert.match(chunks.join(''), /denied "read_url": /);
     assert.doesNotMatch(chunks.join(''), /ReadUrlContent/);
   });
+
+  // Plan 086 T5e F3: the target is model-chosen tool-parameter text. A
+  // denied target whose text IS the bypass flag must not reach the
+  // plugin's own stderr, even though this echo never carries agy's own
+  // "Alternatively, ..." advisory sentence stripBypassAdvice is built for.
+  it('redacts a target that is exactly the bypass flag', () => {
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    try {
+      reportDeniedActionHints('task', {
+        status: 'completed',
+        deniedActions: [{ action: 'command', displayName: 'RunCommand', target: '--dangerously-skip-permissions' }],
+      });
+    } finally { errMock.mock.restore(); }
+    const printed = chunks.join('');
+    assert.doesNotMatch(printed, /--dangerously-skip-permissions/);
+    assert.match(printed, /for "\[flag redacted\]"/);
+  });
 });
 
 // Plan 086 T3 item 4: finishForeground's console echo of a failed run's
@@ -809,6 +881,25 @@ describe('finishForeground — failed run stderr echo drops the bypass sentence'
     } finally { errMock.mock.restore(); }
     assert.equal(exit, 1);
     assert.doesNotMatch(chunks.join(''), /--dangerously-skip-permissions/);
+    // the object handed in (what a caller would persist as the stored result) is unchanged
+    assert.match(result.stderr, /--dangerously-skip-permissions/);
+  });
+
+  // Plan 086 T5e F3: a plugin-authored denial label (applyDenialHint, in the
+  // stderr this failure branch echoes) can itself contain the flag when the
+  // denied target IS that exact string — no "Alternatively," suffix is
+  // present, so stripBypassAdvice alone would not have caught it.
+  it('also redacts the flag when it arrives via a plugin-authored denial label, not agy\'s own sentinel', () => {
+    const labelLine = 'agent-runtime: command (RunCommand) for "--dangerously-skip-permissions": Headless runs cannot grant "command"; the host must run this step itself.';
+    const result = { status: 'failed', exitCode: 1, stderr: labelLine };
+    const chunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
+    try {
+      finishForeground('task', { id: 'j4' }, result, { json: false });
+    } finally { errMock.mock.restore(); }
+    const printed = chunks.join('');
+    assert.doesNotMatch(printed, /--dangerously-skip-permissions/);
+    assert.match(printed, /for "\[flag redacted\]"/);
     // the object handed in (what a caller would persist as the stored result) is unchanged
     assert.match(result.stderr, /--dangerously-skip-permissions/);
   });
@@ -929,5 +1020,268 @@ describe('an old job record without agyPrintTimeout still renders (plan 086 T1)'
     const legacy = { id: 'legacy1', status: 'completed' };
     const out = renderSingleJobStatus(legacy);
     assert.doesNotMatch(out, /print timeout/i);
+  });
+});
+
+// ───────────────────── plan 086 T5k F1: resumeHintLine ─────────────────────
+
+describe('resumeHintLine — the exact resume command for a resumable denial', () => {
+  it('a resumable kind with a denial and an agy conversation id prints the exact command', () => {
+    const line = resumeHintLine('task', { status: 'failed', denial: { tool: 'read_file' }, agyConversationId: 'c-123' });
+    assert.equal(line, 'antigravity:task — resume with: /antigravity:task --conversation c-123');
+  });
+
+  it('names the same verb and id for rescue and review', () => {
+    assert.match(
+      resumeHintLine('rescue', { status: 'failed', denial: { tool: 'read_file' }, agyConversationId: 'c-r' }),
+      /antigravity:rescue --conversation c-r/,
+    );
+    assert.match(
+      resumeHintLine('review', { status: 'failed', denial: { tool: 'read_file' }, agyConversationId: 'c-v' }),
+      /antigravity:review --conversation c-v/,
+    );
+  });
+
+  it('is null for vision — no --conversation flag exists on that verb', () => {
+    assert.equal(
+      resumeHintLine('vision', { status: 'failed', denial: { tool: 'read_file' }, agyConversationId: 'c-123' }),
+      null,
+    );
+  });
+
+  it('is null when the run was not a denial', () => {
+    assert.equal(resumeHintLine('task', { status: 'failed', denial: null, agyConversationId: 'c-123' }), null);
+  });
+
+  it('is null when agy never reported a conversation id — never invents one', () => {
+    assert.equal(resumeHintLine('task', { status: 'failed', denial: { tool: 'read_file' }, agyConversationId: null }), null);
+    assert.equal(resumeHintLine('task', { status: 'failed', denial: { tool: 'read_file' } }), null);
+  });
+});
+
+describe('finishForeground — prints the resume line beside the denial line (plan 086 T5k F1)', () => {
+  it('a denied task run prints the resume command on stderr', () => {
+    const errChunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { errChunks.push(s); return true; });
+    try {
+      finishForeground('task', { id: 'j1' }, {
+        status: 'failed', exitCode: 1, stdout: '', stderr: 'denied',
+        denial: { tool: 'read_file' }, agyConversationId: 'c-abc',
+      }, { json: false });
+    } finally { errMock.mock.restore(); }
+    assert.match(errChunks.join(''), /antigravity:task — resume with: \/antigravity:task --conversation c-abc/);
+  });
+
+  it('a denied vision run never prints a resume line — vision has no --conversation flag', () => {
+    const errChunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { errChunks.push(s); return true; });
+    try {
+      finishForeground('vision', { id: 'j2' }, {
+        status: 'failed', exitCode: 1, stdout: '', stderr: 'denied',
+        denial: { tool: 'read_file' }, agyConversationId: 'c-abc',
+      }, { json: false });
+    } finally { errMock.mock.restore(); }
+    assert.doesNotMatch(errChunks.join(''), /resume with/);
+  });
+
+  it('a run with no conversation id on record prints no resume line', () => {
+    const errChunks = [];
+    const errMock = mock.method(process.stderr, 'write', (s) => { errChunks.push(s); return true; });
+    try {
+      finishForeground('task', { id: 'j3' }, {
+        status: 'failed', exitCode: 1, stdout: '', stderr: 'denied',
+        denial: { tool: 'read_file' }, agyConversationId: null,
+      }, { json: false });
+    } finally { errMock.mock.restore(); }
+    assert.doesNotMatch(errChunks.join(''), /resume with/);
+  });
+});
+
+// ─────────────────── plan 086 T5k F2: the interactive prompt ───────────────
+
+describe('canPromptOnDenial — every negative condition wins over an interactive terminal', () => {
+  const interactive = { stdin: { isTTY: true }, stdout: { isTTY: true }, env: {} };
+
+  it('is true only when both streams are a TTY, --json is absent, and no host wrapper is set', () => {
+    assert.equal(canPromptOnDenial({ ...interactive, json: false }), true);
+  });
+
+  it('is false under --json, even with both streams a real TTY', () => {
+    assert.equal(canPromptOnDenial({ ...interactive, json: true }), false);
+  });
+
+  it('is false when the host-wrapper env var is set, even with both streams a real TTY', () => {
+    assert.equal(canPromptOnDenial({ ...interactive, json: false, env: { [HOST_WRAPPER_ENV]: '1' } }), false);
+  });
+
+  it('is false when stdin is not a TTY', () => {
+    assert.equal(canPromptOnDenial({ stdin: { isTTY: false }, stdout: { isTTY: true }, env: {}, json: false }), false);
+  });
+
+  it('is false when stdout is not a TTY', () => {
+    assert.equal(canPromptOnDenial({ stdin: { isTTY: true }, stdout: { isTTY: false }, env: {}, json: false }), false);
+  });
+
+  it('defaults to the real process.stdin/stdout/env when not given — false in this non-interactive test run', () => {
+    assert.equal(canPromptOnDenial({ json: false }), false);
+  });
+});
+
+describe('askRetryOrStop — exactly two outcomes, never a third', () => {
+  function fakeInterfaceReturning(answer) {
+    return ({ input, output }) => {
+      assert.ok(input);
+      assert.ok(output);
+      return {
+        question: (_text, cb) => cb(answer),
+        close: () => {},
+      };
+    };
+  }
+
+  it('a case-insensitive "retry" answer resolves "retry"', async () => {
+    const choice = await askRetryOrStop('task', { createInterface: fakeInterfaceReturning('Retry') });
+    assert.equal(choice, 'retry');
+  });
+
+  it('"stop" resolves "stop"', async () => {
+    const choice = await askRetryOrStop('task', { createInterface: fakeInterfaceReturning('stop') });
+    assert.equal(choice, 'stop');
+  });
+
+  it('an unrecognized answer, or a blank line, resolves "stop" — never re-asks', async () => {
+    assert.equal(await askRetryOrStop('task', { createInterface: fakeInterfaceReturning('') }), 'stop');
+    assert.equal(await askRetryOrStop('task', { createInterface: fakeInterfaceReturning('yes please') }), 'stop');
+  });
+
+  it('the question names the verb and offers only the two choices', async () => {
+    let asked = null;
+    const createIface = () => ({
+      question: (text, cb) => { asked = text; cb('stop'); },
+      close: () => {},
+    });
+    await askRetryOrStop('rescue', { createInterface: createIface });
+    assert.match(asked, /antigravity:rescue/);
+    assert.match(asked, /retry the same conversation now, or stop\?/i);
+    assert.match(asked, /\[retry\/stop\]/);
+  });
+});
+
+describe('runForegroundWithRetryPrompt — asks at most once, retries at most once (plan 086 T5k F2)', () => {
+  function silence() {
+    const outMock = mock.method(process.stdout, 'write', () => true);
+    const errMock = mock.method(process.stderr, 'write', () => true);
+    return () => { outMock.mock.restore(); errMock.mock.restore(); };
+  }
+
+  it('a completed result never asks, and calls runOnce exactly once', async () => {
+    const restore = silence();
+    const calls = [];
+    let askCalled = false;
+    let exit;
+    try {
+      const runOnce = async (retryConversationId) => {
+        calls.push(retryConversationId);
+        return { job: { id: 'j' }, result: { status: 'completed', stdout: 'ok', stderr: '', warnings: [] } };
+      };
+      exit = await runForegroundWithRetryPrompt('task', runOnce, { json: false }, {
+        canPrompt: () => true,
+        ask: async () => { askCalled = true; return 'retry'; },
+      });
+    } finally { restore(); }
+    assert.equal(exit, 0);
+    assert.deepEqual(calls, [undefined]);
+    assert.equal(askCalled, false);
+  });
+
+  it('a denied result that canPrompt refuses never asks, and keeps the first exit code', async () => {
+    const restore = silence();
+    const calls = [];
+    let askCalled = false;
+    let exit;
+    try {
+      const runOnce = async (retryConversationId) => {
+        calls.push(retryConversationId);
+        return {
+          job: { id: 'j' },
+          result: { status: 'failed', exitCode: 1, stdout: '', stderr: '', denial: { tool: 'read_file' }, agyConversationId: 'c-1' },
+        };
+      };
+      exit = await runForegroundWithRetryPrompt('task', runOnce, { json: false }, {
+        canPrompt: () => false,
+        ask: async () => { askCalled = true; return 'retry'; },
+      });
+    } finally { restore(); }
+    assert.equal(exit, 1);
+    assert.deepEqual(calls, [undefined]);
+    assert.equal(askCalled, false);
+  });
+
+  it('choosing "stop" leaves the same exit code the run has today, and calls runOnce once', async () => {
+    const restore = silence();
+    const calls = [];
+    let exit;
+    try {
+      const runOnce = async (retryConversationId) => {
+        calls.push(retryConversationId);
+        return {
+          job: { id: 'j' },
+          result: { status: 'failed', exitCode: 1, stdout: '', stderr: '', denial: { tool: 'read_file' }, agyConversationId: 'c-1' },
+        };
+      };
+      exit = await runForegroundWithRetryPrompt('task', runOnce, { json: false }, {
+        canPrompt: () => true,
+        ask: async () => 'stop',
+      });
+    } finally { restore(); }
+    assert.equal(exit, 1);
+    assert.deepEqual(calls, [undefined]);
+  });
+
+  it('choosing "retry" re-runs once against the same conversation id and reports that outcome', async () => {
+    const restore = silence();
+    const calls = [];
+    let exit;
+    try {
+      const runOnce = async (retryConversationId) => {
+        calls.push(retryConversationId);
+        if (retryConversationId === undefined) {
+          return {
+            job: { id: 'j' },
+            result: { status: 'failed', exitCode: 1, stdout: '', stderr: '', denial: { tool: 'read_file' }, agyConversationId: 'c-1' },
+          };
+        }
+        return { job: { id: 'j' }, result: { status: 'completed', stdout: 'it worked', stderr: '', warnings: [] } };
+      };
+      exit = await runForegroundWithRetryPrompt('task', runOnce, { json: false }, {
+        canPrompt: () => true,
+        ask: async () => 'retry',
+      });
+    } finally { restore(); }
+    assert.equal(exit, 0);
+    assert.deepEqual(calls, [undefined, 'c-1']);
+  });
+
+  it('a retry denied again reports and stops — never asks a second time, never a third runOnce call', async () => {
+    const restore = silence();
+    const calls = [];
+    let askCount = 0;
+    let exit;
+    try {
+      const runOnce = async (retryConversationId) => {
+        calls.push(retryConversationId);
+        return {
+          job: { id: 'j' },
+          result: { status: 'failed', exitCode: 1, stdout: '', stderr: '', denial: { tool: 'read_file' }, agyConversationId: 'c-1' },
+        };
+      };
+      exit = await runForegroundWithRetryPrompt('task', runOnce, { json: false }, {
+        canPrompt: () => true,
+        ask: async () => { askCount += 1; return 'retry'; },
+      });
+    } finally { restore(); }
+    assert.equal(exit, 1);
+    assert.deepEqual(calls, [undefined, 'c-1']);
+    assert.equal(askCount, 1);
   });
 });
