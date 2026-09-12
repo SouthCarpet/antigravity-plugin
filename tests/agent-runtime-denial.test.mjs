@@ -11,7 +11,8 @@
  *   (a) SUCCESS + empty/whitespace response + denial line  -> failed
  *   (b) SUCCESS + non-empty response + denial line          -> completed,
  *       denial kept in stderr AND surfaced as a warning
- *   SUCCESS + empty response + NO denial line               -> completed
+ *   (c) SUCCESS + empty response + a JSON-only denial       -> failed
+ *   (d) SUCCESS + empty response + no evidence at all       -> failed
  *   result status CANCELED (pre-1.1.20 shape)               -> failed (unchanged)
  *
  * Same owned process-adapter spawn fake as tests/agent-runtime-stream.test.mjs,
