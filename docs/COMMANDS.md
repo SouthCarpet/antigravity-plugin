@@ -48,15 +48,19 @@ ignored with a warning. Background jobs store this setting at enqueue and
 use the full stored budget when the worker starts agy, excluding queue time.
 Older job records without the setting use 30 minutes.
 
-Every print-mode invocation also forwards agy's own `--print-timeout` as
-`<budget + 60 second headroom>`, rounded up to whole seconds (`1860s` for
-the 30-minute default). Without this, agy's own default `--print-timeout
-5m0s` ends any run over five minutes with `status: ERROR`/`"timeout waiting
-for response"` while the plugin's own budget above is still open. The
-headroom keeps the plugin's own deadline first in line, so agy's timeout is
-only a backstop. A `0` budget ("no deadline") forwards a fixed `24h`
-ceiling instead of `0s` — agy treats a literal `0` as an immediate timeout,
-not as disabled.
+Every print-mode invocation forwards agy's own `--print-timeout` as the job
+budget plus 60 seconds, rounded up to whole seconds (`1860s` for the
+30-minute default). A `0` plugin budget ("no deadline") still forwards a fixed `24h`.
+The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the
+`timeoutMs` deadline with 60 seconds of headroom); the forwarded
+`--print-timeout` is the agy-side backstop.
+Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate
+timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`,
+where `0` waits until the turn completes (`agy-help-1.2.7.txt`). The raw
+1.2.7 `--print-timeout 0` probe answered `ZERO` and exited 0
+(`raw-print-timeout-zero.txt`). The raw `--print-timeout 4s` probe printed
+`[agy] print timeout after 4s with turn in progress; returning partial output`,
+exited 0, and returned an empty response (`raw-print-timeout-short.txt`).
 
 When the budget expires, the plugin terminates the agy process tree and
 stores a failed job with `agy did not finish within <ms> ms`. Output above
@@ -232,9 +236,9 @@ task text as one argument to preserve its boundaries.
   agy exactly as `vision`'s `--model` already was.
 - `--effort <low|medium|high|agy-default>` (additive) selects agy's reasoning
   effort for this run, forwarded verbatim as `--effort <value>`. When absent,
-  the plugin sends `medium` (plan 086 T2 default; a run without `--effort`
+  the plugin sends `medium` (since 2.0.0; a run without `--effort`
   otherwise picks up whatever the machine has saved, so a delegated run is
-  not reproducible across machines). `agy-default` (plan 086 T5i) makes the
+  not reproducible across machines). `agy-default` makes the
   plugin send no `--effort` flag at all, so the user's own agy configuration
   decides instead. The run is therefore not reproducible across machines,
   the same as a run through 1.3.0 with no `--effort` flag at all. Any other
@@ -287,8 +291,8 @@ required unless `--continue` or `--conversation` is supplied.
   `rescue` and `vision`.
 - `--effort <low|medium|high|agy-default>` (additive) is forwarded to agy on
   both paths, as under `rescue`: verbatim as `--effort <value>`, `medium`
-  when absent (plan 086 T2 default), no `--effort` flag at all for
-  `agy-default` (plan 086 T5i, the user's own agy configuration decides),
+  when absent, no `--effort` flag at all for
+  `agy-default` (the user's own agy configuration decides),
   any other value is an argument error.
 
 `review` and `vision` have no `--effort` flag; they never send one.
@@ -423,7 +427,7 @@ in both status tables (a count, or `-`), and `--json` carries a per-job
 `deniedActionsCount` on every job in a list. `status <id>` (single job) adds
 a "## Denied Actions" markdown section, one line per action with its remedy,
 and `--json`'s `details.job.deniedActions` carries the same list as
-`{ action, displayName, target, remedy }`. `target` (additive, plan 086 T3)
+`{ action, displayName, target, remedy }`. `target` (added in 2.0.0)
 is the denied tool-parameter value agy named, or `null` when it is unknown;
 the markdown line and `target` both name it when present. Absent on a clean
 run or a legacy record.
@@ -478,7 +482,7 @@ produce a result payload before its nonzero exit.
 When the stored result carries one or more headless denials, the markdown
 output ends with a "## Denied Actions" section, one line per action with its
 remedy, and `--json` sets `details.deniedActions` to the same list as
-`{ action, displayName, target, remedy }`. `target` (additive, plan 086 T3)
+`{ action, displayName, target, remedy }`. `target` (added in 2.0.0)
 is the denied tool-parameter value agy named, or `null` when it is unknown;
 the markdown line and `target` both name it when present. This is appended
 after the answer text and is never folded into the opaque `answer` field.

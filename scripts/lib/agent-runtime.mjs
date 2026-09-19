@@ -396,10 +396,10 @@ function resultEventSnapshot(r, stepTargets) {
 /**
  * The stderr line for `result.error`, or `''` when agy sent none.
  *
- * agy reports a `--print-timeout` as `status: ERROR` plus
- * `error: "timeout waiting for response"`, and on that path it also exits
- * non-zero with an empty stderr. Repeating the status word alone told the
- * caller nothing, so the reason is echoed on both failure shapes.
+ * On agy before 1.1.28, agy reports a `--print-timeout` as `status: ERROR`
+ * plus `error: "timeout waiting for response"`, and on that path it also
+ * exits non-zero with an empty stderr. Repeating the status word alone told
+ * the caller nothing, so the reason is echoed on both failure shapes.
  *
  * @param {string|null} resultError
  */
@@ -600,7 +600,7 @@ function joinDeniedActionTargets(jsonList, stepTargets) {
 /** Bound on the captured `agyPrintTimeout.limit` string (e.g. "25s"). */
 export const MAX_PRINT_TIMEOUT_LIMIT_LENGTH = 32;
 
-/** Bound on the extracted fatal `error:` marker line ({@link extractFatalErrorMarker}). */
+/** Bound on the extracted fatal marker line, error: or AGY_ERROR: ({@link extractFatalErrorMarker}). */
 export const MAX_FATAL_ERROR_LENGTH = 300;
 
 /**
@@ -648,27 +648,41 @@ export function detectPrintTimeoutTruncation(stderr) {
   return null;
 }
 
+/** Structured fatal marker agy prints since 1.2.6 for an agent or model API
+ * failure (per the agy 1.2.6 changelog; exit status 3 on that path). The
+ * JSON body's key names are not yet measured, so the line is kept whole. */
+const STRUCTURED_FATAL_PREFIX = "AGY_ERROR:";
+
 /**
- * Extract agy's stable fatal-error marker from stderr: the first line
- * starting with `error:` (agy >= 1.1.28's stable marker for a fatal headless
- * failure, measured on 1.2.1: `error: invalid model selection (--model
- * "no-such-model-xyz" --effort ""): model no-such-model-xyz is not
- * recognized as a known model or custom model in settings`), trimmed,
- * sanitized, and bounded ({@link sanitizeBoundedText}). When several
- * `error:` lines are present, the first wins. `null` when no such line is
- * present.
+ * Extract agy's fatal-error marker from stderr, sanitized and bounded
+ * ({@link sanitizeBoundedText}, {@link MAX_FATAL_ERROR_LENGTH}).
+ *
+ * Two markers are recognized, both anchored at line start:
+ *   - `error: <reason>` (agy >= 1.1.28; measured on 1.2.1 and 1.2.7:
+ *     `error: invalid model selection (--model "no-such-model-xyz" --effort
+ *     ""): model no-such-model-xyz is not recognized as a known model or
+ *     custom model in settings`, exit 1);
+ *   - `AGY_ERROR: {...}` (agy >= 1.2.6 per its changelog, exit 3, printed
+ *     when a turn ends on an agent or model API failure; not yet measured
+ *     live, so the JSON body is treated as opaque text).
+ * The first `error:` line wins over any `AGY_ERROR:` line regardless of
+ * order (the human-readable reason is the better job message); otherwise
+ * the first `AGY_ERROR:` line wins; `null` when neither is present.
  *
  * @param {string} stderr
  * @returns {string | null}
  */
 export function extractFatalErrorMarker(stderr) {
   if (typeof stderr !== "string" || !stderr.length) return null;
+  let structured = null;
   for (const rawLine of stderr.split("\n")) {
     const line = rawLine.replace(/[\x00-\x1f\x7f]/g, "").trim();
-    if (!line.startsWith("error:")) continue;
-    return sanitizeBoundedText(line, MAX_FATAL_ERROR_LENGTH);
+    if (line.startsWith("error:")) return sanitizeBoundedText(line, MAX_FATAL_ERROR_LENGTH);
+    if (structured === null && line.startsWith(STRUCTURED_FATAL_PREFIX)) {
+      structured = sanitizeBoundedText(line, MAX_FATAL_ERROR_LENGTH);
+    }
   }
-  return null;
+  return structured;
 }
 
 /**
@@ -779,10 +793,7 @@ function normalizeRunOptions(options) {
   };
 }
 
-/** Forwarded for `timeoutMs === 0` ("no deadline"): agy treats a literal
- * `--print-timeout 0` as an immediate timeout, not as disabled (T0a fixtures
- * item 4), so a large fixed duration stands in as the practical ceiling of a
- * "no deadline" run. */
+/** Forwarded for `timeoutMs === 0` ("no deadline"). agy before 1.2.6 treated a literal `--print-timeout 0` as an immediate timeout (T0a fixtures item 4); since 1.2.6 `0` means unlimited (`agy --help` 1.2.7: "default 0s", measured in raw-print-timeout-zero.txt). A large fixed duration keeps one behaviour across both. */
 export const PRINT_TIMEOUT_NO_DEADLINE = '24h';
 
 /** Headroom added on top of the plugin's own outer budget before it is
@@ -1382,10 +1393,10 @@ function classifyRunResult({ session, exitCode }) {
  *   `{"event":"user","message":{"role":"user","content":[{"type":"text","text":"<prompt>"}]}}`
  *
  * `--print-timeout <duration>` ({@link printTimeoutArg}) is agy's own
- * timeout on top of `timeoutMs`'s outer deadline: without it, agy's default
- * `--print-timeout 5m0s` ends any run over five minutes with `status:
- * ERROR`/`"timeout waiting for response"` while this plugin's own (usually
- * longer) budget is still open. The forwarded duration is `timeoutMs + 60s`
+ * timeout on top of `timeoutMs`'s outer deadline: agy before 1.2.6 defaulted
+ * to `5m0s` and ended any longer run with `status: ERROR`; since 1.2.6 the
+ * default is unlimited, so the forwarded value is the plugin's own backstop,
+ * not a workaround. The forwarded duration is `timeoutMs + 60s`
  * so this plugin's deadline fires first; `timeoutMs === 0` ("no deadline")
  * forwards {@link PRINT_TIMEOUT_NO_DEADLINE} instead of `0s`, because agy
  * treats a literal `0` as an immediate timeout, not as disabled.

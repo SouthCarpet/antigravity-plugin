@@ -22,7 +22,7 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 
 ## Status
 
-> **v2.0.0.** From 2.0.0 forward, while the first number of this version
+> **v2.0.1.** From 2.0.0 forward, while the first number of this version
 > stays 2, an update does not break a command or an output that already
 > works. If a command, flag, exit code, `--json` envelope, state location,
 > or supported host is removed, release notes and documentation first mark
@@ -31,11 +31,11 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 > [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 2.0.0 is this package's version number. agy is Google's Antigravity
+Plugin 2.0.1 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.0.0 is tested with agy 1.1.15 to 1.2.1; newest measured 1.2.1. See
+Plugin 2.0.1 is tested with agy 1.1.15 to 1.2.7; newest measured 1.2.7. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
@@ -43,7 +43,8 @@ The plugin does not update itself.
 
 - **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
 - **Forward `--effort <low|medium|high|agy-default>` on `task` and `rescue`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. When the flag is absent, it sends `medium`. `agy-default` sends no `--effort` flag, so the user's own agy configuration decides. `review` and `vision` do not support this flag.
-- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds. agy's default `--print-timeout 5m0s` no longer ends a longer run first. A `0` budget forwards `24h`.
+- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds (`1860s` for the 30-minute default), or `24h` for a `0` budget. The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the `timeoutMs` deadline with 60 seconds of headroom); the forwarded `--print-timeout` is the agy-side backstop.
+- **Account for agy print-timeout history.** Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`).
 - **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
 - **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
 - **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
@@ -130,14 +131,14 @@ For the standalone CLI, use an unversioned `npx @southcarpet/antigravity-plugin 
 
 For Claude Code, run `claude plugin marketplace update antigravity` first, then `claude plugin update antigravity@antigravity`, then restart Claude Code. Without the marketplace refresh, `plugin update` reports the old version as the latest. Codex CLI has no plugin update command. Run `codex plugin remove antigravity@antigravity`, then `codex plugin add antigravity@antigravity`. Codex installs from the marketplace you registered: if that marketplace is a local clone, pull the clone first.
 
-For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-to-clean-clone>`. A plain reinstall merges with the old copy.
+For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-to-clean-clone>`. Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28, `agy plugin install` replaces the managed directory exactly (`agy-changelog-1.2.7.txt`). Uninstall-then-install remains the safe path on every version.
 
 `antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
 
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15 to 1.2.1 on `PATH`; newest measured 1.2.1. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+- agy 1.1.15 to 1.2.7 on `PATH`; newest measured 1.2.7. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy

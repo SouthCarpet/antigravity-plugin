@@ -6,10 +6,10 @@ the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
 is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 2.0.0 is this package's version number. agy 1.1.15 to 1.2.1 is the
-tested range of Google's Antigravity CLI, with 1.2.1 as the newest measured
-version. The two version lines advance independently. A new agy release does
-not change the plugin version.
+Plugin 2.0.1 is this package's version number. agy 1.1.15 to 1.2.7 is the
+tested range of Google's Antigravity CLI, with 1.2.7 as the newest measured
+version. See the [per-version table](#supported-matrix). The two version lines advance
+independently. A new agy release does not change the plugin version.
 
 ## Supported matrix
 
@@ -18,7 +18,7 @@ not change the plugin version.
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.2.1; newest measured 1.2.1. This range forms the tested and supported matrix. Live coverage differs by version as shown below. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.2.7; newest measured 1.2.7. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -45,6 +45,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.1.24 | `rescue`, `task`, `vision`, and `result` | 2026-09-02 |
 | 1.1.27 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-09 |
 | 1.2.1 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-11 |
+| 1.2.7 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-19 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -55,9 +56,13 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.2.1, on 2026-09-11, from commit
-`3b75be6`. The table below lists the saved transcripts for 1.1.27 and 1.2.1.
-`setup` has no transcript for either version.
+The newest version measured live is agy 1.2.7, on 2026-09-19, from commit
+`2f91cff` (`probe-task-foreground-json.txt`). The 1.2.7 rows cover `task`,
+`rescue`, `review`, `vision`, `status`, `result`, and `cancel`
+(`probe-task-foreground-json.txt`, `probe-rescue-json.txt`,
+`probe-review-json.txt`, `probe-vision-json.txt`,
+`probe-background-lifecycle.txt`). The table also retains the saved
+transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions.
 
 | Verb | Flags | agy | Date | Result | Transcript |
 |---|---|---|---|---|---|
@@ -91,6 +96,20 @@ The newest version measured live is agy 1.2.1, on 2026-09-11, from commit
 | `task` | `--foreground --json`, URL-read prompt | 1.2.1 | 2026-09-11 | exit 1. The printed denial dropped agy's bypass advice and named `read_url` (`ReadUrlContent`) for target `example.com`. The stored result kept the complete upstream line. | `t5a-task-denied-url.txt`, `t5a-denied-job-record.txt` |
 | `task`, `status`, `result`, `cancel` | background lifecycle, JSON and Markdown status, JSON result, then cancellation | 1.2.1 | 2026-09-11 | exit 0 throughout. The first job moved from `queued` to `completed`; the second job became `cancelled`. | `t5a-background-lifecycle.txt` |
 | `vision` | `<png> --json` | 1.2.1 | 2026-09-11 | exit 0, `status: "completed"`, model `gemini-3.6-flash-high`. stderr carried a usage trailer. | `t5a-vision-json.txt` |
+| `task` | `--foreground --json` | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, answer `PROBE` | `probe-task-foreground-json.txt` |
+| `task` | `--foreground --json`, no `--effort` | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, answer `DEFAULT` | `probe-task-effort-default.txt` |
+| `task` | `--foreground --json --effort agy-default` | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, answer `AGYDEFAULT` | `probe-task-effort-agy-default.txt` |
+| `task` | `--foreground`, URL-read prompt | 1.2.7 | 2026-09-19 | exit 1. The denial named `read_url` (`ReadUrlContent`) for target `example.com` and the resume line carried agy's conversation id. | `probe-task-denied-url.txt` |
+| `rescue` | `--json` | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, answer `RESCUE` | `probe-rescue-json.txt` |
+| `review` | `--json`, one staged line in a scratch repository | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, verdict `APPROVE` | `probe-review-json.txt` |
+| `task`, `status`, `result`, `cancel` | background lifecycle, JSON status and result, then cancellation of a second job | 1.2.7 | 2026-09-19 | exit 0 throughout. The first job moved from `queued` to `completed` and `result --json` returned answer `BG`; the second job was cancelled and `status --json` reported `cancelled`. | `probe-background-lifecycle.txt` |
+| `vision` | `<png> --json` | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, model `gemini-3.6-flash-high`. stderr carried a usage trailer. | `probe-vision-json.txt` |
+
+Raw agy 1.2.7 probes retained the 1.2.1 denied-step shape, `denied_actions`,
+and stderr sentinel (`raw-denied-read-url-step.txt`), the headless
+`ask_question` step with `step_type: "unknown"` (`raw-ask-question.txt`),
+and the `error:` marker with exit 1 for a bad `--model` or `--effort`
+(`raw-fatal-bad-model.txt`, `raw-fatal-bad-effort.txt`).
 
 The denied member from agy 1.1.27 was `read_url` (`displayName`
 `ReadUrlContent`). The printed remedy line was `Headless runs cannot grant
@@ -169,6 +188,12 @@ has command-specific meanings, and this contract preserves that reality.
 | `2` | A cancelled agy outcome from `review`, `rescue`, `task`, or `vision`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. It is therefore not a global “cancelled” code. |
 | `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy. |
 | other nonzero | `setup` passes through the exit status of its interactive agy OAuth probe. No meaning beyond “setup failed” is promised for that upstream value. |
+
+For a failed foreground run, agy's own nonzero exit status is stored on the
+job as `exitCode`, never propagated; the verb exits 1. agy uses 1, or 3 for
+agent or model API failures since 1.2.6 per its changelog
+(`agy-changelog-1.2.7.txt`); the latter is not yet measured live
+(`raw-api-failure-bogus-key.txt`).
 
 Argument parsing failures, such as a missing value for a documented value
 flag or a documented conflicting pair, return 1. Exceptions caught by the
@@ -292,7 +317,7 @@ every output path:
   to `result` when the stored result carries denials; the `status` job
   tables gain a trailing `Denied` column (a count, or `-`).
 
-**Target (additive, plan 086 T3).** agy's `result.denied_actions` names only
+**Target (added in 2.0.0).** agy's `result.denied_actions` names only
 the action; what was actually refused arrives separately, in a `step_update`
 event whose `tool_info.error.message` begins `permission check failed for
 <action> "<target>":` (measured on agy 1.2.1). The plugin extracts that
@@ -318,7 +343,7 @@ itself. `vision` always gets its own fixed hint (`view_image`, never
 before this field existed has no `deniedActions` at all — absent, not an
 empty array — and stays a valid, readable record.
 
-**The plugin no longer relays agy's own bypass advice (plan 086 T3 item 4).**
+**The plugin no longer relays agy's own bypass advice.**
 agy's headless-denial sentinel ends with "Alternatively, re-run with
 `--dangerously-skip-permissions` to auto-approve all tools." Printing that
 sentence on the plugin's own stderr would repeat advice `SECURITY.md`
@@ -353,11 +378,22 @@ travel through the MCP tool with a per-run allowlist.
 
 agy >= 1.1.28 changed two headless behaviours. The fatal-error path was
 measured on the installed agy 1.2.1 through the plugin's own stream-json
-transport (plan 086 T1). The print-timeout behaviour was measured directly
+transport. The print-timeout behaviour was measured directly
 against agy 1.2.1 in `t0d-stream-json-print-timeout.txt`, not end to end
-through the plugin. An end-to-end run would have to run longer than agy's
-five-minute default because the plugin provides no way to select a shorter
-print timeout. The two behaviours are:
+through the plugin. The end-to-end path needs a run longer than the plugin
+budget, so it was measured raw with a short `--print-timeout` instead.
+Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate
+timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`,
+where `0` waits until the turn completes (`agy-help-1.2.7.txt`). The plugin
+still forwards the job budget plus 60 seconds (`1860s` for the 30-minute
+default), or `24h` for a `0` budget.
+The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the
+`timeoutMs` deadline with 60 seconds of headroom); the forwarded
+`--print-timeout` is the agy-side backstop. On 1.2.7, `--print-timeout 0` answered `ZERO` and exited 0
+(`raw-print-timeout-zero.txt`); `--print-timeout 4s` printed
+`[agy] print timeout after 4s with turn in progress; returning partial output`,
+exited 0, and returned an empty response (`raw-print-timeout-short.txt`).
+The two behaviours are:
 
 - **Print-timeout truncation.** When agy's own `--print-timeout` deadline
   expires while a turn is still in progress, the run exits 0 and writes
@@ -402,6 +438,15 @@ print timeout. The two behaviours are:
   A run that succeeded never gets an `errorMessage` from this path, and a
   plugin-authored termination reason (timeout, output-limit, cancellation)
   always wins over agy's own marker when both are present.
+  Since agy 1.2.6, per its changelog, a turn that ends on an agent or model
+  API failure prints one `AGY_ERROR: {...}` line on stderr and agy exits 3
+  instead of 1 (`agy-changelog-1.2.7.txt`). This shape and exit 3 are not yet
+  measured live: `raw-api-failure-bogus-key.txt` did not provoke the failure.
+  The plugin takes that line, sanitized and capped at 300 characters, as
+  `errorMessage` when no `error:` line is present. When both are present,
+  `error:` wins. A plugin-authored termination reason still takes priority.
+  agy's exit status is stored on the job as `exitCode`; the verb still exits
+  1 on a failed foreground run.
 
 A job record from before this field existed has no `agyPrintTimeout` at all
 — absent, not `null` — and stays a valid, readable record.
@@ -541,7 +586,7 @@ meaning:
 - `--effort <low|medium|high>` on `task` and `rescue`, forwarded to agy
   verbatim as `--effort <value>` right after `--model` (or in its place when
   there is no model); the plugin does not probe what agy does with the value
-  beyond forwarding it. **Default changed in 2.0.0 (plan 086 T2):** when the
+  beyond forwarding it. **Default changed in 2.0.0:** when the
   caller passes no `--effort`, the plugin now sends `medium` (a run without
   `--effort` otherwise picks up whatever the machine has saved, so a
   delegated run was not reproducible across machines). `review` and `vision`
@@ -551,7 +596,7 @@ meaning:
   run that reaches it stores a failed job with no answer. Pass `--effort
   low` explicitly, pass `--effort agy-default`, or raise
   `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
-- `agy-default` (plan 086 T5i) as a fourth accepted `--effort` value on
+- `agy-default` as a fourth accepted `--effort` value on
   `task` and `rescue`: the plugin sends no `--effort` flag at all, so the
   user's own agy configuration decides, and the run is therefore not
   reproducible across machines. That is the same argv shape releases through
@@ -559,7 +604,7 @@ meaning:
   default. `review` and `vision` still have no `--effort` flag. Stored
   `request.effort` keeps `"agy-default"` verbatim; the background worker's
   revalidation accepts it.
-- **agy 1.2.1 vision MCP schema (plan 086 T2 D5):** `scripts/mcp/vision-server.mjs`'s
+- **agy 1.2.1 vision MCP schema:** `scripts/mcp/vision-server.mjs`'s
   `view_image` tool now declares `additionalProperties: false` on its input
   schema. agy 1.1.27 rejected an undeclared argument outright; agy 1.2.1
   "preserves open object schemas ... instead of rejecting undeclared
@@ -576,7 +621,7 @@ meaning:
   field shapes.
 - `details.job.deniedActions` on `status <id> --json`. The single-job
   envelope wraps the job snapshot under `details.job`.
-- `target` (plan 086 T3) on every `deniedActions` member above: the denied
+- `target` on every `deniedActions` member above: the denied
   tool-parameter value agy named in a `step_update` error message, joined by
   action name, or `null` when unknown. Section "Headless read access" has
   the join rule and the sanitizing/display rules.
@@ -586,7 +631,7 @@ meaning:
   Records written by older versions have neither field and still render.
 - Stored `request.effort` (string, one of `low|medium|high|agy-default`) on
   `task` and `rescue` job records: the caller's explicit `--effort` value, or
-  `medium` since 2.0.0 when the caller passed none (plan 086 T2 default).
+  `medium` since 2.0.0 when the caller passed none.
   `task`/`rescue` records written before 2.0.0 have no `request.effort`
   field; `review`/`vision` records never do. The background worker revalidates the
   stored value and fails the job before starting agy on an unknown one.
@@ -604,7 +649,7 @@ meaning:
 - `answerBytes` / `answerLines` on a finished job's index entry (`status`
   and `status --json`), and the `--json` `details.truncated` field on
   `result` when `--head`/`--tail` cut the answer.
-- `agyPrintTimeout` (plan 086 T1): `{ limit: string | null }` on the job
+- `agyPrintTimeout`: `{ limit: string | null }` on the job
   record and the stored result when agy's own print-timeout marker (agy >=
   1.1.28) was seen on stderr, else `null`/absent. `details.agyPrintTimeout`
   on a completed foreground `--json` envelope and on `result <id> --json`;
@@ -621,7 +666,14 @@ meaning:
   failure. Section "Print timeout and fatal-error reporting" has the
   detail. This does not add a field; it changes what a pre-existing
   free-text field's value is derived from.
-- `agyConversationId` (plan 086 T5k F1): agy's own conversation id, distinct
+- `AGY_ERROR:` is a second source for a failed job's `errorMessage`,
+  sanitized and capped at 300 characters when no `error:` line is present.
+  `error:` wins when both are present; a plugin-authored termination reason
+  still takes priority. Per the agy 1.2.6 changelog, agent or model API
+  failures print this marker and exit 3 (`agy-changelog-1.2.7.txt`), not yet
+  measured live (`raw-api-failure-bogus-key.txt`). The job stores agy's exit
+  status as `exitCode`; a failed foreground verb still exits 1.
+- `agyConversationId`: agy's own conversation id, distinct
   from the pre-existing `conversationId` field (the id the *caller* passed
   in via `--conversation`) — present whenever agy reported one, including on
   a failed or denied run, so a host can resume the conversation even when it
@@ -636,7 +688,7 @@ meaning:
   excluded. `null`/absent on a legacy record or a run agy never reported an
   id for. `docs/COMMANDS.md`'s "Denied runs" and `status`/`result` sections
   have the detail.
-- The interactive retry prompt (plan 086 T5k F2): on a foreground
+- The interactive retry prompt: on a foreground
   `review`/`rescue`/`task` invocation that ends denied, the runtime asks
   once, on the terminal itself, whether to retry the same conversation or
   stop — interactive-only, never triggered by an automated or `--json`
