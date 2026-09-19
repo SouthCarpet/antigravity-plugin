@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`AGY_ERROR:` as a second `errorMessage` source.** Per the agy 1.2.6
+  changelog, a turn that ends on an agent or model API failure prints one
+  `AGY_ERROR: {...}` line on stderr and exits 3 instead of 1
+  (`agy-changelog-1.2.7.txt`). This shape and exit 3 are not yet measured
+  live; `raw-api-failure-bogus-key.txt` did not provoke the failure. The
+  plugin takes the line, sanitized and capped at 300 characters, when no
+  `error:` line is present. `error:` wins when both are present, and a
+  plugin-authored termination reason still takes priority. agy's exit
+  status is stored as `exitCode`, never propagated. A failed foreground
+  verb still exits 1.
+
+### Changed
+
+- **Tested agy range extends to 1.2.7.** Live runs covered `task`, `rescue`,
+  `review`, `vision`, `status`, `result`, and `cancel`
+  (`probe-task-foreground-json.txt`, `probe-task-effort-default.txt`,
+  `probe-task-effort-agy-default.txt`, `probe-task-denied-url.txt`,
+  `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`,
+  `probe-background-lifecycle.txt`).
+- **`update` host instructions for agy explain the version boundary.**
+  Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28,
+  `agy plugin install` replaces the managed directory exactly
+  (`agy-changelog-1.2.7.txt`). Uninstall-then-install remains the safe path
+  on every version.
+
+### Fixed
+
+- **Print-timeout documentation states the 1.2.6 boundary.** agy changed
+  the default to unlimited and `0` now waits until the turn completes
+  (`agy-changelog-1.2.7.txt`, `agy-help-1.2.7.txt`,
+  `raw-print-timeout-zero.txt`). The plugin still forwards the job budget
+  plus 60 seconds, or `24h` for a `0` budget, as its own backstop.
+- **Reinstall documentation states the 1.1.28 boundary.** README and
+  INSTALL now distinguish the old merge behaviour from exact replacement
+  (`agy-changelog-1.2.7.txt`).
+- **Internal identifiers removed from the command and compatibility
+  references.** Public behaviour is unchanged.
+
 ## [2.0.0] — 2026-09-12
 
 This major release exists because a documented default changed.
