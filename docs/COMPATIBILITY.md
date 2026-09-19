@@ -6,7 +6,7 @@ the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
 is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 2.0.0 is this package's version number. agy 1.1.15 to 1.2.7 is the
+Plugin 2.0.1 is this package's version number. agy 1.1.15 to 1.2.7 is the
 tested range of Google's Antigravity CLI, with 1.2.7 as the newest measured
 version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.
