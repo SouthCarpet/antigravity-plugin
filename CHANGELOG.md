@@ -29,10 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`,
   `probe-background-lifecycle.txt`).
 - **`update` host instructions for agy explain the version boundary.**
-  Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28,
-  `agy plugin install` replaces the managed directory exactly
-  (`agy-changelog-1.2.7.txt`). Uninstall-then-install remains the safe path
-  on every version.
+  The printed instruction now says that on agy before 1.1.28 a reinstall
+  without the uninstall merged into the old copy. This explains the
+  uninstall-then-install advice.
 
 ### Fixed
 
@@ -40,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the default to unlimited and `0` now waits until the turn completes
   (`agy-changelog-1.2.7.txt`, `agy-help-1.2.7.txt`,
   `raw-print-timeout-zero.txt`). The plugin still forwards the job budget
-  plus 60 seconds, or `24h` for a `0` budget, as its own backstop.
+  plus 60 seconds, or `24h` for a `0` budget, as the agy-side backstop.
 - **Reinstall documentation states the 1.1.28 boundary.** README and
   INSTALL now distinguish the old merge behaviour from exact replacement
   (`agy-changelog-1.2.7.txt`).

@@ -35,8 +35,7 @@ Plugin 2.0.0 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.0.0 is tested with agy 1.1.15 to 1.2.7; newest measured 1.2.7
-(`probe-task-foreground-json.txt`). See
+Plugin 2.0.0 is tested with agy 1.1.15 to 1.2.7; newest measured 1.2.7. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
@@ -44,7 +43,8 @@ The plugin does not update itself.
 
 - **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
 - **Forward `--effort <low|medium|high|agy-default>` on `task` and `rescue`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. When the flag is absent, it sends `medium`. `agy-default` sends no `--effort` flag, so the user's own agy configuration decides. `review` and `vision` do not support this flag.
-- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds (`1860s` for the 30-minute default). Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`). A `0` plugin budget still forwards `24h`. The forwarded timeout remains the plugin's own backstop on every agy version.
+- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds (`1860s` for the 30-minute default), or `24h` for a `0` budget. The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the `timeoutMs` deadline with 60 seconds of headroom); the forwarded `--print-timeout` is the agy-side backstop.
+- **Account for agy print-timeout history.** Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`).
 - **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
 - **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
 - **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
@@ -138,7 +138,7 @@ For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15 to 1.2.7 on `PATH`; newest measured 1.2.7 (`probe-task-foreground-json.txt`). See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+- agy 1.1.15 to 1.2.7 on `PATH`; newest measured 1.2.7. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy

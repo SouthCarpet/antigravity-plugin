@@ -8,7 +8,7 @@ is public only when this document or the
 
 Plugin 2.0.0 is this package's version number. agy 1.1.15 to 1.2.7 is the
 tested range of Google's Antigravity CLI, with 1.2.7 as the newest measured
-version (`probe-task-foreground-json.txt`). The two version lines advance
+version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.
 
 ## Supported matrix
@@ -18,7 +18,7 @@ independently. A new agy release does not change the plugin version.
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.2.7; newest measured 1.2.7 (`probe-task-foreground-json.txt`). This range forms the tested and supported matrix. Live coverage differs by version as shown below. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.2.7; newest measured 1.2.7. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -386,8 +386,10 @@ Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate
 timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`,
 where `0` waits until the turn completes (`agy-help-1.2.7.txt`). The plugin
 still forwards the job budget plus 60 seconds (`1860s` for the 30-minute
-default), or `24h` for a `0` budget, as its own backstop on every agy
-version. On 1.2.7, `--print-timeout 0` answered `ZERO` and exited 0
+default), or `24h` for a `0` budget.
+The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the
+`timeoutMs` deadline with 60 seconds of headroom); the forwarded
+`--print-timeout` is the agy-side backstop. On 1.2.7, `--print-timeout 0` answered `ZERO` and exited 0
 (`raw-print-timeout-zero.txt`); `--print-timeout 4s` printed
 `[agy] print timeout after 4s with turn in progress; returning partial output`,
 exited 0, and returned an empty response (`raw-print-timeout-short.txt`).

@@ -50,8 +50,10 @@ Older job records without the setting use 30 minutes.
 
 Every print-mode invocation forwards agy's own `--print-timeout` as the job
 budget plus 60 seconds, rounded up to whole seconds (`1860s` for the
-30-minute default). This remains the plugin's own backstop on every agy
-version. A `0` plugin budget ("no deadline") still forwards a fixed `24h`.
+30-minute default). A `0` plugin budget ("no deadline") still forwards a fixed `24h`.
+The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the
+`timeoutMs` deadline with 60 seconds of headroom); the forwarded
+`--print-timeout` is the agy-side backstop.
 Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate
 timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`,
 where `0` waits until the turn completes (`agy-help-1.2.7.txt`). The raw
