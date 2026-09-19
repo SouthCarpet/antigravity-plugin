@@ -83,6 +83,13 @@ const PRINT_TIMEOUT_LINE =
 const FATAL_ERROR_LINE =
   'error: invalid model selection (--model "no-such-model-xyz" --effort ""): model no-such-model-xyz is not recognized as a known model or custom model in settings';
 
+// Shape per the agy 1.2.6 changelog ("prints a structured `AGY_ERROR: {...}`
+// JSON line on stderr ... and exits with code `3` instead of `1`"). Not yet
+// measured live: the key names inside the JSON are unknown, so the line is
+// kept whole, sanitized and bounded, never parsed for fields.
+const AGY_ERROR_LINE =
+  'AGY_ERROR: {"status":"UNAVAILABLE","code":503,"retryable":true,"error_id":"e-1"}';
+
 function resultLine(overrides = {}) {
   return JSON.stringify({
     event: 'result',
@@ -721,6 +728,37 @@ describe('extractFatalErrorMarker', () => {
     assert.equal(out.includes('\x00'), false);
     assert.equal(out.length, MAX_FATAL_ERROR_LENGTH);
   });
+
+  it('extracts an AGY_ERROR: line when no error: line is present', () => {
+    assert.equal(extractFatalErrorMarker(`CLI settings initialized\n${AGY_ERROR_LINE}\n`), AGY_ERROR_LINE);
+  });
+
+  it('error: wins over AGY_ERROR: regardless of order', () => {
+    assert.equal(extractFatalErrorMarker(`${AGY_ERROR_LINE}\nerror: human reason\n`), 'error: human reason');
+    assert.equal(extractFatalErrorMarker(`error: human reason\n${AGY_ERROR_LINE}\n`), 'error: human reason');
+  });
+
+  it('the first AGY_ERROR: line wins when several are present', () => {
+    assert.equal(extractFatalErrorMarker(`${AGY_ERROR_LINE}\nAGY_ERROR: {"status":"SECOND"}\n`), AGY_ERROR_LINE);
+  });
+
+  it('AGY_ERROR: is anchored at line start and case-sensitive', () => {
+    assert.equal(extractFatalErrorMarker('note: saw AGY_ERROR: {"x":1} mid-line\n'), null);
+    assert.equal(extractFatalErrorMarker('agy_error: {"x":1}\n'), null);
+    assert.equal(extractFatalErrorMarker('AGY_ERRORS: {"x":1}\n'), null);
+  });
+
+  it('an AGY_ERROR: line is sanitized and capped like an error: line', () => {
+    const dirty = `AGY_ERROR: {"status":"BAD\x00","message":"${'y'.repeat(400)}"}`;
+    const out = extractFatalErrorMarker(dirty);
+    assert.equal(out.includes('\x00'), false);
+    assert.equal(out.length, MAX_FATAL_ERROR_LENGTH);
+    assert.ok(out.startsWith('AGY_ERROR: '));
+  });
+
+  it('an AGY_ERROR: line with a non-JSON body is still the marker (body is opaque)', () => {
+    assert.equal(extractFatalErrorMarker('AGY_ERROR: not json at all\n'), 'AGY_ERROR: not json at all');
+  });
 });
 
 describe('runAgyPrint — agy print-timeout marker (plan 086 T1)', () => {
@@ -784,6 +822,45 @@ describe('runAgyPrint — fatal error marker reaches errorMessage', () => {
     assert.equal(res.status, 'failed');
     assert.match(res.errorMessage, /agy output exceeded 1 bytes/);
     assert.notEqual(res.errorMessage, FATAL_ERROR_LINE);
+  });
+
+  it('exit 3 with only an AGY_ERROR: line and no result event -> failed, errorMessage is that one line, exitCode 3', async () => {
+    spawnCalls.length = 0;
+    nextStdout = [];
+    nextStderr = ['CLI settings initialized\n' + AGY_ERROR_LINE + '\n'];
+    nextExitCode = 3;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.exitCode, 3);
+    assert.equal(res.errorMessage, AGY_ERROR_LINE);
+  });
+
+  it('exit 3 with an ERROR result event plus an AGY_ERROR: line -> failed, errorMessage is the marker line', async () => {
+    spawnCalls.length = 0;
+    nextStdout = [resultLine({ status: 'ERROR', response: '', error: 'agent failure' }) + '\n'];
+    nextStderr = [AGY_ERROR_LINE + '\n'];
+    nextExitCode = 3;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.errorMessage, AGY_ERROR_LINE);
+  });
+
+  it('a successful run with a stray AGY_ERROR: line in stderr still gets no errorMessage', async () => {
+    arm({ response: 'fine', stderr: AGY_ERROR_LINE });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.errorMessage, null);
+  });
+
+  it('a plugin-authored termination reason wins over AGY_ERROR: too', async () => {
+    spawnCalls.length = 0;
+    nextStdout = [];
+    nextStderr = [AGY_ERROR_LINE + '\n'];
+    nextExitCode = 3;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy', maxStderrBytes: 1 });
+    assert.equal(res.status, 'failed');
+    assert.match(res.errorMessage, /agy output exceeded 1 bytes/);
+    assert.notEqual(res.errorMessage, AGY_ERROR_LINE);
   });
 });
 

@@ -91,7 +91,7 @@ export const HOSTS = [
     binary: "agy",
     instruction:
       "agy plugin uninstall antigravity, then agy plugin install <published tarball> " +
-      "(update --apply does this; a reinstall without the uninstall merges into the old copy)",
+      "(update --apply does this; on agy before 1.1.28 a reinstall without the uninstall merged into the old copy)",
   },
 ];
 

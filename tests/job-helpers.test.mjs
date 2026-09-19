@@ -244,6 +244,21 @@ describe('runForegroundJob — terminal status mapping', () => {
     assert.equal(stored.errorMessage, 'err');
   });
 
+  it('failed with a runtime errorMessage → stored errorMessage is that line, not the stderr dump', async () => {
+    freshWorkspace();
+    const marker = 'AGY_ERROR: {"status":"UNAVAILABLE","code":503}';
+    runtime.next = {
+      status: 'failed', exitCode: 3, stdout: '',
+      stderr: 'CLI settings initialized\n' + marker + '\n',
+      errorMessage: marker,
+    };
+    const { job } = await runForegroundJob({ workspaceRoot, kind: 'task', title: 'x', prompt: 'p' });
+    const stored = readJobFile(workspaceRoot, job.id);
+    assert.equal(stored.status, 'failed');
+    assert.equal(stored.errorMessage, marker);
+    assert.equal(stored.exitCode, 3);
+  });
+
   it('thrown runAgyPrint → propagates and marks job failed', async () => {
     freshWorkspace();
     runtime.throws = new Error('boom');
