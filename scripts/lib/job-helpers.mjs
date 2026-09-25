@@ -65,18 +65,22 @@ export function newJobId() {
 export const AGY_MODES = ["plan", "accept-edits"];
 
 /** Values agy accepts for `--effort` (agy 1.1.27 `--help`: "Reasoning effort
- * for the current CLI session (low|medium|high)"). `review` and `vision`
- * never expose `--effort`; only `task` and `rescue` forward it. */
+ * for the current CLI session (low|medium|high)"). agy 1.2.11 `--help`
+ * lists a fourth choice, `max`, but no model on this account exposes it
+ * (`raw-effort-max-default-model.txt`: "gemini-3.8-flash has no \"max\"
+ * effort (available: low, medium, high)"), so the plugin keeps accepting
+ * only these three plus the sentinel below. `review` and `vision` never
+ * expose `--effort`; only `task` and `rescue` forward it. */
 export const AGY_EFFORTS = ["low", "medium", "high"];
 
 /**
- * The `--effort` value `task` and `rescue` apply when the caller passes
- * none (plan 086 T2, disclosed 1.x default). Measured basis: a run without
- * `--effort` sends no effort field at all, so the value agy uses comes from
- * whatever that machine has saved — a delegated run is not reproducible
- * across machines without a plugin default. `review` and `vision` do not
- * read this constant: neither exposes `--effort`, so neither gets a
- * default.
+ * The `--effort` value `task` and `rescue` apply when neither `--effort`
+ * nor `--model` is given (plan 086 T2, disclosed 1.x default; the model
+ * case is `resolveRequestEffort`). Measured basis: a run without `--effort`
+ * sends no effort field at all, so the value agy uses comes from whatever
+ * that machine has saved — a delegated run is not reproducible across
+ * machines without a plugin default. `review` and `vision` do not read this
+ * constant: neither exposes `--effort`, so neither gets a default.
  */
 export const DEFAULT_AGY_EFFORT = "medium";
 
@@ -84,7 +88,9 @@ export const DEFAULT_AGY_EFFORT = "medium";
  * The `--effort` value that means "send no `--effort` flag at all; let agy
  * use whatever default the user configured on that machine" (plan 086 T5i).
  * It is the fourth accepted `--effort` value on `task` and `rescue`, and the
- * caller's way to reach the pre-1.4.0 behaviour `DEFAULT_AGY_EFFORT` replaced.
+ * caller's way to reach the pre-1.4.0 behaviour `DEFAULT_AGY_EFFORT`
+ * replaced. Since agy 1.2.11 it is also the value `resolveRequestEffort`
+ * stores automatically when `--model` is given without `--effort`.
  */
 export const AGY_DEFAULT_EFFORT = "agy-default";
 
@@ -108,6 +114,35 @@ export const EFFORT_CHOICES = [...AGY_EFFORTS, AGY_DEFAULT_EFFORT];
  */
 export function agyEffortArg(effort) {
   return effort === AGY_DEFAULT_EFFORT ? undefined : effort;
+}
+
+/**
+ * Resolve the `--effort` value `task` and `rescue` store on the job request.
+ * An explicit value wins. Without one: when a `--model` is present the
+ * request stores the `agy-default` sentinel, so no `--effort` flag reaches
+ * agy and the model id decides the level; without a model the plugin
+ * default `medium` still applies, so a flag-less run stays reproducible
+ * across machines.
+ *
+ * Why the model matters (agy 1.2.11, measured 2026-09-25; transcripts in the
+ * `agy-1.2.11-20260925` measurement directory): agy now validates the pair.
+ * A variant id such as `gemini-3.1-pro-high` accepts no `--effort` or only
+ * its own level (`--model gemini-3.1-pro-high conflicts with
+ * --effort=medium` otherwise, `raw-model-gemini-3.1-pro-high-effort-medium.txt`),
+ * and a model without variants such as `claude-sonnet-4-6` rejects
+ * `--effort` altogether (`--effort is not supported for model
+ * "claude-sonnet-4-6"`, `raw-model-claude-sonnet-4-6-effort-medium.txt`), so
+ * the old default broke every `--model` run that did not also name a
+ * matching level (`probe-task-pro-default-effort.txt`, pre-fix; fixed and
+ * reprobed as `probe-fixed-task-pro.txt`).
+ *
+ * @param {unknown} effortOption raw `--effort` value from the parser, if any
+ * @param {string | undefined} model resolved `--model` value, if any
+ * @returns {string}
+ */
+export function resolveRequestEffort(effortOption, model) {
+  if (effortOption) return String(effortOption);
+  return model ? AGY_DEFAULT_EFFORT : DEFAULT_AGY_EFFORT;
 }
 
 /**

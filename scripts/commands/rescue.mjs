@@ -12,10 +12,11 @@
  *   --add-dir <path>      additional workspace dir (repeatable)
  *   --mode <plan|accept-edits>  agy execution mode for this run
  *   --model <id>          agy model id for this run
- *   --effort <low|medium|high|agy-default>  agy reasoning effort for this run
- *                         (default: medium when absent, plan 086 T2;
- *                         agy-default sends no --effort flag at all, so the
- *                         user's own agy configuration decides, plan 086 T5i)
+ *   --effort <low|medium|high|agy-default>  agy reasoning effort for this run;
+ *                         medium when absent and no --model is given; with
+ *                         --model and no --effort no flag is sent (the model
+ *                         id decides); agy-default sends no --effort flag at
+ *                         all
  *   --json                emit JSON instead of markdown
  */
 
@@ -24,11 +25,11 @@ import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import {
   AGY_MODES,
-  DEFAULT_AGY_EFFORT,
   EFFORT_CHOICES,
   agyModeArgs,
   agyUnavailableLine,
   reportQueuedJob,
+  resolveRequestEffort,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
@@ -126,7 +127,7 @@ export async function run(argv = [], ctx = {}) {
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
   const model = options.model ? String(options.model) : undefined;
-  const effort = options.effort ? String(options.effort) : DEFAULT_AGY_EFFORT;
+  const effort = resolveRequestEffort(options.effort, model);
 
   const prompt = buildRescuePrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;

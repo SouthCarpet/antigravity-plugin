@@ -23,14 +23,14 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 |----------|--------------|
 | `setup`  | One-time OAuth wizard. Runs an authenticated `agy --print` probe in the foreground so the user can complete the Google OAuth flow visibly. Idempotent. Also registers the vision MCP server (`--skip-vision` to opt out, `--remove-vision` to undo plugin-owned entries). Foreground-only. |
 | `review` | Reviews the current git diff (or `--base <ref>`). Foreground by default; pass `--background` to fork a worker and get a job id. |
-| `rescue` | Delegates an investigation or fix to agy, for example `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. Supports `--model <id>` and `--effort <low|medium|high>`. |
-| `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--model <id>`, `--effort <low|medium|high>`, `--json`. |
+| `rescue` | Delegates an investigation or fix to agy, for example `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. Supports `--model <id>` and `--effort <low|medium|high|agy-default>`. |
+| `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--model <id>`, `--effort <low|medium|high|agy-default>`, `--json`. |
 | `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
 | `status` | Shows current and recent jobs for this repository. Surfaces any pending OAuth URL prominently. |
 | `result` | Prints the final output of a completed job by id. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
 
-For `task` and `rescue`, the plugin sends `medium` when `--effort` is absent; because `medium` runs longer than `low`, a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer, so pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
+For `task` and `rescue`, an explicit `low`, `medium`, or `high` is forwarded verbatim. A job with neither `--effort` nor `--model` sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, the plugin sends no `--effort` flag. agy applies the level carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since 2.0.2 because agy 1.2.11 validates the pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no flag. Because `medium` runs longer than `low`, a job with neither `--model` nor `--effort` is more likely to reach the plugin's execution budget and be stored as failed with no answer. Pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
 
 ## Auth requirements
 

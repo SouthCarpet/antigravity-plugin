@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] — 2026-09-25
+
+### Fixed
+
+- **Model-only `task` and `rescue` runs work with agy 1.2.11.** Plugin 2.0.1
+  supplied its default `--effort medium` next to `--model`. agy reported
+  `--model gemini-3.1-pro-high conflicts with --effort=medium`
+  (`probe-task-pro-default-effort.txt`) or `--effort is not supported for model
+  "claude-sonnet-4-6"` (`probe-task-claude-default-effort.txt`). Model-only
+  foreground and background runs failed (`probe-rescue-pro-default-effort.txt`,
+  `probe-task-background-pro-default-effort.txt`). These runs pass on 2.0.2
+  with exit 0 (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
+  `probe-fixed-rescue-pro.txt`, `probe-fixed-task-background-pro.txt`). With
+  `--model` and no explicit `--effort`, the plugin now sends no `--effort` flag
+  and stores `request.effort` as `agy-default` (`scripts/lib/job-helpers.mjs`,
+  `resolveRequestEffort`; `tests/passthrough-argv.test.mjs`, `task --foreground
+  --model with no --effort sends --model and no --effort flag`, `rescue --model
+  with no --effort sends --model and no --effort flag`, and `task (background
+  worker): --model with no --effort stores agy-default and reaches argv with no
+  --effort flag`). agy applies the level carried by a variant id
+  such as `gemini-3.1-pro-high`, and rejects a base id that needs one
+  (`raw-base-gemini-3.1-pro-no-effort.txt`). With
+  neither flag, the default remains `medium`, unchanged since 2.0.0. This
+  narrow change uses the documented upstream-break exception and marks the
+  compatibility boundary.
+
+### Changed
+
+- **Tested agy range extends to 1.2.11.** Live runs covered `task`, `rescue`,
+  `review`, `vision`, `status`, `result`, and `cancel`
+  (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`,
+  `probe-review-json.txt`, `probe-vision-json.txt`,
+  `probe-background-lifecycle.txt`).
+- **The plugin still rejects `--effort max`.** agy 1.2.11 accepts `max` as
+  flag syntax, but no model on this account supports it
+  (`agy-help-1.2.11.txt`, `raw-effort-max-default-model.txt`,
+  `raw-base-gemini-3.1-pro-effort-max.txt`).
+
 ## [2.0.1] — 2026-09-19
 
 ### Added
@@ -917,7 +955,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.2.0...v1.3.0

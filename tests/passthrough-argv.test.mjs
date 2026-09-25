@@ -234,7 +234,7 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     );
   });
 
-  it('task --foreground --model with no --effort still lands the default `--effort medium` right after --model', () => {
+  it('task --foreground --model with no --effort sends --model and no --effort flag (agy 1.2.11 pairs them)', () => {
     const { work, data } = freshDirs();
     const res = runVerb(
       ['task', 'x', '--foreground', '--model', 'gemini-x'],
@@ -243,11 +243,11 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     assert.equal(res.status, 1, res.stderr);
     assert.deepEqual(
       argvOf(res.stderr),
-      ['--model', 'gemini-x', '--effort', 'medium', ...DEFAULT_BUDGET_ARGV_TAIL],
+      ['--model', 'gemini-x', ...DEFAULT_BUDGET_ARGV_TAIL],
     );
   });
 
-  it('rescue --model with no --effort still lands the default `--effort medium` right after --model', () => {
+  it('rescue --model with no --effort sends --model and no --effort flag (agy 1.2.11 pairs them)', () => {
     const { work, data } = freshDirs();
     const res = runVerb(
       ['rescue', 'x', '--model', 'gemini-x'],
@@ -256,7 +256,7 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     assert.equal(res.status, 1, res.stderr);
     assert.deepEqual(
       argvOf(res.stderr),
-      ['--model', 'gemini-x', '--effort', 'medium', ...DEFAULT_BUDGET_ARGV_TAIL],
+      ['--model', 'gemini-x', ...DEFAULT_BUDGET_ARGV_TAIL],
     );
   });
 
@@ -351,6 +351,25 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     assert.equal(records.length, 1);
     const jobFile = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
     assert.equal(jobFile.request.effort, 'agy-default');
+  });
+
+  it('task (background worker): --model with no --effort stores agy-default and reaches argv with no --effort flag', () => {
+    const { work, data } = freshDirs();
+    const env = makeEnv(data);
+    const queued = runVerb(['task', 'x', '--model', 'gemini-x', '--wait', '--json'], env, work);
+    assert.equal(queued.status, 1, queued.stderr);
+    const { jobId } = JSON.parse(queued.stdout);
+    const stored = runVerb(['result', jobId, '--json'], env, work);
+    const payload = JSON.parse(stored.stdout);
+    assert.deepEqual(
+      argvOf(payload.details.result.stderr),
+      ['--model', 'gemini-x', ...DEFAULT_BUDGET_ARGV_TAIL],
+    );
+    const records = fs.readdirSync(data, { recursive: true }).filter((file) => file.endsWith(jobId + '.json'));
+    assert.equal(records.length, 1);
+    const jobFile = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
+    assert.equal(jobFile.request.effort, 'agy-default');
+    assert.equal(jobFile.request.model, 'gemini-x');
   });
 
   it('a prompt that merely contains the words "--effort high" stays a prompt', () => {

@@ -63,7 +63,7 @@ const {
   resolveWorkerPath, agyTimeoutMs, waitOutcomeLine, finishForeground,
   denialRemedy, deniedActionsWithRemedy, applyDenialHint, buildStoredResult,
   reportDeniedActionHints, resumeHintLine, HOST_WRAPPER_ENV, canPromptOnDenial,
-  askRetryOrStop, runForegroundWithRetryPrompt,
+  askRetryOrStop, runForegroundWithRetryPrompt, resolveRequestEffort,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
@@ -1298,5 +1298,27 @@ describe('runForegroundWithRetryPrompt — asks at most once, retries at most on
     assert.equal(exit, 1);
     assert.deepEqual(calls, [undefined, 'c-1']);
     assert.equal(askCount, 1);
+  });
+});
+
+describe('resolveRequestEffort', () => {
+  it('an explicit --effort wins over both defaults', () => {
+    assert.equal(resolveRequestEffort('low', undefined), 'low');
+    assert.equal(resolveRequestEffort('high', 'gemini-3.1-pro-high'), 'high');
+    assert.equal(resolveRequestEffort('agy-default', 'gemini-3.1-pro-high'), 'agy-default');
+  });
+
+  it('no --effort and no --model keeps the plugin default medium', () => {
+    assert.equal(resolveRequestEffort(undefined, undefined), 'medium');
+    assert.equal(resolveRequestEffort('', undefined), 'medium');
+  });
+
+  it('no --effort with a --model stores the agy-default sentinel so no flag reaches agy', () => {
+    assert.equal(resolveRequestEffort(undefined, 'gemini-3.1-pro-high'), 'agy-default');
+    assert.equal(resolveRequestEffort(undefined, 'claude-sonnet-4-6'), 'agy-default');
+  });
+
+  it('an empty model string counts as no model', () => {
+    assert.equal(resolveRequestEffort(undefined, ''), 'medium');
   });
 });

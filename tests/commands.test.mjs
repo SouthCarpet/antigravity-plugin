@@ -1470,6 +1470,9 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.equal(exit, 0);
     assert.equal(agyRuntime.calls[0].model, 'gemini-x');
     assert.doesNotMatch(cap.err.join(''), /Ignoring/);
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'agy-default');
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
@@ -1705,6 +1708,9 @@ describe('/antigravity:task argv parsing', () => {
     }
     assert.equal(exit, 0);
     assert.equal(agyRuntime.calls[0].model, 'gemini-x');
+    const jobs = listJobs(tempDir);
+    const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+    assert.equal(stored.request.effort, 'agy-default');
   });
 
   it('--model on a background task is stored in the job request', async () => {
@@ -1725,6 +1731,7 @@ describe('/antigravity:task argv parsing', () => {
     }
     assert.equal(exit, 0);
     assert.equal(capturedRequest.model, 'gemini-x');
+    assert.equal(capturedRequest.effort, 'agy-default');
   });
 
   // Plan 085 T3: `--effort` on `task`, additive, forwarded exactly as

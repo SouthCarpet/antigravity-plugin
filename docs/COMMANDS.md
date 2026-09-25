@@ -235,18 +235,22 @@ task text as one argument to preserve its boundaries.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy exactly as `vision`'s `--model` already was.
 - `--effort <low|medium|high|agy-default>` (additive) selects agy's reasoning
-  effort for this run, forwarded verbatim as `--effort <value>`. When absent,
-  the plugin sends `medium` (since 2.0.0; a run without `--effort`
-  otherwise picks up whatever the machine has saved, so a delegated run is
-  not reproducible across machines). `agy-default` makes the
-  plugin send no `--effort` flag at all, so the user's own agy configuration
+  effort for this run. An explicit `low`, `medium`, or `high` is forwarded
+  verbatim as `--effort <value>`. With neither `--effort` nor `--model`, the
+  plugin sends `medium`, unchanged since 2.0.0. With `--model` and no
+  `--effort`, the plugin sends no `--effort` flag. agy applies the level
+  carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id
+  that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since
+  2.0.2 because agy 1.2.11 validates the model and effort pair
+  (`raw-model-gemini-3.1-pro-high-effort-medium.txt`,
+  `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still makes
+  the plugin send no `--effort` flag, so the user's own agy configuration
   decides instead. The run is therefore not reproducible across machines,
   the same as a run through 1.3.0 with no `--effort` flag at all. Any other
-  value is an argument error (exit 1) and agy is not started. The plugin
-  does not probe what agy does with the value beyond forwarding it. `medium`
-  runs longer than `low`, so a flag-less job is more likely to reach the
-  execution budget above; a run that reaches it stores a failed job with no
-  answer. Pass `--effort low` explicitly, or raise
+  value is an argument error (exit 1) and agy is not started. `medium` runs
+  longer than `low`, so a job with neither `--model` nor `--effort` is more
+  likely to reach the execution budget above; a run that reaches it stores a
+  failed job with no answer. Pass `--effort low` explicitly, or raise
   `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - `--background` queues a worker; `--background --wait` waits for terminal
   state after printing the queued response. Without `--background`, rescue is
@@ -289,11 +293,14 @@ required unless `--continue` or `--conversation` is supplied.
   `rescue`. Any other value is an argument error.
 - `--model <id>` (additive) is forwarded to agy on both paths, as under
   `rescue` and `vision`.
-- `--effort <low|medium|high|agy-default>` (additive) is forwarded to agy on
-  both paths, as under `rescue`: verbatim as `--effort <value>`, `medium`
-  when absent, no `--effort` flag at all for
-  `agy-default` (the user's own agy configuration decides),
-  any other value is an argument error.
+- `--effort <low|medium|high|agy-default>` (additive) follows the same rule
+  on both paths as under `rescue`: an explicit `low`, `medium`, or `high` is
+  forwarded verbatim; with neither `--effort` nor `--model` the plugin sends
+  `medium`; with `--model` and no `--effort` the plugin sends no `--effort`
+  flag. agy applies the level carried by a variant id such as
+  `gemini-3.1-pro-high`, and rejects a base id that needs one
+  (`raw-base-gemini-3.1-pro-no-effort.txt`). `agy-default` still sends no flag.
+  Any other value is an argument error.
 
 `review` and `vision` have no `--effort` flag; they never send one.
 
