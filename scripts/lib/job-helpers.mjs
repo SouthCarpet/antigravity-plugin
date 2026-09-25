@@ -88,7 +88,9 @@ export const DEFAULT_AGY_EFFORT = "medium";
  * The `--effort` value that means "send no `--effort` flag at all; let agy
  * use whatever default the user configured on that machine" (plan 086 T5i).
  * It is the fourth accepted `--effort` value on `task` and `rescue`, and the
- * caller's way to reach the pre-1.4.0 behaviour `DEFAULT_AGY_EFFORT` replaced.
+ * caller's way to reach the pre-1.4.0 behaviour `DEFAULT_AGY_EFFORT`
+ * replaced. Since agy 1.2.11 it is also the value `resolveRequestEffort`
+ * stores automatically when `--model` is given without `--effort`.
  */
 export const AGY_DEFAULT_EFFORT = "agy-default";
 
@@ -122,12 +124,17 @@ export function agyEffortArg(effort) {
  * default `medium` still applies, so a flag-less run stays reproducible
  * across machines.
  *
- * Why the model matters (agy 1.2.11, measured 2026-09-25): agy now validates
- * the pair. A variant id such as `gemini-3.1-pro-high` accepts no `--effort`
- * or only its own level (`--model gemini-3.1-pro-high conflicts with
- * --effort=medium` otherwise), and a model without variants such as
- * `claude-sonnet-4-6` rejects `--effort` altogether, so the old default
- * broke every `--model` run that did not also name a matching level.
+ * Why the model matters (agy 1.2.11, measured 2026-09-25; transcripts in the
+ * `agy-1.2.11-20260925` measurement directory): agy now validates the pair.
+ * A variant id such as `gemini-3.1-pro-high` accepts no `--effort` or only
+ * its own level (`--model gemini-3.1-pro-high conflicts with
+ * --effort=medium` otherwise, `raw-model-gemini-3.1-pro-high-effort-medium.txt`),
+ * and a model without variants such as `claude-sonnet-4-6` rejects
+ * `--effort` altogether (`--effort is not supported for model
+ * "claude-sonnet-4-6"`, `raw-model-claude-sonnet-4-6-effort-medium.txt`), so
+ * the old default broke every `--model` run that did not also name a
+ * matching level (`probe-task-pro-default-effort.txt`, pre-fix; fixed and
+ * reprobed as `probe-fixed-task-pro.txt`).
  *
  * @param {unknown} effortOption raw `--effort` value from the parser, if any
  * @param {string | undefined} model resolved `--model` value, if any
