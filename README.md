@@ -22,7 +22,7 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 
 ## Status
 
-> **v2.0.1.** From 2.0.0 forward, while the first number of this version
+> **v2.0.2.** From 2.0.0 forward, while the first number of this version
 > stays 2, an update does not break a command or an output that already
 > works. If a command, flag, exit code, `--json` envelope, state location,
 > or supported host is removed, release notes and documentation first mark
@@ -31,11 +31,11 @@ This plugin starts `agy --print` from the host that you already use. It gives Cl
 > [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 2.0.1 is this package's version number. agy is Google's Antigravity
+Plugin 2.0.2 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.0.1 is tested with agy 1.1.15 to 1.2.11; newest measured 1.2.11. See
+Plugin 2.0.2 is tested with agy 1.1.15 to 1.2.11; newest measured 1.2.11. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
