@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Model-only `task` and `rescue` runs work with agy 1.2.11**
+  (`probe-fixed-task-pro.txt`, `probe-fixed-rescue-pro.txt`). Plugin 2.0.1
+  supplied its default `--effort medium` next to `--model`, so agy reported
+  `--model gemini-3.1-pro-high conflicts with --effort=medium`; model-only
+  foreground and background runs failed (`probe-task-pro-default-effort.txt`,
+  `probe-rescue-pro-default-effort.txt`,
+  `probe-task-background-pro-default-effort.txt`,
+  `probe-task-claude-default-effort.txt`). With `--model` and no explicit
+  `--effort`, the plugin now sends no `--effort` flag and stores
+  `request.effort` as `agy-default`; the model id decides the level
+  (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
+  `probe-fixed-rescue-pro.txt`, `probe-fixed-task-background-pro.txt`). With
+  neither flag, the default remains `medium`, unchanged since 2.0.0. This
+  narrow change uses the documented upstream-break exception and marks the
+  compatibility boundary.
+
+### Changed
+
+- **Tested agy range extends to 1.2.11.** Live runs covered `task`, `rescue`,
+  `review`, `vision`, `status`, `result`, and `cancel`
+  (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`,
+  `probe-review-json.txt`, `probe-vision-json.txt`,
+  `probe-background-lifecycle.txt`).
+- **The plugin still rejects `--effort max`.** agy 1.2.11 accepts `max` as
+  flag syntax, but no model on this account supports it
+  (`agy-help-1.2.11.txt`, `raw-effort-max-default-model.txt`,
+  `raw-base-gemini-3.1-pro-effort-max.txt`).
+
 ## [2.0.1] — 2026-09-19
 
 ### Added

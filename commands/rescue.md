@@ -36,7 +36,7 @@ Invocation:
 - Strip `--background` and `--wait` from the task text — they are Claude Code execution flags.
 - Everything remaining after stripping flags is the task text — pass it through as the trailing positional.
 - `--model <id>` selects the agy model for this run. Forward it through unchanged when present.
-- `--effort <low|medium|high>` selects agy's reasoning effort for this run. Forward it through unchanged when present. Default `medium` when absent. `medium` runs longer than `low`, so a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer; pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
+- `--effort <low|medium|high|agy-default>` selects agy's reasoning effort for this run. Forward an explicit `low`, `medium`, or `high` verbatim. With neither `--effort` nor `--model`, the plugin sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, it sends no `--effort` flag, so the model id decides; this applies since 2.0.2 because agy 1.2.11 validates the pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no flag. `medium` runs longer than `low`, so a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer; pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
 
 Denied actions:
 - If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.

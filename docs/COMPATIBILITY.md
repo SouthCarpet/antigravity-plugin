@@ -6,8 +6,8 @@ the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
 is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 2.0.1 is this package's version number. agy 1.1.15 to 1.2.7 is the
-tested range of Google's Antigravity CLI, with 1.2.7 as the newest measured
+Plugin 2.0.1 is this package's version number. agy 1.1.15 to 1.2.11 is the
+tested range of Google's Antigravity CLI, with 1.2.11 as the newest measured
 version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.
 
@@ -18,7 +18,7 @@ independently. A new agy release does not change the plugin version.
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.2.7; newest measured 1.2.7. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.2.11; newest measured 1.2.11. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -46,6 +46,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.1.27 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-09 |
 | 1.2.1 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-11 |
 | 1.2.7 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-19 |
+| 1.2.11 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-25 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -56,8 +57,8 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.2.7, on 2026-09-19, from commit
-`2f91cff` (`probe-task-foreground-json.txt`). The 1.2.7 rows cover `task`,
+The newest version measured live is agy 1.2.11, on 2026-09-25, from commit
+`e255aba` (`probe-task-foreground-json.txt`). The 1.2.11 rows cover `task`,
 `rescue`, `review`, `vision`, `status`, `result`, and `cancel`
 (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`,
 `probe-review-json.txt`, `probe-vision-json.txt`,
@@ -104,12 +105,29 @@ transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions.
 | `review` | `--json`, one staged line in a scratch repository | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, verdict `APPROVE` | `probe-review-json.txt` |
 | `task`, `status`, `result`, `cancel` | background lifecycle, JSON status and result, then cancellation of a second job | 1.2.7 | 2026-09-19 | exit 0 throughout. The first job moved from `queued` to `completed` and `result --json` returned answer `BG`; the second job was cancelled and `status --json` reported `cancelled`. | `probe-background-lifecycle.txt` |
 | `vision` | `<png> --json` | 1.2.7 | 2026-09-19 | exit 0, `status: "completed"`, model `gemini-3.6-flash-high`. stderr carried a usage trailer. | `probe-vision-json.txt` |
+| `task` | `--foreground --json` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `PROBE` | `probe-task-foreground-json.txt` |
+| `task` | `--foreground --json`, no `--effort` or `--model` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `DEFAULT` | `probe-task-effort-default.txt` |
+| `task` | `--foreground --json --effort agy-default` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `AGYDEFAULT` | `probe-task-effort-agy-default.txt` |
+| `task` 2.0.1 | `--foreground --json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 1. agy reported `--model gemini-3.1-pro-high conflicts with --effort=medium`. | `probe-task-pro-default-effort.txt` |
+| `task` 2.0.2 | `--foreground --json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `PRO` | `probe-fixed-task-pro.txt` |
+| `task` 2.0.1 | `--foreground --json --model claude-sonnet-4-6`, no `--effort` | 1.2.11 | 2026-09-25 | exit 1. agy reported `--effort is not supported for model "claude-sonnet-4-6"`. | `probe-task-claude-default-effort.txt` |
+| `task` 2.0.2 | `--foreground --json --model claude-sonnet-4-6`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `CLAUDE` | `probe-fixed-task-claude.txt` |
+| `rescue` 2.0.2 | `--json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `RESCUEPRO` | `probe-fixed-rescue-pro.txt` |
+| `task`, `status`, `result` 2.0.2 | background `--model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | Queue exit 0; the job completed and `result --json` returned answer `BGPRO`. | `probe-fixed-task-background-pro.txt` |
+| `task` | `--foreground`, URL-read prompt | 1.2.11 | 2026-09-25 | exit 1. The denial named `read_url` (`ReadUrlContent`) for target `example.com` and the resume line carried agy's conversation id. | `probe-task-denied-url.txt` |
+| `rescue` | `--json` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `RESCUE` | `probe-rescue-json.txt` |
+| `review` | `--json`, one staged line in a scratch repository | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, verdict `APPROVE` | `probe-review-json.txt` |
+| `task`, `status`, `result`, `cancel` | background lifecycle, JSON status and result, then cancellation of a second job | 1.2.11 | 2026-09-25 | exit 0 throughout. The first job moved from `queued` to `completed` and `result --json` returned answer `BG`; the second job was cancelled and `status --json` reported `cancelled`. | `probe-background-lifecycle.txt` |
+| `vision` | `<png> --json` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, model `gemini-3.6-flash-high`. stderr carried a usage trailer. | `probe-vision-json.txt` |
 
-Raw agy 1.2.7 probes retained the 1.2.1 denied-step shape, `denied_actions`,
-and stderr sentinel (`raw-denied-read-url-step.txt`), the headless
-`ask_question` step with `step_type: "unknown"` (`raw-ask-question.txt`),
-and the `error:` marker with exit 1 for a bad `--model` or `--effort`
-(`raw-fatal-bad-model.txt`, `raw-fatal-bad-effort.txt`).
+Raw agy 1.2.11 probes retained the denied-step shape, `denied_actions`, and
+stderr sentinel (`raw-denied-read-url-step.txt`). A headless `ask_question`
+still appears as `step_type: "unknown"` (`raw-ask-question.txt`). A 4-second
+print timeout emits the print-timeout marker, while `--print-timeout 0` waits
+without a limit (`raw-print-timeout-short.txt`, `raw-print-timeout-zero.txt`).
+A bad model or effort still emits an `error:` marker, and the bad-effort
+message now lists `valid: low, medium, high, max` (`raw-fatal-bad-model.txt`,
+`raw-fatal-bad-effort.txt`).
 
 The denied member from agy 1.1.27 was `read_url` (`displayName`
 `ReadUrlContent`). The printed remedy line was `Headless runs cannot grant
@@ -442,6 +460,10 @@ The two behaviours are:
   API failure prints one `AGY_ERROR: {...}` line on stderr and agy exits 3
   instead of 1 (`agy-changelog-1.2.7.txt`). This shape and exit 3 are not yet
   measured live: `raw-api-failure-bogus-key.txt` did not provoke the failure.
+  Since agy 1.2.10, a headless run that streamed part of a response and then
+  ended on a model or agent error also exits 3 with the `AGY_ERROR` line,
+  while multi-turn `stream-json` sessions warn and continue; this was not
+  measured live (`agy-changelog-1.2.11.txt`).
   The plugin takes that line, sanitized and capped at 300 characters, as
   `errorMessage` when no `error:` line is present. When both are present,
   `error:` wins. A plugin-authored termination reason still takes priority.
@@ -583,21 +605,44 @@ meaning:
 
 - `--model <id>` on `task` and `rescue`, forwarded to agy exactly as
   `vision`'s `--model` already was.
-- `--effort <low|medium|high>` on `task` and `rescue`, forwarded to agy
-  verbatim as `--effort <value>` right after `--model` (or in its place when
-  there is no model); the plugin does not probe what agy does with the value
-  beyond forwarding it. **Default changed in 2.0.0:** when the
-  caller passes no `--effort`, the plugin now sends `medium` (a run without
-  `--effort` otherwise picks up whatever the machine has saved, so a
-  delegated run was not reproducible across machines). `review` and `vision`
-  have no `--effort` flag and never send one. `medium` runs longer than
+- `--effort <low|medium|high>` on `task` and `rescue`. An explicit value is
+  forwarded verbatim. With neither `--effort` nor `--model`, the plugin sends
+  `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, it sends
+  no `--effort` flag and stores `request.effort: "agy-default"`, so the model
+  id decides. `review` and `vision` have no `--effort` flag and never send one.
+  agy 1.2.11 applies these model and effort rules
+  (`agy-changelog-1.2.11.txt`):
+  - A variant id accepts no `--effort` or only its own level
+    (`probe-fixed-task-pro.txt`,
+    `raw-model-gemini-3.1-pro-high-effort-medium.txt`,
+    `raw-variant-gemini-3.6-flash-high-effort-high.txt`).
+  - A base id requires a level from its own set
+    (`raw-base-gemini-3.1-pro-no-effort.txt`,
+    `raw-base-gemini-3.8-flash-effort-medium.txt`).
+  - A model without variants rejects `--effort`
+    (`raw-model-claude-sonnet-4-6-effort-medium.txt`).
+  - `max` is accepted syntax, but no model on this account supports it
+    (`agy-help-1.2.11.txt`, `raw-effort-max-default-model.txt`,
+    `raw-base-gemini-3.1-pro-effort-max.txt`).
+  Before 1.2.11, agy resolved mismatched model and effort pairs to another
+  variant (`agy-changelog-1.2.11.txt`, entries 1.2.11 and 1.1.28). Under
+  2.0.1, the default `medium` therefore made model-only `task`, `rescue`, and
+  background `task` runs fail on agy 1.2.11
+  (`probe-task-pro-default-effort.txt`,
+  `probe-rescue-pro-default-effort.txt`,
+  `probe-task-background-pro-default-effort.txt`,
+  `probe-task-claude-default-effort.txt`). Under 2.0.2, model-only foreground
+  and background `task` and `rescue` runs succeed because the plugin sends no
+  `--effort` flag (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
+  `probe-fixed-rescue-pro.txt`, `probe-fixed-task-background-pro.txt`).
+  `medium` runs longer than
   `low`, so a flag-less job is more likely to reach the agy execution
   budget (docs/COMMANDS.md, "Execution budgets and failure messages"); a
   run that reaches it stores a failed job with no answer. Pass `--effort
   low` explicitly, pass `--effort agy-default`, or raise
   `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this.
 - `agy-default` as a fourth accepted `--effort` value on
-  `task` and `rescue`: the plugin sends no `--effort` flag at all, so the
+  `task` and `rescue`: the plugin still sends no `--effort` flag at all, so the
   user's own agy configuration decides, and the run is therefore not
   reproducible across machines. That is the same argv shape releases through
   1.3.0 had when `--effort` was absent. It is an opt-in value, not the
@@ -698,8 +743,15 @@ meaning:
 
 ## Deprecation and compatibility changes
 
-2.0.0 changed the documented default on `task` and `rescue`: with no
-`--effort`, the plugin now sends `medium`. Through 1.3.0 it sent no flag.
+2.0.0 changed the documented default on `task` and `rescue`: with neither
+`--effort` nor `--model`, the plugin sends `medium`. Through 1.3.0 it sent no
+flag.
+
+2.0.2 narrowed that 2.0.0 default under the upstream-break exception. With
+`--model` and no `--effort`, the plugin sends no `--effort` flag because agy
+1.2.11 rejects the pair (`probe-task-pro-default-effort.txt`,
+`probe-task-claude-default-effort.txt`). The flag-less default `medium` is
+unchanged. This is the compatibility boundary.
 
 A documented public 2.x surface will be marked deprecated in release notes
 and documentation and retained through at least one subsequent 2.x minor

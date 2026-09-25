@@ -35,14 +35,14 @@ Plugin 2.0.1 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.0.1 is tested with agy 1.1.15 to 1.2.7; newest measured 1.2.7. See
+Plugin 2.0.1 is tested with agy 1.1.15 to 1.2.11; newest measured 1.2.11. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
 ## Why this plugin
 
 - **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
-- **Forward `--effort <low|medium|high|agy-default>` on `task` and `rescue`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. When the flag is absent, it sends `medium`. `agy-default` sends no `--effort` flag, so the user's own agy configuration decides. `review` and `vision` do not support this flag.
+- **Forward `--effort <low|medium|high|agy-default>` on `task` and `rescue`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. With neither `--effort` nor `--model`, it sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, it sends no `--effort` flag, so the model id decides; this applies since 2.0.2 because agy 1.2.11 validates the model and effort pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no `--effort` flag, so the user's own agy configuration decides. `review` and `vision` do not support this flag.
 - **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds (`1860s` for the 30-minute default), or `24h` for a `0` budget. The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the `timeoutMs` deadline with 60 seconds of headroom); the forwarded `--print-timeout` is the agy-side backstop.
 - **Account for agy print-timeout history.** Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`).
 - **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
@@ -138,7 +138,7 @@ For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15 to 1.2.7 on `PATH`; newest measured 1.2.7. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+- agy 1.1.15 to 1.2.11 on `PATH`; newest measured 1.2.11. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy

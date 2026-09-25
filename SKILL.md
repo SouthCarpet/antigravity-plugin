@@ -30,7 +30,7 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 | `result` | Prints the final output of a completed job by id. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
 
-For `task` and `rescue`, the plugin sends `medium` when `--effort` is absent; because `medium` runs longer than `low`, a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer, so pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
+For `task` and `rescue`, an explicit `low`, `medium`, or `high` is forwarded verbatim. With neither `--effort` nor `--model`, the plugin sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, it sends no `--effort` flag, so the model id decides; this applies since 2.0.2 because agy 1.2.11 validates the pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no flag. Because `medium` runs longer than `low`, a flag-less job is more likely to reach the plugin's execution budget and be stored as failed with no answer, so pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
 
 ## Auth requirements
 
