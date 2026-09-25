@@ -109,10 +109,10 @@ transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions.
 | `task` | `--foreground --json`, no `--effort` or `--model` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `DEFAULT` | `probe-task-effort-default.txt` |
 | `task` | `--foreground --json --effort agy-default` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `AGYDEFAULT` | `probe-task-effort-agy-default.txt` |
 | `task` 2.0.1 | `--foreground --json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 1. agy reported `--model gemini-3.1-pro-high conflicts with --effort=medium`. | `probe-task-pro-default-effort.txt` |
-| `task` 2.0.2 | `--foreground --json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `PRO` | `probe-fixed-task-pro.txt` |
+| `task` 2.0.2 | `--foreground --json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `PRO.` | `probe-fixed-task-pro.txt` |
 | `task` 2.0.1 | `--foreground --json --model claude-sonnet-4-6`, no `--effort` | 1.2.11 | 2026-09-25 | exit 1. agy reported `--effort is not supported for model "claude-sonnet-4-6"`. | `probe-task-claude-default-effort.txt` |
-| `task` 2.0.2 | `--foreground --json --model claude-sonnet-4-6`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `CLAUDE` | `probe-fixed-task-claude.txt` |
-| `rescue` 2.0.2 | `--json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `RESCUEPRO` | `probe-fixed-rescue-pro.txt` |
+| `task` 2.0.2 | `--foreground --json --model claude-sonnet-4-6`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `CLAUDE.` | `probe-fixed-task-claude.txt` |
+| `rescue` 2.0.2 | `--json --model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `RESCUEPRO.` | `probe-fixed-rescue-pro.txt` |
 | `task`, `status`, `result` 2.0.2 | background `--model gemini-3.1-pro-high`, no `--effort` | 1.2.11 | 2026-09-25 | Queue exit 0; the job completed and `result --json` returned answer `BGPRO`. | `probe-fixed-task-background-pro.txt` |
 | `task` | `--foreground`, URL-read prompt | 1.2.11 | 2026-09-25 | exit 1. The denial named `read_url` (`ReadUrlContent`) for target `example.com` and the resume line carried agy's conversation id. | `probe-task-denied-url.txt` |
 | `rescue` | `--json` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, answer `RESCUE` | `probe-rescue-json.txt` |
@@ -608,10 +608,19 @@ meaning:
 - `--effort <low|medium|high>` on `task` and `rescue`. An explicit value is
   forwarded verbatim. With neither `--effort` nor `--model`, the plugin sends
   `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, it sends
-  no `--effort` flag and stores `request.effort: "agy-default"`, so the model
-  id decides. `review` and `vision` have no `--effort` flag and never send one.
-  agy 1.2.11 applies these model and effort rules
-  (`agy-changelog-1.2.11.txt`):
+  no `--effort` flag and stores `request.effort: "agy-default"`
+  (`scripts/lib/job-helpers.mjs`, `resolveRequestEffort`;
+  `tests/passthrough-argv.test.mjs`, `task --foreground --model with no
+  --effort sends --model and no --effort flag`, `rescue --model with no
+  --effort sends --model and no --effort flag`, and `task (background worker):
+  --model with no --effort stores agy-default and reaches argv with no
+  --effort flag`).
+  agy applies the level carried by a variant id such as
+  `gemini-3.1-pro-high`, and rejects a base id that needs one
+  (`raw-base-gemini-3.1-pro-no-effort.txt`). `review` and `vision` have no
+  `--effort` flag and never send one. agy 1.2.11 says it improved reasoning
+  effort levels for models with different support
+  (`agy-changelog-1.2.11.txt`). Raw probes establish these rules:
   - A variant id accepts no `--effort` or only its own level
     (`probe-fixed-task-pro.txt`,
     `raw-model-gemini-3.1-pro-high-effort-medium.txt`,
@@ -624,19 +633,27 @@ meaning:
   - `max` is accepted syntax, but no model on this account supports it
     (`agy-help-1.2.11.txt`, `raw-effort-max-default-model.txt`,
     `raw-base-gemini-3.1-pro-effort-max.txt`).
-  Before 1.2.11, agy resolved mismatched model and effort pairs to another
-  variant (`agy-changelog-1.2.11.txt`, entries 1.2.11 and 1.1.28). Under
-  2.0.1, the default `medium` therefore made model-only `task`, `rescue`, and
+  This validation was measured on agy 1.2.11. The 1.2.7 matrix did not
+  exercise `--model` with the plugin's default effort, so the first agy version
+  that rejects the pair is not pinned. Under 2.0.1, the default `medium` made
+  model-only `task`, `rescue`, and
   background `task` runs fail on agy 1.2.11
   (`probe-task-pro-default-effort.txt`,
   `probe-rescue-pro-default-effort.txt`,
   `probe-task-background-pro-default-effort.txt`,
   `probe-task-claude-default-effort.txt`). Under 2.0.2, model-only foreground
-  and background `task` and `rescue` runs succeed because the plugin sends no
-  `--effort` flag (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
-  `probe-fixed-rescue-pro.txt`, `probe-fixed-task-background-pro.txt`).
-  `medium` runs longer than
-  `low`, so a flag-less job is more likely to reach the agy execution
+  and background `task` and `rescue` runs pass on 2.0.2 with exit 0
+  (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
+  `probe-fixed-rescue-pro.txt`, `probe-fixed-task-background-pro.txt`). The
+  plugin sends no `--effort` flag and stores `request.effort` as `agy-default`
+  (`scripts/lib/job-helpers.mjs`, `resolveRequestEffort`;
+  `tests/passthrough-argv.test.mjs`, `task --foreground --model with no
+  --effort sends --model and no --effort flag`, `rescue --model with no
+  --effort sends --model and no --effort flag`, and `task (background worker):
+  --model with no --effort stores agy-default and reaches argv with no
+  --effort flag`).
+  `medium` runs longer than `low`, so a job with neither `--model` nor
+  `--effort` is more likely to reach the agy execution
   budget (docs/COMMANDS.md, "Execution budgets and failure messages"); a
   run that reaches it stores a failed job with no answer. Pass `--effort
   low` explicitly, pass `--effort agy-default`, or raise
@@ -675,8 +692,9 @@ meaning:
   `deniedActions` is stored on the job record and on the stored result.
   Records written by older versions have neither field and still render.
 - Stored `request.effort` (string, one of `low|medium|high|agy-default`) on
-  `task` and `rescue` job records: the caller's explicit `--effort` value, or
-  `medium` since 2.0.0 when the caller passed none.
+  `task` and `rescue` job records: `medium` when the caller passed neither
+  `--effort` nor `--model`; `agy-default` when the caller passed `--model` and
+  no `--effort` (since 2.0.2); the explicit value otherwise.
   `task`/`rescue` records written before 2.0.0 have no `request.effort`
   field; `review`/`vision` records never do. The background worker revalidates the
   stored value and fails the job before starting agy on an unknown one.
@@ -750,8 +768,9 @@ flag.
 2.0.2 narrowed that 2.0.0 default under the upstream-break exception. With
 `--model` and no `--effort`, the plugin sends no `--effort` flag because agy
 1.2.11 rejects the pair (`probe-task-pro-default-effort.txt`,
-`probe-task-claude-default-effort.txt`). The flag-less default `medium` is
-unchanged. This is the compatibility boundary.
+`probe-task-claude-default-effort.txt`). The default `medium` for a job with
+neither `--model` nor `--effort` is unchanged. This is the compatibility
+boundary.
 
 A documented public 2.x surface will be marked deprecated in release notes
 and documentation and retained through at least one subsequent 2.x minor

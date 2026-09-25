@@ -9,18 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Model-only `task` and `rescue` runs work with agy 1.2.11**
-  (`probe-fixed-task-pro.txt`, `probe-fixed-rescue-pro.txt`). Plugin 2.0.1
-  supplied its default `--effort medium` next to `--model`, so agy reported
-  `--model gemini-3.1-pro-high conflicts with --effort=medium`; model-only
-  foreground and background runs failed (`probe-task-pro-default-effort.txt`,
-  `probe-rescue-pro-default-effort.txt`,
-  `probe-task-background-pro-default-effort.txt`,
-  `probe-task-claude-default-effort.txt`). With `--model` and no explicit
-  `--effort`, the plugin now sends no `--effort` flag and stores
-  `request.effort` as `agy-default`; the model id decides the level
-  (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
+- **Model-only `task` and `rescue` runs work with agy 1.2.11.** Plugin 2.0.1
+  supplied its default `--effort medium` next to `--model`. agy reported
+  `--model gemini-3.1-pro-high conflicts with --effort=medium`
+  (`probe-task-pro-default-effort.txt`) or `--effort is not supported for model
+  "claude-sonnet-4-6"` (`probe-task-claude-default-effort.txt`). Model-only
+  foreground and background runs failed (`probe-rescue-pro-default-effort.txt`,
+  `probe-task-background-pro-default-effort.txt`). These runs pass on 2.0.2
+  with exit 0 (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
   `probe-fixed-rescue-pro.txt`, `probe-fixed-task-background-pro.txt`). With
+  `--model` and no explicit `--effort`, the plugin now sends no `--effort` flag
+  and stores `request.effort` as `agy-default` (`scripts/lib/job-helpers.mjs`,
+  `resolveRequestEffort`; `tests/passthrough-argv.test.mjs`, `task --foreground
+  --model with no --effort sends --model and no --effort flag`, `rescue --model
+  with no --effort sends --model and no --effort flag`, and `task (background
+  worker): --model with no --effort stores agy-default and reaches argv with no
+  --effort flag`). agy applies the level carried by a variant id
+  such as `gemini-3.1-pro-high`, and rejects a base id that needs one
+  (`raw-base-gemini-3.1-pro-no-effort.txt`). With
   neither flag, the default remains `medium`, unchanged since 2.0.0. This
   narrow change uses the documented upstream-break exception and marks the
   compatibility boundary.
