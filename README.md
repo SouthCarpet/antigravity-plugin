@@ -20,40 +20,7 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 
 This plugin starts `agy --print` from the host that you already use. It gives Claude Code, Codex CLI, agy, and the standalone CLI the same eight verbs. You can review a diff, run a delegated prompt, analyze named images, and inspect or stop a background job from that host.
 
-## Status
-
-> **v2.0.2.** From 2.0.0 forward, while the first number of this version
-> stays 2, an update does not break a command or an output that already
-> works. If a command, flag, exit code, `--json` envelope, state location,
-> or supported host is removed, release notes and documentation first mark
-> it deprecated. It then stays for at least one more release that still
-> starts with 2. It is removed only in version 3.0.0. That contract is in
-> [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
-> [`CHANGELOG.md`](./CHANGELOG.md).
-
-Plugin 2.0.2 is this package's version number. agy is Google's Antigravity
-CLI. The two version lines advance independently. A new agy release does
-not change the plugin version.
-
-Plugin 2.0.2 is tested with agy 1.1.15 to 1.2.11; newest measured 1.2.11. See
-[`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
-The plugin does not update itself.
-
-## Why this plugin
-
-- **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
-- **Forward `--effort <low|medium|high|agy-default>` on `task` and `rescue`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. A job with neither `--effort` nor `--model` sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, the plugin sends no `--effort` flag. agy applies the level carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since 2.0.2 because agy 1.2.11 validates the model and effort pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no `--effort` flag, so the user's own agy configuration decides. `review` and `vision` do not support this flag.
-- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds (`1860s` for the 30-minute default), or `24h` for a `0` budget. The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the `timeoutMs` deadline with 60 seconds of headroom); the forwarded `--print-timeout` is the agy-side backstop.
-- **Account for agy print-timeout history.** Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`).
-- **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
-- **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
-- **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
-- **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
-- **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
-- **Verify releases.** npm provenance and signed tags connect a package to its source commit.
-- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux, Windows, and macOS, with Node 22.3.x and Node 24, on every change.
-
-## Quick start
+## Installation and quick start
 
 ### Claude Code
 
@@ -92,11 +59,70 @@ npx @southcarpet/antigravity-plugin review
 
 If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
+## Status
+
+> **v2.0.2.** From 2.0.0 forward, while the first number of this version
+> stays 2, an update does not break a command or an output that already
+> works. If a command, flag, exit code, `--json` envelope, state location,
+> or supported host is removed, release notes and documentation first mark
+> it deprecated. It then stays for at least one more release that still
+> starts with 2. It is removed only in version 3.0.0. That contract is in
+> [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
+> [`CHANGELOG.md`](./CHANGELOG.md).
+
+Plugin 2.0.2 is this package's version number. agy is Google's Antigravity
+CLI. The two version lines advance independently. A new agy release does
+not change the plugin version.
+
+Plugin 2.0.2 is tested with agy 1.1.15 to 1.2.11; newest measured 1.2.11. See
+[`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+The plugin does not update itself.
+
+## Why this plugin
+
+- **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
+- **Forward `--effort <low|medium|high|agy-default>` on `task` and `rescue`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. A job with neither `--effort` nor `--model` sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, the plugin sends no `--effort` flag. agy applies the level carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since 2.0.2 because agy 1.2.11 validates the model and effort pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no `--effort` flag, so the user's own agy configuration decides. `review` and `vision` do not support this flag.
+- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds (`1860s` for the 30-minute default), or `24h` for a `0` budget. The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the `timeoutMs` deadline with 60 seconds of headroom); the forwarded `--print-timeout` is the agy-side backstop.
+- **Account for agy print-timeout history.** Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`).
+- **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
+- **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
+- **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
+- **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
+- **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
+- **Verify releases.** npm provenance and signed tags connect a package to its source commit.
+- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux, Windows, and macOS, with Node 22.3.x and Node 24, on every change.
+
 ## How it works
 
-![A host command from Claude Code, Codex CLI, the agy TUI, or a plain shell enters the plugin runtime at bin/antigravity.mjs and scripts/. The eight verbs are setup, review, rescue, task, vision, status, result, and cancel. The runtime talks to agy --print over stream-json; agy talks to Google. Only the prompt, the selected diff, and named image bytes leave this machine; nothing else does. For vision, the runtime starts a local MCP server that exposes one allowlisted tool, view_image, and agy calls back into it. A background job's request, result, and log stay in the local job store on this machine; status, result, and cancel read that store and never reach Google. When agy refuses a tool in headless mode, the plugin reports the refused action and, since 2.0.0, the target it was refused on. The host then asks you with its own question tool, AskUserQuestion in Claude Code, whether to do that step in the host or to grant the action. The plugin never grants the tool and never prints a bypass flag.](./docs/how-it-works.svg)
+```mermaid
+flowchart LR
+    Host["Host or shell command"] --> Runtime["Plugin runtime<br/>bin/antigravity.mjs and scripts/"]
+    Runtime -->|"review, rescue, task, vision: stream-json"| Agy["agy --print"]
+    Agy --> Google["Google service via agy"]
+    Agy -->|"vision: view_image callback"| MCP["Local MCP server<br/>per-run image allowlist"]
+    MCP -->|"image content"| Agy
+    Agy -->|"result and denial details"| Runtime
+    Runtime -->|"job records; status, result, cancel"| Store["Local job store"]
+    Runtime -->|"cancel"| Processes["Local worker and agy process trees"]
+    Runtime -->|"denied action, target when known, remedy"| Denial["Permission-denial report"]
+    Denial -->|"host wrapper"| HostChoice["Host asks user<br/>or reports and stops if no question tool"]
+    Denial -->|"eligible interactive foreground"| TerminalChoice["Terminal: retry or stop"]
+    TerminalChoice -->|"one retry if chosen"| Runtime
+```
 
-The runtime sends prompts, selected diffs, and named image bytes through agy to Google. Background job requests, results, and logs stay in the local job store. When agy refuses a headless tool, the plugin reports the action and its target and tells the host to ask the user; it never grants the tool and never prints a bypass flag. The plugin does not create persistent wildcard grants. `setup` writes only user-level files under `~/.gemini`, not the current repository.
+`setup` configures agy to launch the local vision MCP server. Each `vision`
+run supplies an image allowlist; agy calls `view_image` and receives image
+content. If agy offloads that content, the prompt opens only the exact copy
+with `view_file`. Prompts, selected diffs, image bytes, and files read by agy's
+own tools can reach its service. Job records stay local; `status`, `result`
+and `cancel` do not call the model service.
+
+A denied run reports the action, its target when known, and a remedy. Empty
+answers with denial evidence fail; answers with denied actions carry a warning.
+The host asks the user what to do, or reports and stops if it has no question
+tool. An eligible interactive foreground run can offer one retry of the same
+conversation. The plugin never grants the denied action or prints a bypass
+flag. `setup` writes user-level files under `~/.gemini`, not the repository.
 
 ## Commands
 
