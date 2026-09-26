@@ -133,7 +133,7 @@ For Claude Code, run `claude plugin marketplace update antigravity` first, then 
 
 For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-to-clean-clone>`. Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28, `agy plugin install` replaces the managed directory exactly (`agy-changelog-1.2.7.txt`). Uninstall-then-install remains the safe path on every version.
 
-`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
+`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check. Run `update --apply` from a directory outside the agy install root: a cwd inside it can leave the uninstall step half-done.
 
 ## Requirements
 
