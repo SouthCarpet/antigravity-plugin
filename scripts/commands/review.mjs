@@ -25,6 +25,10 @@
  *   --show-result     after a background --wait completes, print the
  *                     finished job's own result instead of the dispatch
  *                     envelope (requires --wait and --background)
+ *   --findings-json   also ask agy for structured findings under the
+ *                     shipped schema (`--json-schema`) and validate them
+ *                     locally into `details.findings` (Senate R7, 2026-09);
+ *                     `answer` stays agy's raw response text
  *   --json            output JSON instead of markdown
  *
  * The diff is collected first. An empty one answers `no_changes` with exit 0
@@ -40,6 +44,7 @@
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewInput } from "../lib/review-input.mjs";
+import { REVIEW_FINDINGS_SCHEMA_PATH, reviewFindingsDetails } from "../lib/review-findings.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   EFFORT_CHOICES,
@@ -80,12 +85,17 @@ function resolveReviewMode(options) {
  * argument `runForegroundJob`/`startBackgroundJob` store as `request.prompt`
  * on the background path).
  *
+ * `findingsJson: true` (Senate R7, 2026-09) is stored only for a
+ * `--findings-json` run, so a request without the flag is unchanged; the
+ * worker turns it back into `--json-schema`.
+ *
  * @param {{ envelope: object, base: string | undefined, mode: string,
  *   model: string | undefined, effort: string | undefined, focus: string | undefined,
+ *   findingsJson: boolean,
  *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput> }} args
  * @returns {object}
  */
-function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, input }) {
+function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, findingsJson, input }) {
   return {
     scope: envelope.scope,
     base: base ?? null,
@@ -96,10 +106,11 @@ function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, 
     inputHash: input.inputHash,
     inputCounts: input.counts,
     headSha: input.headSha,
+    ...(findingsJson ? { findingsJson: true } : {}),
   };
 }
 
-async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, input, options, ctx }) {
+async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, findingsJson, input, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "review",
@@ -109,7 +120,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
     conversationId,
     cwd: workspaceRoot,
     agyVersion,
-    request: buildReviewRequestFields({ envelope, base, mode, model, effort, focus, input }),
+    request: buildReviewRequestFields({ envelope, base, mode, model, effort, focus, findingsJson, input }),
   });
   const queuedExit = reportQueuedJob("review", job, options);
   if (queuedExit !== null) return queuedExit;
@@ -120,7 +131,20 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
   });
 }
 
-async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, input, json }) {
+/**
+ * The `finishForeground` options for `--findings-json` (Senate R7, 2026-09):
+ * the findings fields derived from agy's structured output. `{}` without
+ * the flag, so that path's details stay unchanged.
+ *
+ * @param {boolean} findingsJson
+ * @returns {{ resultDetails?: (result: import('../lib/types.mjs').RuntimeResult) => object }}
+ */
+function findingsFinishOptions(findingsJson) {
+  if (!findingsJson) return {};
+  return { resultDetails: (result) => reviewFindingsDetails(result.structured) };
+}
+
+async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, findingsJson, input, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "review",
@@ -132,6 +156,7 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
     agyVersion,
     model,
     effort,
+    jsonSchemaPath: findingsJson ? REVIEW_FINDINGS_SCHEMA_PATH : undefined,
     request: buildReviewRequestFields({
       envelope,
       base,
@@ -139,6 +164,7 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
       model,
       effort,
       focus,
+      findingsJson,
       input,
     }),
     onText: (delta) => process.stderr.write(delta),
@@ -147,6 +173,7 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
   return runForegroundWithRetryPrompt("review", runOnce, {
     json,
     extraDetails: { scope: envelope.scope },
+    ...findingsFinishOptions(findingsJson),
   });
 }
 
@@ -264,7 +291,9 @@ function reportReviewPreview(input, json) {
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["base", "scope", "conversation", "cwd", "model", "effort", "focus"],
-    booleanOptions: ["background", "wait", "continue", "json", "preview", "require-complete", "show-result"],
+    booleanOptions: [
+      "background", "wait", "continue", "json", "preview", "require-complete", "show-result", "findings-json",
+    ],
     valueChoices: { effort: EFFORT_CHOICES },
     conflicts: [
       ["continue", "conversation"],
@@ -307,7 +336,8 @@ export async function run(argv = [], ctx = {}) {
     return 0;
   }
 
-  const input = buildReviewInput(envelope, { focus });
+  const findingsJson = Boolean(options["findings-json"]);
+  const input = buildReviewInput(envelope, { focus, findingsJson });
   const json = Boolean(options.json);
 
   if (options.preview) return reportReviewPreview(input, json);
@@ -326,7 +356,7 @@ export async function run(argv = [], ctx = {}) {
 
   const runArgs = {
     workspaceRoot, title, prompt: input.prompt, mode, conversationId, envelope, base,
-    agyVersion: probed.version, model, effort, focus, input,
+    agyVersion: probed.version, model, effort, focus, findingsJson, input,
   };
 
   if (options.background) {

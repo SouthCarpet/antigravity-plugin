@@ -395,7 +395,7 @@ function createNdjsonLineFeeder() {
  * @returns {{ response: string|null, usage: object|null, durationSeconds: number|null,
  *   conversationId: string|null, resultStatus: string|null, resultError: string|null,
  *   deniedActions: { action: string, displayName: string | null, target: string | null, source: 'json' }[] | null,
- *   sawResult: boolean }}
+ *   structured: unknown, sawResult: boolean }}
  */
 export function parseAgyStream(text) {
   const out = {
@@ -406,6 +406,7 @@ export function parseAgyStream(text) {
     resultStatus: null,
     resultError: null,
     deniedActions: null,
+    structured: null,
     sawResult: false,
   };
   if (typeof text !== 'string' || !text.length) return out;
@@ -438,7 +439,7 @@ export function parseAgyStream(text) {
  * @returns {{ response: string|null, usage: object|null, durationSeconds: number|null,
  *   conversationId: string|null, resultStatus: string|null, resultError: string|null,
  *   deniedActions: { action: string, displayName: string | null, target: string | null, source: 'json' }[] | null,
- *   sawResult: true }}
+ *   structured: unknown, sawResult: true }}
  */
 function resultEventSnapshot(r, stepTargets) {
   return {
@@ -451,6 +452,10 @@ function resultEventSnapshot(r, stepTargets) {
     deniedActions: Array.isArray(r.denied_actions)
       ? joinDeniedActionTargets(normalizeDeniedActions(r.denied_actions), stepTargets)
       : null,
+    // Senate R7 (2026-09): agy's `--json-schema` answer, measured on agy
+    // 1.2.12 as `structured_output` (probe-json-schema.txt). Kept raw
+    // (object or string); `review-findings.mjs` validates it.
+    structured: r.structured_output ?? null,
     sawResult: true,
   };
 }
@@ -840,6 +845,7 @@ function normalizeRunOptions(options) {
     model: options.model,
     effort: options.effort,
     extraArgs: optionOrDefault(options, 'extraArgs', () => []),
+    jsonSchemaPath: options.jsonSchemaPath,
     timeoutMs: optionOrDefault(options, 'timeoutMs', () => 0),
     bin: optionOrDefault(options, 'bin', () => resolveAgyBin()),
     env: optionOrDefault(options, 'env', () => process.env),
@@ -893,11 +899,15 @@ export function printTimeoutArg(timeoutMs) {
  * print-mode path (plain print, `--continue`, `--conversation`) the same
  * way; the `--version` probe does not go through this builder.
  *
+ * `jsonSchemaPath` (Senate R7, 2026-09) adds `--json-schema <path>` right
+ * before `--print-timeout`; `review --findings-json` is its only caller.
+ *
  * @param {{ mode: string, conversationId?: string, addDirs: string[],
- *   model?: string, effort?: string, extraArgs: string[], timeoutMs: number }} options
+ *   model?: string, effort?: string, extraArgs: string[], jsonSchemaPath?: string,
+ *   timeoutMs: number }} options
  * @returns {string[]}
  */
-function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, timeoutMs }) {
+function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, jsonSchemaPath, timeoutMs }) {
   const args = [];
   if (mode === 'continue') args.push('--continue');
   if (mode === 'conversation') {
@@ -908,6 +918,7 @@ function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs,
   if (model) args.push('--model', model);
   if (effort) args.push('--effort', effort);
   args.push(...extraArgs);
+  if (jsonSchemaPath) args.push('--json-schema', jsonSchemaPath);
   args.push('--print-timeout', printTimeoutArg(timeoutMs));
   args.push('--disable-slash-commands');
   args.push('--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '');
@@ -1481,6 +1492,7 @@ function classifyRunResult({ session, exitCode }) {
     denial: finalized.denial,
     deniedActions: finalized.deniedActions,
     agyPrintTimeout: truncation,
+    structured: parsed.structured ?? null,
     spawnError: session.spawnError,
   };
 }
@@ -1494,7 +1506,8 @@ function classifyRunResult({ session, exitCode }) {
  * (Win32 error 206 / Node `ENAMETOOLONG`), and review/rescue/task briefs
  * routinely exceed it. Every invocation instead runs:
  *   `agy [--continue|--conversation <id>] [--add-dir ...]* [--model <id>]
- *        [--effort <low|medium|high>] [...extraArgs] --print-timeout <duration>
+ *        [--effort <low|medium|high>] [...extraArgs] [--json-schema <path>]
+ *        --print-timeout <duration>
  *        --disable-slash-commands --input-format stream-json --output-format
  *        stream-json --print ""`
  * (`--print ""` is required — bare `--print` errors "flag needs an
@@ -1627,6 +1640,7 @@ export async function runAgyPrint(rawOptions = {}) {
     model,
     effort,
     extraArgs,
+    jsonSchemaPath,
     timeoutMs,
     bin,
     env,
@@ -1647,7 +1661,7 @@ export async function runAgyPrint(rawOptions = {}) {
   if (typeof prompt !== 'string' || !prompt.length) {
     throw new TypeError('runAgyPrint: prompt must be a non-empty string');
   }
-  const args = buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, timeoutMs });
+  const args = buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, jsonSchemaPath, timeoutMs });
 
   const detached = platform !== 'win32';
   const child = spawnAgy(bin, args, {

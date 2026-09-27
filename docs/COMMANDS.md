@@ -227,6 +227,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
        [--model <id>] [--effort <low|medium|high|agy-default>]
        [--focus <text>]
        [--preview] [--require-complete]
+       [--findings-json]
        [--json] [--cwd <path>]
 ```
 
@@ -300,6 +301,36 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   warning line before sending:
   `antigravity:review — warning: input is incomplete (<n> files skipped,
   diff truncated by <b> bytes); run review --preview for the list.`
+- `--findings-json` (additive) asks agy for structured findings as well as
+  the review. The plugin passes `--json-schema <path>` to agy, where the
+  path is the absolute path of the schema file the plugin ships
+  (`scripts/lib/review-findings.schema.json`). The flag goes immediately
+  before `--print-timeout`. The prompt's Output section gains one sentence:
+  the structured result must follow that schema. The schema has three
+  required keys: `verdict` (`APPROVE`, `CHANGES_REQUESTED`, or
+  `NEEDS_DISCUSSION`), `summary`, and `findings`. `findings` is a list of at
+  most 200 entries. Each entry has `severity` (`critical`, `high`, `medium`,
+  `low`, or `nit`), `file`, `line` (an integer or `null`), `description`,
+  and `recommendation`. No other keys are allowed, and no string may be
+  longer than 2000 characters. The plugin checks agy's structured output
+  against the schema itself:
+  - valid: `details.findings` is the parsed object and
+    `details.findingsStatus` is `"valid"`;
+  - not valid, or not sent: `details.findings` is `null`,
+    `details.findingsStatus` is `"invalid"` or `"missing"`,
+    `details.findingsError` gives the reason in one line, and stderr gets
+    one line: `antigravity:review — warning: structured findings <status>:
+    <reason>`.
+
+  `answer` (and the text-mode stdout) stays agy's raw response text. Under
+  this flag, that text is JSON text, not the Markdown review: agy 1.2.12 was
+  measured to return JSON there, with keys the schema does not allow. Use
+  `details.findings`, never a parse of `answer`. A findings problem does not
+  change the exit code: a completed review exits 0. On the background path
+  the job stores `request.findingsJson: true` and agy's structured output as
+  `result.structuredRaw`; `result <job-id>` and `--show-result` report the
+  same three fields (see [`result`](#result)). Without the flag, nothing
+  changes: no `--json-schema` in argv and no findings fields in `details`.
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
@@ -901,6 +932,15 @@ The markdown output appends the same "## Provenance" section `status <id>`
 uses, one line per non-null field including `Input hash: sha256:...` when
 present, after the answer text and after any denied-actions/print-timeout
 sections. It is never folded into the opaque `answer` field.
+
+For a completed `review --findings-json` job, `--json` also carries
+`details.findings`, `details.findingsStatus`, and (when not valid)
+`details.findingsError`, the same three fields the review itself reports
+(see [`review`](#review)). They are checked when `result` runs, from the
+stored `details.result.structuredRaw` (agy's structured output as JSON text,
+`null` when agy sent none). The markdown output gets one line,
+`Findings: <valid|invalid|missing>`, before the "## Provenance" section.
+Without the flag, or for a job that did not complete, none of this appears.
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is

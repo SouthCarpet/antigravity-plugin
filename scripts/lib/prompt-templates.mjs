@@ -65,14 +65,16 @@ function dataBlock(label, value) {
  * Build the review prompt for `/antigravity:review`.
  *
  * @param {{ scope: string, context: any }} contextEnvelope - Return value from collectReviewContext.
- * @param {{ focus?: string }} [options] `focus` (Task 4, "Senate R4",
+ * @param {{ focus?: string, findingsJson?: boolean }} [options] `focus` (Task 4, "Senate R4",
  *   2026-09): caller text, already trimmed and capped by
  *   `resolveReviewFocus` (job-helpers.mjs), never derived from repository
  *   content. When given, a "## Reviewer focus" section is inserted
- *   immediately before "## Output".
+ *   immediately before "## Output". `findingsJson` (Senate R7, 2026-09):
+ *   `review --findings-json`; the Output section then ends with one
+ *   sentence that the structured result must follow the schema agy got.
  * @returns {string}
  */
-export function buildReviewPrompt(contextEnvelope, { focus } = {}) {
+export function buildReviewPrompt(contextEnvelope, { focus, findingsJson } = {}) {
   const { scope, context } = contextEnvelope;
   const lines = [];
   lines.push("You are reviewing a code change. Your output is read-only.");
@@ -127,6 +129,7 @@ export function buildReviewPrompt(contextEnvelope, { focus } = {}) {
   lines.push("- **Next Steps** (bulleted; concrete actions for the author)");
   lines.push("");
   lines.push("Be concise. Skip findings if the change is trivial. Do not suggest follow-up tool calls.");
+  if (findingsJson) lines.push("The structured result must follow the JSON schema supplied with this run.");
   return lines.join("\n");
 }
 

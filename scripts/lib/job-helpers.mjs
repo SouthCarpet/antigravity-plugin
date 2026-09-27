@@ -42,6 +42,7 @@ import {
   redactBypassFlag,
 } from "./render.mjs";
 import { buildResultDetails } from "./job-result.mjs";
+import { findingsWarningLine, storedFindingsDetails, structuredRawText } from "./review-findings.mjs";
 
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
 export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -815,7 +816,10 @@ function reportShowResultText(kind, final) {
  * @returns {number}
  */
 function reportShowResultOutcome(kind, jobId, final, json) {
-  if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
+  if (final?.status === "completed") {
+    printMeasuredUsageTrailer(final.result?.usage ?? null);
+    reportFindingsWarning(kind, storedFindingsDetails(final));
+  }
   if (json) {
     outputCommandResult(buildShowResultEnvelope(kind, jobId, final), "", true);
   } else {
@@ -1212,6 +1216,7 @@ export async function runForegroundJob({
   effort,
   outputFormat,
   extraArgs = [],
+  jsonSchemaPath,
   cwd,
   request = null,
   env = process.env,
@@ -1252,6 +1257,7 @@ export async function runForegroundJob({
       effort: agyEffortArg(effort),
       outputFormat,
       extraArgs,
+      jsonSchemaPath,
       cwd: cwd ?? workspaceRoot,
       env,
       timeoutMs: agyTimeoutMs(env),
@@ -1374,7 +1380,24 @@ export function buildStoredResult(result) {
     deniedActions: result.deniedActions ?? null,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
     reportedModel: result.reportedModel ?? null,
+    // Senate R7 (2026-09): agy's `--json-schema` answer as JSON text, `null`
+    // when agy sent none. Validated at read time (review-findings.mjs).
+    structuredRaw: structuredRawText(result.structured),
   };
+}
+
+/**
+ * Print the one findings warning line (`review --findings-json`, Senate R7,
+ * 2026-09) when `details` carries a `findingsStatus` other than `valid`. A
+ * no-op for every other run, which has no such key.
+ *
+ * @param {string} kind
+ * @param {{ findingsStatus?: string, findingsError?: string }} details
+ * @returns {void}
+ */
+function reportFindingsWarning(kind, details) {
+  const line = findingsWarningLine(kind, details);
+  if (line) process.stderr.write(`${line}\n`);
 }
 
 /**
@@ -1415,11 +1438,16 @@ export function printMeasuredUsageTrailer(usage) {
  * no longer one of those callbacks: {@link printMeasuredUsageTrailer} runs
  * here for every kind whenever `result.usage.total_tokens` is a number —
  * `vision.mjs` used to pass its own copy of that line as `beforeAnswer`.
+ * `resultDetails` (Senate R7, 2026-09) derives more `details` keys from the
+ * completed `result` itself (`review --findings-json`'s findings fields);
+ * they sit next to `extraDetails`, and a non-valid `findingsStatus` among
+ * them prints one warning line on stderr.
  *
  * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
  * @param {{ id: string }} job
  * @param {import('./types.mjs').RuntimeResult} result
- * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void }} [options]
+ * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void,
+ *   resultDetails?: (result: import('./types.mjs').RuntimeResult) => object }} [options]
  * @returns {number} the verb's exit code
  */
 /**
@@ -1565,13 +1593,15 @@ function finishForegroundFailure(kind, job, result, json) {
   return result.status === "cancelled" ? 2 : 1;
 }
 
-export function finishForeground(kind, job, result, { json, extraDetails = {}, extraFields = {}, beforeAnswer } = {}) {
+export function finishForeground(kind, job, result, { json, extraDetails = {}, extraFields = {}, beforeAnswer, resultDetails } = {}) {
   if (result.status === "auth_required") return finishForegroundAuthRequired(kind, job, result, json);
   if (result.status !== "completed") return finishForegroundFailure(kind, job, result, json);
 
+  const ownDetails = { ...extraDetails, ...resultDetails?.(result) };
   reportWarnings(kind, result);
   reportDeniedActionHints(kind, result);
   reportPrintTimeoutHint(kind, result);
+  reportFindingsWarning(kind, ownDetails);
   beforeAnswer?.();
   printMeasuredUsageTrailer(result.usage);
   outputCommandResult(
@@ -1581,7 +1611,7 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
       answer: result.stdout,
       ...extraFields,
       details: {
-        ...extraDetails,
+        ...ownDetails,
         ...deniedActionsDetails(result, kind),
         ...agyPrintTimeoutDetails(result),
         ...warningDetails(result),
@@ -1685,7 +1715,8 @@ function isRetryEligible(result) {
  * @param {(retryConversationId?: string) => Promise<{ job: object, result: import('./types.mjs').RuntimeResult }>} runOnce
  *   runs one `runForegroundJob` call; called with no argument for the first
  *   attempt, and with agy's own conversation id for the retry
- * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void }} finishOptions
+ * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void,
+ *   resultDetails?: (result: import('./types.mjs').RuntimeResult) => object }} finishOptions
  *   forwarded to `finishForeground` for both the first report and the retry's
  * @param {{ canPrompt?: typeof canPromptOnDenial, ask?: typeof askRetryOrStop }} [deps]
  * @returns {Promise<number>}

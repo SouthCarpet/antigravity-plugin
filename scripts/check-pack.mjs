@@ -283,6 +283,10 @@ export function deriveRequired() {
     add(required, rel, 'MCP server (scripts/mcp/*.mjs)');
   }
 
+  // Read with readFileSync at run time (scripts/lib/review-findings.mjs), so
+  // the import-graph walk cannot see it.
+  add(required, 'scripts/lib/review-findings.schema.json', 'review --findings-json schema, read at run time');
+
   add(
     required,
     hostBootstrapRequiredPath(),

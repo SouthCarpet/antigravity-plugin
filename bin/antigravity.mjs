@@ -50,6 +50,8 @@ const COMMAND_HELP = {
     '  --require-complete      refuse an incomplete input instead of a warning\n' +
     '  --show-result           after --wait, print the finished job instead of\n' +
     '                          the dispatch envelope (needs --wait --background)\n' +
+    '  --findings-json         also return structured findings, checked against\n' +
+    '                          the shipped schema, in details.findings\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:

@@ -282,7 +282,7 @@ fields in envelope version 1:
 | `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
 | `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
-| `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. |
+| `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 2.x; consumers must tolerate additions, removals, and changes within it. |
 
 Consumers must tolerate additive top-level fields. `vision` additionally
@@ -1027,10 +1027,43 @@ meaning:
   `Expectations: <summary>` block after the answer. An empty value or more
   than 32 values is an argument error, stderr only, exit 1. The exit code is
   unchanged in every case; this is documented as a first version.
+- **`--findings-json` on `review`** (additive, 2026-09): opt-in structured
+  findings. agy gets `--json-schema <absolute path of
+  scripts/lib/review-findings.schema.json>` immediately before
+  `--print-timeout`, on the foreground and the background path. Without the
+  flag the argv is unchanged. See
+  [Structured output flag](#structured-output-flag) below and
+  [`review`](./COMMANDS.md#review).
+- `details.findings`, `details.findingsStatus`, `details.findingsError`
+  (additive, 2026-09): on a completed `review --findings-json` run, on
+  `--show-result`, and on `result <id> --json` for such a job.
+  `findingsStatus` is `valid`, `invalid`, or `missing`. `findings` is the
+  parsed object when valid, else `null`. `findingsError` is one line and is
+  present only when the status is not `valid`. A status other than `valid`
+  also prints one stderr warning line. All three are absent without the
+  flag. The exit code does not change.
+- `request.findingsJson` (additive, 2026-09): `true` on a job record started
+  with `review --findings-json`, absent otherwise. The background worker
+  fails the job before starting agy when the stored value is not a boolean.
+- `result.structuredRaw` (additive, 2026-09): agy's structured output as
+  JSON text, `null` when agy sent none. It is on every new job record, so
+  `details.result.structuredRaw` is `null` for every run without the flag.
 
 ### Structured output flag
 
-agy 1.2.12 accepts `--json-schema` with stream-json and returns a `structured_output` field on the result event. Plugin 2.0.2 does not use this flag yet. Measured on 1.2.12: the result event carries `"structured_output":{"answer":"SCHEMA","n":7}` which parses as JSON and matches the provided schema exactly; `result.response` remains JSON text; `step_update.text_delta` still streams; exit code 0 on success. Transcript: `probe-json-schema.txt`.
+`answer` stays opaque, with or without `--findings-json`. `details.findings`
+is the only structured contract for review content. The plugin validates it
+locally against the schema it ships, `scripts/lib/review-findings.schema.json`,
+and never trusts agy to enforce the schema.
+
+Measured on agy 1.2.12 (transcript `probe-json-schema.txt`): with
+`--json-schema` and the stream-json transport, the final `result` event
+carries a `structured_output` field. In the probe it parsed as JSON and
+matched the schema exactly. `step_update.text_delta` still streams, and the
+exit code was 0. `result.response`, which becomes `answer`, was JSON text,
+not prose, and it carried keys the schema did not allow. So under
+`--findings-json`, `answer` is JSON text rather than the Markdown review. The
+plugin reads only `structured_output` and never parses `response`.
 
 ## Deprecation and compatibility changes
 

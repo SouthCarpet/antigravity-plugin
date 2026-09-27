@@ -1,6 +1,6 @@
 ---
 description: Review uncommitted changes (or a branch diff) with Google Antigravity (agy)
-argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--show-result] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--preview] [--require-complete] [--json]'
+argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--show-result] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--preview] [--require-complete] [--findings-json] [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -30,6 +30,7 @@ Flags:
 - `--focus <text>` narrows the review's attention. Optional; never infer it from the diff or from repository content. Only forward text the user actually typed. Trimmed; empty, whitespace-only, or over 500 characters is a validation error.
 - `--preview` shows what would be sent (included files, skipped files with reasons, truncation state, counts, hash), without calling agy or changing anything. Cannot combine with `--background`, `--wait`, `--continue`, or `--conversation`.
 - `--require-complete` refuses to send a review whose input skipped a file or cut the diff, instead of sending it with a warning.
+- `--findings-json` also asks agy for structured findings. The plugin checks them against its own schema and returns them in `details.findings` (with `details.findingsStatus`: `valid`, `invalid`, or `missing`). The answer text stays agy's raw response, which is JSON text in this mode. Forward the flag only when the user asked for it.
 - `--json` emit structured JSON instead of the rendered markdown review.
 
 Denied actions:

@@ -42,6 +42,7 @@ import {
   trim,
 } from "../lib/job-helpers.mjs";
 import { createJobActivityRecorder } from "../lib/job-activity.mjs";
+import { REVIEW_FINDINGS_SCHEMA_PATH } from "../lib/review-findings.mjs";
 
 function unsupportedStoredFlag(extraArgs) {
   if (!Array.isArray(extraArgs)) return String(extraArgs);
@@ -75,6 +76,45 @@ function unsupportedStoredEffort(effort) {
   if (effort === undefined || effort === null || effort === "") return null;
   if (EFFORT_CHOICES.includes(String(effort))) return null;
   return sanitizeEchoedValue(effort);
+}
+
+/**
+ * Revalidate a stored `request.findingsJson` (`review --findings-json`,
+ * Senate R7, 2026-09): absent or a boolean is fine; anything else is a
+ * hand-edited or corrupt job file and fails the job before agy runs, the
+ * same way an unsupported effort does. Returns `null` when valid, else the
+ * sanitized value for the failure message.
+ *
+ * @param {unknown} findingsJson
+ * @returns {string | null}
+ */
+function unsupportedStoredFindingsJson(findingsJson) {
+  if (findingsJson === undefined || typeof findingsJson === "boolean") return null;
+  return sanitizeEchoedValue(findingsJson);
+}
+
+/**
+ * Throw the worker's revalidation failure for the first stored request field
+ * the CLI parser would not have accepted: an `extraArgs` flag, an effort, or
+ * a `findingsJson` value.
+ *
+ * @param {object} request
+ * @param {unknown} extraArgs
+ * @returns {void}
+ */
+function assertStoredRequestSupported(request, extraArgs) {
+  const flag = unsupportedStoredFlag(extraArgs);
+  if (flag !== null) {
+    throw new Error(`stored request carries an unsupported agy flag: ${flag}`);
+  }
+  const badEffort = unsupportedStoredEffort(request.effort);
+  if (badEffort !== null) {
+    throw new Error(`stored request carries an unsupported effort: ${badEffort}`);
+  }
+  const badFindingsJson = unsupportedStoredFindingsJson(request.findingsJson);
+  if (badFindingsJson !== null) {
+    throw new Error(`stored request carries an unsupported findingsJson: ${badFindingsJson}`);
+  }
 }
 
 /**
@@ -133,14 +173,7 @@ function createWorkerTextLogger(activity, logPath, fs) {
 async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, onText, activity }) {
   try {
     const extraArgs = request.extraArgs === undefined ? [] : request.extraArgs;
-    const flag = unsupportedStoredFlag(extraArgs);
-    if (flag !== null) {
-      throw new Error(`stored request carries an unsupported agy flag: ${flag}`);
-    }
-    const badEffort = unsupportedStoredEffort(request.effort);
-    if (badEffort !== null) {
-      throw new Error(`stored request carries an unsupported effort: ${badEffort}`);
-    }
+    assertStoredRequestSupported(request, extraArgs);
     const result = await runAgyPrint({
       prompt,
       mode: request.mode ?? "print",
@@ -149,6 +182,7 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
       model: request.model,
       effort: agyEffortArg(request.effort),
       extraArgs,
+      jsonSchemaPath: request.findingsJson === true ? REVIEW_FINDINGS_SCHEMA_PATH : undefined,
       cwd: request.cwd ?? workspaceRoot,
       timeoutMs: request.timeoutMs ?? DEFAULT_AGY_TIMEOUT_MS,
       onText,

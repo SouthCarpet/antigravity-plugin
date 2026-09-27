@@ -11,6 +11,8 @@
  * `result.mjs` back would be circular. This module depends on neither.
  */
 
+import { storedFindingsDetails } from "./review-findings.mjs";
+
 /**
  * The `details.inputHash` value: the job's own `request.inputHash`, `stored`
  * taking priority over the index entry `job` (same priority order every
@@ -35,7 +37,9 @@ export function resolveInputHash(stored, job) {
  * object (with `rawOutput` swapped for `cut.text` when a `--head`/`--tail`
  * cut applied; `result <id>` is the only caller that ever passes a `cut`
  * with `truncated: true`; a `--show-result` wait never cuts the answer, so
- * it always passes the default).
+ * it always passes the default). A completed `review --findings-json` job
+ * (Senate R7, 2026-09) also gets `findings`, `findingsStatus` and, when not
+ * valid, `findingsError`, validated here from the stored `structuredRaw`.
  *
  * @param {import('./types.mjs').JobIndexEntry} job
  * @param {import('./types.mjs').JobRecord | null} stored
@@ -65,5 +69,6 @@ export function buildResultDetails(job, stored, cut) {
     inputHash: resolveInputHash(stored, job),
     reportedModel: result?.reportedModel ?? null,
     result: result ? { ...result, rawOutput } : result,
+    ...storedFindingsDetails(stored, job),
   };
 }

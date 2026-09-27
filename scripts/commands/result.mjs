@@ -217,12 +217,20 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
   // display cut.
   const agyPrintTimeout = stored?.result?.agyPrintTimeout ?? null;
   const withPrintTimeout = appendSectionLines(withDenied, renderPrintTimeoutNote(agyPrintTimeout));
+  // Senate R7 (2026-09): a completed `review --findings-json` job gets one
+  // `Findings: <status>` line, validated from the stored record; the full
+  // fields are in `--json`'s `details`.
+  const resultDetails = buildResultDetails(job, stored, cut);
+  const withFindings = appendSectionLines(
+    withPrintTimeout,
+    resultDetails.findingsStatus ? [`Findings: ${resultDetails.findingsStatus}`] : [],
+  );
   // Senate R11 (2026-09): the "## Provenance" section is appended last,
   // after the answer text and every other appended section — never folded
   // into the opaque `answer`/`rendered` text above. `job` already carries
   // `stored`'s own `provenance` value (`mergeJobDetail`, job-control.mjs).
   const finalRendered = appendSectionLines(
-    withPrintTimeout,
+    withFindings,
     renderProvenanceLines(job.provenance ?? null, job.request?.inputHash ?? null),
   );
   const payload = createJsonEnvelope("result", {
@@ -230,7 +238,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
     jobId: job.id,
     answer: cut.truncated ? cut.text : rendered,
     details: {
-      ...buildResultDetails(job, stored, cut),
+      ...resultDetails,
       ...(cut.truncated ? { truncated: true } : {}),
       ...(deniedList ? { deniedActions: deniedList } : {}),
       ...(agyPrintTimeout ? { agyPrintTimeout } : {}),

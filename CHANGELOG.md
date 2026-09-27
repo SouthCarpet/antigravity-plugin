@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--findings-json` on `review`.** Opt-in structured findings. agy gets
+  `--json-schema <path>` for the schema the plugin ships
+  (`scripts/lib/review-findings.schema.json`), right before
+  `--print-timeout`. The prompt's Output section gains one sentence about
+  the schema. The plugin checks agy's structured output against the schema
+  with its own validator: types, enums, required keys, no extra keys, at
+  most 200 findings, and at most 2000 characters per string. `--json` adds
+  `details.findings` (the parsed object, or `null`),
+  `details.findingsStatus` (`valid`, `invalid`, or `missing`), and, when
+  not valid, a one-line `details.findingsError` plus one stderr warning
+  line. `answer` is unchanged: it is agy's raw response text, which is JSON
+  text under this flag. The exit code is unchanged. Background jobs store
+  `request.findingsJson` and `result.structuredRaw`. `result <job-id>
+  --json` and `--show-result` report the same three fields, and `result
+  <job-id>` adds a `Findings: <status>` line. Without the flag, nothing
+  changes. See `docs/COMMANDS.md#review`.
 - **`--expect <text>` on `vision`.** Repeatable, opt-in: after a completed
   run, checks each trimmed value against the answer's `## Transcription`
   section — a substring check on what agy already transcribed, never a

@@ -141,7 +141,9 @@ function sha256Of(text) {
  * build the prompt a second time.
  *
  * @param {{ scope: string, context: any, base?: string | null, headSha?: string | null }} envelope
- * @param {{ focus?: string }} [options]
+ * @param {{ focus?: string, findingsJson?: boolean }} [options] `findingsJson`
+ *   (Senate R7, 2026-09) is passed through to {@link buildReviewPrompt}, so
+ *   `--preview` and `inputHash` see the same prompt a run sends.
  * @returns {{
  *   prompt: string,
  *   included: Array<{ path: string, kind: "diff" | "untracked", bytes: number | null }>,
@@ -154,7 +156,7 @@ function sha256Of(text) {
  *   inputHash: string,
  * }}
  */
-export function buildReviewInput(envelope, { focus } = {}) {
+export function buildReviewInput(envelope, { focus, findingsJson } = {}) {
   const { scope, context, base = null, headSha = null } = envelope;
 
   const diffEntries = buildDiffEntries(context.diff, diffFallbackPaths(scope, context));
@@ -162,7 +164,7 @@ export function buildReviewInput(envelope, { focus } = {}) {
   const included = [...diffEntries, ...untrackedIncluded];
 
   const truncated = diffTruncationInfo(context.diff);
-  const prompt = buildReviewPrompt(envelope, { focus });
+  const prompt = buildReviewPrompt(envelope, { focus, findingsJson });
 
   const counts = {
     includedFiles: included.length,

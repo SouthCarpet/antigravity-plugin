@@ -115,6 +115,9 @@
  * @property {string} [requestFingerprint] sha256 hex over the request's
  *   canonical JSON (`request-id.mjs#requestFingerprint`); present exactly
  *   when `requestId` is
+ * @property {true} [findingsJson] `review --findings-json` (Senate R7,
+ *   2026-09); absent without the flag. The worker forwards `--json-schema`
+ *   for it and fails a job whose stored value is not a boolean.
  */
 
 /**
@@ -142,6 +145,9 @@
  *   event carries a model field. Measured against agy 1.2.11/1.2.12 it never
  *   does, so this is always `null` today; never derived from the model the
  *   caller requested. `null`/absent on legacy records.
+ * @property {string | null} [structuredRaw] additive (Senate R7, 2026-09):
+ *   agy's `structured_output` as JSON text, `null` when agy sent none (every
+ *   run without `review --findings-json`); absent on legacy records.
  */
 
 /**
@@ -259,6 +265,9 @@
  *   see `agent-runtime.mjs#mergeDeniedActions`
  * @property {AgyPrintTimeout | null} [agyPrintTimeout] additive (plan 086
  *   T1); see `agent-runtime.mjs#detectPrintTimeoutTruncation`
+ * @property {unknown} [structured] additive (Senate R7, 2026-09): the
+ *   `result` event's `structured_output` as agy sent it (object or string),
+ *   `null` when absent
  * @property {string | null} [spawnError]
  */
 
@@ -332,6 +341,8 @@
  * @property {string} [effort] agy reasoning effort, one of `AGY_EFFORTS`
  *   (`job-helpers.mjs`); additive (plan 085 T3), forwarded only when given
  * @property {string[]} [extraArgs]
+ * @property {string} [jsonSchemaPath] forwarded as `--json-schema <path>`
+ *   right before `--print-timeout` (Senate R7, 2026-09)
  * @property {string} [bin]
  * @property {NodeJS.ProcessEnv} [env]
  * @property {number} [timeoutMs]
