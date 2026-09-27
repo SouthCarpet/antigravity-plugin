@@ -150,6 +150,7 @@ function reportPromptFileError({ code, message }, json) {
  * @param {{ options: Record<string, string | boolean | string[]>, positionals: string[] }} parsed
  * @param {string} cwd invocation cwd
  * @param {string | undefined} conversationId
+ * @param {boolean} json
  * @returns {Promise<{ ok: true, userPrompt: string, title: string | null } | { ok: false, exitCode: 1 }>}
  */
 async function resolveTaskPromptAndTitle({ options, positionals }, cwd, conversationId, json) {
