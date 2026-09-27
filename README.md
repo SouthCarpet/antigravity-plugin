@@ -139,7 +139,7 @@ flag. `setup` writes user-level files under `~/.gemini`, not the repository.
 | `rescue` | Delegate a prompt in a fresh or resumed conversation. |
 | `task` | Run a delegated prompt, in the background by default. |
 | `vision` | Analyze one or more named image files. |
-| `status` | List jobs or inspect and wait for one job. |
+| `status` | List jobs or inspect and wait for one job, optionally exiting by that job's own outcome (`--exit-status`). |
 | `result` | Read the stored result for a job. |
 | `cancel` | Stop a queued or running job. |
 | `doctor` | Read-only environment and configuration check. No OAuth, no model call, no write, no network. |

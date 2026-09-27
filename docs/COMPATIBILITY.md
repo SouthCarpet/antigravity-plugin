@@ -205,9 +205,10 @@ has command-specific meanings, and this contract preserves that reality.
 
 | Exit status | Current contract |
 |---|---|
-| `0` | The command itself succeeded. For a background launch, this means the job was queued, not that agy completed it. `status --wait` also returns 0 after its timeout and when the observed job ended failed or cancelled, because status retrieval itself succeeded. |
-| `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. |
-| `2` | A cancelled agy outcome from `review`, `rescue`, `task`, or `vision`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. It is therefore not a global “cancelled” code. |
+| `0` | The command itself succeeded. For a background launch, this means the job was queued, not that agy completed it. `status --wait` also returns 0 after its timeout and when the observed job ended failed or cancelled, because status retrieval itself succeeded (unless `--exit-status` is given; see the `3` row). |
+| `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. `status --exit-status` uses 1 for a `failed` waited job. |
+| `2` | A cancelled agy outcome from `review`, `rescue`, `task`, or `vision`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. `status --exit-status` uses 2 for a `cancelled` waited job. It is therefore not a global “cancelled” code. |
+| `3` | `status <id> --wait --exit-status` only (added 2026-09): the wait's own deadline passed while the job was still `queued`/`running`. No other command uses this value. |
 | `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy. |
 | other nonzero | `setup` passes through the exit status of its interactive agy OAuth probe. No meaning beyond “setup failed” is promised for that upstream value. |
 
@@ -224,6 +225,19 @@ standalone dispatcher return 1.
 No stronger exit-code taxonomy is implied. In particular, callers must not
 interpret every 2 as cancellation. See [COMMANDS.md](./COMMANDS.md) for the
 per-verb details.
+
+The opt-in exception (added 2026-09): passing `--exit-status` alongside a
+job reference and `--wait` on `status` (`status <id> --wait --exit-status`)
+makes the exit code report that job's own outcome instead of the plain
+retrieval-succeeded `0` above: `0` completed, `1` failed, `2` cancelled, or
+`3` when the wait's own deadline passes first with the job still
+`queued`/`running` (with one added stderr line naming the id and its live
+status). `--exit-status` requires both the job reference and `--wait`;
+missing either is refused before any job lookup, stderr only, exit 1.
+Markdown and `--json` output are unchanged by this flag in every case; only
+the exit code, and, on the timeout outcome, that one stderr line, differ
+from a call without it. See
+[`docs/COMMANDS.md`](./COMMANDS.md#status) for the full table.
 
 ## Output contract
 

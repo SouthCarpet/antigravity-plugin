@@ -97,6 +97,9 @@ const COMMAND_HELP = {
     'Flags:\n' +
     '  --wait                  block until terminal state\n' +
     '  --timeout-ms <ms>       override wait timeout (default 15m)\n' +
+    '  --exit-status           with a job id and --wait, exit by that job\'s\n' +
+    '                          own outcome (0/1/2, or 3 on wait timeout)\n' +
+    '                          instead of the usual 0\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   result:

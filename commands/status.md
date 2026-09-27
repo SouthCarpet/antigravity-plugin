@@ -1,6 +1,6 @@
 ---
 description: Show active and recent Antigravity jobs for this repository
-argument-hint: '[job-id] [--wait] [--timeout-ms <ms>] [--json]'
+argument-hint: '[job-id] [--wait] [--timeout-ms <ms>] [--exit-status] [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*)
 ---

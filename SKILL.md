@@ -26,7 +26,7 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 | `rescue` | Delegates an investigation or fix to agy, for example `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. Supports `--model <id>`, `--effort <low|medium|high|agy-default>`, and (with `--background --wait`) `--show-result`. |
 | `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--model <id>`, `--effort <low|medium|high|agy-default>`, `--show-result` (with `--wait`, on the background path), `--json`. |
 | `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
-| `status` | Shows current and recent jobs for this repository. Surfaces any pending OAuth URL prominently. |
+| `status` | Shows current and recent jobs for this repository. Surfaces any pending OAuth URL prominently. With a job id and `--wait`, `--exit-status` exits by that job's own outcome instead of the usual 0. |
 | `result` | Prints the final output of a completed job by id. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
 | `doctor` | Read-only environment and configuration check: Node version, the agy binary and version, which forwarded flags `agy --help` lists, the vision configuration, and the job-state root. Never runs OAuth, never calls a model, never writes a file, never opens the network. |

@@ -5,6 +5,8 @@
  * Flags:
  *   --wait        block until the job (or all active jobs) reach terminal state.
  *   --timeout-ms <ms>  override the wait timeout (default 15m).
+ *   --exit-status opt-in: exit by the waited job's own outcome instead of
+ *                 the usual 0 (requires a job id and --wait).
  *   --json        emit JSON instead of markdown.
  */
 
@@ -22,7 +24,12 @@ import {
 } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { readUpdateNotice } from "../lib/update.mjs";
-import { classifyStateError, deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
+import {
+  classifyStateError,
+  deniedActionsWithRemedy,
+  exitCodeForJobStatus,
+  reportArgsValidationError,
+} from "../lib/job-helpers.mjs";
 import { getConfig } from "../lib/state.mjs";
 import { classifyAgyVersion, LAST_MEASURED_AGY_VERSION } from "../lib/compat.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
@@ -40,7 +47,7 @@ const POLL_MS = 1000;
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["timeout-ms", "cwd"],
-    booleanOptions: ["wait", "json"],
+    booleanOptions: ["wait", "json", "exit-status"],
   }, "status");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
@@ -48,6 +55,10 @@ export async function run(argv = [], ctx = {}) {
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const reference = positionals[0] ?? null;
   const json = Boolean(options.json);
+  const exitStatus = Boolean(options["exit-status"]);
+  if (exitStatus && (!reference || !options.wait)) {
+    return reportArgsValidationError("status", "--exit-status requires a job id and --wait");
+  }
   const builders = {
     all: ctx.buildStatusSnapshot ?? buildStatusSnapshot,
     single: ctx.buildSingleJobSnapshot ?? buildSingleJobSnapshot,
@@ -61,7 +72,7 @@ export async function run(argv = [], ctx = {}) {
         const rendered = renderSingleJobStatus(finished);
         maybeAnnotateOAuth(finished.job);
         outputCommandResult(statusEnvelope(finished), rendered, json);
-        return 0;
+        return exitStatus ? exitStatusOutcome(finished.job) : 0;
       }
       const rendered = renderSingleJobStatus(snapshot);
       maybeAnnotateOAuth(snapshot.job);
@@ -127,6 +138,26 @@ function withDenialRemedies(snapshot) {
   const list = deniedActionsWithRemedy(snapshot?.job?.deniedActions, snapshot?.job?.kind);
   if (!list) return snapshot;
   return { ...snapshot, job: { ...snapshot.job, deniedActions: list } };
+}
+
+/**
+ * Map `--exit-status`'s post-wait outcome onto the process exit code (Task
+ * 8, "Senate R10", 2026-09): a terminal job's status feeds the same
+ * {@link exitCodeForJobStatus} every other verb uses (0 completed, 1
+ * failed, 2 cancelled); a job still `queued`/`running` once the wait
+ * deadline passed prints one stderr line and exits 3. The snapshot's own
+ * output (already written by the caller) is unaffected either way.
+ *
+ * @param {import('../lib/types.mjs').JobRecord} job
+ * @returns {number}
+ */
+function exitStatusOutcome(job) {
+  const status = job.status;
+  if (status === "completed" || status === "failed" || status === "cancelled") {
+    return exitCodeForJobStatus(status);
+  }
+  process.stderr.write(`antigravity:status — wait timed out; job ${job.id} is still ${status}.\n`);
+  return 3;
 }
 
 function statusEnvelope(snapshot) {

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--exit-status` on `status <id> --wait`.** Opt-in: requires both a job
+  reference and `--wait` (an argument error otherwise, `--exit-status
+  requires a job id and --wait`, before any job lookup). With the flag,
+  `status` exits by the waited job's own outcome instead of the usual 0: 0
+  completed, 1 failed, 2 cancelled, and a new 3 when the wait's own
+  deadline passes first with the job still `queued`/`running` (one added
+  stderr line names the id and its live status). Without the flag, `status
+  --wait` is unchanged: always 0. Markdown and `--json` output are
+  identical either way. See `docs/COMMANDS.md#status`.
 - **`--show-result` after a background `--wait`, on `review`, `rescue`, and
   `task`.** Opt-in: requires `--wait` (an argument error otherwise,
   `--show-result requires --wait`), and on `review`/`rescue` also requires

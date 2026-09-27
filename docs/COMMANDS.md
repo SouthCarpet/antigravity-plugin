@@ -596,7 +596,7 @@ of an empty stdout body; the stderr line is unchanged either way.
 ## `status`
 
 ```text
-status [<job-reference>] [--wait] [--timeout-ms <ms>]
+status [<job-reference>] [--wait] [--timeout-ms <ms>] [--exit-status]
        [--json] [--cwd <path>]
 ```
 
@@ -631,12 +631,32 @@ is `worker_missing`; persisted diagnostic states such as `auth_required`,
 - `--timeout-ms` applies only with `--wait` and defaults to 900000 (15 minutes).
   Polling is once per second. This observation deadline is independent of the
   agy execution budget; reaching it does not terminate the job and still
-  returns exit 0.
+  returns exit 0, unless `--exit-status` is given (see below).
+- `--exit-status` (added 2026-09) is opt-in and requires both a job
+  reference and `--wait`; without either, it is refused before any job
+  lookup: `antigravity:status — --exit-status requires a job id and --wait`
+  (stderr only, exit 1). The recent list is truncated to eight jobs, so a
+  list-wide judgement would be wrong; this is why the flag needs one named
+  job, not the plain list. With the flag, `status <id> --wait` exits by
+  that job's own outcome instead of the usual 0:
+
+  | Outcome | Exit |
+  |---|---|
+  | `completed` | `0` |
+  | `failed` | `1` |
+  | `cancelled` | `2` |
+  | wait deadline passed, job still `queued`/`running` | `3` |
+
+  The `3` case also prints one stderr line: `antigravity:status — wait
+  timed out; job <id> is still <status>.` Markdown and `--json` output are
+  identical with and without `--exit-status`; only the exit code (and, on
+  the timeout outcome, that one stderr line) differs.
 
 Status returns 0 whenever it successfully produces a snapshot, including
 after the wait timeout and when the observed terminal status is failed or
-cancelled. It returns 1 when state cannot be read or a reference cannot be
-resolved. It does not return 2 for a cancelled job.
+cancelled, unless `--exit-status` changes this per the table above. It
+returns 1 when state cannot be read or a reference cannot be resolved. It
+does not return 2 for a cancelled job outside of `--exit-status`.
 
 Once `--json` is accepted, a reference that resolves to no job, or lock
 contention on the job state, emits one `state_error` error envelope
