@@ -205,7 +205,7 @@ has command-specific meanings, and this contract preserves that reality.
 
 | Exit status | Current contract |
 |---|---|
-| `0` | The command itself succeeded. For a background launch, this means the job was queued, not that agy completed it. `status --wait` also returns 0 after its timeout and when the observed job ended failed or cancelled, because status retrieval itself succeeded (unless `--exit-status` is given; see the `3` row). |
+| `0` | The command itself succeeded. For a background launch, this means the job was queued, not that agy completed it; with `--request-id`, it can also mean that an existing job was found for the same request. `status --wait` also returns 0 after its timeout and when the observed job ended failed or cancelled, because status retrieval itself succeeded (unless `--exit-status` is given; see the `3` row). |
 | `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. `status --exit-status` uses 1 for a `failed` waited job. |
 | `2` | A cancelled agy outcome from `review`, `rescue`, `task`, or `vision`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. `status --exit-status` uses 2 for a `cancelled` waited job. It is therefore not a global “cancelled” code. |
 | `3` | `status <id> --wait --exit-status` only (added 2026-09): the wait's own deadline passed while the job was still `queued`/`running`. No other command uses this value. |
@@ -268,7 +268,7 @@ fields in envelope version 1:
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
 | `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 2.x; consumers must tolerate additions, removals, and changes within it. |
@@ -349,6 +349,9 @@ success must now read `status` (and, on a failure, `details.error.code`).
   diff; `details.skipped` and `details.truncated` carry the same lists
   `--preview` would have shown)
 - `missing_task_text` (`invalid_input`, phase `validate`; `task`/`rescue`)
+- `request_id_conflict` (`invalid_input`, phase `validate`; `task`/`rescue`
+  background dispatch whose `--request-id` another request already uses;
+  `details.existingJobId` names that job, `jobId` is `null`; added 2026-09)
 - `invalid_focus` (`invalid_input`, phase `validate`; `review` only, for an
   empty/whitespace-only or over-500-character `--focus`)
 - `missing_image_path`, `image_not_found`, `unsupported_image_extension`,
@@ -645,6 +648,15 @@ The `state.json.corrupt-*` sibling is additive and appears only when
 kept while the plugin rebuilds `state.json` from valid `jobs/*.json` records;
 the persistent state and job locations themselves do not move.
 
+`state.json` can hold a `requestIds` object (additive, 2026-09):
+`{ "<request-id>": { "jobId", "fingerprint", "createdAt" } }`. It is
+written only after a background job was started with `--request-id` (see
+[`--request-id`](./COMMANDS.md#--request-id-task-and-rescue)). A
+`state.json` without it reads as an empty map. An entry is removed when the
+history limit drops its job. When `state.json` is rebuilt from
+`jobs/*.json`, the map is rebuilt from the job files whose stored request
+has both `requestId` and `requestFingerprint`.
+
 The state root is selected from the first non-empty variable in this exact
 order:
 
@@ -663,6 +675,8 @@ workspace lock directories live under
 If a 2.x release moves or changes persistent state, it must preserve access to
 existing jobs, including jobs written by 1.x, through automatic migration or a
 compatibility read path.
+The `requestIds` map follows this rule: an index without it reads as an
+empty map, and a rebuilt index recreates it from the job files.
 It must not silently orphan existing state. A manual migration may be required
 only when automatic migration cannot be made safe, and must be documented in
 the release notes before the new location becomes the default.
@@ -961,6 +975,23 @@ meaning:
   classifies the same way: `antigravity:status — agy <v> (seen <date>) is
   newer than the last measured version <newest>.` `status <id>` never
   prints it, and `status` never calls agy to produce it.
+- **`--request-id <id>`** (additive, 2026-09): an opt-in idempotency key
+  on `task` (background path) and `rescue --background`. See
+  [`--request-id`](./COMMANDS.md#--request-id-task-and-rescue). A
+  foreground run, or an id outside 1 to 128 characters from
+  `[A-Za-z0-9._-]`, is an argument error: stderr only, exit 1.
+- `request.requestId` and `request.requestFingerprint` (additive,
+  2026-09): on a job record started with `--request-id`, the id and the
+  sha256 hex fingerprint of the request. Absent on every other job record.
+- `details.deduplicated` (additive, 2026-09): `true` on the envelope that a
+  repeated `--request-id` call prints for the existing job. `status` is the
+  current status of that job and the exit code is 0. Absent on every other
+  envelope.
+- `request_id_conflict` (additive, 2026-09): the error code for a
+  `--request-id` that another request already uses; see the error code
+  list above.
+- `requestIds` in `state.json` (additive, 2026-09): see
+  [Job state and configuration locations](#job-state-and-configuration-locations).
 
 ### Structured output flag
 

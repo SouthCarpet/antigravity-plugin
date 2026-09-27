@@ -10,6 +10,7 @@
  *   repeatableOptions?: string[],
  *   valueChoices?: Record<string, string[]>,
  *   conflicts?: string[][],
+ *   validate?: (options: Record<string, string | boolean | string[]>) => void,
  * }} ArgSchema
  *
  * Repeatable-option contract:
@@ -20,6 +21,10 @@
  *
  * `valueChoices` restricts a scalar value option to the listed strings; any
  * other value throws {@link ArgsError} naming the flag and the choices.
+ *
+ * `validate` runs last, on the parsed options, and may throw
+ * {@link ArgsError} for a rule the declarative keys cannot express (for
+ * example a flag that only applies on one run mode).
  *
  * @typedef {{ options: Record<string, string | boolean | string[]>, positionals: string[] }} ParsedArgs
  */
@@ -160,6 +165,7 @@ export function parseArgs(argv, schema = {}) {
   const { options, positionals } = collectOptionsAndPositionals(argv, sets);
   applyConflicts(options, schema.conflicts ?? []);
   applyValueChoices(options, schema.valueChoices ?? {});
+  schema.validate?.(options);
   return { options, positionals };
 }
 

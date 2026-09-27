@@ -331,7 +331,7 @@ of an empty stdout body; the stderr line is unchanged either way.
 
 ```text
 rescue <prompt...>
-       [--background] [--wait] [--show-result]
+       [--background] [--wait] [--show-result] [--request-id <id>]
        [--resume] [--continue] [--fresh] [--conversation <id>]
        [--add-dir <path>]... [--mode <plan|accept-edits>]
        [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
@@ -391,6 +391,11 @@ task text as one argument to preserve its boundaries.
   flags, with the same two argument errors and the same stderr-only queued
   notice as `review`'s `--show-result` above. See
   [`--show-result`](#--show-result-all-three-verbs) below.
+- `--request-id <id>` (additive) makes a background dispatch idempotent: a
+  repeat of the same request with the same id reports the existing job and
+  starts nothing. It needs `--background`; without it, the flag is refused
+  with `--request-id applies to background jobs only`. See
+  [`--request-id`](#--request-id-task-and-rescue) below.
 
 On a completed run (foreground, or an awaited `--background --wait` run), if
 agy reported measured usage the stable usage trailer (see [Usage
@@ -410,7 +415,7 @@ background job whose worker never started reports the same way.
 
 ```text
 task <prompt...>
-     [--background | --foreground] [--wait] [--show-result]
+     [--background | --foreground] [--wait] [--show-result] [--request-id <id>]
      [--continue | --conversation <id>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
      [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
@@ -435,6 +440,11 @@ required unless `--continue` or `--conversation` is supplied.
   `--show-result requires --wait` message an absent `--wait` gets, because
   foreground has no `--wait` semantics at all. See
   [`--show-result`](#--show-result-all-three-verbs) below.
+- `--request-id <id>` (additive) makes the background dispatch idempotent:
+  a repeat of the same request with the same id reports the existing job
+  and starts nothing. With `--foreground`, the flag is refused with
+  `--request-id applies to background jobs only`. See
+  [`--request-id`](#--request-id-task-and-rescue) below.
 - `--continue` resumes the most recent conversation and conflicts with
   `--conversation <id>`.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
@@ -508,6 +518,52 @@ alike; and after the wait, one of four outcomes is reported:
 
 `--show-result` takes no `--head`/`--tail`; the printed or returned answer is
 always the complete stored text.
+
+### `--request-id` (task and rescue)
+
+`--request-id <id>` is an opt-in idempotency key for a background dispatch:
+`task` on its default background path, and `rescue --background`. A caller
+that does not know if its first call went through (for example after a lost
+connection or a host restart) can send the same call again, and no second
+agy run starts.
+
+The id is 1 to 128 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, and `-`.
+Any other value is an argument error that names the flag. On
+`task --foreground`, or on `rescue` without `--background`, the flag is
+refused with `--request-id applies to background jobs only`. Both refusals
+are stderr only, exit 1, before agy is probed and before a job exists.
+
+An id is scoped to the workspace's job state directory. The plugin stores a
+fingerprint of the request with the job: a sha256 hash over the verb, the
+prompt, the conversation mode and id, the `--add-dir` values, the agy mode
+arguments, `--model`, the effective effort, and the workspace root. The
+claim of the id and the creation of its job happen under one state lock, so
+two concurrent calls with the same id create one job. There are three
+outcomes:
+
+- **New id**: the job is created and dispatched as without the flag, with
+  the same queued envelope. The stored request of the job adds `requestId`
+  and `requestFingerprint`.
+- **Same id, same request**: no job is created and no worker starts. The
+  plugin prints a queued-style envelope for the existing job: `status` is
+  the current status of that job (for example `"queued"`, `"running"`, or
+  `"completed"`), `jobId` is its id, and `details` holds
+  `deduplicated: true` and `message`. Text mode prints
+  `Background <verb> already started for request id <id>: <job-id>` and the
+  status hint. Exit 0, whatever that status is. `--wait` then waits on the
+  existing job, and `--show-result` reports it, the same as for a new job;
+  with `--show-result` the notice goes to stderr.
+- **Same id, different request**: no job is created and no worker starts.
+  One stderr line names the id and the existing job. `--json` prints the
+  error envelope with `status: "invalid_input"`,
+  `error.code: "request_id_conflict"`, phase `validate`, and
+  `details.existingJobId`. Exit 1.
+
+The plugin never retries a call by itself. A job that failed to start keeps
+its id: a repeat reports it as deduplicated with `status: "failed"`. An id
+stays claimed while its job stays in the job history; when the history
+limit drops the job, the id is free again. Without `--request-id`, dispatch
+is unchanged and the job record has no request id fields.
 
 ## `vision`
 

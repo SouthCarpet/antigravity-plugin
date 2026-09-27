@@ -1,6 +1,6 @@
 ---
 description: Free-form Antigravity task with state tracking (background by default)
-argument-hint: '[--wait] [--foreground] [--show-result] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
+argument-hint: '[--wait] [--foreground] [--show-result] [--request-id <id>] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -22,6 +22,7 @@ Flags:
 - `--wait` block until the worker finishes and stream its final output.
 - `--foreground` run inline instead of forking a worker.
 - `--show-result` requires `--wait`; refused the same way with `--foreground` too, since foreground has no `--wait` semantics. After the wait, prints the finished job's own result instead of the queued dispatch notice; that notice moves to stderr instead.
+- `--request-id <id>` makes the background dispatch idempotent. A repeat of the same request with the same id reports the existing job (`deduplicated: true`) and starts nothing; the same id with a different request is refused (`request_id_conflict`, exit 1). The id is 1 to 128 characters from `A-Z a-z 0-9 . _ -`. Refused with `--foreground`.
 - `--continue` resume the most recent agy conversation.
 - `--conversation <id>` resume a specific conversation.
 - `--add-dir <path>` extra workspace directory (repeatable).

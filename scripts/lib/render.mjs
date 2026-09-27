@@ -88,6 +88,9 @@ export const ERROR_CODES = Object.freeze([
   "image_not_found",
   "unsupported_image_extension",
   "image_too_large",
+  // invalid_input, phase validate (task/rescue background): --request-id
+  // already claimed by a different request (Senate R12, 2026-09)
+  "request_id_conflict",
   // state_error, phase state (status/result/cancel)
   "job_not_found",
   "job_not_ready",

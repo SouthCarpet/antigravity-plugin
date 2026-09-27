@@ -64,6 +64,8 @@ const COMMAND_HELP = {
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --show-result           after --wait, print the finished job instead of\n' +
     '                          the dispatch envelope (needs --wait --background)\n' +
+    '  --request-id <id>       idempotent dispatch: a repeat of the same request\n' +
+    '                          reports the existing job (needs --background)\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   task:
@@ -79,6 +81,8 @@ const COMMAND_HELP = {
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --show-result           after a background --wait, print the finished\n' +
     '                          job instead of the dispatch envelope (needs --wait)\n' +
+    '  --request-id <id>       idempotent dispatch: a repeat of the same request\n' +
+    '                          reports the existing job (not with --foreground)\n' +
     '  --json                  emit JSON\n' +
     '  --cwd <path>            override working directory',
   vision:

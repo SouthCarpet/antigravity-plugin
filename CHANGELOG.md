@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--request-id <id>` on `task` and `rescue --background`.** Opt-in
+  idempotent background dispatch. The id is 1 to 128 characters from
+  `[A-Za-z0-9._-]`; any other value, or a foreground run (`task
+  --foreground`, `rescue` without `--background`), is an argument error
+  (`--request-id applies to background jobs only`), stderr only, exit 1.
+  The plugin stores a sha256 fingerprint of the request (verb, prompt,
+  conversation mode and id, `--add-dir` values, agy mode arguments, model,
+  effort, workspace root) as `request.requestFingerprint` next to
+  `request.requestId`, and maps the id to its job in `state.json`'s new
+  `requestIds` object. The claim and the job creation share one state
+  lock, so two concurrent calls with one id create one job. A repeat with
+  the same request starts nothing and prints the existing job's envelope
+  with its current `status` and `details.deduplicated: true`, exit 0
+  (`--wait` then waits on that job). A repeat with a different request
+  starts nothing and fails with `invalid_input` / `request_id_conflict`
+  and `details.existingJobId`, exit 1. A rebuilt `state.json` recreates the
+  map from the job files. No automatic retry. Without the flag, nothing
+  changes. See `docs/COMMANDS.md#--request-id-task-and-rescue`.
 - **`--exit-status` on `status <id> --wait`.** Opt-in: requires both a job
   reference and `--wait` (an argument error otherwise, `--exit-status
   requires a job id and --wait`, before any job lookup). With the flag,

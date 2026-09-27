@@ -17,12 +17,15 @@ import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
+  claimRequestId,
   resolveJobLogFile,
   patchJobState,
+  patchJobStateUnlocked,
   readJobFile,
   getConfig,
   setConfig,
 } from "./state.mjs";
+import { requestFingerprint } from "./request-id.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
 import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
@@ -570,6 +573,80 @@ export function reportQueuedJob(kind, job, options) {
 }
 
 /**
+ * Report a `--request-id` dispatch that found the id already claimed with
+ * the same request (Senate R12, 2026-09): the existing job's queued-style
+ * envelope, carrying that job's current status and
+ * `details.deduplicated: true`. Under `--show-result` the notice goes to
+ * stderr instead, as {@link reportQueuedJob} does for a new job.
+ *
+ * @param {string} kind verb name
+ * @param {import('./types.mjs').JobIndexEntry} job the existing job's index entry
+ * @param {{ json?: boolean, "show-result"?: boolean, "request-id"?: string }} options
+ * @returns {void}
+ */
+function reportDeduplicatedJob(kind, job, options) {
+  const requestId = options["request-id"];
+  if (options["show-result"]) {
+    process.stderr.write(`Background ${kind} already started for request id ${requestId}: ${job.id}\n`);
+    return;
+  }
+  const message = `Background ${kind} already started for request id ${requestId}: ${job.id}. ` +
+    `Run /antigravity:status ${job.id} to check progress.`;
+  outputCommandResult(
+    createJsonEnvelope(kind, { status: job.status, jobId: job.id, details: { deduplicated: true, message } }),
+    `Background ${kind} already started for request id ${requestId}: ${job.id}\n` +
+      `Run /antigravity:status ${job.id} to check progress.\n`,
+    Boolean(options.json),
+  );
+}
+
+/**
+ * Report a `--request-id` dispatch that found the id already claimed by a
+ * different request (Senate R12, 2026-09): one stderr line plus the
+ * `invalid_input` / `request_id_conflict` envelope under `--json`. No job
+ * was created and nothing is retried.
+ *
+ * @param {string} kind verb name
+ * @param {string} existingJobId
+ * @param {{ json?: boolean, "request-id"?: string }} options
+ * @returns {1}
+ */
+function reportRequestIdConflict(kind, existingJobId, options) {
+  const message = `--request-id ${options["request-id"]} is already used by job ${existingJobId} for a different request`;
+  process.stderr.write(`antigravity:${kind} — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: "invalid_input",
+      error: { code: "request_id_conflict", phase: "validate", message },
+      details: { existingJobId },
+    }),
+    "",
+    Boolean(options.json),
+  );
+  return 1;
+}
+
+/**
+ * Report what {@link startBackgroundJob} returned, for `task` and
+ * `rescue --background`: a new job goes through {@link reportQueuedJob}
+ * unchanged; a `--request-id` claim that found an existing job reports it
+ * as deduplicated or as a conflict (Senate R12, 2026-09).
+ *
+ * @param {string} kind verb name
+ * @param {Awaited<ReturnType<typeof startBackgroundJob>>} started
+ * @param {{ json?: boolean, "show-result"?: boolean, "request-id"?: string }} options
+ * @returns {{ exit: number | null, jobId: string | null }} `exit` is null
+ *   when the caller continues (e.g. to an optional `--wait` on `jobId`)
+ */
+export function reportBackgroundStart(kind, started, options) {
+  const claim = started.requestClaim;
+  if (!claim) return { exit: reportQueuedJob(kind, started.job, options), jobId: started.job.id };
+  if (claim.outcome === "conflict") return { exit: reportRequestIdConflict(kind, claim.jobId, options), jobId: null };
+  reportDeduplicatedJob(kind, claim.job, options);
+  return { exit: null, jobId: claim.jobId };
+}
+
+/**
  * Print the finished job's raw output on stdout when a text-mode `--wait`
  * completed: `task --wait`'s own behaviour since before `--show-result`
  * existed, and (Task 7, "Senate R9", 2026-09) also `review`/`rescue --wait
@@ -1013,18 +1090,52 @@ function buildJobProvenance({ agyVersion, request, requestedAt }) {
 }
 
 /**
+ * @typedef {{ workspaceRoot: string, kind: import('./types.mjs').JobKind,
+ *   title?: string | null, request?: import('./types.mjs').JobRequest | null,
+ *   conversationId?: string | null, env?: NodeJS.ProcessEnv,
+ *   agyVersion?: string | null }} TrackedJobOptions
+ */
+
+/**
  * Create a tracked job record on disk.
  *
  * Returns the job index entry. The detailed payload (request, result,
  * stdout) lives in the per-job file written via `writeJobFile`.
  *
- * @param {{ workspaceRoot: string, kind: import('./types.mjs').JobKind,
- *   title?: string | null, request?: import('./types.mjs').JobRequest | null,
- *   conversationId?: string | null, env?: NodeJS.ProcessEnv,
- *   agyVersion?: string | null }} options
+ * @param {TrackedJobOptions} options
  * @returns {Promise<import('./types.mjs').JobIndexEntry>}
  */
-export async function createTrackedJob({
+export async function createTrackedJob(options) {
+  const { job, detail } = buildTrackedJob(options);
+  await patchJob(options.workspaceRoot, job.id, detail);
+  appendJobLog(options.workspaceRoot, job.id, `[job] created kind=${job.kind}`);
+  return job;
+}
+
+/**
+ * {@link createTrackedJob} for a caller that already holds the workspace
+ * mutex: `state.mjs#claimRequestId` runs this as its `createJob` callback,
+ * so the `--request-id` claim and the job it creates share one locked
+ * critical section (Senate R12, 2026-09). Same record, same log line.
+ *
+ * @param {TrackedJobOptions} options
+ * @returns {import('./types.mjs').JobIndexEntry}
+ */
+function createTrackedJobUnlocked(options) {
+  const { job, detail } = buildTrackedJob(options);
+  patchJobStateUnlocked(options.workspaceRoot, job.id, detail, stripDetail(detail));
+  appendJobLog(options.workspaceRoot, job.id, `[job] created kind=${job.kind}`);
+  return job;
+}
+
+/**
+ * The new job's index entry and its full detail record (the entry plus
+ * `request` and a `null` `result`), not yet written anywhere.
+ *
+ * @param {TrackedJobOptions} options
+ * @returns {{ job: import('./types.mjs').JobIndexEntry, detail: import('./types.mjs').JobRecord }}
+ */
+function buildTrackedJob({
   workspaceRoot,
   kind,
   title,
@@ -1054,13 +1165,7 @@ export async function createTrackedJob({
     logFile: resolveJobLogFile(workspaceRoot, id),
     provenance: buildJobProvenance({ agyVersion, request, requestedAt: now }),
   };
-  await patchJob(workspaceRoot, id, {
-    ...job,
-    request,
-    result: null,
-  });
-  appendJobLog(workspaceRoot, id, `[job] created kind=${kind}`);
-  return job;
+  return { job, detail: { ...job, request, result: null } };
 }
 
 /**
@@ -1691,8 +1796,34 @@ function buildBackgroundRequest({ prompt, mode, conversationId, addDirs, extraAr
 }
 
 /**
+ * Create the background job, claiming `requestId` first when one is given
+ * (Senate R12, 2026-09). Without an id this is exactly
+ * {@link createTrackedJob}. With one, the stored request gains
+ * `requestId` and `requestFingerprint`, and the claim plus the job creation
+ * run in one locked critical section (`state.mjs#claimRequestId`).
+ *
+ * @param {TrackedJobOptions & { request: import('./types.mjs').JobRequest }} jobOptions
+ * @param {string | null} requestId
+ * @returns {Promise<{ outcome: "created" | "deduplicated" | "conflict", jobId?: string,
+ *   job: import('./types.mjs').JobIndexEntry }>}
+ */
+async function createBackgroundJob(jobOptions, requestId) {
+  if (!requestId) return { outcome: "created", job: await createTrackedJob(jobOptions) };
+  const { workspaceRoot, kind } = jobOptions;
+  const fingerprint = requestFingerprint({ ...jobOptions.request, kind, cwd: workspaceRoot });
+  const request = { ...jobOptions.request, requestId, requestFingerprint: fingerprint };
+  return claimRequestId(workspaceRoot, requestId, fingerprint, () => createTrackedJobUnlocked({ ...jobOptions, request }));
+}
+
+/**
  * Fire-and-forget a background worker that will run the prompt with the
  * given mode. Returns the queued job index entry.
+ *
+ * With `requestId` (`--request-id`, Senate R12, 2026-09) an id this
+ * workspace already claimed spawns nothing and returns `{ job: null, pid:
+ * null, requestClaim }`, where `requestClaim` is `claimRequestId`'s
+ * `deduplicated` or `conflict` outcome. No automatic retry happens on any
+ * path.
  *
  * The worker script lives at scripts/commands/_worker.mjs and is invoked as
  * `node <worker.mjs> <jobId> <workspaceRoot>`.
@@ -1702,8 +1833,10 @@ function buildBackgroundRequest({ prompt, mode, conversationId, addDirs, extraAr
  *   request?: object | null, env?: NodeJS.ProcessEnv,
  *   agyVersion?: string | null, spawnWorker?: typeof spawn,
  *   persistWorkerPid?: typeof patchJob,
- *   terminateTree?: typeof terminateProcessTree }} options
- * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
+ *   terminateTree?: typeof terminateProcessTree, requestId?: string | null }} options
+ * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry | null, pid: number | null,
+ *   requestClaim?: { outcome: "deduplicated" | "conflict", jobId: string,
+ *   job: import('./types.mjs').JobIndexEntry } }>}
  */
 export async function startBackgroundJob({
   workspaceRoot,
@@ -1721,8 +1854,9 @@ export async function startBackgroundJob({
   spawnWorker = spawn,
   persistWorkerPid = patchJob,
   terminateTree = terminateProcessTree,
+  requestId = null,
 }) {
-  const job = await createTrackedJob({
+  const claim = await createBackgroundJob({
     workspaceRoot,
     kind,
     title,
@@ -1730,8 +1864,24 @@ export async function startBackgroundJob({
     conversationId,
     env,
     agyVersion,
-  });
+  }, requestId);
+  if (claim.outcome !== "created") return { job: null, pid: null, requestClaim: claim };
+  return launchWorker(workspaceRoot, claim.job, { env, spawnWorker, persistWorkerPid, terminateTree });
+}
 
+/**
+ * Spawn the detached worker for a freshly created job and record its PID;
+ * on a launch failure, mark the job `failed` instead. Split out of
+ * {@link startBackgroundJob} so that function stays under the complexity
+ * ceiling.
+ *
+ * @param {string} workspaceRoot
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {{ env: NodeJS.ProcessEnv, spawnWorker: typeof spawn,
+ *   persistWorkerPid: typeof patchJob, terminateTree: typeof terminateProcessTree }} deps
+ * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
+ */
+async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorkerPid, terminateTree }) {
   const workerPath = resolveWorkerPath();
   let child;
   let spawned = false;

@@ -110,6 +110,11 @@
  *   086 T2 added the `medium` default when the caller passes none; plan 086
  *   T5i added the sentinel). Records written before 086 T2 have no
  *   `request.effort` field.
+ * @property {string} [requestId] the caller's `--request-id` (Senate R12,
+ *   2026-09, background `task`/`rescue` only); absent without the flag
+ * @property {string} [requestFingerprint] sha256 hex over the request's
+ *   canonical JSON (`request-id.mjs#requestFingerprint`); present exactly
+ *   when `requestId` is
  */
 
 /**

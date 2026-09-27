@@ -20,6 +20,11 @@
  *   --show-result         after a background --wait completes, print the
  *                         finished job's own result instead of the dispatch
  *                         envelope (requires --wait and --background)
+ *   --request-id <id>     idempotent background dispatch (requires
+ *                         --background): a repeat of the same request with
+ *                         the same id reports the existing job instead of
+ *                         starting a new one; the same id with a different
+ *                         request is refused
  *   --json                emit JSON instead of markdown
  */
 
@@ -35,7 +40,7 @@ import {
   reportAgyUnavailable,
   reportArgsValidationError,
   reportMissingTaskText,
-  reportQueuedJob,
+  reportBackgroundStart,
   resolveRequestEffort,
   runForegroundJob,
   runForegroundWithRetryPrompt,
@@ -45,6 +50,7 @@ import {
   waitForJob,
 } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+import { validateRequestIdOption } from "../lib/request-id.mjs";
 
 /**
  * Resolve conversation mode: `--conversation` wins; then `--resume`/
@@ -81,7 +87,7 @@ async function runRescueForeground({ workspaceRoot, title, prompt, mode, convers
 }
 
 async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, options, ctx }) {
-  const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
+  const started = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "rescue",
     title,
@@ -93,11 +99,12 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
     cwd: workspaceRoot,
     agyVersion,
     request: { mode, addDirs, model, effort },
+    requestId: options["request-id"] ?? null,
   });
-  const queuedExit = reportQueuedJob("rescue", job, options);
-  if (queuedExit !== null) return queuedExit;
+  const { exit, jobId } = reportBackgroundStart("rescue", started, options);
+  if (exit !== null) return exit;
   if (!options.wait) return 0;
-  return waitAndReport("rescue", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob, {
+  return waitAndReport("rescue", workspaceRoot, jobId, ctx.waitForJob ?? waitForJob, {
     json: Boolean(options.json),
     showResult: Boolean(options["show-result"]),
   });
@@ -111,7 +118,7 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "model", "cwd", "add-dir", "mode", "effort"],
+    valueOptions: ["conversation", "model", "cwd", "add-dir", "mode", "effort", "request-id"],
     booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
@@ -122,6 +129,7 @@ export async function run(argv = [], ctx = {}) {
       ["fresh", "continue"],
       ["fresh", "conversation"],
     ],
+    validate: (options) => validateRequestIdOption(options, "rescue"),
   }, "rescue");
   if (!parsed) return 1;
   const { options, positionals } = parsed;

@@ -5,6 +5,8 @@
  * Directory layout:
  *   <stateRoot>/<slug>-<hash>/
  *     state.json        — global config + job index
+ *                         (plus `requestIds` once a background job used
+ *                         `--request-id`)
  *     jobs/
  *       <job-id>.json   — full job record
  *       <job-id>.log    — timestamped progress log
@@ -233,6 +235,47 @@ function readStateIndex(cwd) {
   };
 }
 
+/**
+ * The `requestIds` map (Senate R12, 2026-09): `{ [requestId]: { jobId,
+ * fingerprint, createdAt } }`. A `state.json` written before it existed, or
+ * one without any claimed id, has no key and reads as `{}`.
+ *
+ * @param {{ requestIds?: unknown } | null | undefined} state
+ * @returns {Record<string, { jobId: string, fingerprint: string, createdAt: string }>}
+ */
+function readRequestIds(state) {
+  const ids = state?.requestIds;
+  return ids && typeof ids === "object" && !Array.isArray(ids) ? ids : {};
+}
+
+/**
+ * The `requestIds` fragment to spread into a saved state: the map itself,
+ * or nothing when it is empty, so a workspace that never used
+ * `--request-id` keeps a `state.json` without the key.
+ *
+ * @param {Record<string, object>} requestIds
+ * @returns {{ requestIds?: Record<string, object> }}
+ */
+function requestIdsField(requestIds) {
+  return Object.keys(requestIds).length > 0 ? { requestIds } : {};
+}
+
+/**
+ * Recreate one `requestIds` entry from a job file that carries both
+ * `request.requestId` and `request.requestFingerprint`. The first job file
+ * read for an id wins.
+ *
+ * @param {Record<string, object>} requestIds mutated in place
+ * @param {import('./types.mjs').JobRecord} job
+ * @returns {void}
+ */
+function addRequestIdFromJob(requestIds, job) {
+  const requestId = job.request?.requestId;
+  const fingerprint = job.request?.requestFingerprint;
+  if (typeof requestId !== "string" || typeof fingerprint !== "string" || Object.hasOwn(requestIds, requestId)) return;
+  requestIds[requestId] = { jobId: job.id, fingerprint, createdAt: job.createdAt ?? null };
+}
+
 function jobIndexProjection(job) {
   const index = { ...job };
   delete index.request;
@@ -243,6 +286,7 @@ function jobIndexProjection(job) {
 
 function rebuildStateIndex(cwd) {
   const jobs = [];
+  const requestIds = {};
   let skipped = 0;
   let names;
   try {
@@ -258,8 +302,9 @@ function rebuildStateIndex(cwd) {
       continue;
     }
     jobs.push(jobIndexProjection(job));
+    addRequestIdFromJob(requestIds, job);
   }
-  return { state: { ...defaultState(), jobs }, skipped };
+  return { state: { ...defaultState(), jobs, ...requestIdsField(requestIds) }, skipped };
 }
 
 // Only called while the workspace mutex is held. Re-read after acquisition:
@@ -330,6 +375,9 @@ function removeFileIfExists(filePath) {
  * - Jobs in the incoming snapshot overwrite fields for matching ids.
  * - Terminal history is capped to MAX_JOBS by most-recent `updatedAt`.
  *   Active jobs are retained regardless of age.
+ * - `requestIds` entries merge the same way (incoming wins per id), and an
+ *   entry whose job the cap dropped goes with it, so the map never points at
+ *   a pruned job.
  */
 function reconcileState(current, incoming) {
   const byId = new Map();
@@ -342,6 +390,11 @@ function reconcileState(current, incoming) {
     byId.set(job.id, prev ? { ...prev, ...job } : job);
   }
   const cappedJobs = pruneJobs(Array.from(byId.values()));
+  const retainedIds = new Set(cappedJobs.map((job) => job.id));
+  const requestIds = Object.fromEntries(
+    Object.entries({ ...readRequestIds(current), ...readRequestIds(incoming) })
+      .filter(([, entry]) => retainedIds.has(entry?.jobId)),
+  );
 
   return {
     version: STATE_VERSION,
@@ -350,7 +403,8 @@ function reconcileState(current, incoming) {
       ...(current.config ?? {}),
       ...(incoming?.config ?? {})
     },
-    jobs: cappedJobs
+    jobs: cappedJobs,
+    ...requestIdsField(requestIds),
   };
 }
 
@@ -485,12 +539,66 @@ export async function writeJobFile(cwd, jobId, data) {
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
 export async function patchJobState(cwd, jobId, detailPatch, indexPatch = detailPatch) {
+  return withWorkspaceMutex(resolveStateDir(cwd), () => patchJobStateUnlocked(cwd, jobId, detailPatch, indexPatch));
+}
+
+/**
+ * {@link patchJobState}'s body, for a caller that already holds the
+ * workspace mutex (`claimRequestId`'s `createJob` callback). Calling the
+ * locked variant there would wait on the lock its own caller holds.
+ *
+ * @param {string} cwd the resolved workspace root
+ * @param {string} jobId
+ * @param {Partial<import('./types.mjs').JobRecord>} detailPatch
+ * @param {Partial<import('./types.mjs').JobIndexEntry>} [indexPatch]
+ * @returns {import('./types.mjs').JobRecord}
+ */
+export function patchJobStateUnlocked(cwd, jobId, detailPatch, indexPatch = detailPatch) {
+  const existing = readJobFile(cwd, jobId) ?? { id: jobId };
+  const merged = { ...existing, ...detailPatch, id: jobId, updatedAt: new Date().toISOString() };
+  writeJobFileUnlocked(cwd, jobId, merged);
+  upsertJobUnlocked(cwd, { ...jobIndexProjection(merged), ...indexPatch, id: jobId, status: merged.status });
+  return merged;
+}
+
+/**
+ * Claim a `--request-id` for this workspace (Senate R12, 2026-09). One
+ * locked critical section: read `state.requestIds`, then either
+ *
+ * - absent (or its job is no longer in the index): run `createJob`, which
+ *   must write the job file and index entry synchronously without taking
+ *   the lock again, record `{ jobId, fingerprint, createdAt }`, and return
+ *   `{ outcome: "created", job }`;
+ * - present with the same fingerprint: `{ outcome: "deduplicated", jobId, job }`;
+ * - present with another fingerprint: `{ outcome: "conflict", jobId, job }`,
+ *   where `job` is the existing job's index entry.
+ *
+ * Nothing is spawned here: the caller dispatches the worker after a
+ * `created` outcome, outside the lock. Two processes claiming the same id
+ * at once therefore create exactly one job.
+ *
+ * @template {import('./types.mjs').JobIndexEntry} J
+ * @param {string} cwd the resolved workspace root
+ * @param {string} requestId
+ * @param {string} fingerprint
+ * @param {() => J} createJob
+ * @returns {Promise<{ outcome: "created", job: J } |
+ *   { outcome: "deduplicated" | "conflict", jobId: string, job: import('./types.mjs').JobIndexEntry }>}
+ */
+export async function claimRequestId(cwd, requestId, fingerprint, createJob) {
   return withWorkspaceMutex(resolveStateDir(cwd), () => {
-    const existing = readJobFile(cwd, jobId) ?? { id: jobId };
-    const merged = { ...existing, ...detailPatch, id: jobId, updatedAt: new Date().toISOString() };
-    writeJobFileUnlocked(cwd, jobId, merged);
-    upsertJobUnlocked(cwd, { ...jobIndexProjection(merged), ...indexPatch, id: jobId, status: merged.status });
-    return merged;
+    const state = loadStateUnlocked(cwd);
+    const existing = readRequestIds(state)[requestId];
+    const existingJob = existing && state.jobs.find((job) => job.id === existing.jobId);
+    if (existingJob) {
+      const outcome = existing.fingerprint === fingerprint ? "deduplicated" : "conflict";
+      return { outcome, jobId: existingJob.id, job: existingJob };
+    }
+    const job = createJob();
+    const next = loadStateUnlocked(cwd);
+    next.requestIds = { ...readRequestIds(next), [requestId]: { jobId: job.id, fingerprint, createdAt: job.createdAt } };
+    saveStateUnlocked(cwd, next);
+    return { outcome: "created", job };
   });
 }
 

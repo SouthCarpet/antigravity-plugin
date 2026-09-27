@@ -262,6 +262,19 @@ render the stored record as a "## Provenance" section; a legacy job written
 before this field existed renders and reports it as absent, never as an
 error.
 
+### Request fingerprint (`--request-id`)
+
+A background `task` or `rescue` started with `--request-id <id>` stores the
+id and a fingerprint on the job request (`request.requestId`,
+`request.requestFingerprint`), and the pair in `state.json`'s `requestIds`
+map. The fingerprint is a sha256 hash of the request, which includes the
+prompt, the conversation id, the `--add-dir` paths, the model, the effort,
+and the workspace root. The hash adds no new exposure: the prompt and those
+fields are already stored in plain text on the same job record, in the same
+private job state directory. The plugin compares fingerprints only to
+decide whether a repeated id is the same request; it never retries a call
+by itself.
+
 ## Provenance
 
 From 1.1.0, `.github/workflows/release.yml` publishes releases through npm
