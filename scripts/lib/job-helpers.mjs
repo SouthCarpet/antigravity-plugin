@@ -72,8 +72,11 @@ export const AGY_MODES = ["plan", "accept-edits"];
  * lists a fourth choice, `max`, but no model on this account exposes it
  * (`raw-effort-max-default-model.txt`: "gemini-3.8-flash has no \"max\"
  * effort (available: low, medium, high)"), so the plugin keeps accepting
- * only these three plus the sentinel below. `review` and `vision` never
- * expose `--effort`; only `task` and `rescue` forward it. */
+ * only these three plus the sentinel below. `vision` never exposes
+ * `--effort`. `task` and `rescue` forward it with a plugin-side default
+ * ({@link resolveRequestEffort}); `review` forwards it too, through
+ * {@link EFFORT_CHOICES} and {@link resolveReviewEffort}, but with no
+ * plugin-side default of its own. */
 export const AGY_EFFORTS = ["low", "medium", "high"];
 
 /**
@@ -82,8 +85,10 @@ export const AGY_EFFORTS = ["low", "medium", "high"];
  * case is `resolveRequestEffort`). Measured basis: a run without `--effort`
  * sends no effort field at all, so the value agy uses comes from whatever
  * that machine has saved — a delegated run is not reproducible across
- * machines without a plugin default. `review` and `vision` do not read this
- * constant: neither exposes `--effort`, so neither gets a default.
+ * machines without a plugin default. `vision` does not read this constant:
+ * it exposes no `--effort` at all. `review` does not read it either, but for
+ * a different reason: it exposes `--effort` (via {@link resolveReviewEffort})
+ * without ever falling back to a plugin default.
  */
 export const DEFAULT_AGY_EFFORT = "medium";
 
@@ -98,9 +103,9 @@ export const DEFAULT_AGY_EFFORT = "medium";
 export const AGY_DEFAULT_EFFORT = "agy-default";
 
 /**
- * The four values `--effort` accepts on `task` and `rescue`: agy's own three
- * ({@link AGY_EFFORTS}) plus the sentinel above. `review` and `vision` do not
- * use this; neither exposes `--effort` at all.
+ * The four values `--effort` accepts on `task`, `rescue`, and `review`: agy's
+ * own three ({@link AGY_EFFORTS}) plus the sentinel above. `vision` does not
+ * use this; it exposes no `--effort` at all.
  */
 export const EFFORT_CHOICES = [...AGY_EFFORTS, AGY_DEFAULT_EFFORT];
 
@@ -151,19 +156,23 @@ export function resolveRequestEffort(effortOption, model) {
 /**
  * Resolve the `--effort` value `review` stores on the job request (Task 4,
  * "Senate R4", 2026-09). Unlike {@link resolveRequestEffort} (`task`/
- * `rescue`), `review` has no plugin-side default: no `--effort` given and
- * the `agy-default` sentinel both mean "send no `--effort` flag", so both
- * collapse to the same `undefined` here — there is no second, separate
- * translation step for `review` the way {@link agyEffortArg} is for
- * `task`/`rescue`. An explicit `low`/`medium`/`high` passes through
- * unchanged (the parser's `valueChoices` already rejected anything else).
+ * `rescue`), `review` has no plugin-side default: an absent `--effort`
+ * resolves to `undefined`, with no fallback to {@link DEFAULT_AGY_EFFORT} or
+ * to the `agy-default` sentinel. An explicit value, including the
+ * `agy-default` sentinel itself, passes through unchanged and verbatim
+ * (the parser's `valueChoices` already rejected anything else) — the
+ * caller's given value is what gets stored on `request.effort` and
+ * reported in `provenance.effort`, exactly as `task`/`rescue` already do
+ * for their own explicit values. The sentinel-to-no-flag translation still
+ * happens exactly once, downstream, via {@link agyEffortArg} (already
+ * applied by `runForegroundJob` and by the background worker) — this
+ * function has no second, separate translation step of its own.
  *
  * @param {unknown} effortOption raw `--effort` value from the parser, if any
  * @returns {string | undefined}
  */
 export function resolveReviewEffort(effortOption) {
-  if (!effortOption) return undefined;
-  return effortOption === AGY_DEFAULT_EFFORT ? undefined : String(effortOption);
+  return effortOption ? String(effortOption) : undefined;
 }
 
 /**

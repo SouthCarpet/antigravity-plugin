@@ -443,12 +443,21 @@ describe('review --model/--effort reach agy argv; review has no plugin-side effo
     );
   });
 
-  it('review --effort agy-default sends no --effort flag, same as omitting it', () => {
+  it('review --effort agy-default sends no --effort flag, same as omitting it, but stores the sentinel verbatim', () => {
     const { work, data } = freshDirs();
     initReviewableRepo(work);
-    const res = runVerb(['review', '--effort', 'agy-default'], makeEnv(data), work);
+    const env = makeEnv(data);
+    const res = runVerb(['review', '--effort', 'agy-default', '--json'], env, work);
     assert.equal(res.status, 1, res.stderr);
     assert.deepEqual(argvOf(res.stderr), [...DEFAULT_BUDGET_ARGV_TAIL]);
+    // Controller ruling on Task 4 review: review stores whatever the caller
+    // gave, exactly like task/rescue do for their own explicit values — only
+    // the argv translation (agyEffortArg) collapses the sentinel to no flag.
+    const { jobId } = JSON.parse(res.stdout);
+    const records = fs.readdirSync(data, { recursive: true }).filter((file) => file.endsWith(jobId + '.json'));
+    assert.equal(records.length, 1);
+    const jobFile = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
+    assert.equal(jobFile.request.effort, 'agy-default');
   });
 
   it('review --background --model: the worker argv carries --model the same way', () => {

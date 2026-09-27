@@ -752,18 +752,24 @@ meaning:
   no `--effort` (since 2.0.2); the explicit value otherwise.
   `task`/`rescue` records written before 2.0.0 have no `request.effort`
   field; `vision` records never do. `review` records carry `request.effort`
-  only when the caller gave one (see below); `agy-default` collapses to no
-  field at all, unlike `task`/`rescue`'s literal sentinel. The background
-  worker revalidates the stored value and fails the job before starting agy
-  on an unknown one.
+  only when the caller gave one, and store the given value verbatim,
+  including the `agy-default` sentinel itself (see below). This is the same
+  "store what the caller gave" rule `task`/`rescue` already follow for their
+  own explicit values. The background worker revalidates the stored value and
+  fails the job before starting agy on an unknown one.
 - `--model <id>`, `--effort <low|medium|high|agy-default>`, and
   `--focus <text>` on `review`, forwarded on both the foreground and the
   background path. Unlike `task`/`rescue`,
   `review` has no plugin-side effort default: with neither flag given, no
-  `--effort` reaches agy, unchanged from before this addition; `agy-default`
-  also sends none (`scripts/lib/job-helpers.mjs`, `resolveReviewEffort`;
-  `tests/passthrough-argv.test.mjs`'s `review --model/--effort reach agy
-  argv` block asserts the complete argv for every combination). `--focus` is
+  `--effort` reaches agy, unchanged from before this addition. An explicit
+  value, including `agy-default`, is stored verbatim on `request.effort` and
+  reported the same way in `provenance.effort`
+  (`scripts/lib/job-helpers.mjs`, `resolveReviewEffort`); only the argv sent
+  to agy collapses `agy-default` to no `--effort` flag at all, via the same
+  `agyEffortArg` translation `task`/`rescue` already use
+  (`tests/passthrough-argv.test.mjs`'s `review --model/--effort reach agy
+  argv` block asserts the complete argv, and the stored `request.effort`,
+  for every combination). `--focus` is
   trimmed and capped at 500 characters (`MAX_REVIEW_FOCUS_CHARS`,
   `resolveReviewFocus`); an empty, whitespace-only, or over-cap value is an
   `invalid_focus` validation error, exit 1. A given focus adds a "## Reviewer

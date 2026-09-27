@@ -1570,16 +1570,26 @@ describe('/antigravity:review', () => {
       assert.equal(agyRuntime.calls[0].model, 'gemini-x');
     });
 
-    it('--effort agy-default sends no effort to runAgyPrint, same as omitting it', async () => {
+    // Controller ruling on Task 4 review: review stores whatever the caller
+    // gave, exactly like task/rescue do for their own explicit values (see
+    // rescue's 'stores the sentinel (foreground)' test above) — only the
+    // argv translation (agyEffortArg) collapses the sentinel to no flag.
+    it('--effort agy-default sends no effort to runAgyPrint, but stores the sentinel (foreground)', async () => {
       initEmptyGitRepo(tempDir);
       fs.writeFileSync(path.join(tempDir, 'brand-new-agydefault.txt'), 'never committed\n');
       agyRuntime.calls = [];
       agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };
       const { run } = await import('../scripts/commands/review.mjs');
       const cap = captureStdio();
-      try { await run(['--effort', 'agy-default', '--json'], { cwd: tempDir }); }
+      let exit;
+      try { exit = await run(['--effort', 'agy-default', '--json'], { cwd: tempDir }); }
       finally { cap.restore(); }
+      assert.equal(exit, 0);
       assert.equal(agyRuntime.calls[0].effort, undefined);
+      const jobs = listJobs(tempDir);
+      const stored = readJobFile(tempDir, jobs[jobs.length - 1].id);
+      assert.equal(stored.request.effort, 'agy-default');
+      assert.equal(stored.provenance.effort, 'agy-default');
     });
 
     it('rejects a --focus over 500 characters with one invalid_focus envelope, before any git collection', async () => {

@@ -1519,7 +1519,7 @@ describe('reportMissingTaskText — invalid_input envelope (Task 3)', () => {
   });
 });
 
-describe('resolveReviewEffort — no plugin default; agy-default collapses to undefined (Task 4, "Senate R4")', () => {
+describe('resolveReviewEffort — no plugin default, but every given value is stored verbatim (Task 4, "Senate R4")', () => {
   it('returns undefined when --effort was not given', () => {
     assert.equal(resolveReviewEffort(undefined), undefined);
   });
@@ -1530,8 +1530,8 @@ describe('resolveReviewEffort — no plugin default; agy-default collapses to un
     assert.equal(resolveReviewEffort('high'), 'high');
   });
 
-  it('collapses the agy-default sentinel to undefined, same as absent', () => {
-    assert.equal(resolveReviewEffort('agy-default'), undefined);
+  it('stores the agy-default sentinel verbatim, same as task/rescue do for their own values', () => {
+    assert.equal(resolveReviewEffort('agy-default'), 'agy-default');
   });
 });
 

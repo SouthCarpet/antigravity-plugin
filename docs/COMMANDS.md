@@ -192,7 +192,10 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   explicit `low`, `medium`, or `high` is forwarded verbatim as
   `--effort <value>`. `agy-default` sends no `--effort` flag, the same as
   omitting it. Any other value is an argument error (exit 1) and agy is not
-  started.
+  started. The stored `request.effort` keeps whatever value the caller gave,
+  including `agy-default` itself, the same way `task`/`rescue` store their
+  own explicit values; only the argv sent to agy collapses `agy-default` to
+  no `--effort` flag.
 - `--focus <text>` (additive) narrows the review's attention. Optional; never
   required and never derived from repository content. The value is trimmed;
   empty or whitespace-only, or longer than 500 characters after trimming, is
