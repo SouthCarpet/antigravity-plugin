@@ -28,6 +28,8 @@ import {
   EFFORT_CHOICES,
   agyModeArgs,
   probeAgyForVerb,
+  reportAgyUnavailable,
+  reportMissingTaskText,
   reportQueuedJob,
   resolveRequestEffort,
   runForegroundJob,
@@ -120,8 +122,7 @@ export async function run(argv = [], ctx = {}) {
 
   const userPrompt = positionals.join(" ").trim();
   if (!userPrompt && !options.resume && !options.continue && !options.conversation) {
-    process.stderr.write("antigravity:rescue — no task text provided. Pass a prompt or --conversation <id>.\n");
-    return 1;
+    return reportMissingTaskText("rescue", Boolean(options.json));
   }
 
   const { mode, conversationId } = resolveRescueMode(options);
@@ -135,10 +136,7 @@ export async function run(argv = [], ctx = {}) {
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
   const probed = await probeAgyForVerb("rescue");
-  if (probed.line) {
-    process.stderr.write(`${probed.line}\n`);
-    return 1;
-  }
+  if (probed.line) return reportAgyUnavailable("rescue", probed.line, options.json);
 
   const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
 

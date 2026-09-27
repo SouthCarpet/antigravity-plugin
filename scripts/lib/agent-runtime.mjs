@@ -603,6 +603,9 @@ export const MAX_PRINT_TIMEOUT_LIMIT_LENGTH = 32;
 /** Bound on the extracted fatal marker line, error: or AGY_ERROR: ({@link extractFatalErrorMarker}). */
 export const MAX_FATAL_ERROR_LENGTH = 300;
 
+/** Bound on the captured unrecognised `step_type` value ({@link findUnrecognisedStepType}). */
+export const MAX_STEP_TYPE_LENGTH = 64;
+
 /**
  * Strip C0 control characters and DEL, trim, and cap `value` at `maxLength`.
  * Returns `null` for anything that is not a non-empty string once sanitized —
@@ -1201,6 +1204,39 @@ function structuredDenialAnsweredWarning(deniedActionsList) {
 }
 
 /**
+ * Scan an agy stream-json blob for the first `step_update` event whose
+ * `step_type` is not `"tool"` — the only value {@link parseStepUpdateDeniedTargets}
+ * (and therefore the denial-classification path above) actually recognises
+ * (Task 3, "Senate R1", 2026-09). Used only to annotate
+ * {@link emptyAnswerNote}'s generic "unexplained empty response" branch: this
+ * never infers an action or a remedy from the value, only names it, so a
+ * denial/timeout explanation this module already understands is never
+ * second-guessed by this scan. Sanitized and bounded the same way a denied-
+ * action string is ({@link sanitizeDeniedActionString}), since a `step_type`
+ * is agy-reported free text, not a bounded schema field.
+ *
+ * @param {string} text full accumulated stdout
+ * @returns {string | null}
+ */
+function findUnrecognisedStepType(text) {
+  if (typeof text !== 'string' || !text.length) return null;
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue; // torn/partial line — stream noise, not a caller-facing error
+    }
+    const stepType = event?.event === 'step_update' ? event.step_update?.step_type : undefined;
+    if (typeof stepType !== 'string' || !stepType || stepType === 'tool') continue;
+    return sanitizeBoundedText(stepType, MAX_STEP_TYPE_LENGTH);
+  }
+  return null;
+}
+
+/**
  * Stderr note(s) for a SUCCESS result that produced no answer text: one
  * line per explanation actually present (a stderr-sentinel denial, a
  * structured JSON-only denial, agy's own print-timeout marker), or one
@@ -1217,12 +1253,18 @@ function structuredDenialAnsweredWarning(deniedActionsList) {
  * contract. No verb's prompt asks the model to reply with nothing, so this
  * reclassification has no verb to spare at this (verb-agnostic) layer.
  *
+ * `rawStdout` (Task 3, "Senate R1", 2026-09) is scanned only on the generic
+ * fallback branch (no denial, no structured denial, no print-timeout marker)
+ * for a `step_update` whose `step_type` this module does not recognise
+ * ({@link findUnrecognisedStepType}): a denial or timeout already explains
+ * the empty response, so there is nothing to add on those branches.
+ *
  * @param {{ denial: { tool: string } | null, structuredDenial: boolean,
  *   deniedActionsList: { action: string, displayName: string | null }[],
- *   truncation: { limit: string | null } | null }} args
+ *   truncation: { limit: string | null } | null, rawStdout: string }} args
  * @returns {string}
  */
-function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncation }) {
+function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncation, rawStdout }) {
   let note = '';
   if (denial) {
     note +=
@@ -1238,6 +1280,10 @@ function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncati
   if (!denial && !structuredDenial && !truncation) {
     note += '\nagent-runtime: agy reported SUCCESS with an empty response and no denial or ' +
       'timeout evidence to explain it';
+    const unrecognisedStepType = findUnrecognisedStepType(rawStdout);
+    if (unrecognisedStepType) {
+      note += `\nagent-runtime: unrecognised step_type "${unrecognisedStepType}" seen; no action inferred`;
+    }
   }
   return note;
 }
@@ -1270,11 +1316,12 @@ function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncati
  * independent of this function's fail-vs-complete decision.
  *
  * @param {{ status?: string, exitCode: number, parsed: ReturnType<typeof parseAgyStream>,
- *   stderr: string, warnings: string[], truncation: { limit: string | null } | null }} args
+ *   stderr: string, warnings: string[], truncation: { limit: string | null } | null,
+ *   rawStdout: string }} args
  * @returns {{ status: string, stderr: string, denial: { tool: string, line: string } | null,
  *   deniedActions: { action: string, displayName: string | null, source: 'json' | 'stderr' }[] | null }}
  */
-function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings, truncation }) {
+function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings, truncation, rawStdout }) {
   const sentinel = detectAutoDenial(stderr);
   const deniedActions = mergeDeniedActions(parsed.deniedActions, sentinel);
   if (status) return { status, stderr, denial: null, deniedActions };
@@ -1296,7 +1343,7 @@ function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings, trunc
     if (!answered) {
       nextStatus = 'failed';
       nextStderr += emptyAnswerNote({
-        denial, structuredDenial, deniedActionsList: parsed.deniedActions ?? [], truncation,
+        denial, structuredDenial, deniedActionsList: parsed.deniedActions ?? [], truncation, rawStdout,
       });
     } else {
       nextStatus = 'completed';
@@ -1345,6 +1392,7 @@ function classifyRunResult({ session, exitCode }) {
     stderr: session.stderr,
     warnings: session.warnings,
     truncation,
+    rawStdout: session.stdout,
   });
   // Only a run with no other explanation (no termination reason) falls back
   // to agy's own `error:` marker — a termination message (timeout,

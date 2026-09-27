@@ -32,6 +32,8 @@ import {
   exitCodeForJobStatus,
   printMeasuredUsageTrailer,
   probeAgyForVerb,
+  reportAgyUnavailable,
+  reportMissingTaskText,
   reportQueuedJob,
   resolveRequestEffort,
   runForegroundJob,
@@ -141,8 +143,7 @@ export async function run(argv = [], ctx = {}) {
 
   const userPrompt = positionals.join(" ").trim();
   if (!userPrompt && !options.continue && !options.conversation) {
-    process.stderr.write("antigravity:task — no task text provided. Pass a prompt or --conversation <id>.\n");
-    return 1;
+    return reportMissingTaskText("task", Boolean(options.json));
   }
 
   const { mode, conversationId } = resolveTaskMode(options);
@@ -155,10 +156,7 @@ export async function run(argv = [], ctx = {}) {
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
   const probed = await probeAgyForVerb("task");
-  if (probed.line) {
-    process.stderr.write(`${probed.line}\n`);
-    return 1;
-  }
+  if (probed.line) return reportAgyUnavailable("task", probed.line, options.json);
 
   const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
 

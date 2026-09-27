@@ -64,6 +64,7 @@ const {
   denialRemedy, deniedActionsWithRemedy, applyDenialHint, buildStoredResult,
   reportDeniedActionHints, resumeHintLine, HOST_WRAPPER_ENV, canPromptOnDenial,
   askRetryOrStop, runForegroundWithRetryPrompt, resolveRequestEffort,
+  reportQueuedJob, reportAgyUnavailable, reportMissingTaskText, classifyStateError,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
@@ -1320,5 +1321,220 @@ describe('resolveRequestEffort', () => {
 
   it('an empty model string counts as no model', () => {
     assert.equal(resolveRequestEffort(undefined, ''), 'medium');
+  });
+});
+
+// ───────────── Task 3 ("Senate R1", 2026-09): one JSON error envelope ─────────────
+
+/** Capture process.stdout/stderr writes for the duration of `fn`. */
+function captureStdio(fn) {
+  const out = [];
+  const err = [];
+  const outMock = mock.method(process.stdout, 'write', (s) => { out.push(s); return true; });
+  const errMock = mock.method(process.stderr, 'write', (s) => { err.push(s); return true; });
+  try {
+    return { result: fn(), out, err };
+  } finally {
+    outMock.mock.restore();
+    errMock.mock.restore();
+  }
+}
+
+describe('finishForeground — one error envelope per non-completed status (Task 3)', () => {
+  it('failed (generic, no denial, no spawnError): run_failed, exit 1, one envelope under --json', () => {
+    const { result: exit, out, err } = captureStdio(() =>
+      finishForeground('task', { id: 'j-failed' }, { status: 'failed', exitCode: 1, stdout: '', stderr: 'boom' }, { json: true }));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.schemaVersion, 1);
+    assert.equal(payload.command, 'task');
+    assert.equal(payload.status, 'failed');
+    assert.equal(payload.jobId, 'j-failed');
+    assert.equal(payload.answer, null);
+    assert.equal(payload.details.error.code, 'run_failed');
+    assert.equal(payload.details.error.phase, 'run');
+    assert.equal(payload.details.error.message, 'failed (failed).');
+    assert.match(err.join(''), /antigravity:task — failed \(failed\)\./);
+  });
+
+  it('failed (generic): without --json, stdout stays empty, stderr unchanged', () => {
+    const { result: exit, out, err } = captureStdio(() =>
+      finishForeground('task', { id: 'j-failed2' }, { status: 'failed', exitCode: 1, stdout: '', stderr: 'boom' }, { json: false }));
+    assert.equal(exit, 1);
+    assert.equal(out.join(''), '');
+    assert.match(err.join(''), /antigravity:task — failed \(failed\)\./);
+  });
+
+  it('failed (spawnError): spawn_failed, message is the spawn error text', () => {
+    const { result: exit, out } = captureStdio(() =>
+      finishForeground('task', { id: 'j-spawn' },
+        { status: 'failed', exitCode: 1, stdout: '', stderr: '', spawnError: 'spawn agy ENOENT' },
+        { json: true }));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.details.error.code, 'spawn_failed');
+    // Exactly foregroundFailureLine's own text, minus the `antigravity:<kind>
+    // — ` prefix, so the two can never say something different for the same
+    // event.
+    assert.equal(payload.details.error.message, 'failed: spawn agy ENOENT');
+  });
+
+  it('failed (denial-starved): agy_denied, carries deniedActions and agyConversationId', () => {
+    const { result: exit, out } = captureStdio(() =>
+      finishForeground('task', { id: 'j-denied' }, {
+        status: 'failed', exitCode: 1, stdout: '', stderr: 'denied',
+        denial: { tool: 'read_file' }, agyConversationId: 'c-denied',
+        deniedActions: [{ action: 'read_file', displayName: null }],
+      }, { json: true }));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.details.error.code, 'agy_denied');
+    assert.equal(payload.details.agyConversationId, 'c-denied');
+    assert.equal(payload.details.deniedActions.length, 1);
+    assert.equal(payload.details.deniedActions[0].action, 'read_file');
+    // task is a resumable kind, so a resume command is also carried.
+    assert.match(payload.details.resumeCommand, /resume with: \/antigravity:task --conversation c-denied/);
+  });
+
+  it('failed (denial-starved) on vision: no resumeCommand — vision has no --conversation flag', () => {
+    const { out } = captureStdio(() =>
+      finishForeground('vision', { id: 'j-vision-denied' }, {
+        status: 'failed', exitCode: 1, stdout: '', stderr: 'denied',
+        denial: { tool: 'read_file' }, agyConversationId: 'c-vision',
+      }, { json: true }));
+    const payload = JSON.parse(out.join(''));
+    assert.equal(Object.hasOwn(payload.details, 'resumeCommand'), false);
+  });
+
+  it('cancelled: status and error.code are both "cancelled", exit 2', () => {
+    const { result: exit, out } = captureStdio(() =>
+      finishForeground('rescue', { id: 'j-cancel' }, { status: 'cancelled', exitCode: 130, stdout: '', stderr: '' }, { json: true }));
+    assert.equal(exit, 2);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.status, 'cancelled');
+    assert.equal(payload.details.error.code, 'cancelled');
+    assert.equal(payload.details.error.phase, 'run');
+  });
+
+  it('timeout: status and error.code are both "timeout"', () => {
+    const { result: exit, out } = captureStdio(() =>
+      finishForeground('rescue', { id: 'j-timeout' }, { status: 'timeout', exitCode: 124, stdout: '', stderr: 'slow' }, { json: true }));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.status, 'timeout');
+    assert.equal(payload.details.error.code, 'timeout');
+  });
+
+  it('auth_required: status and error.code are both "auth_required", message never carries the OAuth URL', () => {
+    const { result: exit, out, err } = captureStdio(() =>
+      finishForeground('task', { id: 'j-auth' },
+        { status: 'auth_required', exitCode: 1, stdout: '', stderr: '', oauthUrl: 'https://accounts.google.com/o/oauth2/auth?x=1' },
+        { json: true }));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.status, 'auth_required');
+    assert.equal(payload.details.error.code, 'auth_required');
+    assert.equal(payload.details.error.message, 'Antigravity is not authenticated.');
+    assert.doesNotMatch(payload.details.error.message, /accounts\.google\.com/);
+    // the OAuth URL still reaches stderr, unchanged — only the envelope excludes it.
+    assert.match(err.join(''), /accounts\.google\.com/);
+  });
+
+  it('auth_required: without --json, stdout stays empty', () => {
+    const { out } = captureStdio(() =>
+      finishForeground('task', { id: 'j-auth2' }, { status: 'auth_required', exitCode: 1, stdout: '', stderr: '' }, { json: false }));
+    assert.equal(out.join(''), '');
+  });
+
+  it('a completed run has no details.error key', () => {
+    const { result: exit, out } = captureStdio(() =>
+      finishForeground('task', { id: 'j-ok' }, { status: 'completed', stdout: 'answer', stderr: '', warnings: [] }, { json: true }));
+    assert.equal(exit, 0);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(Object.hasOwn(payload.details, 'error'), false);
+  });
+});
+
+describe('reportQueuedJob — worker_start_failed envelope (Task 3)', () => {
+  it('a failed-to-start job reports one failed/worker_start_failed envelope under --json', () => {
+    const job = { id: 'j-worker', status: 'failed', errorMessage: 'Worker launch failed: boom' };
+    const { result: exit, out, err } = captureStdio(() => reportQueuedJob('task', job, { json: true }));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.command, 'task');
+    assert.equal(payload.status, 'failed');
+    assert.equal(payload.jobId, 'j-worker');
+    assert.equal(payload.answer, null);
+    assert.equal(payload.details.error.code, 'worker_start_failed');
+    assert.equal(payload.details.error.phase, 'run');
+    assert.equal(payload.details.error.message, 'Worker launch failed: boom');
+    assert.match(err.join(''), /antigravity:task — failed: Worker launch failed: boom/);
+  });
+
+  it('without --json, stdout stays empty', () => {
+    const job = { id: 'j-worker2', status: 'failed', errorMessage: 'Worker launch failed: boom' };
+    const { out } = captureStdio(() => reportQueuedJob('task', job, { json: false }));
+    assert.equal(out.join(''), '');
+  });
+});
+
+describe('reportAgyUnavailable — no_agy envelope (Task 3)', () => {
+  const LINE = 'antigravity:task — `agy` is not on PATH (not-installed). Run /antigravity:setup.';
+
+  it('strips the prefix into error.message and emits one envelope under --json', () => {
+    const { result: exit, out, err } = captureStdio(() => reportAgyUnavailable('task', LINE, true));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.status, 'no_agy');
+    assert.equal(payload.jobId, null);
+    assert.equal(payload.answer, null);
+    assert.equal(payload.details.error.code, 'agy_not_found');
+    assert.equal(payload.details.error.phase, 'probe');
+    assert.equal(payload.details.error.message, '`agy` is not on PATH (not-installed). Run /antigravity:setup.');
+    assert.equal(err.join(''), `${LINE}\n`);
+  });
+
+  it('without --json, stdout stays empty', () => {
+    const { out } = captureStdio(() => reportAgyUnavailable('task', LINE, false));
+    assert.equal(out.join(''), '');
+  });
+});
+
+describe('reportMissingTaskText — invalid_input envelope (Task 3)', () => {
+  it('emits one missing_task_text envelope under --json', () => {
+    const { result: exit, out, err } = captureStdio(() => reportMissingTaskText('rescue', true));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.command, 'rescue');
+    assert.equal(payload.status, 'invalid_input');
+    assert.equal(payload.details.error.code, 'missing_task_text');
+    assert.equal(payload.details.error.phase, 'validate');
+    assert.match(err.join(''), /antigravity:rescue — no task text provided/);
+  });
+
+  it('without --json, stdout stays empty', () => {
+    const { out } = captureStdio(() => reportMissingTaskText('rescue', false));
+    assert.equal(out.join(''), '');
+  });
+});
+
+describe('classifyStateError (Task 3)', () => {
+  it('a job-not-found message classifies as job_not_found', () => {
+    const out = classifyStateError(new Error('No job found for "xyz". Run /antigravity:status to inspect known jobs.'));
+    assert.equal(out.code, 'job_not_found');
+  });
+
+  it('a "still running/queued" message classifies as job_not_ready', () => {
+    const out = classifyStateError(new Error('Job abc is still running. Run /antigravity:status abc to check progress.'));
+    assert.equal(out.code, 'job_not_ready');
+    const out2 = classifyStateError(new Error('Job abc is still queued. Run /antigravity:status abc to check progress.'));
+    assert.equal(out2.code, 'job_not_ready');
+  });
+
+  it('a file-lock timeout classifies as state_locked with the friendly message', () => {
+    const err = Object.assign(new Error('raw lock path'), { code: 'FILE_LOCK_TIMEOUT' });
+    const out = classifyStateError(err);
+    assert.equal(out.code, 'state_locked');
+    assert.equal(out.message, 'job state is busy with another update; try again shortly');
   });
 });

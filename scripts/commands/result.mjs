@@ -16,28 +16,50 @@
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { mergeJobDetail, resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile, validateJobRecord } from "../lib/state.mjs";
-import { createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
-import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
-import { exitCodeForJobStatus, deniedActionsWithRemedy, printMeasuredUsageTrailer } from "../lib/job-helpers.mjs";
+import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
+import { classifyStateError, exitCodeForJobStatus, deniedActionsWithRemedy, printMeasuredUsageTrailer } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
- * Run a job-state read (`resolveResultJob`/`readJobFile`) and turn a lock
- * timeout, or any other failure, into the one message this verb prints.
+ * Run a job-state read (`resolveResultJob`/`readJobFile`) and keep the raw
+ * error on failure, so the caller can both print its message and classify
+ * it into a `--json` envelope's `error.code` (Task 3, "Senate R1", 2026-09;
+ * `classifyStateError`) without reclassifying an already-stringified message.
  *
  * @template T
  * @param {() => T} fn
- * @returns {{ ok: true, value: T } | { ok: false, message: string }}
+ * @returns {{ ok: true, value: T } | { ok: false, error: unknown }}
  */
 function readJobState(fn) {
   try {
     return { ok: true, value: fn() };
   } catch (err) {
-    const message = isFileLockTimeoutError(err)
-      ? "job state is busy with another update; try again shortly"
-      : err?.message ?? err;
-    return { ok: false, message };
+    return { ok: false, error: err };
   }
+}
+
+/**
+ * Report a job-state read failure (an unresolved reference, a job not yet in
+ * the required terminal state, or lock contention): the existing stderr
+ * line, unchanged, plus (Task 3, "Senate R1", 2026-09) one `state_error`
+ * `--json` envelope when `json` is true.
+ *
+ * @param {string | null} jobId the index job's id when already resolved, else `null`
+ * @param {unknown} err
+ * @param {boolean} json
+ * @returns {null} so the caller can `return reportStateError(...)` at every
+ *   `resolveJobAndStored` failure site and keep its own `if (!resolved)
+ *   return 1;` contract unchanged
+ */
+function reportStateError(jobId, err, json) {
+  const { code, message } = classifyStateError(err);
+  process.stderr.write(`antigravity:result — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("result", { status: "state_error", jobId, error: { code, phase: "state", message } }),
+    "",
+    json,
+  );
+  return null;
 }
 
 /**
@@ -117,33 +139,39 @@ export function cutAnswerLines(text, { head, tail } = {}) {
 /**
  * Resolve and validate the job this invocation addresses: the index entry,
  * its stored detail record, merged. Every failure path prints the one
- * `antigravity:result — <reason>` line and this returns `null` for the
- * caller to `return 1` on.
+ * `antigravity:result — <reason>` line, unchanged, plus (Task 3, "Senate
+ * R1", 2026-09) one `state_error` `--json` envelope when `json` is true, and
+ * this returns `null` for the caller to `return 1` on.
  *
  * @param {string} cwd
  * @param {string | null} reference
  * @param {{ resolveResultJob?: typeof resolveResultJob, readJobFile?: typeof readJobFile }} ctx
+ * @param {boolean} json
  * @returns {{ workspaceRoot: string, job: import('../lib/types.mjs').JobRecord,
  *   stored: import('../lib/types.mjs').JobRecord } | null}
  */
-function resolveJobAndStored(cwd, reference, ctx) {
+function resolveJobAndStored(cwd, reference, ctx, json) {
   const resolved = readJobState(() => (ctx.resolveResultJob ?? resolveResultJob)(cwd, reference));
-  if (!resolved.ok) {
-    process.stderr.write(`antigravity:result — ${resolved.message}\n`);
-    return null;
-  }
+  if (!resolved.ok) return reportStateError(null, resolved.error, json);
   const { workspaceRoot } = resolved.value;
   const indexJob = resolved.value.job;
 
   const storedRead = readJobState(() => (ctx.readJobFile ?? readJobFile)(workspaceRoot, indexJob.id));
-  if (!storedRead.ok) {
-    process.stderr.write(`antigravity:result — ${storedRead.message}\n`);
-    return null;
-  }
+  if (!storedRead.ok) return reportStateError(indexJob.id, storedRead.error, json);
   const stored = storedRead.value;
 
   if (!validateJobRecord(stored) || stored.id !== indexJob.id) {
-    process.stderr.write(`antigravity:result — stored job ${indexJob.id} is unreadable.\n`);
+    const message = `stored job ${indexJob.id} is unreadable.`;
+    process.stderr.write(`antigravity:result — ${message}\n`);
+    outputCommandResult(
+      createErrorEnvelope("result", {
+        status: "state_error",
+        jobId: indexJob.id,
+        error: { code: "invalid_job_record", phase: "state", message },
+      }),
+      "",
+      json,
+    );
     return null;
   }
   return { workspaceRoot, job: mergeJobDetail(indexJob, stored), stored };
@@ -236,9 +264,32 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
       ...(cut.truncated ? { truncated: true } : {}),
       ...(deniedList ? { deniedActions: deniedList } : {}),
       ...(agyPrintTimeout ? { agyPrintTimeout } : {}),
+      ...failedJobErrorDetail(job),
     },
   });
   return { rendered: finalRendered, payload };
+}
+
+/**
+ * `{ error: {...} }` when `job.status === "failed"`, else `{}` (Task 3,
+ * "Senate R1", 2026-09): the stored job already carries its own answer and
+ * `status: "failed"` unchanged — this only names why, using the job's own
+ * curated `healthMessage` (set by `job-helpers.mjs#deriveJobStatus`) when
+ * present, since `job.errorMessage` can be the raw upstream stderr and
+ * `details.error.message` must never carry that.
+ *
+ * @param {import('../lib/types.mjs').JobRecord} job
+ * @returns {{ error?: { code: string, phase: string, message: string } }}
+ */
+function failedJobErrorDetail(job) {
+  if (job.status !== "failed") return {};
+  return {
+    error: {
+      code: "job_failed",
+      phase: "run",
+      message: job.healthMessage || `job ${job.id} failed.`,
+    },
+  };
 }
 
 /**
@@ -270,7 +321,7 @@ export async function run(argv = [], ctx = {}) {
   const reference = positionals[0] ?? null;
   const json = Boolean(options.json);
 
-  const resolved = resolveJobAndStored(cwd, reference, ctx);
+  const resolved = resolveJobAndStored(cwd, reference, ctx, json);
   if (!resolved) return 1;
 
   printMeasuredUsageTrailer(resolved.stored?.result?.usage ?? null);

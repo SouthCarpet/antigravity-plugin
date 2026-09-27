@@ -201,6 +201,11 @@ Exit status is 0 for a completed foreground review, a successfully queued
 background review, or no changes; 1 for validation, Git, authentication, agy,
 or state failure; and 2 when an awaited/foreground agy outcome is cancelled.
 
+Once `--json` is accepted, an invalid `--scope`, an unresolved `--base`, a
+missing `agy` binary, or a foreground run that did not complete emits one
+error envelope (`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json))
+instead of an empty stdout body; the stderr line is unchanged either way.
+
 ## `rescue`
 
 ```text
@@ -269,6 +274,12 @@ Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
 awaited/foreground outcome.
 
+Once `--json` is accepted, a missing prompt, a missing `agy` binary, or a
+foreground run that did not complete emits one error envelope
+(`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead
+of an empty stdout body; the stderr line is unchanged either way. A
+background job whose worker never started reports the same way.
+
 ## `task`
 
 ```text
@@ -318,6 +329,12 @@ trailer](./COMPATIBILITY.md#usage-trailer)) is written to stderr.
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
 awaited/foreground outcome.
+
+Once `--json` is accepted, a missing prompt, a missing `agy` binary, or a
+foreground run that did not complete emits one error envelope
+(`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead
+of an empty stdout body; the stderr line is unchanged either way. A
+background job whose worker never started reports the same way.
 
 ## `vision`
 
@@ -398,6 +415,11 @@ Exit status is 0 when agy reports a completed response (including the sentinel),
 1 for validation/authentication/execution/state failure, and 2 for a cancelled
 agy outcome.
 
+Once `--json` is accepted, a missing image path, a rejected image, a missing
+`agy` binary, or a run that did not complete emits one error envelope
+(`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead
+of an empty stdout body; the stderr line is unchanged either way.
+
 ## `status`
 
 ```text
@@ -435,6 +457,11 @@ Status returns 0 whenever it successfully produces a snapshot, including
 after the wait timeout and when the observed terminal status is failed or
 cancelled. It returns 1 when state cannot be read or a reference cannot be
 resolved. It does not return 2 for a cancelled job.
+
+Once `--json` is accepted, a reference that resolves to no job, or lock
+contention on the job state, emits one `state_error` error envelope
+(`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead
+of an empty stdout body; the stderr line is unchanged either way.
 
 A finished job's index entry (and therefore the "Recent Jobs" table and
 `--json`) additionally carries `answerBytes` (UTF-8 byte length of the stored
@@ -515,6 +542,14 @@ Exit status is 0 for a completed job, 1 for a failed, active, missing, or
 unreadable job, and 2 for a cancelled job. A failed or cancelled job can still
 produce a result payload before its nonzero exit.
 
+A stored `failed` job keeps its normal envelope (`status: "failed"`, `answer`
+as stored) and adds `details.error.code: "job_failed"` under `--json`, naming
+why without repeating the raw upstream stderr. A reference that resolves to
+no job, one that is still active, or lock contention on the job state emits
+one `state_error` error envelope instead (see
+[COMPATIBILITY.md](./COMPATIBILITY.md#--json)); the stderr line is unchanged
+either way.
+
 When the stored result carries one or more headless denials, the markdown
 output ends with a "## Denied Actions" section, one line per action with its
 remedy, and `--json` sets `details.deniedActions` to the same list as
@@ -551,9 +586,10 @@ denied-actions/print-timeout sections. It is never folded into the opaque
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is
-unreadable.` to stderr, exits 1, and writes no success envelope even with
-`--json`. A valid completed record whose answer is empty keeps the normal
-completed metadata response.
+unreadable.` to stderr and exits 1. Under `--json` this is the
+`state_error`/`invalid_job_record` error envelope described above, not a
+success envelope. A valid completed record whose answer is empty keeps the
+normal completed metadata response.
 
 ## `cancel`
 
@@ -574,6 +610,13 @@ be retried.
 
 Exit status is 0 only when cancellation is established and persisted, and 1
 for resolution, termination, state-lock, or persistence failure.
+
+Once `--json` is accepted, a reference that resolves to no active job emits
+one `state_error` error envelope (`details.error`, see
+[COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead of an empty stdout
+body; the stderr line is unchanged either way. A termination or persistence
+failure keeps its own existing `cancel_failed`/`state_busy` envelope
+(unchanged by this).
 
 ## `update`
 

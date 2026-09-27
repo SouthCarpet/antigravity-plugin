@@ -27,7 +27,8 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { probeAgyForVerb, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { probeAgyForVerb, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
   encodeVisionAllowlist,
@@ -48,25 +49,57 @@ const DEFAULT_PROMPT =
  * only after agy has started and spent tokens, and its refusal comes back as
  * an answer-shaped reply. Checking here fails before any spawn.
  *
+ * `code` (Task 3, "Senate R1", 2026-09) feeds the `invalid_input` envelope's
+ * `error.code`; `message` is the same text this function has always
+ * returned, printed verbatim on stderr.
+ *
  * @param {string} imagePath - absolute path
- * @returns {string|null}
+ * @returns {{ code: string, message: string } | null}
  */
 function imageProblem(imagePath) {
   if (!existsSync(imagePath) || !statSync(imagePath).isFile()) {
-    return `image file not found: ${imagePath}`;
+    return { code: "image_not_found", message: `image file not found: ${imagePath}` };
   }
   const ext = extname(imagePath).toLowerCase();
   if (!VISION_MIME[ext]) {
-    return (
-      `unsupported image extension "${ext || "(none)"}": ${imagePath}. ` +
-      `Supported: ${VISION_EXTENSIONS.join(", ")}`
-    );
+    return {
+      code: "unsupported_image_extension",
+      message: `unsupported image extension "${ext || "(none)"}": ${imagePath}. ` +
+        `Supported: ${VISION_EXTENSIONS.join(", ")}`,
+    };
   }
   const { size } = statSync(imagePath);
   if (size > VISION_MAX_BYTES) {
-    return `image too large (${size} bytes > ${VISION_MAX_BYTES} byte cap): ${imagePath}`;
+    return {
+      code: "image_too_large",
+      message: `image too large (${size} bytes > ${VISION_MAX_BYTES} byte cap): ${imagePath}`,
+    };
   }
   return null;
+}
+
+/**
+ * Report a `vision` input-validation failure (no image path at all, or the
+ * first path {@link imageProblem} rejects): the existing stderr line,
+ * unchanged, plus (Task 3, "Senate R1", 2026-09) one `invalid_input`
+ * `--json` envelope when `json` is true.
+ *
+ * @param {string} code
+ * @param {string} message
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportVisionValidationFailure(code, message, json) {
+  process.stderr.write(`antigravity:vision — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("vision", {
+      status: "invalid_input",
+      error: { code, phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
 }
 
 /**
@@ -86,10 +119,11 @@ export async function run(argv = [], ctx = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
   if (positionals.length === 0) {
-    process.stderr.write(
-      'antigravity:vision — no image path provided. Usage: vision <image-path> [<image-path>...] --prompt "<question>"\n',
+    return reportVisionValidationFailure(
+      "missing_image_path",
+      'no image path provided. Usage: vision <image-path> [<image-path>...] --prompt "<question>"',
+      Boolean(options.json),
     );
-    return 1;
   }
 
   // Resolve to absolute paths up front: agy (and the vision-server it spawns
@@ -98,17 +132,11 @@ export async function run(argv = [], ctx = {}) {
   const imagePaths = positionals.map((p) => resolvePath(cwd, String(p)));
   for (const imagePath of imagePaths) {
     const problem = imageProblem(imagePath);
-    if (problem) {
-      process.stderr.write(`antigravity:vision — ${problem}\n`);
-      return 1;
-    }
+    if (problem) return reportVisionValidationFailure(problem.code, problem.message, Boolean(options.json));
   }
 
   const probed = await probeAgyForVerb("vision");
-  if (probed.line) {
-    process.stderr.write(`${probed.line}\n`);
-    return 1;
-  }
+  if (probed.line) return reportAgyUnavailable("vision", probed.line, options.json);
 
   const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
   const model = options.model ? String(options.model) : DEFAULT_MODEL;

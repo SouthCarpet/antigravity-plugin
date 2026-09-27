@@ -280,6 +280,24 @@
  *   `details.job.agyPrintTimeout` carries the same shape on `status <id>
  *   --json`. Distinct from `details.truncated` above on purpose — that key
  *   already means the `--head`/`--tail` display cut.
+ * @property {JsonErrorDetail} [details.error] additive (plan 103 T3, "Senate
+ *   R1", 2026-09; `render.mjs#createErrorEnvelope`): present on an expected
+ *   failure once `--json` was accepted by the parser — `answer` is `null` on
+ *   every envelope that carries this, except `result <id>` on a stored
+ *   failed job, which keeps its stored answer and adds this key alongside
+ *   it. Absent on every completed/queued/no_changes envelope.
+ */
+
+/**
+ * The `details.error` shape a Task 3 failure envelope always carries
+ * (`render.mjs#createErrorEnvelope`, `render.mjs#ERROR_CODES` for the full
+ * `code` enum). `message` is the plugin's own one-line reason: never a
+ * token, an OAuth URL, or the full upstream stderr.
+ *
+ * @typedef {object} JsonErrorDetail
+ * @property {string} code snake_case, one of `render.mjs#ERROR_CODES`
+ * @property {"validate" | "collect" | "probe" | "run" | "wait" | "state"} phase
+ * @property {string} message
  */
 
 /**

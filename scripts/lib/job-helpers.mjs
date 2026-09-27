@@ -25,8 +25,10 @@ import { SESSION_ID_ENV } from "./job-control.mjs";
 import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
 import { readRunningVersion } from "./update.mjs";
+import { isFileLockTimeoutError } from "./file-lock.mjs";
 import {
   createJsonEnvelope,
+  createErrorEnvelope,
   outputCommandResult,
   reportWarnings,
   warningDetails,
@@ -194,6 +196,85 @@ export async function agyUnavailableLine(kind, opts) {
 }
 
 /**
+ * Report a probe failure from {@link probeAgyForVerb}: the existing stderr
+ * line, unchanged, plus (Task 3, "Senate R1", 2026-09) one `no_agy`
+ * `--json` envelope when `json` is true. `line` already carries the
+ * `antigravity:<kind> — ` prefix; `details.error.message` is that same line
+ * with the prefix stripped, so it stays the plugin's own one-line reason.
+ *
+ * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
+ * @param {string} line the non-null `probeAgyForVerb(...).line`
+ * @param {boolean} [json]
+ * @returns {1} the exit code every caller returns on this path
+ */
+export function reportAgyUnavailable(kind, line, json) {
+  process.stderr.write(`${line}\n`);
+  const prefix = `antigravity:${kind} — `;
+  const message = line.startsWith(prefix) ? line.slice(prefix.length) : line;
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: "no_agy",
+      error: { code: "agy_not_found", phase: "probe", message },
+    }),
+    "",
+    Boolean(json),
+  );
+  return 1;
+}
+
+/** A thrown job-lookup message reports the job is not yet in the terminal
+ * state the caller needs (`resolveResultJob`, job-control.mjs: "Job <id> is
+ * still running/queued..."). Matched by shape, not owned by this module — the
+ * one place every `status`/`result`/`cancel` job-lookup failure is classified
+ * into a `state_error` envelope's `error.code` (Task 3, "Senate R1", 2026-09). */
+const JOB_NOT_READY_RE = / is still (running|queued)\./;
+
+/**
+ * Classify a job-state lookup failure (job-control.mjs's `resolveResultJob`,
+ * `resolveCancelableJob`, `buildSingleJobSnapshot`, or a `state.mjs` read)
+ * into the `state_error` envelope's `error.code` and a safe one-line message
+ * (Task 3, "Senate R1", 2026-09): a lock-contention timeout, a job that
+ * exists but has not reached the caller's required state yet, or no matching
+ * job at all. Table-driven on the message shape every throw site already
+ * uses, never a new message format of its own.
+ *
+ * @param {unknown} err
+ * @returns {{ code: string, message: string }}
+ */
+export function classifyStateError(err) {
+  if (isFileLockTimeoutError(err)) {
+    return { code: "state_locked", message: "job state is busy with another update; try again shortly" };
+  }
+  const message = err?.message ?? String(err);
+  if (JOB_NOT_READY_RE.test(message)) return { code: "job_not_ready", message };
+  return { code: "job_not_found", message };
+}
+
+/**
+ * Report `task`/`rescue`'s "no task text provided" validation failure: the
+ * existing stderr line, unchanged, plus (Task 3, "Senate R1", 2026-09) one
+ * `invalid_input` `--json` envelope when `json` is true. The one message
+ * both verbs print identically.
+ *
+ * @param {"task" | "rescue"} kind
+ * @param {boolean} json
+ * @returns {1}
+ */
+export function reportMissingTaskText(kind, json) {
+  const message = "no task text provided. Pass a prompt or --conversation <id>.";
+  process.stderr.write(`antigravity:${kind} — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: "invalid_input",
+      error: { code: "missing_task_text", phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
  * The first stderr line for a foreground run that did not complete.
  * A run whose process never started names the spawn error; a run that
  * agy reported on keeps the status word.
@@ -283,6 +364,19 @@ export function exitCodeForJobStatus(status) {
 export function reportQueuedJob(kind, job, options) {
   if (job.status === "failed") {
     process.stderr.write(`${foregroundFailureLine(kind, { spawnError: job.errorMessage })}\n`);
+    outputCommandResult(
+      createErrorEnvelope(kind, {
+        status: "failed",
+        jobId: job.id,
+        error: {
+          code: "worker_start_failed",
+          phase: "run",
+          message: job.errorMessage ?? "the worker failed to start",
+        },
+      }),
+      "",
+      Boolean(options.json),
+    );
     return 1;
   }
   const payload = createJsonEnvelope(kind, {
@@ -857,35 +951,152 @@ export function printMeasuredUsageTrailer(usage) {
  * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void }} [options]
  * @returns {number} the verb's exit code
  */
+/**
+ * The `error.code` for a non-completed `finishForeground` result (Task 3,
+ * "Senate R1", 2026-09): `cancelled`/`auth_required`/`timeout` mirror
+ * `result.status` verbatim (there is only one reason for each); a `failed`
+ * result is split into the three distinct reasons `foregroundFailureLine`
+ * already distinguishes in its own text — a headless auto-denial that
+ * starved the answer, a process that never spawned, or anything else.
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {string}
+ */
+function foregroundErrorCode(result) {
+  if (result.status !== "failed") return result.status;
+  if (result.denial) return "agy_denied";
+  if (result.spawnError) return "spawn_failed";
+  return "run_failed";
+}
+
+/**
+ * The `error.message` for a non-completed `finishForeground` result: the
+ * plugin's own one-line reason, never agy's raw stderr. For every status but
+ * `auth_required` this is exactly {@link foregroundFailureLine}'s text with
+ * the `antigravity:<kind> — ` prefix stripped, so the two can never drift
+ * apart into two different wordings for the same event.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {string}
+ */
+function foregroundErrorMessage(kind, result) {
+  if (result.status === "auth_required") return "Antigravity is not authenticated.";
+  const prefix = `antigravity:${kind} — `;
+  const line = foregroundFailureLine(kind, result);
+  return line.startsWith(prefix) ? line.slice(prefix.length) : line;
+}
+
+/**
+ * `details` for a non-completed `finishForeground` envelope: the same
+ * `deniedActions` (with remedy) a completed envelope carries, plus
+ * `agyConversationId` and `resumeCommand` when the run is a resumable denial
+ * — the same three facts {@link resumeHintLine} already gates on, so this
+ * never shows a resume command `resumeHintLine` itself would not print.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {object}
+ */
+function foregroundErrorDetails(kind, result) {
+  const resumeLine = resumeHintLine(kind, result);
+  return {
+    ...deniedActionsDetails(result, kind),
+    ...(result.agyConversationId ? { agyConversationId: result.agyConversationId } : {}),
+    ...(resumeLine ? { resumeCommand: resumeLine } : {}),
+  };
+}
+
+/**
+ * Emit the one `--json` error envelope for a non-completed `finishForeground`
+ * result (Task 3, "Senate R1", 2026-09), or nothing when `json` is false —
+ * `outputCommandResult` already no-ops on an empty `rendered` string, so this
+ * never prints to stdout on the markdown path, matching the pre-Task-3
+ * contract for every status it now covers.
+ *
+ * @param {string} kind
+ * @param {{ id: string }} job
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} [json]
+ * @returns {void}
+ */
+function emitForegroundErrorEnvelope(kind, job, result, json) {
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: result.status,
+      jobId: job.id,
+      error: {
+        code: foregroundErrorCode(result),
+        phase: "run",
+        message: foregroundErrorMessage(kind, result),
+      },
+      details: foregroundErrorDetails(kind, result),
+    }),
+    "",
+    Boolean(json),
+  );
+}
+
+/**
+ * `finishForeground`'s `auth_required` branch, split out to keep that
+ * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
+ * stderr output is byte-for-byte unchanged; the only addition is the
+ * `--json` error envelope.
+ *
+ * @param {string} kind
+ * @param {{ id: string }} job
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} [json]
+ * @returns {1}
+ */
+function finishForegroundAuthRequired(kind, job, result, json) {
+  process.stderr.write(
+    `\nantigravity:${kind} — Antigravity is not authenticated.\n` +
+      `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
+  );
+  if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
+  emitForegroundErrorEnvelope(kind, job, result, json);
+  return 1;
+}
+
+/**
+ * `finishForeground`'s non-completed, non-`auth_required` branch (`failed`
+ * including denial-starved, `cancelled`, `timeout`), split out to keep that
+ * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
+ * stderr output is byte-for-byte unchanged; the only addition is the
+ * `--json` error envelope.
+ *
+ * @param {string} kind
+ * @param {{ id: string }} job
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} [json]
+ * @returns {1 | 2}
+ */
+function finishForegroundFailure(kind, job, result, json) {
+  process.stderr.write(`\n${foregroundFailureLine(kind, result)}\n`);
+  // redactBypassFlag runs after stripBypassAdvice: stripBypassAdvice drops
+  // agy's own "Alternatively, ..." suggestion; redactBypassFlag then
+  // catches the flag string wherever else it appears on this echo, such
+  // as inside a plugin-authored denial label naming a model-chosen
+  // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
+  // `result.stderr` itself, so the stored record keeps the complete text.
+  const echoed = result.stderr ? redactBypassFlag(stripBypassAdvice(result.stderr)) : "";
+  if (echoed) process.stderr.write(echoed);
+  const resumeLine = resumeHintLine(kind, result);
+  // agy's own stderr does not always end in a newline, so without this the
+  // resume line lands glued to the end of the denial line and a caller
+  // reading stderr line by line sees one line where there are two.
+  if (resumeLine) {
+    const separator = echoed && !echoed.endsWith("\n") ? "\n" : "";
+    process.stderr.write(`${separator}${resumeLine}\n`);
+  }
+  emitForegroundErrorEnvelope(kind, job, result, json);
+  return result.status === "cancelled" ? 2 : 1;
+}
+
 export function finishForeground(kind, job, result, { json, extraDetails = {}, extraFields = {}, beforeAnswer } = {}) {
-  if (result.status === "auth_required") {
-    process.stderr.write(
-      `\nantigravity:${kind} — Antigravity is not authenticated.\n` +
-        `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
-    );
-    if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
-    return 1;
-  }
-  if (result.status !== "completed") {
-    process.stderr.write(`\n${foregroundFailureLine(kind, result)}\n`);
-    // redactBypassFlag runs after stripBypassAdvice: stripBypassAdvice drops
-    // agy's own "Alternatively, ..." suggestion; redactBypassFlag then
-    // catches the flag string wherever else it appears on this echo, such
-    // as inside a plugin-authored denial label naming a model-chosen
-    // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
-    // `result.stderr` itself, so the stored record keeps the complete text.
-    const echoed = result.stderr ? redactBypassFlag(stripBypassAdvice(result.stderr)) : "";
-    if (echoed) process.stderr.write(echoed);
-    const resumeLine = resumeHintLine(kind, result);
-    // agy's own stderr does not always end in a newline, so without this the
-    // resume line lands glued to the end of the denial line and a caller
-    // reading stderr line by line sees one line where there are two.
-    if (resumeLine) {
-      const separator = echoed && !echoed.endsWith("\n") ? "\n" : "";
-      process.stderr.write(`${separator}${resumeLine}\n`);
-    }
-    return result.status === "cancelled" ? 2 : 1;
-  }
+  if (result.status === "auth_required") return finishForegroundAuthRequired(kind, job, result, json);
+  if (result.status !== "completed") return finishForegroundFailure(kind, job, result, json);
 
   reportWarnings(kind, result);
   reportDeniedActionHints(kind, result);

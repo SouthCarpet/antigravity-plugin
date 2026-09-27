@@ -14,15 +14,15 @@ import {
   buildSingleJobSnapshot,
 } from "../lib/job-control.mjs";
 import {
+  createErrorEnvelope,
   createJsonEnvelope,
   outputCommandResult,
   renderStatusSnapshot,
   renderSingleJobStatus,
 } from "../lib/render.mjs";
-import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { readUpdateNotice } from "../lib/update.mjs";
-import { deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
+import { classifyStateError, deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
@@ -80,9 +80,30 @@ export async function run(argv = [], ctx = {}) {
     printUpdateNotice(ctx);
     return 0;
   } catch (err) {
-    process.stderr.write(`antigravity:status — ${friendlyStateError(err)}\n`);
-    return 1;
+    return reportStatusStateError(err, json);
   }
+}
+
+/**
+ * Report a job-lookup/state-read failure from the `try` block above: the
+ * existing stderr line, unchanged, plus (Task 3, "Senate R1", 2026-09) one
+ * `state_error` `--json` envelope when `json` is true. `jobId` is always
+ * `null` here — every throw site this catches fails before it resolves a
+ * job.
+ *
+ * @param {unknown} err
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportStatusStateError(err, json) {
+  const { code, message } = classifyStateError(err);
+  process.stderr.write(`antigravity:status — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("status", { status: "state_error", error: { code, phase: "state", message } }),
+    "",
+    json,
+  );
+  return 1;
 }
 
 /**
@@ -134,12 +155,6 @@ async function waitForAllActive(cwd, options, buildAll) {
     await sleep(POLL_MS);
   }
   return buildAll(cwd, { env: process.env });
-}
-
-function friendlyStateError(error) {
-  return isFileLockTimeoutError(error)
-    ? "job state is busy with another update; try again shortly"
-    : error?.message ?? String(error);
 }
 
 /**

@@ -262,6 +262,53 @@ describe('/antigravity:status', () => {
     assert.doesNotMatch(cap.err.join(''), /raw lock path|\n\s+at /);
   });
 
+  // Task 3 ("Senate R1", 2026-09): the same lock contention emits one
+  // state_error/state_locked error envelope under --json.
+  it('lock contention under --json: one state_error envelope, jobId null', async () => {
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], {
+        cwd: tempDir,
+        buildStatusSnapshot: () => {
+          throw Object.assign(new Error('raw lock path'), { code: 'FILE_LOCK_TIMEOUT' });
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'status', status: 'state_error', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'state_locked');
+    assert.equal(payload.details.error.phase, 'state');
+    assert.match(cap.err.join(''), /busy.*try again/i);
+  });
+
+  it('an unresolved single-job reference: stderr only, no stdout, without --json', async () => {
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run(['no-such-job'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
+    assert.match(cap.err.join(''), /No job found for/);
+  });
+
+  it('an unresolved single-job reference: one state_error/job_not_found envelope under --json', async () => {
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run(['no-such-job', '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'status', status: 'state_error', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'job_not_found');
+    assert.equal(payload.details.error.phase, 'state');
+    assert.match(cap.err.join(''), /No job found for/);
+  });
+
   // Plan 085 T2: a single-job status view attaches the remedy for --json
   // and markdown, and the all-jobs list carries a lightweight count.
   it('single job --json carries details.job.deniedActions with a computed remedy', async () => {
@@ -485,27 +532,46 @@ describe('/antigravity:status', () => {
 // ───────────────────────────── result ─────────────────────────────
 
 describe('/antigravity:result', () => {
-  // R2: unreadable details must never produce a success envelope.
+  // R2: unreadable details must never produce a success envelope. Since
+  // Task 3 ("Senate R1", 2026-09), a `--json` run instead gets one
+  // `state_error` error envelope (`answer: null`, `details.error.code:
+  // "invalid_job_record"`) — the plain (non-`--json`) run keeps its
+  // stderr-only, empty-stdout contract unchanged.
   for (const [label, detail] of [
     ['missing', undefined], ['non-object', 'null'], ['array', '[]'],
     ['invalid JSON', '{ broken'],
     ['invalid record', '{"id":"123456abcdef","status":"completed","pid":0}'],
   ]) {
-    for (const json of [false, true]) {
-      it(`returns 1 and no stdout for ${label} detail${json ? ' under --json' : ''}`, async () => {
-        const id = '123456abcdef';
-        await upsertJob(tempDir, { id, status: 'completed' });
-        if (detail !== undefined) fs.writeFileSync(resolveJobFile(tempDir, id), detail);
-        const { run } = await import('../scripts/commands/result.mjs');
-        const cap = captureStdio();
-        let exit;
-        try { exit = await run([id, ...(json ? ['--json'] : [])], { cwd: tempDir }); }
-        finally { cap.restore(); }
-        assert.equal(exit, 1);
-        assert.equal(cap.out.join(''), '');
-        assert.equal(cap.err.join(''), `antigravity:result — stored job ${id} is unreadable.\n`);
-      });
-    }
+    it(`returns 1 and no stdout for ${label} detail`, async () => {
+      const id = '123456abcdef';
+      await upsertJob(tempDir, { id, status: 'completed' });
+      if (detail !== undefined) fs.writeFileSync(resolveJobFile(tempDir, id), detail);
+      const { run } = await import('../scripts/commands/result.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run([id], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      assert.equal(cap.out.join(''), '');
+      assert.equal(cap.err.join(''), `antigravity:result — stored job ${id} is unreadable.\n`);
+    });
+
+    it(`returns 1 with one state_error envelope for ${label} detail under --json`, async () => {
+      const id = '123456abcdef';
+      await upsertJob(tempDir, { id, status: 'completed' });
+      if (detail !== undefined) fs.writeFileSync(resolveJobFile(tempDir, id), detail);
+      const { run } = await import('../scripts/commands/result.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run([id, '--json'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      const payload = parseEnvelope(cap.out, { command: 'result', status: 'state_error', jobId: id, answer: null });
+      assert.equal(payload.details.error.code, 'invalid_job_record');
+      assert.equal(payload.details.error.phase, 'state');
+      assert.equal(payload.details.error.message, `stored job ${id} is unreadable.`);
+      assert.equal(cap.err.join(''), `antigravity:result — stored job ${id} is unreadable.\n`);
+    });
   }
 
   it('uses completed detail over a running index in status and result', async () => {
@@ -716,7 +782,48 @@ describe('/antigravity:result', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
     assert.match(cap.err.join(''), /antigravity:result/);
+  });
+
+  // Task 3 ("Senate R1", 2026-09): the same "no jobs" failure emits one
+  // state_error/job_not_found error envelope under --json.
+  it('no jobs exist: one state_error/job_not_found envelope under --json', async () => {
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'state_error', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'job_not_found');
+    assert.equal(payload.details.error.phase, 'state');
+    assert.match(cap.err.join(''), /antigravity:result/);
+  });
+
+  // Task 3: a reference that matches an active (not-yet-terminal) job
+  // classifies as job_not_ready, not job_not_found.
+  it('an active job reference: one state_error/job_not_ready envelope under --json', async () => {
+    const id = 'active000001';
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'running',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      startedAt: new Date().toISOString(),
+    });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([id, '--json'], { cwd: tempDir }); }
+    finally { cap.restore(); }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'state_error', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'job_not_ready');
+    assert.match(cap.err.join(''), new RegExp(`Job ${id} is still running`));
   });
 
   it('turns lock contention into a bounded friendly error', async () => {
@@ -734,6 +841,29 @@ describe('/antigravity:result', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
+    assert.match(cap.err.join(''), /busy.*try again/i);
+    assert.doesNotMatch(cap.err.join(''), /raw lock path|\n\s+at /);
+  });
+
+  it('lock contention under --json: one state_error/state_locked envelope', async () => {
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], {
+        cwd: tempDir,
+        resolveResultJob: () => {
+          throw Object.assign(new Error('raw lock path'), { code: 'FILE_LOCK_TIMEOUT' });
+        },
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'state_error', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'state_locked');
+    assert.equal(payload.details.error.phase, 'state');
     assert.match(cap.err.join(''), /busy.*try again/i);
     assert.doesNotMatch(cap.err.join(''), /raw lock path|\n\s+at /);
   });
@@ -797,12 +927,15 @@ describe('/antigravity:result', () => {
       cap.restore();
     }
     assert.equal(exit, 0);
-    parseEnvelope(cap.out, {
+    const payload = parseEnvelope(cap.out, {
       command: 'result',
       status: 'completed',
       jobId: id,
       answer: 'opaque result text\n',
     });
+    // Task 3 ("Senate R1", 2026-09): a completed run's envelope carries no
+    // details.error key at all.
+    assert.equal(Object.hasOwn(payload.details, 'error'), false);
   });
 
   it('returns 2 for cancelled jobs', async () => {
@@ -862,6 +995,47 @@ describe('/antigravity:result', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+  });
+
+  // Task 3 ("Senate R1", 2026-09): `result` on a failed job keeps its
+  // existing envelope (status "failed", answer as stored) and adds
+  // details.error naming why — never the raw upstream stderr in
+  // errorMessage.
+  it('a failed job under --json keeps its stored answer and adds details.error.code job_failed', async () => {
+    const id = 'fa11edbbbbbb';
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id,
+      kind: 'task',
+      status: 'failed',
+      phase: 'failed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, {
+      id, status: 'failed',
+      errorMessage: 'the full raw upstream stderr dump, never safe to expose as error.message',
+      result: { rawOutput: '' },
+    });
+    const { run } = await import('../scripts/commands/result.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([id, '--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'result', status: 'failed', jobId: id });
+    assert.equal(payload.details.error.code, 'job_failed');
+    assert.equal(payload.details.error.phase, 'run');
+    assert.doesNotMatch(
+      payload.details.error.message,
+      /the full raw upstream stderr dump/,
+      'details.error.message must never be the raw stored errorMessage',
+    );
   });
 
   it('prints a usage trailer on stderr when the stored job carries measured usage', async () => {
@@ -1039,6 +1213,25 @@ describe('/antigravity:cancel', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
+    assert.match(cap.err.join(''), /No active antigravity jobs/);
+  });
+
+  // Task 3 ("Senate R1", 2026-09): the same resolution failure emits one
+  // state_error/job_not_found error envelope under --json.
+  it('errors out when no active jobs exist: one state_error envelope under --json', async () => {
+    const { run } = await import('../scripts/commands/cancel.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'cancel', status: 'state_error', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'job_not_found');
+    assert.equal(payload.details.error.phase, 'state');
     assert.match(cap.err.join(''), /No active antigravity jobs/);
   });
 
@@ -1132,6 +1325,67 @@ describe('/antigravity:review', () => {
     assert.equal(exit, 0);
     const payload = parseEnvelope(cap.out, { command: 'review', status: 'no_changes' });
     assert.equal(typeof payload.details.scope, 'string');
+  });
+
+  // Task 3 ("Senate R1", 2026-09): a `collectReviewContext` failure (an
+  // invalid `--scope`, an unresolved `--base`) emits one `invalid_input`
+  // error envelope under `--json`, and stays stderr-only, unchanged, without
+  // it. `git.test.mjs`'s "review validates base refs" describe block pins
+  // the exact stderr text and the owned-git-runner call list for the same
+  // two base refs; these pin the envelope shape and the without-`--json`
+  // stdout contract side by side.
+  describe('collectReviewContext failures (Task 3, "Senate R1")', () => {
+    it('invalid --scope: stderr only, exit 1, no stdout, without --json', async () => {
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run(['--scope', 'nope'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      assert.equal(cap.out.join(''), '');
+      assert.match(cap.err.join(''), /^antigravity:review — Invalid scope "nope"/);
+    });
+
+    it('invalid --scope: one invalid_input envelope under --json', async () => {
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run(['--scope', 'nope', '--json'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      const payload = parseEnvelope(cap.out, { command: 'review', status: 'invalid_input', jobId: null, answer: null });
+      assert.equal(payload.details.error.code, 'invalid_scope');
+      assert.equal(payload.details.error.phase, 'collect');
+      assert.match(payload.details.error.message, /^Invalid scope "nope"/);
+      assert.match(cap.err.join(''), /^antigravity:review — Invalid scope "nope"/);
+    });
+
+    it('unknown --base: stderr only, exit 1, no stdout, without --json', async () => {
+      initEmptyGitRepo(tempDir);
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run(['--base', 'no-such-branch'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      assert.equal(cap.out.join(''), '');
+      assert.equal(cap.err.join(''), 'antigravity:review — unknown base ref no-such-branch\n');
+    });
+
+    it('unknown --base: one invalid_input envelope under --json', async () => {
+      initEmptyGitRepo(tempDir);
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run(['--base', 'no-such-branch', '--json'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      const payload = parseEnvelope(cap.out, { command: 'review', status: 'invalid_input', jobId: null, answer: null });
+      assert.equal(payload.details.error.code, 'unknown_base_ref');
+      assert.equal(payload.details.error.phase, 'collect');
+      assert.equal(payload.details.error.message, 'unknown base ref no-such-branch');
+      assert.equal(cap.err.join(''), 'antigravity:review — unknown base ref no-such-branch\n');
+    });
   });
 
   it('--background --wait reports a queued timeout and keeps the queued JSON envelope', async () => {
@@ -1449,6 +1703,25 @@ describe('/antigravity:rescue argv parsing', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
+    assert.match(cap.err.join(''), /no task text/);
+  });
+
+  // Task 3 ("Senate R1", 2026-09): the same validation failure emits one
+  // invalid_input error envelope under --json.
+  it('rejects empty prompt without --conversation: one invalid_input envelope under --json', async () => {
+    const { run } = await import('../scripts/commands/rescue.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'rescue', status: 'invalid_input', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'missing_task_text');
+    assert.equal(payload.details.error.phase, 'validate');
     assert.match(cap.err.join(''), /no task text/);
   });
 
@@ -1610,8 +1883,10 @@ describe('/antigravity:task argv parsing', () => {
     );
   });
 
-  it('prints a worker launch failure and exits 1 with no queued JSON on PID-patch failure', async () => {
-    // Oracle: 076-T3 R3 and the existing stderr-only failure contract.
+  it('prints a worker launch failure and exits 1 with one failed error envelope on PID-patch failure', async () => {
+    // Oracle: 076-T3 R3's stderr-only failure contract, updated by Task 3
+    // ("Senate R1", 2026-09): a `--json` run now also gets one `failed`
+    // error envelope (`worker_start_failed`) instead of empty stdout.
     const { run } = await import('../scripts/commands/task.mjs');
     const { startBackgroundJob } = await import('../scripts/lib/job-helpers.mjs');
     let alive = true;
@@ -1634,7 +1909,11 @@ describe('/antigravity:task argv parsing', () => {
     } finally { cap.restore(); }
     assert.equal(code, 1);
     assert.equal(alive, false);
-    assert.deepEqual(cap.out, []);
+    const payload = parseEnvelope(cap.out, { command: 'task', status: 'failed', answer: null });
+    assert.equal(typeof payload.jobId, 'string');
+    assert.equal(payload.details.error.code, 'worker_start_failed');
+    assert.equal(payload.details.error.phase, 'run');
+    assert.equal(payload.details.error.message, 'Worker launch failed: PID write failed');
     assert.equal(cap.err.join(''), 'antigravity:task — failed: Worker launch failed: PID write failed\n');
   });
   it('--json wraps the foreground model answer', async () => {
@@ -1691,6 +1970,25 @@ describe('/antigravity:task argv parsing', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
+    assert.match(cap.err.join(''), /no task text/);
+  });
+
+  // Task 3 ("Senate R1", 2026-09): the same validation failure emits one
+  // invalid_input error envelope under --json.
+  it('rejects empty prompt without --conversation: one invalid_input envelope under --json', async () => {
+    const { run } = await import('../scripts/commands/task.mjs');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tempDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseEnvelope(cap.out, { command: 'task', status: 'invalid_input', jobId: null, answer: null });
+    assert.equal(payload.details.error.code, 'missing_task_text');
+    assert.equal(payload.details.error.phase, 'validate');
     assert.match(cap.err.join(''), /no task text/);
   });
 

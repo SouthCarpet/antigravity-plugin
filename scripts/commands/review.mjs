@@ -22,6 +22,7 @@ import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   probeAgyForVerb,
+  reportAgyUnavailable,
   reportQueuedJob,
   runForegroundJob,
   runForegroundWithRetryPrompt,
@@ -29,7 +30,7 @@ import {
   waitAndExit,
   waitForJob,
 } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { createErrorEnvelope, createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -106,8 +107,7 @@ export async function run(argv = [], ctx = {}) {
   try {
     envelope = collectReviewContext(workspaceRoot, { scope, base });
   } catch (err) {
-    process.stderr.write(`antigravity:review — ${err?.message ?? err}\n`);
-    return 1;
+    return reportReviewCollectionFailure(err, Boolean(options.json));
   }
 
   if (!hasReviewableContent(envelope.context)) {
@@ -123,10 +123,7 @@ export async function run(argv = [], ctx = {}) {
   }
 
   const probed = await probeAgyForVerb("review");
-  if (probed.line) {
-    process.stderr.write(`${probed.line}\n`);
-    return 1;
-  }
+  if (probed.line) return reportAgyUnavailable("review", probed.line, options.json);
 
   const prompt = buildReviewPrompt(envelope);
   const mode = resolveReviewMode(options);
@@ -140,6 +137,46 @@ export async function run(argv = [], ctx = {}) {
   }
 
   return runReviewForeground({ ...runArgs, json: options.json });
+}
+
+/**
+ * The `error.code` for a `collectReviewContext` failure (Task 3, "Senate
+ * R1", 2026-09): the two validation shapes `git.mjs` throws today
+ * (`collectReviewContext`'s own scope check, `resolveBaseCommit`'s ref
+ * check), or a generic collection failure for anything else (a missing
+ * `git` binary, a spawn error) — never invented from a message this module
+ * has not actually seen thrown.
+ *
+ * @param {string} message
+ * @returns {string}
+ */
+function classifyReviewCollectionError(message) {
+  if (message.startsWith("Invalid scope")) return "invalid_scope";
+  if (message.startsWith("unknown base ref")) return "unknown_base_ref";
+  return "review_collection_failed";
+}
+
+/**
+ * Report a `collectReviewContext` failure: the existing stderr line,
+ * unchanged, plus (Task 3, "Senate R1", 2026-09) one `invalid_input`
+ * `--json` envelope when `json` is true.
+ *
+ * @param {unknown} err
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportReviewCollectionFailure(err, json) {
+  const message = err?.message ?? String(err);
+  process.stderr.write(`antigravity:review — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("review", {
+      status: "invalid_input",
+      error: { code: classifyReviewCollectionError(message), phase: "collect", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
 }
 
 /**

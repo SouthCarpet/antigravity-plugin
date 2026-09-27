@@ -197,10 +197,21 @@ describe('agy missing: one line, exit 1, nothing started', () => {
     });
   }
 
-  it('--json keeps stdout empty and the message on stderr', async () => {
+  // Task 3 ("Senate R1", 2026-09): --json now also carries one `no_agy`
+  // error envelope on stdout, with the plugin's own one-line reason
+  // (`AGY_LINE` minus the `antigravity:<verb> — ` prefix) as `error.message`.
+  it('--json carries one no_agy error envelope, and the message stays on stderr', async () => {
     const res = await runVerb('task', ['do the thing', '--foreground', '--json']);
     assert.equal(res.exit, 1);
-    assert.equal(res.out, '');
+    const payload = JSON.parse(res.out);
+    assert.equal(payload.schemaVersion, 1);
+    assert.equal(payload.command, 'task');
+    assert.equal(payload.status, 'no_agy');
+    assert.equal(payload.jobId, null);
+    assert.equal(payload.answer, null);
+    assert.equal(payload.details.error.code, 'agy_not_found');
+    assert.equal(payload.details.error.phase, 'probe');
+    assert.equal(payload.details.error.message, '`agy` is not on PATH (not-installed). Run /antigravity:setup.');
     assert.equal(res.err, AGY_LINE('task'));
   });
 });

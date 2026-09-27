@@ -273,11 +273,55 @@ untracked snippets) emits an envelope with `status: "no_changes"`,
 `jobId: null`, and `answer: null`. These make both previously exceptional
 stdout streams valid single JSON documents.
 
-Errors that occur before a normal output path still produce diagnostics on
-stderr and no stdout body. `--json` is not a JSON error-envelope guarantee.
+A parser error (an unknown flag, a missing value, a conflicting pair) happens
+before `--json` is even known, so it is unchanged: stderr only, no stdout
+body, whatever flags follow it.
+
+Once `--json` is accepted, an expected failure on a known path (a validation
+error, a missing `agy` binary, a run that did not complete, a job reference
+or a stored job record that cannot be resolved) also emits exactly one
+version-1 envelope: `answer` is `null`, and `details.error` carries `{ code,
+phase, message }`. `message` is the plugin's own one-line reason; it never
+carries a token, an OAuth URL, or the full upstream stderr. The human-
+readable line stays on stderr, unchanged, on every one of these paths.
 Therefore the precise stream promise is: if `--json` writes any stdout, that
 stdout is exactly one version-1 envelope and contains no text before or after
-it.
+it — success or failure alike. A script that used to treat any stdout as
+success must now read `status` (and, on a failure, `details.error.code`).
+
+`status` values a `details.error` envelope can carry:
+
+- `failed` — the run did not complete, including a headless auto-denial that
+  starved the answer
+- `cancelled` — the run was cancelled
+- `auth_required` — Antigravity needs the OAuth flow repeated
+- `timeout` — the run did not finish before its execution budget
+- `no_agy` — the `agy` binary could not be found or spawned
+- `invalid_input` — the caller's own input failed validation
+- `state_error` — a job reference or a stored job record could not be
+  resolved
+
+`details.error.code` values:
+
+- `agy_not_found` (`no_agy`, phase `probe`)
+- `worker_start_failed` (`failed`, phase `run`; a background worker never started)
+- `spawn_failed`, `agy_denied`, `run_failed` (`failed`, phase `run`; a
+  foreground run that spawned but did not complete — a process that never
+  started, a headless auto-denial that starved the answer, or anything else)
+- `cancelled`, `auth_required`, `timeout` (matching `status`, phase `run`)
+- `invalid_scope`, `unknown_base_ref`, `review_collection_failed`
+  (`invalid_input`, phase `collect`; `review` only)
+- `missing_task_text` (`invalid_input`, phase `validate`; `task`/`rescue`)
+- `missing_image_path`, `image_not_found`, `unsupported_image_extension`,
+  `image_too_large` (`invalid_input`, phase `validate`; `vision` only)
+- `job_not_found`, `job_not_ready`, `invalid_job_record`, `state_locked`
+  (`state_error`, phase `state`; `status`/`result`/`cancel`)
+- `job_failed` (`result <id>` on a stored failed job: `status` stays
+  `"failed"` and the answer stays whatever was stored; this code names why)
+
+Quota exhaustion is not yet classified into its own `status`/`error.code`
+pair — a run that fails on a provider quota limit still reports as the
+generic `failed` path above.
 
 ### Usage trailer
 

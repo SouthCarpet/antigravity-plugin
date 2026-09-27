@@ -192,6 +192,62 @@ describe('runAgyPrint — auto-denial classification', () => {
     assert.equal(res.status, 'completed');
     assert.deepEqual(res.warnings, []);
   });
+
+  // Task 3 ("Senate R1", 2026-09): the generic "unexplained empty response"
+  // branch (no denial, no structured denial, no print-timeout marker) also
+  // names an unrecognised step_type it saw along the way, without inferring
+  // an action or a remedy from it. A fake-agy stream fixture: one
+  // `step_update` naming a `step_type` this module never checks against
+  // (only `"tool"` is recognised, via `parseStepUpdateDeniedTargets`),
+  // followed by a `result` event with an empty SUCCESS response.
+  it('an unexplained empty response names an unrecognised step_type it saw, without guessing an action', async () => {
+    spawnCalls.length = 0;
+    const planStep = JSON.stringify({
+      event: 'step_update',
+      step_update: { state: 'RUNNING', step_type: 'plan', text_delta: '' },
+    });
+    nextStdout = [`${planStep}\n${resultLine({ response: '' })}\n`];
+    nextStderr = [];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.denial, null);
+    assert.deepEqual(res.deniedActions, null);
+    assert.match(
+      res.stderr,
+      /agent-runtime: agy reported SUCCESS with an empty response and no denial or timeout evidence to explain it/,
+    );
+    assert.match(res.stderr, /agent-runtime: unrecognised step_type "plan" seen; no action inferred/);
+  });
+
+  it('a "tool" step_type is recognised and never triggers the unrecognised-step_type note', async () => {
+    spawnCalls.length = 0;
+    const toolStep = JSON.stringify({
+      event: 'step_update',
+      step_update: { state: 'DONE', step_type: 'tool', tool_name: 'read_file' },
+    });
+    nextStdout = [`${toolStep}\n${resultLine({ response: '' })}\n`];
+    nextStderr = [];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.doesNotMatch(res.stderr, /unrecognised step_type/);
+  });
+
+  it('a denial-starved response never adds the unrecognised-step_type note, even alongside one', async () => {
+    spawnCalls.length = 0;
+    const planStep = JSON.stringify({
+      event: 'step_update',
+      step_update: { state: 'RUNNING', step_type: 'plan' },
+    });
+    nextStdout = [`${planStep}\n${resultLine({ response: '' })}\n`];
+    nextStderr = [DENIAL_LINE];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.ok(res.denial, 'the denial sentinel must still be detected');
+    assert.doesNotMatch(res.stderr, /unrecognised step_type/);
+  });
 });
 
 // agy's own `--print-timeout` (probed live on 1.1.24, plan 068 T4): the run

@@ -53,6 +53,77 @@ export function createJsonEnvelope(command, fields = {}) {
 }
 
 /**
+ * Every `details.error.code` value a Task 3 ("Senate R1", 2026-09) envelope
+ * can carry, frozen so docs and tests enumerate the same list this module
+ * builds from — never a second, hand-copied list. A later task
+ * (`--require-complete`, `--show-result`, `--request-id`) adds its own codes
+ * only through {@link createErrorEnvelope}, and should extend this array in
+ * the same change.
+ */
+export const ERROR_CODES = Object.freeze([
+  // no_agy, phase probe
+  "agy_not_found",
+  // failed, phase run
+  "worker_start_failed",
+  "spawn_failed",
+  "agy_denied",
+  "run_failed",
+  // cancelled | auth_required | timeout, phase run (code matches status)
+  "cancelled",
+  "auth_required",
+  "timeout",
+  // invalid_input, phase collect (review only)
+  "invalid_scope",
+  "unknown_base_ref",
+  "review_collection_failed",
+  // invalid_input, phase validate
+  "missing_task_text",
+  "missing_image_path",
+  "image_not_found",
+  "unsupported_image_extension",
+  "image_too_large",
+  // state_error, phase state (status/result/cancel)
+  "job_not_found",
+  "job_not_ready",
+  "invalid_job_record",
+  "state_locked",
+  // result <id> on a stored failed job (status stays "failed")
+  "job_failed",
+]);
+
+/**
+ * Build the one failure envelope every expected-failure path emits under
+ * `--json` (Task 3, "Senate R1", 2026-09): `answer` is always `null`, and
+ * `error` (`{ code, phase, message }`) is always present under `details`.
+ * `error.message` never carries a token, an OAuth URL, or the full upstream
+ * stderr — callers pass the plugin's own one-line reason.
+ *
+ * Built on {@link createJsonEnvelope}, so it inherits the same field
+ * validation; a later task adds a new `status`/`error.code` pairing only by
+ * calling this helper, never by hand-assembling the shape again.
+ *
+ * @param {string} command
+ * @param {{ status: string, jobId?: string|null,
+ *   error: { code: string, phase: string, message: string },
+ *   details?: object }} fields
+ * @returns {import('./types.mjs').JsonEnvelopeV1}
+ */
+export function createErrorEnvelope(command, { status, jobId = null, error, details = {} } = {}) {
+  if (!error || typeof error !== "object" ||
+      typeof error.code !== "string" || !error.code ||
+      typeof error.phase !== "string" || !error.phase ||
+      typeof error.message !== "string" || !error.message) {
+    throw new TypeError("error envelope requires error.code, error.phase, and error.message");
+  }
+  return createJsonEnvelope(command, {
+    status,
+    jobId,
+    answer: null,
+    details: { ...details, error },
+  });
+}
+
+/**
  * `details` fragment for runtime warnings (headless auto-denials that did
  * not starve the answer, see agent-runtime.mjs). Present only when there is
  * at least one, so a clean envelope is unchanged.
