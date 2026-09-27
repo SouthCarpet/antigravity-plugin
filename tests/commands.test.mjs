@@ -1455,9 +1455,10 @@ describe('/antigravity:review', () => {
     assert.match(agyRuntime.calls[0].prompt, /brand-new\.txt/);
   });
 
-  // Plan 086 T2 D1 item 3: review never exposes --effort, so it must never
-  // gain the task/rescue default either.
-  it('never sends an effort value to runAgyPrint (no --effort flag exists)', async () => {
+  // Plan 086 T2 D1 item 3, still true after Task 4 ("Senate R4"): review has
+  // no plugin-side effort default, unlike task/rescue's `medium`. With
+  // neither --model nor --effort given, no effort value reaches runAgyPrint.
+  it('sends no effort value to runAgyPrint when neither --model nor --effort is given', async () => {
     initEmptyGitRepo(tempDir);
     fs.writeFileSync(path.join(tempDir, 'brand-new-2.txt'), 'never committed\n');
 
@@ -1554,6 +1555,82 @@ describe('/antigravity:review', () => {
       cap.restore();
     }
     assert.equal(exit, 2);
+  });
+
+  describe('--model/--effort/--focus (Task 4, "Senate R4")', () => {
+    it('forwards --model to runAgyPrint', async () => {
+      initEmptyGitRepo(tempDir);
+      fs.writeFileSync(path.join(tempDir, 'brand-new-model.txt'), 'never committed\n');
+      agyRuntime.calls = [];
+      agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      try { await run(['--model', 'gemini-x', '--json'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(agyRuntime.calls[0].model, 'gemini-x');
+    });
+
+    it('--effort agy-default sends no effort to runAgyPrint, same as omitting it', async () => {
+      initEmptyGitRepo(tempDir);
+      fs.writeFileSync(path.join(tempDir, 'brand-new-agydefault.txt'), 'never committed\n');
+      agyRuntime.calls = [];
+      agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      try { await run(['--effort', 'agy-default', '--json'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(agyRuntime.calls[0].effort, undefined);
+    });
+
+    it('rejects a --focus over 500 characters with one invalid_focus envelope, before any git collection', async () => {
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run(['--focus', 'x'.repeat(501), '--json'], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      const payload = parseEnvelope(cap.out, { command: 'review', status: 'invalid_input', jobId: null, answer: null });
+      assert.equal(payload.details.error.code, 'invalid_focus');
+      assert.equal(payload.details.error.phase, 'validate');
+      assert.match(cap.err.join(''), /antigravity:review — invalid value for --focus: longer than 500 characters/);
+    });
+
+    it('rejects an empty/whitespace-only --focus without --json', async () => {
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run(['--focus', '   '], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      assert.equal(cap.out.join(''), '');
+      assert.match(cap.err.join(''), /antigravity:review — invalid value for --focus: empty or whitespace-only/);
+    });
+
+    it('stores request.focus, gives the job a focus-suffixed title, and adds the prompt section', async () => {
+      initEmptyGitRepo(tempDir);
+      fs.writeFileSync(path.join(tempDir, 'brand-new-focus.txt'), 'never committed\n');
+      const focus = 'please check error handling thoroughly across every call site here';
+      agyRuntime.calls = [];
+      agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'review with focus', stderr: '' };
+      const { run } = await import('../scripts/commands/review.mjs');
+      const cap = captureStdio();
+      let exit;
+      try {
+        exit = await run(['--focus', focus, '--json'], { cwd: tempDir });
+      } finally {
+        cap.restore();
+      }
+      assert.equal(exit, 0);
+      const payload = parseEnvelope(cap.out, {
+        command: 'review',
+        status: 'completed',
+        answer: 'review with focus',
+      });
+      const stored = readJobFile(tempDir, payload.jobId);
+      assert.equal(stored.request.focus, focus);
+      assert.equal(stored.title, `review: working-tree focus: ${focus.slice(0, 40)}`);
+      assert.match(agyRuntime.calls[0].prompt, /## Reviewer focus \(caller instruction\)\n.*\nplease check error handling/);
+    });
   });
 });
 

@@ -78,6 +78,7 @@ export const ERROR_CODES = Object.freeze([
   "review_collection_failed",
   // invalid_input, phase validate
   "missing_task_text",
+  "invalid_focus",
   "missing_image_path",
   "image_not_found",
   "unsupported_image_extension",

@@ -120,6 +120,13 @@ in a labeled data block that tells the model the content is untrusted
 repository data, not instructions — this narrows, but does not eliminate,
 prompt injection from repository content (see "Out of scope").
 
+The optional `--focus <text>` is caller text only: it comes from the
+invocation's own flag, never from the diff or any other repository content,
+and the plugin never infers it. When given, it is
+placed in its own "## Reviewer focus (caller instruction)" section, outside
+every data block, so it is never mistaken for reviewed content and cannot be
+used to smuggle instructions through the untrusted data blocks above.
+
 ### Headless denial reporting
 
 When a tool is auto-denied in headless mode (agy >= 1.1.20), the plugin only

@@ -149,6 +149,79 @@ export function resolveRequestEffort(effortOption, model) {
 }
 
 /**
+ * Resolve the `--effort` value `review` stores on the job request (Task 4,
+ * "Senate R4", 2026-09). Unlike {@link resolveRequestEffort} (`task`/
+ * `rescue`), `review` has no plugin-side default: no `--effort` given and
+ * the `agy-default` sentinel both mean "send no `--effort` flag", so both
+ * collapse to the same `undefined` here — there is no second, separate
+ * translation step for `review` the way {@link agyEffortArg} is for
+ * `task`/`rescue`. An explicit `low`/`medium`/`high` passes through
+ * unchanged (the parser's `valueChoices` already rejected anything else).
+ *
+ * @param {unknown} effortOption raw `--effort` value from the parser, if any
+ * @returns {string | undefined}
+ */
+export function resolveReviewEffort(effortOption) {
+  if (!effortOption) return undefined;
+  return effortOption === AGY_DEFAULT_EFFORT ? undefined : String(effortOption);
+}
+
+/**
+ * The maximum length, after trimming, `review`'s `--focus` accepts (Task 4,
+ * "Senate R4", 2026-09).
+ */
+export const MAX_REVIEW_FOCUS_CHARS = 500;
+
+/**
+ * Validate and trim a `review` `--focus` value (Task 4, "Senate R4",
+ * 2026-09): trimmed of surrounding whitespace; empty or whitespace-only, or
+ * longer than {@link MAX_REVIEW_FOCUS_CHARS} after trimming, is a validation
+ * error the caller reports via {@link reportInvalidFocus}. `--focus` is
+ * never required and never derived from repository content — an absent
+ * value is not an error, it is simply "no focus given".
+ *
+ * @param {unknown} focusOption raw `--focus` value from the parser, if any
+ * @returns {{ focus: string | undefined, error: string | null }}
+ */
+export function resolveReviewFocus(focusOption) {
+  if (focusOption === undefined) return { focus: undefined, error: null };
+  const trimmed = String(focusOption).trim();
+  if (trimmed === "") {
+    return { focus: undefined, error: "invalid value for --focus: empty or whitespace-only" };
+  }
+  if (trimmed.length > MAX_REVIEW_FOCUS_CHARS) {
+    return {
+      focus: undefined,
+      error: `invalid value for --focus: longer than ${MAX_REVIEW_FOCUS_CHARS} characters`,
+    };
+  }
+  return { focus: trimmed, error: null };
+}
+
+/**
+ * Report `review`'s `--focus` validation failure ({@link resolveReviewFocus}):
+ * the plugin's own one-line reason on stderr, plus (Task 4, "Senate R4",
+ * 2026-09, following the Task 3 pattern) one `invalid_input` `--json`
+ * envelope when `json` is true.
+ *
+ * @param {string} message
+ * @param {boolean} json
+ * @returns {1}
+ */
+export function reportInvalidFocus(message, json) {
+  process.stderr.write(`antigravity:review — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("review", {
+      status: "invalid_input",
+      error: { code: "invalid_focus", phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
  * agy argv for a validated `--mode` value; empty when the flag was not given.
  * Validation itself is the parser's job (`valueChoices`), so this never sees
  * an unknown value.

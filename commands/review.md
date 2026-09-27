@@ -1,6 +1,6 @@
 ---
 description: Review uncommitted changes (or a branch diff) with Google Antigravity (agy)
-argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--continue] [--conversation <id>] [--json]'
+argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -24,6 +24,9 @@ Flags:
 - `--wait` combined with `--background`, block until completion.
 - `--continue` resume the most recent review conversation.
 - `--conversation <id>` resume a specific conversation by id.
+- `--model <id>` selects the agy model for this run. Forward it through unchanged when present.
+- `--effort <low|medium|high|agy-default>` selects agy's reasoning effort for this run. Unlike `rescue`/`task`, review has no plugin default: with neither `--effort` nor `--model`, no `--effort` flag is sent. Forward an explicit `low`, `medium`, or `high` verbatim; `agy-default` sends no `--effort` flag, same as omitting it.
+- `--focus <text>` narrows the review's attention. Optional; never infer it from the diff or from repository content. Only forward text the user actually typed. Trimmed; empty, whitespace-only, or over 500 characters is a validation error.
 - `--json` emit structured JSON instead of the rendered markdown review.
 
 Denied actions:

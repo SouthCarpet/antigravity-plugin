@@ -30,7 +30,7 @@ commands:
   - name: setup
     description: "One-time agy OAuth wizard (foreground). Idempotent. Also registers the vision MCP server; --skip-vision to opt out, --remove-vision to undo plugin-owned entries."
   - name: review
-    description: "Hand the current git diff (or `--base <ref>`) to agy for a structured code review. Foreground by default; pass --background to fork a worker and poll with $antigravity status."
+    description: "Hand the current git diff (or `--base <ref>`) to agy for a structured code review. Foreground by default; pass --background to fork a worker and poll with $antigravity status. Supports --model, --effort <low|medium|high|agy-default> (no plugin default), and an optional --focus <text> to narrow attention."
   - name: rescue
     description: "Delegate an investigation or fix request to agy, for example 'why are the tests failing on main'. Foreground by default; --background returns a job id for $antigravity status / result. Supports --model and --effort <low|medium|high>."
   - name: task

@@ -8,6 +8,14 @@
  *   --wait            block until completion (foreground default)
  *   --continue        resume the last review conversation
  *   --conversation <id>  resume a specific conversation
+ *   --model <id>      agy model id for this run
+ *   --effort <low|medium|high|agy-default>  agy reasoning effort for this
+ *                     run; unlike `task`/`rescue` there is no plugin
+ *                     default: with neither flag, no `--effort` reaches agy;
+ *                     `agy-default` sends none either
+ *   --focus <text>    narrows the review's attention (never required, never
+ *                     derived from repository content); trimmed, max 500
+ *                     characters
  *   --json            output JSON instead of markdown
  *
  * The diff is collected first. An empty one answers `no_changes` with exit 0
@@ -21,9 +29,13 @@ import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
+  EFFORT_CHOICES,
   probeAgyForVerb,
   reportAgyUnavailable,
+  reportInvalidFocus,
   reportQueuedJob,
+  resolveReviewEffort,
+  resolveReviewFocus,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
@@ -43,7 +55,7 @@ function resolveReviewMode(options) {
   return "print";
 }
 
-async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, options, ctx }) {
+async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "review",
@@ -53,7 +65,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
     conversationId,
     cwd: workspaceRoot,
     agyVersion,
-    request: { scope: envelope.scope, base: base ?? null, mode },
+    request: { scope: envelope.scope, base: base ?? null, mode, model, effort, focus },
   });
   const queuedExit = reportQueuedJob("review", job, options);
   if (queuedExit !== null) return queuedExit;
@@ -61,7 +73,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
   return waitAndExit("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
 }
 
-async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, json }) {
+async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "review",
@@ -71,7 +83,9 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
     conversationId: retryConversationId ?? conversationId,
     cwd: workspaceRoot,
     agyVersion,
-    request: { scope: envelope.scope, base: base ?? null, mode: retryConversationId ? "conversation" : mode },
+    model,
+    effort,
+    request: { scope: envelope.scope, base: base ?? null, mode: retryConversationId ? "conversation" : mode, model, effort, focus },
     onText: (delta) => process.stderr.write(delta),
   });
 
@@ -82,6 +96,24 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
 }
 
 /**
+ * Resolve `review`'s three additive flags (Task 4, "Senate R4", 2026-09) off
+ * the parsed CLI options, split out of `run` to keep it under the
+ * complexity ceiling: `--model` (verbatim string or `undefined`), `--effort`
+ * (via {@link resolveReviewEffort}, which has no plugin default), and
+ * `--focus` (via {@link resolveReviewFocus}, already trimmed and capped).
+ *
+ * @param {Record<string, string | boolean | string[]>} options parsed CLI options
+ * @returns {{ model: string | undefined, effort: string | undefined,
+ *   focus: string | undefined, focusError: string | null }}
+ */
+function resolveReviewFlagOptions(options) {
+  const model = options.model ? String(options.model) : undefined;
+  const effort = resolveReviewEffort(options.effort);
+  const { focus, error: focusError } = resolveReviewFocus(options.focus);
+  return { model, effort, focus, focusError };
+}
+
+/**
  * @param {string[]} [argv] CLI arguments after the verb (flags only)
  * @param {{ cwd?: string, startBackgroundJob?: typeof startBackgroundJob,
  *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`
@@ -89,8 +121,9 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["base", "scope", "conversation", "cwd"],
+    valueOptions: ["base", "scope", "conversation", "cwd", "model", "effort", "focus"],
     booleanOptions: ["background", "wait", "continue", "json"],
+    valueChoices: { effort: EFFORT_CHOICES },
     conflicts: [
       ["continue", "conversation"],
     ],
@@ -102,6 +135,9 @@ export async function run(argv = [], ctx = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const scope = (options.scope ? String(options.scope) : "auto");
   const base = options.base ? String(options.base) : undefined;
+
+  const { model, effort, focus, focusError } = resolveReviewFlagOptions(options);
+  if (focusError) return reportInvalidFocus(focusError, Boolean(options.json));
 
   let envelope;
   try {
@@ -125,12 +161,12 @@ export async function run(argv = [], ctx = {}) {
   const probed = await probeAgyForVerb("review");
   if (probed.line) return reportAgyUnavailable("review", probed.line, options.json);
 
-  const prompt = buildReviewPrompt(envelope);
+  const prompt = buildReviewPrompt(envelope, { focus });
   const mode = resolveReviewMode(options);
   const conversationId = options.conversation ? String(options.conversation) : undefined;
-  const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}`;
+  const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}${focus ? ` focus: ${focus.slice(0, 40)}` : ""}`;
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion: probed.version };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion: probed.version, model, effort, focus };
 
   if (options.background) {
     return runReviewBackground({ ...runArgs, options, ctx });

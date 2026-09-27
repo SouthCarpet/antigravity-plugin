@@ -40,6 +40,9 @@ const COMMAND_HELP = {
     '  --wait                  block until the job finishes\n' +
     '  --continue              resume the last review conversation\n' +
     '  --conversation <id>     resume a specific conversation\n' +
+    '  --model <id>            agy model id for this run\n' +
+    '  --effort <low|medium|high|agy-default>  agy reasoning effort for this run\n' +
+    "  --focus <text>          narrow the review's attention (max 500 chars)\n" +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:

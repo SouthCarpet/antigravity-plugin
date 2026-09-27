@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trailer (`usage: total=<N> in=<N> out=<N>`) now prints on stderr for these
   three verbs' successful runs, foreground or an awaited `--wait` background
   run, the same way it already did for `vision` and `result`.
+- **`--model`, `--effort`, and `--focus` on `review`.** `review` now accepts
+  `--model <id>` and `--effort <low|medium|high|agy-default>`, forwarded on
+  both the foreground and the background path. Unlike `task`/`rescue`,
+  `review` has no plugin-side effort default: with neither flag, no
+  `--effort` reaches agy, unchanged from before this addition; `agy-default`
+  sends none either. A new optional `--focus <text>` narrows the review's
+  attention: trimmed, capped at 500 characters, never required, and never
+  derived from the diff or any other repository content. A given focus adds
+  a "## Reviewer focus (caller instruction)" section to the prompt
+  immediately before "## Output", is stored as `request.focus`, and appends
+  ` focus: <first 40 characters>` to the job title. An empty, whitespace-only,
+  or over-cap focus is a new `invalid_focus` validation error, exit 1.
 
 ### Changed
 

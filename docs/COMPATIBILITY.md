@@ -312,6 +312,8 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `invalid_scope`, `unknown_base_ref`, `review_collection_failed`
   (`invalid_input`, phase `collect`; `review` only)
 - `missing_task_text` (`invalid_input`, phase `validate`; `task`/`rescue`)
+- `invalid_focus` (`invalid_input`, phase `validate`; `review` only, for an
+  empty/whitespace-only or over-500-character `--focus`)
 - `missing_image_path`, `image_not_found`, `unsupported_image_extension`,
   `image_too_large` (`invalid_input`, phase `validate`; `vision` only)
 - `job_not_found`, `job_not_ready`, `invalid_job_record`, `state_locked`
@@ -668,8 +670,9 @@ meaning:
   --effort flag`).
   agy applies the level carried by a variant id such as
   `gemini-3.1-pro-high`, and rejects a base id that needs one
-  (`raw-base-gemini-3.1-pro-no-effort.txt`). `review` and `vision` have no
-  `--effort` flag and never send one. agy 1.2.11 says it improved reasoning
+  (`raw-base-gemini-3.1-pro-no-effort.txt`). `vision` has no `--effort` flag
+  and never sends one (`review` gained one in a later additive change; see
+  below). agy 1.2.11 says it improved reasoning
   effort levels for models with different support
   (`agy-changelog-1.2.11.txt`). Raw probes establish these rules:
   - A variant id accepts no `--effort` or only its own level
@@ -714,8 +717,9 @@ meaning:
   user's own agy configuration decides, and the run is therefore not
   reproducible across machines. That is the same argv shape releases through
   1.3.0 had when `--effort` was absent. It is an opt-in value, not the
-  default. `review` and `vision` still have no `--effort` flag. Stored
-  `request.effort` keeps `"agy-default"` verbatim; the background worker's
+  default. `vision` still has no `--effort` flag (`review` gained one in a
+  later additive change; see below). Stored `request.effort` keeps
+  `"agy-default"` verbatim on `task`/`rescue`; the background worker's
   revalidation accepts it.
 - **agy 1.2.1 vision MCP schema:** `scripts/mcp/vision-server.mjs`'s
   `view_image` tool now declares `additionalProperties: false` on its input
@@ -747,8 +751,27 @@ meaning:
   `--effort` nor `--model`; `agy-default` when the caller passed `--model` and
   no `--effort` (since 2.0.2); the explicit value otherwise.
   `task`/`rescue` records written before 2.0.0 have no `request.effort`
-  field; `review`/`vision` records never do. The background worker revalidates the
-  stored value and fails the job before starting agy on an unknown one.
+  field; `vision` records never do. `review` records carry `request.effort`
+  only when the caller gave one (see below); `agy-default` collapses to no
+  field at all, unlike `task`/`rescue`'s literal sentinel. The background
+  worker revalidates the stored value and fails the job before starting agy
+  on an unknown one.
+- `--model <id>`, `--effort <low|medium|high|agy-default>`, and
+  `--focus <text>` on `review`, forwarded on both the foreground and the
+  background path. Unlike `task`/`rescue`,
+  `review` has no plugin-side effort default: with neither flag given, no
+  `--effort` reaches agy, unchanged from before this addition; `agy-default`
+  also sends none (`scripts/lib/job-helpers.mjs`, `resolveReviewEffort`;
+  `tests/passthrough-argv.test.mjs`'s `review --model/--effort reach agy
+  argv` block asserts the complete argv for every combination). `--focus` is
+  trimmed and capped at 500 characters (`MAX_REVIEW_FOCUS_CHARS`,
+  `resolveReviewFocus`); an empty, whitespace-only, or over-cap value is an
+  `invalid_focus` validation error, exit 1. A given focus adds a "## Reviewer
+  focus (caller instruction)" section to the prompt immediately before
+  "## Output" (`buildReviewPrompt`, `prompt-templates.mjs`), is stored
+  verbatim as `request.focus`, and appends ` focus: <first 40 characters>`
+  to the job title. `--focus` is never derived from the collected diff or
+  any other repository content.
 - Job state leaf keyed by the resolved (realpath) workspace path. The
   legacy logical-path leaf is still read while the realpath leaf does not
   exist. The background worker receives the caller's exact workspace

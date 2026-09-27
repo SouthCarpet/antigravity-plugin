@@ -158,6 +158,8 @@ dispatcher can return 127 earlier when an explicit `AGY_BIN` path is missing.
 review [--base <ref>] [--scope <auto|working-tree|branch>]
        [--background] [--wait]
        [--continue | --conversation <id>]
+       [--model <id>] [--effort <low|medium|high|agy-default>]
+       [--focus <text>]
        [--json] [--cwd <path>]
 ```
 
@@ -180,6 +182,24 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   `--wait` has no additional effect.
   The agy execution budget above applies in both cases; the background wait
   itself has a separate 30-minute deadline.
+- `--model <id>` (additive) selects the agy model for this run, forwarded to
+  agy on both the foreground and the background path, exactly as `rescue`'s
+  `--model` already was.
+- `--effort <low|medium|high|agy-default>` (additive) selects agy's
+  reasoning effort for this run. Unlike `task`/`rescue`, review has no
+  plugin-side default: with neither `--effort` nor `--model` given, no
+  `--effort` flag reaches agy, unchanged from before this addition. An
+  explicit `low`, `medium`, or `high` is forwarded verbatim as
+  `--effort <value>`. `agy-default` sends no `--effort` flag, the same as
+  omitting it. Any other value is an argument error (exit 1) and agy is not
+  started.
+- `--focus <text>` (additive) narrows the review's attention. Optional; never
+  required and never derived from repository content. The value is trimmed;
+  empty or whitespace-only, or longer than 500 characters after trimming, is
+  a validation error (exit 1) and agy is not started. When given, the prompt
+  gains a "## Reviewer focus (caller instruction)" section immediately before
+  "## Output", the job's stored `request.focus` carries the trimmed text, and
+  the job title gets a ` focus: <first 40 characters>` suffix.
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
@@ -201,10 +221,11 @@ Exit status is 0 for a completed foreground review, a successfully queued
 background review, or no changes; 1 for validation, Git, authentication, agy,
 or state failure; and 2 when an awaited/foreground agy outcome is cancelled.
 
-Once `--json` is accepted, an invalid `--scope`, an unresolved `--base`, a
-missing `agy` binary, or a foreground run that did not complete emits one
-error envelope (`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json))
-instead of an empty stdout body; the stderr line is unchanged either way.
+Once `--json` is accepted, an invalid `--scope`, an unresolved `--base`, an
+invalid `--focus`, a missing `agy` binary, or a foreground run that did not
+complete emits one error envelope (`details.error`, see
+[COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead of an empty stdout
+body; the stderr line is unchanged either way.
 
 ## `rescue`
 
@@ -320,7 +341,9 @@ required unless `--continue` or `--conversation` is supplied.
   (`raw-base-gemini-3.1-pro-no-effort.txt`). `agy-default` still sends no flag.
   Any other value is an argument error.
 
-`review` and `vision` have no `--effort` flag; they never send one.
+`vision` has no `--effort` flag; it never sends one. `review` gained
+`--effort` in a later additive change; see the `review` section above for its
+own rule (no plugin-side default).
 
 On a completed run (foreground, or an awaited `--wait` background run), if
 agy reported measured usage the stable usage trailer (see [Usage

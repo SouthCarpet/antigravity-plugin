@@ -65,6 +65,7 @@ const {
   reportDeniedActionHints, resumeHintLine, HOST_WRAPPER_ENV, canPromptOnDenial,
   askRetryOrStop, runForegroundWithRetryPrompt, resolveRequestEffort,
   reportQueuedJob, reportAgyUnavailable, reportMissingTaskText, classifyStateError,
+  resolveReviewEffort, resolveReviewFocus, reportInvalidFocus, MAX_REVIEW_FOCUS_CHARS,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
@@ -1514,6 +1515,82 @@ describe('reportMissingTaskText — invalid_input envelope (Task 3)', () => {
 
   it('without --json, stdout stays empty', () => {
     const { out } = captureStdio(() => reportMissingTaskText('rescue', false));
+    assert.equal(out.join(''), '');
+  });
+});
+
+describe('resolveReviewEffort — no plugin default; agy-default collapses to undefined (Task 4, "Senate R4")', () => {
+  it('returns undefined when --effort was not given', () => {
+    assert.equal(resolveReviewEffort(undefined), undefined);
+  });
+
+  it('passes an explicit low/medium/high value through unchanged', () => {
+    assert.equal(resolveReviewEffort('low'), 'low');
+    assert.equal(resolveReviewEffort('medium'), 'medium');
+    assert.equal(resolveReviewEffort('high'), 'high');
+  });
+
+  it('collapses the agy-default sentinel to undefined, same as absent', () => {
+    assert.equal(resolveReviewEffort('agy-default'), undefined);
+  });
+});
+
+describe('resolveReviewFocus — trim, empty rejection, and the 500-char cap (Task 4, "Senate R4")', () => {
+  it('returns undefined and no error when --focus was not given', () => {
+    const { focus, error } = resolveReviewFocus(undefined);
+    assert.equal(focus, undefined);
+    assert.equal(error, null);
+  });
+
+  it('trims surrounding whitespace from an accepted value', () => {
+    const { focus, error } = resolveReviewFocus('  check error handling  ');
+    assert.equal(error, null);
+    assert.equal(focus, 'check error handling');
+  });
+
+  it('rejects an empty or whitespace-only value', () => {
+    const { focus, error } = resolveReviewFocus('   ');
+    assert.equal(focus, undefined);
+    assert.equal(error, 'invalid value for --focus: empty or whitespace-only');
+  });
+
+  it(`accepts exactly ${MAX_REVIEW_FOCUS_CHARS} characters after trimming`, () => {
+    const value = 'a'.repeat(MAX_REVIEW_FOCUS_CHARS);
+    const { focus, error } = resolveReviewFocus(value);
+    assert.equal(error, null);
+    assert.equal(focus.length, MAX_REVIEW_FOCUS_CHARS);
+  });
+
+  it(`rejects ${MAX_REVIEW_FOCUS_CHARS + 1} characters after trimming`, () => {
+    const value = 'a'.repeat(MAX_REVIEW_FOCUS_CHARS + 1);
+    const { focus, error } = resolveReviewFocus(value);
+    assert.equal(focus, undefined);
+    assert.equal(error, `invalid value for --focus: longer than ${MAX_REVIEW_FOCUS_CHARS} characters`);
+  });
+
+  it('the cap applies to the trimmed length, not the raw length', () => {
+    const value = `  ${'a'.repeat(MAX_REVIEW_FOCUS_CHARS)}  `;
+    const { focus, error } = resolveReviewFocus(value);
+    assert.equal(error, null);
+    assert.equal(focus.length, MAX_REVIEW_FOCUS_CHARS);
+  });
+});
+
+describe('reportInvalidFocus — invalid_input envelope (Task 4, "Senate R4")', () => {
+  it('emits one invalid_focus envelope under --json', () => {
+    const { result: exit, out, err } = captureStdio(() =>
+      reportInvalidFocus('invalid value for --focus: longer than 500 characters', true));
+    assert.equal(exit, 1);
+    const payload = JSON.parse(out.join(''));
+    assert.equal(payload.command, 'review');
+    assert.equal(payload.status, 'invalid_input');
+    assert.equal(payload.details.error.code, 'invalid_focus');
+    assert.equal(payload.details.error.phase, 'validate');
+    assert.match(err.join(''), /antigravity:review — invalid value for --focus: longer than 500 characters/);
+  });
+
+  it('without --json, stdout stays empty', () => {
+    const { out } = captureStdio(() => reportInvalidFocus('invalid value for --focus: empty or whitespace-only', false));
     assert.equal(out.join(''), '');
   });
 });
