@@ -650,6 +650,10 @@ function showResultTimeoutMessage(kind, final) {
  */
 function buildShowResultEnvelope(kind, jobId, final) {
   if (!final) {
+    // phase "wait", not "run": the job record itself vanished while this
+    // call was waiting on it, so there is no run outcome to report; reusing
+    // "job_failed" still names the terminal shape correctly (a failure, not
+    // a timeout or a cancellation).
     return createErrorEnvelope(kind, {
       status: "failed",
       jobId,

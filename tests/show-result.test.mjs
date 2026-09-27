@@ -1,6 +1,6 @@
 /**
  * `--show-result` after a background `--wait` (Task 7, "Senate R9",
- * 2026-09) — `review`, `rescue`, and `task` share one background-wait tail
+ * 2026-09). `review`, `rescue`, and `task` share one background-wait tail
  * (`job-helpers.mjs#waitAndReport`), so this file drives all three through
  * their own `run()` entry with a fake `startBackgroundJob`/`waitForJob` pair
  * (the same dependency-injection seam `tests/commands.test.mjs`'s "076-T7
@@ -84,7 +84,7 @@ function captureStdio() {
   };
 }
 
-/** A queued job {@link startBackgroundJob} hands back — never `failed`, so
+/** A queued job {@link startBackgroundJob} hands back, never `failed`, so
  * `reportQueuedJob` always takes its success branch in these tests. */
 function queuedJob(id) {
   return { job: { id, status: 'queued' } };

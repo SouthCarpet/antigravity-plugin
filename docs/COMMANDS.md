@@ -493,7 +493,7 @@ alike; and after the wait, one of four outcomes is reported:
   object with `usage` and `durationSeconds`, plus `deniedActions` with
   remedies and `agyPrintTimeout` when present). Exit 0.
 - **failed**: text mode prints the job's own stored reason on stderr and
-  nothing on stdout. `--json` prints the Task 3 error envelope with
+  nothing on stdout. `--json` prints the matching error envelope with
   `error.code: "job_failed"`, phase `run`. Exit 1.
 - **cancelled**: nothing on stdout, and nothing extra on stderr beyond the
   dispatch notice. `--json` prints the error envelope with
