@@ -18,6 +18,7 @@ import { mergeJobDetail, resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile, validateJobRecord } from "../lib/state.mjs";
 import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
 import { classifyStateError, exitCodeForJobStatus, deniedActionsWithRemedy, printMeasuredUsageTrailer } from "../lib/job-helpers.mjs";
+import { buildResultDetails } from "../lib/job-result.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -60,59 +61,6 @@ function reportStateError(jobId, err, json) {
     json,
   );
   return null;
-}
-
-/**
- * @param {import('../lib/types.mjs').JobIndexEntry} job
- * @param {import('../lib/types.mjs').JobRecord | null} stored
- * @param {{ truncated: boolean, text?: string }} [cut] the same cut
- *   `buildResultOutput` applied to `answer` (076-T7 fix round 1, F9): when
- *   truncated, `details.result.rawOutput` gets the same cut text instead of
- *   the full stored answer, so the `--json` path saves the same bytes the
- *   markdown path does.
- * @returns {{ conversationId: string | null, agyConversationId: string | null,
- *   provenance: import('../lib/types.mjs').JobProvenance | null,
- *   inputHash: string | null,
- *   reportedModel: string | null, result: object | null }}
- */
-/**
- * The `details.inputHash` value (Task 5, "Senate R5", 2026-09): the job's own
- * `request.inputHash`, `stored` taking priority over the index entry `job`
- * (same priority order every other field in {@link buildResultDetails}
- * uses), or `null` for a legacy record, a non-review job, or a review that
- * never reached input selection (e.g. `no_changes`). Split out so
- * `buildResultDetails` itself stays under the complexity ceiling.
- *
- * @param {import('../lib/types.mjs').JobRecord | null} stored
- * @param {import('../lib/types.mjs').JobIndexEntry} job
- * @returns {string | null}
- */
-function resolveInputHash(stored, job) {
-  if (stored?.request?.inputHash) return stored.request.inputHash;
-  return job.request?.inputHash ?? null;
-}
-
-function buildResultDetails(job, stored, cut) {
-  const result = stored?.result ?? null;
-  const rawOutput =
-    cut?.truncated && typeof result?.rawOutput === "string" ? cut.text : result?.rawOutput;
-  return {
-    conversationId: stored?.conversationId ?? job.conversationId ?? null,
-    // The id agy itself reported, distinct from `conversationId` above (the
-    // id the caller passed in) — already nested at `result.agyConversationId`
-    // via `buildStoredResult`; also surfaced at this top level (plan 086 T5k
-    // F1 item 2) so a host reading `result <id> --json` finds it in the same
-    // place `status <id> --json`'s `details.job.agyConversationId` puts it.
-    agyConversationId: stored?.result?.agyConversationId ?? null,
-    // Plan 103 T2 ("Senate R11", 2026-09): the job's own provenance record
-    // and agy's reported model, both `null` on a legacy record or a run agy
-    // never reported a model for. `provenance` is the same object `status
-    // <id> --json` puts at `details.job.provenance`.
-    provenance: stored?.provenance ?? job.provenance ?? null,
-    inputHash: resolveInputHash(stored, job),
-    reportedModel: result?.reportedModel ?? null,
-    result: result ? { ...result, rawOutput } : result,
-  };
 }
 
 /**

@@ -95,6 +95,11 @@ export const ERROR_CODES = Object.freeze([
   "state_locked",
   // result <id> on a stored failed job (status stays "failed")
   "job_failed",
+  // --show-result after a background --wait (Task 7, "Senate R9", 2026-09):
+  // the awaited job settled cancelled, or the wait itself timed out while
+  // the job was still queued/running (status matches, phase "wait")
+  "job_cancelled",
+  "wait_timeout",
 ]);
 
 /**

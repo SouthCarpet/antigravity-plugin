@@ -93,6 +93,7 @@ The plugin does not update itself.
 - **Use one command set.** The same nine verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
 - **Check your setup with one read-only command.** `doctor` reports Node, the agy binary and version, which forwarded flags `agy --help` lists, the vision configuration, and the job-state root, with no OAuth, no model call, no write, and no network. `setup` and `status` also warn when the agy version in use falls outside this plugin's measured range.
 - **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
+- **Print a background job's own result in one call.** `review --background`, `rescue --background`, and background-default `task`, each combined with `--wait`, accept an opt-in `--show-result`: the dispatch prints nothing (the queued notice moves to stderr), and after the wait the finished job's own answer, error, or timeout is reported instead, in the same shape `result <job-id>` already returns.
 - **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
 - **Verify releases.** npm provenance and signed tags connect a package to its source commit.
 - **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux, Windows, and macOS, with Node 22.3.x and Node 24, on every change.

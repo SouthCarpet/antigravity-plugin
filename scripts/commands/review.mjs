@@ -22,6 +22,9 @@
  *                     --background, --wait, --continue, --conversation
  *   --require-complete  refuse to send an input with a skipped file or a
  *                     truncated diff, instead of sending it with a warning
+ *   --show-result     after a background --wait completes, print the
+ *                     finished job's own result instead of the dispatch
+ *                     envelope (requires --wait and --background)
  *   --json            output JSON instead of markdown
  *
  * The diff is collected first. An empty one answers `no_changes` with exit 0
@@ -43,6 +46,7 @@ import {
   probeAgyForVerb,
   rememberAgyVersion,
   reportAgyUnavailable,
+  reportArgsValidationError,
   reportInvalidFocus,
   reportQueuedJob,
   resolveReviewEffort,
@@ -50,7 +54,8 @@ import {
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
-  waitAndExit,
+  validateShowResultDependency,
+  waitAndReport,
   waitForJob,
 } from "../lib/job-helpers.mjs";
 import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderReviewPreview } from "../lib/render.mjs";
@@ -109,7 +114,10 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
   const queuedExit = reportQueuedJob("review", job, options);
   if (queuedExit !== null) return queuedExit;
   if (!options.wait) return 0;
-  return waitAndExit("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
+  return waitAndReport("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob, {
+    json: Boolean(options.json),
+    showResult: Boolean(options["show-result"]),
+  });
 }
 
 async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, input, json }) {
@@ -256,7 +264,7 @@ function reportReviewPreview(input, json) {
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["base", "scope", "conversation", "cwd", "model", "effort", "focus"],
-    booleanOptions: ["background", "wait", "continue", "json", "preview", "require-complete"],
+    booleanOptions: ["background", "wait", "continue", "json", "preview", "require-complete", "show-result"],
     valueChoices: { effort: EFFORT_CHOICES },
     conflicts: [
       ["continue", "conversation"],
@@ -268,6 +276,9 @@ export async function run(argv = [], ctx = {}) {
   }, "review");
   if (!parsed) return 1;
   const { options } = parsed;
+
+  const showResultError = validateShowResultDependency(options, "review");
+  if (showResultError) return reportArgsValidationError("review", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);

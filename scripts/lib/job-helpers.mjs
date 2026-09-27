@@ -38,6 +38,7 @@ import {
   stripBypassAdvice,
   redactBypassFlag,
 } from "./render.mjs";
+import { buildResultDetails } from "./job-result.mjs";
 
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
 export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -394,6 +395,49 @@ export function reportMissingTaskText(kind, json) {
 }
 
 /**
+ * Report a post-parse "flag A requires flag B" validation failure in the
+ * exact shape `readCommandInput` already uses for a parser-level failure
+ * (`args.mjs`'s `schema.conflicts`, e.g. "cannot combine --foreground and
+ * --background"): one stderr line, prefixed, exit 1, no `--json` envelope on
+ * any path (Task 7, "Senate R9", 2026-09). Split out for a dependency
+ * `schema.conflicts` itself cannot express: two flags that must appear
+ * together, not two flags that must never coexist.
+ *
+ * @param {string} kind verb name
+ * @param {string} message
+ * @returns {1}
+ */
+export function reportArgsValidationError(kind, message) {
+  process.stderr.write(`antigravity:${kind} — ${message}\n`);
+  return 1;
+}
+
+/**
+ * Validate `--show-result`'s dependency on `--wait` (Task 7, "Senate R9",
+ * 2026-09; all three verbs it applies to: `task`, `review`, `rescue`) and,
+ * for `review`/`rescue` only, on `--background` too. `task` has no separate
+ * "opt into background" flag of its own; its default already IS background,
+ * so the equivalent failure there is `--foreground`: that mode
+ * runs synchronously and has no `--wait` semantics at all, so it fails the
+ * identical "requires --wait" message an absent `--wait` would, rather than
+ * a second, `task`-only message.
+ *
+ * @param {Record<string, string | boolean | string[]>} options parsed CLI options
+ * @param {"task" | "review" | "rescue"} kind
+ * @returns {string | null} the message for {@link reportArgsValidationError}, or null when valid
+ */
+export function validateShowResultDependency(options, kind) {
+  if (!options["show-result"]) return null;
+  if (!options.wait || (kind === "task" && options.foreground)) {
+    return "--show-result requires --wait";
+  }
+  if ((kind === "review" || kind === "rescue") && !options.background) {
+    return "--show-result requires --background";
+  }
+  return null;
+}
+
+/**
  * The first stderr line for a foreground run that did not complete.
  * A run whose process never started names the spawn error; a run that
  * agy reported on keeps the status word.
@@ -474,9 +518,17 @@ export function exitCodeForJobStatus(status) {
  * one background-start report `task.mjs`, `rescue.mjs` and `review.mjs`
  * each hand-wrote (item 19).
  *
+ * Under `--show-result` (Task 7, "Senate R9", 2026-09) a successful dispatch
+ * prints no envelope at all on stdout, in either mode: the caller is about
+ * to wait for and print the completed job itself, so the dispatch-time
+ * stdout stays empty and the one-line notice moves to stderr instead. A
+ * failed dispatch (`job.status === "failed"`) is unaffected: the caller
+ * never reaches `--wait` on that path, so it keeps reporting on stdout under
+ * `--json` exactly as it always has.
+ *
  * @param {string} kind verb name
  * @param {import('./types.mjs').JobIndexEntry} job
- * @param {{ json?: boolean }} options
+ * @param {{ json?: boolean, "show-result"?: boolean }} options
  * @returns {number | null} an exit code when the job failed to start, else
  *   null so the caller continues (e.g. to an optional `--wait`)
  */
@@ -498,6 +550,10 @@ export function reportQueuedJob(kind, job, options) {
     );
     return 1;
   }
+  if (options["show-result"]) {
+    process.stderr.write(`Background ${kind} started: ${job.id}\n`);
+    return null;
+  }
   const payload = createJsonEnvelope(kind, {
     status: "queued",
     jobId: job.id,
@@ -514,21 +570,208 @@ export function reportQueuedJob(kind, job, options) {
 }
 
 /**
- * Await a background job's terminal state, print the wait-timeout line (if
- * any), and map the outcome to an exit code. The one background-wait tail
- * `rescue.mjs` and `review.mjs` each hand-wrote (item 19).
+ * Print the finished job's raw output on stdout when a text-mode `--wait`
+ * completed: `task --wait`'s own behaviour since before `--show-result`
+ * existed, and (Task 7, "Senate R9", 2026-09) also `review`/`rescue --wait
+ * --show-result`'s completed-text-mode behaviour. A no-op under `--json`, for
+ * any status but `completed`, or when the stored result carries no
+ * `rawOutput`. `final` may be `null` (the job record vanished while
+ * waiting); optional chaining makes that the same no-op as any other
+ * non-completed status, rather than a thrown error.
+ *
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @param {boolean} json
+ * @returns {void}
+ */
+export function printCompletedRawOutput(final, json) {
+  if (json || final?.status !== "completed" || !final.result?.rawOutput) return;
+  process.stdout.write(final.result.rawOutput);
+}
+
+/**
+ * The `details` for a `--show-result` completion envelope: the same
+ * projection `result <id> --json` builds (`buildResultDetails`, shared via
+ * `job-result.mjs`), plus the same `deniedActions` (with remedy) and
+ * `agyPrintTimeout` keys that envelope adds on top (Task 7, "Senate R9",
+ * 2026-09). `final` (the terminal `JobRecord` `waitForJob` returns) plays
+ * both the `job` and `stored` role `buildResultDetails` expects: unlike
+ * `result.mjs`'s index-entry-plus-detail-file split, a background wait's
+ * `waitForJob` already reads the one complete per-job file, so there is no
+ * second, thinner record to merge in. No `--head`/`--tail` cut ever applies
+ * here (`--show-result` takes no such flag), so the shared helper's default
+ * `{ truncated: false }` cut is always what this passes.
+ *
+ * @param {import('./types.mjs').JobRecord} final a job with `status: "completed"`
+ * @returns {object}
+ */
+function buildShowResultCompletedDetails(final) {
+  const deniedList = deniedActionsWithRemedy(final.result?.deniedActions, final.kind);
+  const agyPrintTimeout = final.result?.agyPrintTimeout ?? null;
+  return {
+    ...buildResultDetails(final, final, { truncated: false }),
+    ...(deniedList ? { deniedActions: deniedList } : {}),
+    ...(agyPrintTimeout ? { agyPrintTimeout } : {}),
+  };
+}
+
+/**
+ * The `details.error.message` for a `--show-result` wait-timeout envelope
+ * (job still `queued`/`running` when the wait's own deadline passed): the
+ * same one-line reason {@link waitOutcomeLine} already gives the text-mode
+ * stderr path, with its own `antigravity:<kind>` prefix stripped, the same
+ * "strip the stderr line's own prefix for JSON reuse" convention
+ * `foregroundErrorMessage` uses below.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').JobRecord} final a job still `queued` or `running`
+ * @returns {string}
+ */
+function showResultTimeoutMessage(kind, final) {
+  const line = waitOutcomeLine(kind, final);
+  const prefix = `antigravity:${kind} — `;
+  if (line?.startsWith(prefix)) return line.slice(prefix.length);
+  return line ?? `wait timed out; job ${final.id} is still ${final.status}.`;
+}
+
+/**
+ * Build the one `--show-result --json` envelope for an awaited background
+ * job (Task 7, "Senate R9", 2026-09): `completed` reuses `result <id>
+ * --json`'s own details shape; `failed`/`cancelled` are the Task 3 error
+ * envelope with `error.code: "job_failed"`/`"job_cancelled"`; a job still
+ * `queued`/`running` (the wait's own deadline passed, not the job) is
+ * `error.code: "wait_timeout"` and never reports completion. A vanished job
+ * record (`final` is `null`) is reported the same way a stored failure is,
+ * since there is no terminal status left to represent.
+ *
+ * @param {string} kind verb name
+ * @param {string} jobId the id the caller waited on (used when `final` is `null`)
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @returns {import('./types.mjs').JsonEnvelopeV1}
+ */
+function buildShowResultEnvelope(kind, jobId, final) {
+  if (!final) {
+    return createErrorEnvelope(kind, {
+      status: "failed",
+      jobId,
+      error: { code: "job_failed", phase: "wait", message: "job record vanished while waiting." },
+    });
+  }
+  if (final.status === "completed") {
+    return createJsonEnvelope(kind, {
+      status: "completed",
+      jobId: final.id,
+      answer: typeof final.result?.rawOutput === "string" ? final.result.rawOutput : null,
+      details: buildShowResultCompletedDetails(final),
+    });
+  }
+  if (final.status === "failed" || final.status === "cancelled") {
+    return createErrorEnvelope(kind, {
+      status: final.status,
+      jobId: final.id,
+      error: {
+        code: final.status === "cancelled" ? "job_cancelled" : "job_failed",
+        phase: "run",
+        message: final.errorMessage ?? final.healthMessage ?? `job ${final.id} ${final.status}.`,
+      },
+    });
+  }
+  return createErrorEnvelope(kind, {
+    status: final.status,
+    jobId: final.id,
+    error: { code: "wait_timeout", phase: "wait", message: showResultTimeoutMessage(kind, final) },
+  });
+}
+
+/**
+ * The `--show-result` text-mode tail (Task 7, "Senate R9", 2026-09): a
+ * `completed` job prints its stored `rawOutput` on stdout (the usage
+ * trailer, when measured, is printed by the caller, see
+ * {@link reportShowResultOutcome}, the same way it always precedes a
+ * completed answer, in `--json` or not); a `failed` job prints its own
+ * stored reason on stderr and nothing on stdout; `cancelled` prints nothing
+ * at all; a job still `queued`/`running` (the wait timed out) prints the
+ * existing `wait timed out` line, unchanged. Every branch is silent on the
+ * stream it does not own. There is no envelope in text mode.
+ *
+ * @param {string} kind verb name
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @returns {void}
+ */
+function reportShowResultText(kind, final) {
+  if (!final) {
+    process.stderr.write(`antigravity:${kind} — job record vanished while waiting.\n`);
+    return;
+  }
+  if (final.status === "completed") {
+    printCompletedRawOutput(final, false);
+    return;
+  }
+  if (final.status === "failed") {
+    const message = final.errorMessage ?? final.healthMessage ?? `job ${final.id} failed.`;
+    process.stderr.write(`antigravity:${kind} — ${message}\n`);
+    return;
+  }
+  if (final.status === "cancelled") return;
+  const line = waitOutcomeLine(kind, final);
+  if (line) process.stderr.write(`${line}\n`);
+}
+
+/**
+ * `--show-result`'s own background-wait tail (Task 7, "Senate R9", 2026-09):
+ * the usage trailer on a completed job (unconditional on `--json`, matching
+ * every other completed path in this module), then exactly one `--json`
+ * envelope on stdout via {@link buildShowResultEnvelope}, or the text-mode
+ * report via {@link reportShowResultText}, never both, and never the
+ * dispatch-time queued envelope `reportQueuedJob` already suppressed for
+ * this flag. Split out of {@link waitAndReport} so that function's own two
+ * branches (the flag on, and the pre-existing behaviour it must stay
+ * byte-identical to) each read as one call.
+ *
+ * @param {string} kind verb name
+ * @param {string} jobId
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @param {boolean} json
+ * @returns {number}
+ */
+function reportShowResultOutcome(kind, jobId, final, json) {
+  if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
+  if (json) {
+    outputCommandResult(buildShowResultEnvelope(kind, jobId, final), "", true);
+  } else {
+    reportShowResultText(kind, final);
+  }
+  return exitCodeForJobStatus(final?.status);
+}
+
+/**
+ * Await a background job's terminal state and report it: the one
+ * background-wait tail `task.mjs`, `rescue.mjs` and `review.mjs` share
+ * (item 19; extended for `--show-result` in Task 7, "Senate R9", 2026-09).
+ *
+ * Without `showResult` this is byte-identical to the pre-Task-7 behaviour:
+ * print the wait-timeout line (if any), map the outcome to an exit code,
+ * and, `task` only, print the completed job's raw output on stdout in
+ * text mode (`printCompletedRawOutput`; `review`/`rescue` never have,
+ * before or after this task). With `showResult` this reports through
+ * {@link reportShowResultOutcome} instead, for all three verbs alike.
  *
  * @param {string} kind verb name
  * @param {string} workspaceRoot
  * @param {string} jobId
  * @param {typeof waitForJob} wait
+ * @param {{ json?: boolean, showResult?: boolean }} [options]
  * @returns {Promise<number>}
  */
-export async function waitAndExit(kind, workspaceRoot, jobId, wait) {
+export async function waitAndReport(kind, workspaceRoot, jobId, wait, { json = false, showResult = false } = {}) {
   const final = await wait(workspaceRoot, jobId);
+  if (showResult) return reportShowResultOutcome(kind, jobId, final, json);
   if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
   const line = waitOutcomeLine(kind, final);
   if (line) process.stderr.write(`${line}\n`);
+  if (kind === "task") {
+    if (!final) return 1;
+    printCompletedRawOutput(final, json);
+  }
   return exitCodeForJobStatus(final?.status);
 }
 
@@ -1030,10 +1273,10 @@ export function buildStoredResult(result) {
  * shape (docs/COMPATIBILITY.md, "Usage trailer"), when `usage.total_tokens`
  * is a number. A no-op otherwise — the plugin never estimates missing usage
  * and never emits the line when a measured total is absent. The one helper
- * for `finishForeground`'s foreground tail (all four verbs) and the two
- * background-wait paths (`waitAndExit` below, `task --wait`'s own tail);
- * `result.mjs` and `vision.mjs` each hand-wrote a copy of this exact line
- * before plan 103 T2 ("Senate R11", 2026-09).
+ * for `finishForeground`'s foreground tail (all four verbs) and the shared
+ * background-wait tail (`waitAndReport` below); `result.mjs` and
+ * `vision.mjs` each hand-wrote a copy of this exact line before plan 103 T2
+ * ("Senate R11", 2026-09).
  *
  * @param {import('./types.mjs').AgyUsage | null | undefined} usage
  * @returns {void}

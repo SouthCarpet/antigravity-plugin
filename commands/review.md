@@ -1,6 +1,6 @@
 ---
 description: Review uncommitted changes (or a branch diff) with Google Antigravity (agy)
-argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--preview] [--require-complete] [--json]'
+argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--show-result] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--preview] [--require-complete] [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -22,6 +22,7 @@ Flags:
 - `--scope <auto|working-tree|branch>` overrides the auto-detection. Default `auto`.
 - `--background` fork a worker, return immediately. Use `/antigravity:status` to poll.
 - `--wait` combined with `--background`, block until completion.
+- `--show-result` requires both `--wait` and `--background`; missing either is a validation error. After the wait, print the finished job's own result (its answer, or its failure/cancellation) instead of the queued dispatch notice; that notice moves to stderr instead, in both plain and `--json` output.
 - `--continue` resume the most recent review conversation.
 - `--conversation <id>` resume a specific conversation by id.
 - `--model <id>` selects the agy model for this run. Forward it through unchanged when present.

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--show-result` after a background `--wait`, on `review`, `rescue`, and
+  `task`.** Opt-in: requires `--wait` (an argument error otherwise,
+  `--show-result requires --wait`), and on `review`/`rescue` also requires
+  `--background` (`--show-result requires --background`); on `task`,
+  `--foreground` fails the same `--wait` check instead, since foreground has
+  no wait to opt into. With the flag, the dispatch prints nothing on
+  stdout: the queued notice moves to stderr as `Background <verb> started:
+  <job-id>`, in text mode and under `--json` alike. After the wait, one
+  of four outcomes is reported: a completed job's stored answer (with the
+  same `details` `result <job-id> --json` builds); a failed or cancelled job
+  as an error envelope (`job_failed`/`job_cancelled`); or, if the wait's own
+  deadline passes first, `wait_timeout` with the job's still-live status and
+  no completion ever reported for that call. Without the flag, all three
+  verbs are unchanged. See `docs/COMMANDS.md#--show-result-all-three-verbs`.
 - **`doctor`, a ninth, read-only verb.** Checks Node's version against
   `package.json`'s `engines.node`, the `agy` binary and version (classified
   against this plugin's measured range: `verified`, `beyond_measured`,

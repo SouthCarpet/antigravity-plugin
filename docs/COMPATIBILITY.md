@@ -274,6 +274,22 @@ untracked snippets) emits an envelope with `status: "no_changes"`,
 `jobId: null`, and `answer: null`. These make both previously exceptional
 stdout streams valid single JSON documents.
 
+The opt-in exception (added 2026-09): passing `--show-result`
+alongside `--wait` on a background dispatch (`review --background`, `rescue
+--background`, or background-default `task`) drops the dispatch envelope
+entirely: dispatch-time stdout stays empty, and the queued notice moves to
+stderr as `Background <verb> started: <jobId>`, in text mode and under
+`--json` alike. It then reports the awaited job's own outcome instead: a
+`completed` job's stored answer and `result <jobId> --json`'s own `details`
+shape; a `failed` or `cancelled` job as the matching error envelope
+(`job_failed`/`job_cancelled`); or, if the wait's own deadline passes first,
+`wait_timeout` with the job's still-live `status` (`"queued"` or
+`"running"`) and no completion ever reported for that call. `--show-result`
+requires `--wait` (and, on `review`/`rescue`, `--background` too; `task`'s
+`--foreground` has no `--wait` semantics and fails the same check). See
+[`docs/COMMANDS.md`](./COMMANDS.md#--show-result-all-three-verbs) for the
+full per-outcome contract.
+
 A parser error (an unknown flag, a missing value, a conflicting pair) happens
 before `--json` is even known, so it is unchanged: stderr only, no stdout
 body, whatever flags follow it.
@@ -301,6 +317,8 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `invalid_input`: the caller's own input failed validation
 - `state_error`: a job reference or a stored job record could not be
   resolved
+- `queued`/`running`: `--show-result`'s own wait timed out while the job was
+  still live; the job's own current status, not a new status word
 
 `details.error.code` values:
 
@@ -324,7 +342,13 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `job_not_found`, `job_not_ready`, `invalid_job_record`, `state_locked`
   (`state_error`, phase `state`; `status`/`result`/`cancel`)
 - `job_failed` (`result <id>` on a stored failed job: `status` stays
-  `"failed"` and the answer stays whatever was stored; this code names why)
+  `"failed"` and the answer stays whatever was stored; this code names why;
+  `--show-result` reuses the same code for its own awaited job ending
+  `failed`, phase `run`)
+- `job_cancelled` (`--show-result`'s own awaited job ending `cancelled`,
+  phase `run`; added 2026-09)
+- `wait_timeout` (`--show-result`'s own wait timing out while the job is
+  still `queued`/`running`, phase `wait`; added 2026-09)
 
 Quota exhaustion is not yet classified into its own `status`/`error.code`
 pair. A run that fails on a provider quota limit still reports as the

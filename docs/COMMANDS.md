@@ -222,7 +222,7 @@ job-state root that could not be read).
 
 ```text
 review [--base <ref>] [--scope <auto|working-tree|branch>]
-       [--background] [--wait]
+       [--background] [--wait] [--show-result]
        [--continue | --conversation <id>]
        [--model <id>] [--effort <low|medium|high|agy-default>]
        [--focus <text>]
@@ -249,6 +249,16 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   `--wait` has no additional effect.
   The agy execution budget above applies in both cases; the background wait
   itself has a separate 30-minute deadline.
+- `--show-result` (additive) prints the finished job's own result instead of
+  the dispatch envelope, after `--background --wait` completes. It requires
+  both flags: without `--wait` it is an argument error, `--show-result
+  requires --wait`; with `--wait` but without `--background` it is
+  `--show-result requires --background`. Both are stderr-only, exit 1, before
+  any Git collection or agy probe. With the flag, the queued dispatch prints
+  nothing on stdout; the one-line notice
+  `Background review started: <job-id>` moves to stderr instead, in text mode
+  and under `--json` alike. See [`--show-result`](#--show-result-all-three-verbs)
+  below for the shared completion contract.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy on both the foreground and the background path, exactly as `rescue`'s
   `--model` already was.
@@ -321,7 +331,7 @@ of an empty stdout body; the stderr line is unchanged either way.
 
 ```text
 rescue <prompt...>
-       [--background] [--wait]
+       [--background] [--wait] [--show-result]
        [--resume] [--continue] [--fresh] [--conversation <id>]
        [--add-dir <path>]... [--mode <plan|accept-edits>]
        [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
@@ -376,6 +386,11 @@ task text as one argument to preserve its boundaries.
   foreground and `--wait` has no additional effect.
   The agy execution budget above applies in both cases; the background wait
   itself has a separate 30-minute deadline.
+- `--show-result` (additive) prints the finished job's own result instead of
+  the dispatch envelope, after `--background --wait` completes. It needs both
+  flags, with the same two argument errors and the same stderr-only queued
+  notice as `review`'s `--show-result` above. See
+  [`--show-result`](#--show-result-all-three-verbs) below.
 
 On a completed run (foreground, or an awaited `--background --wait` run), if
 agy reported measured usage the stable usage trailer (see [Usage
@@ -395,7 +410,7 @@ background job whose worker never started reports the same way.
 
 ```text
 task <prompt...>
-     [--background | --foreground] [--wait]
+     [--background | --foreground] [--wait] [--show-result]
      [--continue | --conversation <id>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
      [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
@@ -412,6 +427,14 @@ required unless `--continue` or `--conversation` is supplied.
   effect.
   The agy execution budget above applies in both cases; the background wait
   itself has a separate 30-minute deadline.
+- `--show-result` (additive) prints the finished job's own result instead of
+  the dispatch envelope, after a background `--wait` completes. `task` has no
+  separate flag for "opt into background"; its default already is
+  background, so the argument error names `--foreground` instead:
+  `--show-result --foreground` is refused with the same
+  `--show-result requires --wait` message an absent `--wait` gets, because
+  foreground has no `--wait` semantics at all. See
+  [`--show-result`](#--show-result-all-three-verbs) below.
 - `--continue` resumes the most recent conversation and conflicts with
   `--conversation <id>`.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
@@ -448,6 +471,43 @@ foreground run that did not complete emits one error envelope
 (`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead
 of an empty stdout body; the stderr line is unchanged either way. A
 background job whose worker never started reports the same way.
+
+### `--show-result` (all three verbs)
+
+`--show-result` is an opt-in outcome report for a background `--wait` on
+`review`, `rescue`, and `task`. Without it, the three verbs keep the frozen
+1.x contract: the dispatch's own queued envelope stays on stdout, and the
+caller fetches the finished job separately with `result <job-id>`
+(`task --wait` also appends the raw text on completion, unchanged; see the
+`task` section above). With it, the dispatch prints nothing on stdout at
+all; the queued notice moves to stderr as
+`Background <verb> started: <job-id>`, in text mode and under `--json`
+alike; and after the wait, one of four outcomes is reported:
+
+- **completed**: text mode prints the stored `rawOutput` on stdout,
+  preceded by the usage trailer on stderr when agy reported measured usage.
+  `--json` prints one envelope: `status: "completed"`, the job id, `answer`
+  set to the raw output, and `details` built the same way `result <job-id>
+  --json` builds its own (`conversationId`, `agyConversationId`,
+  `provenance`, `inputHash`, `reportedModel`, the full stored `result`
+  object with `usage` and `durationSeconds`, plus `deniedActions` with
+  remedies and `agyPrintTimeout` when present). Exit 0.
+- **failed**: text mode prints the job's own stored reason on stderr and
+  nothing on stdout. `--json` prints the Task 3 error envelope with
+  `error.code: "job_failed"`, phase `run`. Exit 1.
+- **cancelled**: nothing on stdout, and nothing extra on stderr beyond the
+  dispatch notice. `--json` prints the error envelope with
+  `error.code: "job_cancelled"`, phase `run`. Exit 2.
+- **wait timeout** (the job is still `queued` or `running` when the wait's
+  own 30-minute deadline passes): text mode prints the existing
+  `wait timed out; job <id> is still <status>.` line, unchanged, and nothing
+  on stdout. `--json` prints `status` as the job's own live status
+  (`"queued"` or `"running"`), `answer: null`, and
+  `error.code: "wait_timeout"`, phase `wait`. This never reports completion:
+  a job that finishes after the deadline is not retroactively shown. Exit 1.
+
+`--show-result` takes no `--head`/`--tail`; the printed or returned answer is
+always the complete stored text.
 
 ## `vision`
 

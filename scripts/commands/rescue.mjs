@@ -17,6 +17,9 @@
  *                         --model and no --effort no flag is sent (the model
  *                         id decides); agy-default sends no --effort flag at
  *                         all
+ *   --show-result         after a background --wait completes, print the
+ *                         finished job's own result instead of the dispatch
+ *                         envelope (requires --wait and --background)
  *   --json                emit JSON instead of markdown
  */
 
@@ -30,13 +33,15 @@ import {
   probeAgyForVerb,
   rememberAgyVersion,
   reportAgyUnavailable,
+  reportArgsValidationError,
   reportMissingTaskText,
   reportQueuedJob,
   resolveRequestEffort,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
-  waitAndExit,
+  validateShowResultDependency,
+  waitAndReport,
   waitForJob,
 } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
@@ -92,7 +97,10 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
   const queuedExit = reportQueuedJob("rescue", job, options);
   if (queuedExit !== null) return queuedExit;
   if (!options.wait) return 0;
-  return waitAndExit("rescue", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
+  return waitAndReport("rescue", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob, {
+    json: Boolean(options.json),
+    showResult: Boolean(options["show-result"]),
+  });
 }
 
 /**
@@ -104,7 +112,7 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["conversation", "model", "cwd", "add-dir", "mode", "effort"],
-    booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json"],
+    booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
@@ -117,6 +125,9 @@ export async function run(argv = [], ctx = {}) {
   }, "rescue");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
+
+  const showResultError = validateShowResultDependency(options, "rescue");
+  if (showResultError) return reportArgsValidationError("rescue", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);

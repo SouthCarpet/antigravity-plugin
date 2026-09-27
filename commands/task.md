@@ -1,6 +1,6 @@
 ---
 description: Free-form Antigravity task with state tracking (background by default)
-argument-hint: '[--wait] [--foreground] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
+argument-hint: '[--wait] [--foreground] [--show-result] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -21,6 +21,7 @@ Flags:
 - Default execution is `--background`. A job id is returned immediately.
 - `--wait` block until the worker finishes and stream its final output.
 - `--foreground` run inline instead of forking a worker.
+- `--show-result` requires `--wait`; refused the same way with `--foreground` too, since foreground has no `--wait` semantics. After the wait, prints the finished job's own result instead of the queued dispatch notice; that notice moves to stderr instead.
 - `--continue` resume the most recent agy conversation.
 - `--conversation <id>` resume a specific conversation.
 - `--add-dir <path>` extra workspace directory (repeatable).

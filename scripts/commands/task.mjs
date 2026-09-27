@@ -19,6 +19,10 @@
  *                         --model and no --effort no flag is sent (the model
  *                         id decides); agy-default sends no --effort flag at
  *                         all
+ *   --show-result         after a background --wait completes, print the
+ *                         finished job's own result instead of the dispatch
+ *                         envelope (requires --wait; refused with
+ *                         --foreground, which has no --wait semantics)
  *   --json                emit JSON
  */
 
@@ -29,19 +33,19 @@ import {
   AGY_MODES,
   EFFORT_CHOICES,
   agyModeArgs,
-  exitCodeForJobStatus,
-  printMeasuredUsageTrailer,
   probeAgyForVerb,
   rememberAgyVersion,
   reportAgyUnavailable,
+  reportArgsValidationError,
   reportMissingTaskText,
   reportQueuedJob,
   resolveRequestEffort,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
+  validateShowResultDependency,
+  waitAndReport,
   waitForJob,
-  waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
@@ -53,20 +57,6 @@ function resolveTaskMode(options) {
   if (options.conversation) return { mode: "conversation", conversationId: String(options.conversation) };
   if (options.continue) return { mode: "continue", conversationId: undefined };
   return { mode: "print", conversationId: undefined };
-}
-
-/**
- * Print the finished job's raw output on stdout when `--wait` completed
- * without `--json` — the one behaviour `task --wait` has that `rescue`/
- * `review`'s wait tail does not.
- *
- * @param {import('../lib/types.mjs').JobRecord} final
- * @param {boolean} json
- * @returns {void}
- */
-function printCompletedRawOutput(final, json) {
-  if (json || final.status !== "completed" || !final.result?.rawOutput) return;
-  process.stdout.write(final.result.rawOutput);
 }
 
 async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, json }) {
@@ -110,13 +100,10 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
   if (queuedExit !== null) return queuedExit;
 
   if (!options.wait) return 0;
-  const final = await wait(workspaceRoot, job.id);
-  if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
-  const line = waitOutcomeLine("task", final);
-  if (line) process.stderr.write(`${line}\n`);
-  if (!final) return 1;
-  printCompletedRawOutput(final, options.json);
-  return exitCodeForJobStatus(final.status);
+  return waitAndReport("task", workspaceRoot, job.id, wait, {
+    json: Boolean(options.json),
+    showResult: Boolean(options["show-result"]),
+  });
 }
 
 /**
@@ -128,7 +115,7 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "effort"],
-    booleanOptions: ["wait", "foreground", "background", "continue", "json"],
+    booleanOptions: ["wait", "foreground", "background", "continue", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
@@ -138,6 +125,9 @@ export async function run(argv = [], ctx = {}) {
   }, "task");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
+
+  const showResultError = validateShowResultDependency(options, "task");
+  if (showResultError) return reportArgsValidationError("task", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);

@@ -48,6 +48,8 @@ const COMMAND_HELP = {
     '  --preview               show what would be sent, no agy call (conflicts with\n' +
     '                          --background, --wait, --continue, --conversation)\n' +
     '  --require-complete      refuse an incomplete input instead of a warning\n' +
+    '  --show-result           after --wait, print the finished job instead of\n' +
+    '                          the dispatch envelope (needs --wait --background)\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:
@@ -60,6 +62,8 @@ const COMMAND_HELP = {
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
+    '  --show-result           after --wait, print the finished job instead of\n' +
+    '                          the dispatch envelope (needs --wait --background)\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   task:
@@ -73,6 +77,8 @@ const COMMAND_HELP = {
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
+    '  --show-result           after a background --wait, print the finished\n' +
+    '                          job instead of the dispatch envelope (needs --wait)\n' +
     '  --json                  emit JSON\n' +
     '  --cwd <path>            override working directory',
   vision:
