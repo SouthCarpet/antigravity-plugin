@@ -308,6 +308,17 @@ release tag ties in, are in [docs/RELEASING.md](./docs/RELEASING.md).
 A valid attestation identifies where a tarball came from. It does not review
 the code. It does not cover `agy` or the hosts that load this plugin.
 
+### Installing into agy from the same artifact npm publishes
+
+`agy plugin install <path>` copies whatever directory you point it at. A
+plain clone also copies `.git`, `.github`, and `tests/`, none of which npm
+ever publishes. `scripts/pack-for-agy.mjs` closes that gap: it runs the same
+`npm pack` step the release workflow runs, extracts the result, and prints
+the sha256 checksum and the exact `agy plugin install <dir>` command. The
+installed copy is then the published artifact, not the whole working tree.
+The script itself never runs `agy` and never writes under `~/.gemini`; it
+only reads the checkout and writes to a temporary directory.
+
 ## Threat boundaries this plugin does **not** close
 
 - agy is a general tool-using agent. `rescue` and `task` can change the

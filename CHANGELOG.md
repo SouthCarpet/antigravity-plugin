@@ -132,6 +132,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   immediately before "## Output", is stored as `request.focus`, and appends
   ` focus: <first 40 characters>` to the job title. An empty, whitespace-only,
   or over-cap focus is a new `invalid_focus` validation error, exit 1.
+- **`scripts/pack-for-agy.mjs`.** Packs the checkout the way `npm publish`
+  would, extracts the tarball into a temporary directory, and prints the
+  extracted directory, its sha256, the file count, and the exact
+  `agy plugin install <dir>` command. It never runs `agy` and never touches
+  `~/.gemini`. This closes the gap where `agy plugin install <path>` copies
+  the entire directory it is pointed at, including `.git`, `.github`, and
+  `tests/` on a plain clone, because it does not read `package.json`
+  `files`. A hash-guarded isolated run against agy 1.2.12 confirmed that
+  installing, listing, validating, and uninstalling a packed copy never
+  touched the real `~/.gemini` store. See
+  [docs/INSTALL.md](./docs/INSTALL.md#agy-itself).
 
 ### Changed
 

@@ -78,7 +78,7 @@ Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
 ## agy itself
 
 agy 1.1.15 and 1.1.17 can install, list, validate, enable, and disable this
-plugin. They have no `plugin run` subcommand. After install, the eight verbs
+plugin. They have no `plugin run` subcommand. After install, the nine verbs
 are reachable two ways:
 
 - Interactive TUI: `/antigravity:<verb>` (agy converts `commands/*.md` to
@@ -88,21 +88,39 @@ are reachable two ways:
 - Standalone CLI: `npx @southcarpet/antigravity-plugin <verb>`. This is the
   fallback that always works.
 
-Install from a **clean clone**. `agy plugin install <path>` copies the entire
-working tree into `~/.gemini/config/plugins/antigravity/`, including `.git`,
-`.github`, and `tests/`. It does not honour `package.json` `files`. agy keeps
-that copy. Before 1.1.28, agy merged a reinstall into the old copy. Since
-1.1.28, `agy plugin install` replaces the managed directory exactly
-(`agy-changelog-1.2.7.txt`). **To upgrade, run `agy plugin uninstall
-antigravity`, then `agy plugin install <path-to-clean-clone>`**. This remains
-the safe path on every version.
+`agy plugin install <path>` copies the **entire directory it is pointed
+at**. It does not honour `package.json` `files`. Point it at a clean clone
+and it also copies `.git`, `.github`, and `tests/` into
+`~/.gemini/config/plugins/antigravity/`.
+
+**Install from a packed copy instead.** This ships exactly what `npm
+publish` would ship, nothing more:
 
 ```bash
-git clone https://github.com/SouthCarpet/antigravity-plugin.git
-agy plugin install ./antigravity-plugin
+# From a checkout:
+node scripts/pack-for-agy.mjs
+# Prints the extracted directory and the exact next command, for example:
+#   agy plugin install C:\Users\you\AppData\Local\Temp\pack-for-agy-XXXX\package
+
+# From a published version, without a checkout:
+npm pack @southcarpet/antigravity-plugin
+tar -xzf southcarpet-antigravity-plugin-*.tgz
+agy plugin install ./package
+```
+
+`agy plugin install` keeps its own copy of whatever directory you name.
+Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28,
+`agy plugin install` replaces the managed directory exactly
+(`agy-changelog-1.2.7.txt`). **To upgrade, run `agy plugin uninstall
+antigravity`, then `agy plugin install <dir>` again with a fresh packed
+copy.** This remains the safe path on every version.
+
+```bash
+node scripts/pack-for-agy.mjs
+agy plugin install <the printed directory>
 agy plugin list                  # expect: antigravity, with agents and commands
-agy plugin validate ./antigravity-plugin
-# validate reports: commands: 8 processed (converted to skills)
+agy plugin validate <the printed directory>
+# validate reports: commands: 9 processed (converted to skills)
 
 # TUI, after install (approve the node run if prompted):
 #   /antigravity:setup
@@ -110,7 +128,14 @@ agy plugin validate ./antigravity-plugin
 
 npx @southcarpet/antigravity-plugin setup
 npx @southcarpet/antigravity-plugin review
-# or from the clone:
+```
+
+A clean clone is still the right choice for development, where you want to
+edit the source and reinstall it as you go:
+
+```bash
+git clone https://github.com/SouthCarpet/antigravity-plugin.git
+agy plugin install ./antigravity-plugin
 node ./antigravity-plugin/bin/antigravity.mjs review
 ```
 
@@ -214,9 +239,11 @@ this for you.
 
 ### `agy plugin install` syntax
 
-The form that works is `agy plugin install <path-to-clone>`. The
-`<name>@<marketplace>` form and `agy plugin import claude` fail on the tested
-agy versions (see above). There is no `agy plugin run`. After a plugin
-upgrade, run `agy plugin uninstall antigravity` and then
-`agy plugin install <path-to-clone>` so the TUI copy matches the clone;
-otherwise `/antigravity:<verb>` keeps the previous wrappers.
+The form that works is `agy plugin install <path>`, where `<path>` is a
+packed-and-extracted copy (`node scripts/pack-for-agy.mjs`) or, for
+development, a clean clone. The `<name>@<marketplace>` form and
+`agy plugin import claude` fail on the tested agy versions (see above).
+There is no `agy plugin run`. After a plugin upgrade, run
+`agy plugin uninstall antigravity` and then `agy plugin install <path>`
+again with a fresh copy, so the TUI copy matches; otherwise
+`/antigravity:<verb>` keeps the previous wrappers.

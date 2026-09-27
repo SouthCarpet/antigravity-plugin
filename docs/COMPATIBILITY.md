@@ -147,9 +147,9 @@ prompt answers this: it tells the model to open exactly that path with agy's
 every run and a 790-byte image was offloaded in some runs, so there is no
 size limit you can depend on.
 
-agy is a real host for discovery and lifecycle: `agy plugin install <path-to-clone>`,
+agy is a real host for discovery and lifecycle: `agy plugin install <path>`,
 `list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no
-`plugin run` subcommand. After install, the eight verbs are reachable from an
+`plugin run` subcommand. After install, the nine verbs are reachable from an
 interactive agy TUI as `/antigravity:<verb>` (command markdown converted to
 skills) and from the standalone CLI. The TUI wrappers locate the copied runtime
 in Node: `CLAUDE_PLUGIN_ROOT` when that is set and non-empty, otherwise
@@ -161,10 +161,22 @@ run or does not succeed, they
 instruct the reading model to print the error and stop rather than perform the
 task itself; `npx @southcarpet/antigravity-plugin <verb>` is the fallback that
 always works. agy stores its own copy of the tree, so an upgrade takes effect
-in the TUI only after `agy plugin install <path-to-clone>` is re-run. Host
+in the TUI only after `agy plugin install <path>` is re-run. Host
 installers and host-owned invocation wrappers can evolve independently. The
-promise is that the four surfaces above reach the same eight runtime verbs and
+promise is that the four surfaces above reach the same nine runtime verbs and
 accept the documented arguments when the host can load this plugin.
+
+`agy plugin install <path>` copies the directory it is pointed at; it does not
+read `package.json` `files`. `scripts/pack-for-agy.mjs` packs this checkout
+the same way `npm publish` would, extracts that tarball into a temporary
+directory, and prints the exact `agy plugin install <dir>` command for it, so
+the installed copy holds the same files an npm install would hold, not the
+whole working tree. A hash-guarded isolated run (fresh `HOME`/`USERPROFILE`/
+`APPDATA`/`LOCALAPPDATA`, real `~/.gemini` hashed before and after every step)
+confirmed on 2026-09-27 that `agy plugin install`, `plugin list`,
+`plugin validate`, and `plugin uninstall` against that packed copy never
+touched the real `~/.gemini` store on agy 1.2.12: verified, transcript
+`probe-plugin-install-pack.txt`.
 
 ## Public command surface
 
