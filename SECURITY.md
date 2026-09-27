@@ -127,6 +127,18 @@ placed in its own "## Reviewer focus (caller instruction)" section, outside
 every data block, so it is never mistaken for reviewed content and cannot be
 used to smuggle instructions through the untrusted data blocks above.
 
+`review --preview` shows exactly what a real run would send to agy: the same
+included/skipped file lists, the same truncation state, and the SHA-256 hash
+of the exact prompt string a real run would compute, all from the one
+`buildReviewInput` selection function every path (`--preview`, foreground,
+background) calls. It never calls agy itself. The hash lets a caller confirm,
+after the fact, exactly which input a completed job actually sent, by
+comparing the stored `request.inputHash` against a fresh `--preview` run on
+the same tree. `review --require-complete` refuses to send an input that
+left something out (a skipped file, a diff cut by the cap) instead of
+sending it silently with a warning; the refusal happens before agy is ever
+probed or spawned.
+
 ### Headless denial reporting
 
 When a tool is auto-denied in headless mode (agy >= 1.1.20), the plugin only

@@ -25,6 +25,24 @@ function trimDiff(diff) {
 }
 
 /**
+ * The truncation facts {@link trimDiff} applies, without the trimmed text
+ * itself (Task 5, "Senate R5", 2026-09): `buildReviewInput`
+ * (`review-input.mjs`) needs `{ diff: boolean, droppedBytes: number }` for
+ * its own `truncated` field and for the incomplete-input warning/refusal,
+ * using the exact same {@link MAX_DIFF_BYTES} boundary `trimDiff` already
+ * uses, never a second copy of that number.
+ *
+ * @param {string} diff
+ * @returns {{ diff: boolean, droppedBytes: number }}
+ */
+export function diffTruncationInfo(diff) {
+  if (typeof diff !== "string" || diff.length <= MAX_DIFF_BYTES) {
+    return { diff: false, droppedBytes: 0 };
+  }
+  return { diff: true, droppedBytes: diff.length - MAX_DIFF_BYTES };
+}
+
+/**
  * Wrap repository content (diffs, commits, untracked file bodies) in a
  * fenced, explicitly-labeled data block (item 13/F14): the fence uses one
  * more backtick than the longest backtick run already inside `value` (so

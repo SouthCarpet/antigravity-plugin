@@ -306,9 +306,18 @@ const VALID_SCOPES = new Set(["auto", "working-tree", "branch"]);
 /**
  * Collect git context based on scope (working-tree or branch).
  *
+ * `base` and `headSha` (Task 5, "Senate R5", 2026-09) sit at the envelope's
+ * top level, not only inside `context`: `context`'s own shape differs by
+ * scope (only working-tree's carries a `headSha`, branch's carries none at
+ * all), so `buildReviewInput` (`review-input.mjs`) needs one place to read
+ * both regardless of which scope ran. `base` is the caller's own `--base`
+ * value (`null` when not given, even when `scope: "auto"` resolved a branch
+ * comparison against a local `main`/`master` on its own); `headSha` is the
+ * current HEAD short SHA, independent of scope.
+ *
  * @param {string} cwd
  * @param {{ scope?: "auto" | "working-tree" | "branch", base?: string, realpathSync?: typeof fs.realpathSync }} [options]
- * @returns {{ scope: string, context: any }}
+ * @returns {{ scope: string, context: any, base: string | null, headSha: string }}
  */
 export function collectReviewContext(cwd, options = {}) {
   const scope = options.scope ?? "auto";
@@ -319,11 +328,20 @@ export function collectReviewContext(cwd, options = {}) {
     );
   }
 
+  const base = options.base ?? null;
+  // `resolveBaseCommit` runs (and can throw its own friendly "unknown base
+  // ref" error) before `getHeadSha` below: an invalid explicit `--base` must
+  // still fail with exactly that message and exactly one extra git call,
+  // unchanged from before headSha existed here (`tests/git.test.mjs`,
+  // "review validates base refs before merge-base").
   const baseCommit = options.base ? resolveBaseCommit(cwd, options.base) : null;
+  const headSha = getHeadSha(cwd);
   if (scope === "branch" && options.base) {
     return {
       scope: "branch",
-      context: compareBaseCommit(cwd, options.base, baseCommit)
+      context: compareBaseCommit(cwd, options.base, baseCommit),
+      base,
+      headSha,
     };
   }
 
@@ -334,16 +352,20 @@ export function collectReviewContext(cwd, options = {}) {
     if (hasChanges) {
       return {
         scope: "working-tree",
-        context: collectWorkingTreeContext(cwd, options)
+        context: collectWorkingTreeContext(cwd, options),
+        base,
+        headSha,
       };
     }
     // Try branch comparison against main/master.
-    for (const base of ["main", "master"]) {
-      const result = git(cwd, ["rev-parse", "--verify", base]);
+    for (const candidateBase of ["main", "master"]) {
+      const result = git(cwd, ["rev-parse", "--verify", candidateBase]);
       if (result.status === 0) {
         return {
           scope: "branch",
-          context: buildBranchComparison(cwd, base)
+          context: buildBranchComparison(cwd, candidateBase),
+          base,
+          headSha,
         };
       }
     }
@@ -352,6 +374,8 @@ export function collectReviewContext(cwd, options = {}) {
   // Default to working-tree.
   return {
     scope: "working-tree",
-    context: collectWorkingTreeContext(cwd, options)
+    context: collectWorkingTreeContext(cwd, options),
+    base,
+    headSha,
   };
 }

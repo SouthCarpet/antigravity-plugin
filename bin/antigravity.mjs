@@ -43,6 +43,9 @@ const COMMAND_HELP = {
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high|agy-default>  agy reasoning effort for this run\n' +
     "  --focus <text>          narrow the review's attention (max 500 chars)\n" +
+    '  --preview               show what would be sent, no agy call (conflicts with\n' +
+    '                          --background, --wait, --continue, --conversation)\n' +
+    '  --require-complete      refuse an incomplete input instead of a warning\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:

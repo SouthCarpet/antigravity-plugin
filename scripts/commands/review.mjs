@@ -16,17 +16,27 @@
  *   --focus <text>    narrows the review's attention (never required, never
  *                     derived from repository content); trimmed, max 500
  *                     characters
+ *   --preview         show what would be sent (included/skipped files,
+ *                     counts, truncation, hash); no agy call, no state
+ *                     change (Task 5, "Senate R5", 2026-09); conflicts with
+ *                     --background, --wait, --continue, --conversation
+ *   --require-complete  refuse to send an input with a skipped file or a
+ *                     truncated diff, instead of sending it with a warning
  *   --json            output JSON instead of markdown
  *
  * The diff is collected first. An empty one answers `no_changes` with exit 0
- * from Git alone, so a machine without `agy` can still run this. `agy` is
- * probed only when there is content to send, before the prompt, the job
- * record and any spawn.
+ * from Git alone, so a machine without `agy` can still run this. Every
+ * remaining path (foreground, background, `--preview`) then builds one
+ * `buildReviewInput` record (`review-input.mjs`) — the single place that
+ * decides what reaches agy, from the exact prompt string to the
+ * included/skipped lists and the input hash. `agy` is probed only after
+ * that, and only when the run is actually going to send something: never
+ * for `--preview`, and never when `--require-complete` refuses first.
  */
 
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
-import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
+import { buildReviewInput } from "../lib/review-input.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   EFFORT_CHOICES,
@@ -42,7 +52,7 @@ import {
   waitAndExit,
   waitForJob,
 } from "../lib/job-helpers.mjs";
-import { createErrorEnvelope, createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderReviewPreview } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -55,7 +65,35 @@ function resolveReviewMode(options) {
   return "print";
 }
 
-async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, options, ctx }) {
+/**
+ * The `request` fields common to the foreground and background review job
+ * (Task 5, "Senate R5", 2026-09): the existing `scope`/`base`/`mode`/`model`/
+ * `effort`/`focus` fields, plus `inputHash`, `inputCounts`, and `headSha`
+ * straight off `buildReviewInput`'s own return value — never a second copy
+ * of the diff or the prompt (that already lives at the top-level `prompt`
+ * argument `runForegroundJob`/`startBackgroundJob` store as `request.prompt`
+ * on the background path).
+ *
+ * @param {{ envelope: object, base: string | undefined, mode: string,
+ *   model: string | undefined, effort: string | undefined, focus: string | undefined,
+ *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput> }} args
+ * @returns {object}
+ */
+function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, input }) {
+  return {
+    scope: envelope.scope,
+    base: base ?? null,
+    mode,
+    model,
+    effort,
+    focus,
+    inputHash: input.inputHash,
+    inputCounts: input.counts,
+    headSha: input.headSha,
+  };
+}
+
+async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, input, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "review",
@@ -65,7 +103,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
     conversationId,
     cwd: workspaceRoot,
     agyVersion,
-    request: { scope: envelope.scope, base: base ?? null, mode, model, effort, focus },
+    request: buildReviewRequestFields({ envelope, base, mode, model, effort, focus, input }),
   });
   const queuedExit = reportQueuedJob("review", job, options);
   if (queuedExit !== null) return queuedExit;
@@ -73,7 +111,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
   return waitAndExit("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
 }
 
-async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, json }) {
+async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, input, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "review",
@@ -85,7 +123,15 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
     agyVersion,
     model,
     effort,
-    request: { scope: envelope.scope, base: base ?? null, mode: retryConversationId ? "conversation" : mode, model, effort, focus },
+    request: buildReviewRequestFields({
+      envelope,
+      base,
+      mode: retryConversationId ? "conversation" : mode,
+      model,
+      effort,
+      focus,
+      input,
+    }),
     onText: (delta) => process.stderr.write(delta),
   });
 
@@ -114,6 +160,93 @@ function resolveReviewFlagOptions(options) {
 }
 
 /**
+ * True when `buildReviewInput`'s own record left something out of the
+ * prompt: a skipped file, or a diff cut by the 196 KiB cap (Task 5, "Senate
+ * R5", 2026-09). The one condition both the incomplete-input warning and
+ * `--require-complete`'s refusal gate on, so the two can never disagree
+ * about what counts as "incomplete".
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @returns {boolean}
+ */
+function isReviewInputIncomplete(input) {
+  return input.skipped.length > 0 || input.truncated.diff;
+}
+
+/**
+ * Print the one stderr warning line for a normal run whose input is
+ * incomplete (Task 5, "Senate R5", 2026-09): printed once, before the agy
+ * probe or any spawn.
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @returns {void}
+ */
+function printIncompleteInputWarning(input) {
+  process.stderr.write(
+    `antigravity:review — warning: input is incomplete (${input.skipped.length} files skipped, ` +
+      `diff truncated by ${input.truncated.droppedBytes} bytes); run review --preview for the list.\n`,
+  );
+}
+
+/**
+ * Report `--require-complete`'s refusal (Task 5, "Senate R5", 2026-09): the
+ * plugin's own one-line reason on stderr, plus the Task 3 `invalid_input`
+ * `--json` envelope (`error.code: "input_incomplete"`, phase `collect`),
+ * before any agy probe or spawn. Exit 1, same as every other validation
+ * failure this verb reports.
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportInputIncomplete(input, json) {
+  const message = "input is incomplete; --require-complete refused to send it.";
+  process.stderr.write(`antigravity:review — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("review", {
+      status: "invalid_input",
+      error: { code: "input_incomplete", phase: "collect", message },
+      details: { skipped: input.skipped, truncated: input.truncated },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * Report `--preview` (Task 5, "Senate R5", 2026-09): the included/skipped
+ * lists, counts, truncation state, and hash `buildReviewInput` already
+ * computed. No agy probe, no spawn, no state change, exit 0 always.
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @param {boolean} json
+ * @returns {0}
+ */
+function reportReviewPreview(input, json) {
+  outputCommandResult(
+    createJsonEnvelope("review", {
+      status: "preview",
+      jobId: null,
+      answer: null,
+      details: {
+        included: input.included,
+        skipped: input.skipped,
+        truncated: input.truncated,
+        counts: input.counts,
+        inputHash: input.inputHash,
+        scope: input.scope,
+        base: input.base,
+        headSha: input.headSha,
+      },
+    }),
+    renderReviewPreview(input),
+    json,
+  );
+  return 0;
+}
+
+/**
  * @param {string[]} [argv] CLI arguments after the verb (flags only)
  * @param {{ cwd?: string, startBackgroundJob?: typeof startBackgroundJob,
  *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`
@@ -122,10 +255,14 @@ function resolveReviewFlagOptions(options) {
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["base", "scope", "conversation", "cwd", "model", "effort", "focus"],
-    booleanOptions: ["background", "wait", "continue", "json"],
+    booleanOptions: ["background", "wait", "continue", "json", "preview", "require-complete"],
     valueChoices: { effort: EFFORT_CHOICES },
     conflicts: [
       ["continue", "conversation"],
+      ["preview", "background"],
+      ["preview", "wait"],
+      ["preview", "continue"],
+      ["preview", "conversation"],
     ],
   }, "review");
   if (!parsed) return 1;
@@ -158,21 +295,32 @@ export async function run(argv = [], ctx = {}) {
     return 0;
   }
 
-  const probed = await probeAgyForVerb("review");
-  if (probed.line) return reportAgyUnavailable("review", probed.line, options.json);
+  const input = buildReviewInput(envelope, { focus });
+  const json = Boolean(options.json);
 
-  const prompt = buildReviewPrompt(envelope, { focus });
+  if (options.preview) return reportReviewPreview(input, json);
+
+  const incomplete = isReviewInputIncomplete(input);
+  if (incomplete && options["require-complete"]) return reportInputIncomplete(input, json);
+  if (incomplete) printIncompleteInputWarning(input);
+
+  const probed = await probeAgyForVerb("review");
+  if (probed.line) return reportAgyUnavailable("review", probed.line, json);
+
   const mode = resolveReviewMode(options);
   const conversationId = options.conversation ? String(options.conversation) : undefined;
   const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}${focus ? ` focus: ${focus.slice(0, 40)}` : ""}`;
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion: probed.version, model, effort, focus };
+  const runArgs = {
+    workspaceRoot, title, prompt: input.prompt, mode, conversationId, envelope, base,
+    agyVersion: probed.version, model, effort, focus, input,
+  };
 
   if (options.background) {
     return runReviewBackground({ ...runArgs, options, ctx });
   }
 
-  return runReviewForeground({ ...runArgs, json: options.json });
+  return runReviewForeground({ ...runArgs, json });
 }
 
 /**

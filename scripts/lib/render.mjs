@@ -2,6 +2,8 @@
  * Output rendering — formats reviews, status, results, and reports as markdown.
  */
 
+import { sanitizeDisplayPath } from "./fs.mjs";
+
 export const JSON_ENVELOPE_VERSION = 1;
 
 /**
@@ -76,6 +78,9 @@ export const ERROR_CODES = Object.freeze([
   "invalid_scope",
   "unknown_base_ref",
   "review_collection_failed",
+  // invalid_input, phase collect (review only): --require-complete refused
+  // to send an input with a skip or a truncation (Task 5, "Senate R5", 2026-09)
+  "input_incomplete",
   // invalid_input, phase validate
   "missing_task_text",
   "invalid_focus",
@@ -372,19 +377,25 @@ export function renderDeniedActionLines(list) {
  * there is nothing to show — a legacy record with no `provenance` field, or
  * `null`.
  *
+ * `inputHash` (Task 5, "Senate R5", 2026-09) is a separate parameter, not a
+ * `provenance` field: it lives on the job's `request` (`review-input.mjs`'s
+ * `buildReviewInput`), and `provenance` itself is deliberately never
+ * extended with it — this only adds one more line to the same section.
+ *
  * @param {import('./types.mjs').JobProvenance | null | undefined} provenance
+ * @param {string | null | undefined} [inputHash] `request.inputHash`, when the job carries one
  * @returns {string[]}
  */
-export function renderProvenanceLines(provenance) {
-  if (!provenance) return [];
+export function renderProvenanceLines(provenance, inputHash = null) {
   const fields = [
-    ["Plugin version", provenance.pluginVersion],
-    ["agy version", provenance.agyVersion],
-    ["Model", provenance.model],
-    ["Effort", provenance.effort],
-    ["Mode", provenance.mode],
-    ["Add-dir count", provenance.addDirCount],
-    ["Requested at", provenance.requestedAt],
+    ["Plugin version", provenance?.pluginVersion],
+    ["agy version", provenance?.agyVersion],
+    ["Model", provenance?.model],
+    ["Effort", provenance?.effort],
+    ["Mode", provenance?.mode],
+    ["Add-dir count", provenance?.addDirCount],
+    ["Requested at", provenance?.requestedAt],
+    ["Input hash", inputHash],
   ];
   const shown = fields.filter(([, value]) => value !== null && value !== undefined);
   if (shown.length === 0) return [];
@@ -393,6 +404,61 @@ export function renderProvenanceLines(provenance) {
     lines.push(`- **${label}:** ${value}`);
   }
   return lines;
+}
+
+/**
+ * Markdown for `review --preview` (Task 5, "Senate R5", 2026-09): the exact
+ * included/skipped lists, counts, truncation state and hash
+ * `buildReviewInput` (`review-input.mjs`) already computed, before any agy
+ * call. The one place this text is built, so the markdown and the `--json`
+ * `details` block can never drift onto two different word choices for the
+ * same underlying object. Paths run through {@link sanitizeDisplayPath}
+ * (matching `buildWorkingTreeSummary`'s own file-list lines, git.mjs):
+ * an untracked or diffed file name is repository content, not plugin text.
+ *
+ * @param {import('./types.mjs').ReviewInput} input return value of
+ *   `buildReviewInput`
+ * @returns {string}
+ */
+export function renderReviewPreview(input) {
+  const scopeLine = input.base ? `${input.scope} vs ${input.base}` : input.scope;
+  const lines = [`antigravity:review — preview (scope: ${scopeLine})`, "", "## Included", ""];
+  if (input.included.length === 0) {
+    lines.push("(none)");
+  } else {
+    for (const entry of input.included) {
+      const size = entry.bytes === null ? "" : ` (${entry.bytes} bytes)`;
+      lines.push(`- ${entry.kind} ${sanitizeDisplayPath(entry.path)}${size}`);
+    }
+  }
+  lines.push("", "## Skipped", "");
+  if (input.skipped.length === 0) {
+    lines.push("(none)");
+  } else {
+    for (const entry of input.skipped) {
+      lines.push(`- ${sanitizeDisplayPath(entry.path)} (${entry.reason})`);
+    }
+  }
+  lines.push(
+    "",
+    "## Truncation",
+    "",
+    input.truncated.diff
+      ? `Diff truncated: yes (${input.truncated.droppedBytes} bytes dropped)`
+      : "Diff truncated: no",
+    "",
+    "## Counts",
+    "",
+    `- Included files: ${input.counts.includedFiles}`,
+    `- Skipped files: ${input.counts.skippedFiles}`,
+    `- Diff bytes: ${input.counts.diffBytes}`,
+    `- Untracked bytes: ${input.counts.untrackedBytes}`,
+    "",
+    "## Input hash",
+    "",
+    input.inputHash,
+  );
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -555,7 +621,7 @@ export function renderSingleJobStatus(snapshotOrJob, _options = {}) {
     ...renderJobHeaderLines(job),
     ...renderJobHealthLines(job),
     ...renderJobRuntimeLines(job),
-    ...renderProvenanceLines(job.provenance),
+    ...renderProvenanceLines(job.provenance, job.request?.inputHash ?? null),
     ...renderJobErrorLines(job),
     ...renderPrintTimeoutNote(job.agyPrintTimeout),
     // `job.deniedActions` here is expected to already carry `remedy`

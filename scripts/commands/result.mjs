@@ -72,8 +72,26 @@ function reportStateError(jobId, err, json) {
  *   markdown path does.
  * @returns {{ conversationId: string | null, agyConversationId: string | null,
  *   provenance: import('../lib/types.mjs').JobProvenance | null,
+ *   inputHash: string | null,
  *   reportedModel: string | null, result: object | null }}
  */
+/**
+ * The `details.inputHash` value (Task 5, "Senate R5", 2026-09): the job's own
+ * `request.inputHash`, `stored` taking priority over the index entry `job`
+ * (same priority order every other field in {@link buildResultDetails}
+ * uses), or `null` for a legacy record, a non-review job, or a review that
+ * never reached input selection (e.g. `no_changes`). Split out so
+ * `buildResultDetails` itself stays under the complexity ceiling.
+ *
+ * @param {import('../lib/types.mjs').JobRecord | null} stored
+ * @param {import('../lib/types.mjs').JobIndexEntry} job
+ * @returns {string | null}
+ */
+function resolveInputHash(stored, job) {
+  if (stored?.request?.inputHash) return stored.request.inputHash;
+  return job.request?.inputHash ?? null;
+}
+
 function buildResultDetails(job, stored, cut) {
   const result = stored?.result ?? null;
   const rawOutput =
@@ -91,6 +109,7 @@ function buildResultDetails(job, stored, cut) {
     // never reported a model for. `provenance` is the same object `status
     // <id> --json` puts at `details.job.provenance`.
     provenance: stored?.provenance ?? job.provenance ?? null,
+    inputHash: resolveInputHash(stored, job),
     reportedModel: result?.reportedModel ?? null,
     result: result ? { ...result, rawOutput } : result,
   };
@@ -254,7 +273,10 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
   // after the answer text and every other appended section — never folded
   // into the opaque `answer`/`rendered` text above. `job` already carries
   // `stored`'s own `provenance` value (`mergeJobDetail`, job-control.mjs).
-  const finalRendered = appendSectionLines(withPrintTimeout, renderProvenanceLines(job.provenance ?? null));
+  const finalRendered = appendSectionLines(
+    withPrintTimeout,
+    renderProvenanceLines(job.provenance ?? null, job.request?.inputHash ?? null),
+  );
   const payload = createJsonEnvelope("result", {
     status: job.status,
     jobId: job.id,

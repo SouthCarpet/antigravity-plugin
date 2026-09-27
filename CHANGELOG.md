@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`review --preview` and `--require-complete`.** `--preview` shows exactly
+  what a real run would send: the included files (with kind, `diff` or
+  `untracked`, and byte size), the skipped files with their reasons,
+  whether the diff was cut by the 196 KB cap, the file/byte counts, and the
+  SHA-256 hash of the exact prompt string, all from one selection function
+  (`buildReviewInput`) every path (`--preview`, foreground, background) now
+  calls. It never calls agy and changes nothing; `--json` returns
+  `status: "preview"`. It cannot combine with `--background`, `--wait`,
+  `--continue`, or `--conversation`. `--require-complete` refuses to send an
+  input that skipped a file or cut the diff, instead of sending it with a
+  warning: `status: "invalid_input"`, `error.code: "input_incomplete"`,
+  exit 1, before any agy probe. Without `--require-complete`, the same
+  condition prints one warning line on stderr before sending. Every review
+  job now stores `request.inputHash`, `request.inputCounts`, and
+  `request.headSha`; `status <id>` and `result <id>` show the hash as
+  "Input hash: sha256:..." in the "## Provenance" section.
+
 - **Safe job provenance.** Every job now carries a `provenance` record
   (plugin version, agy version, model, effort, mode, and the count, never the
   paths, of `--add-dir` values), set once at creation, with no prompt,

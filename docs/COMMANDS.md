@@ -160,6 +160,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
        [--continue | --conversation <id>]
        [--model <id>] [--effort <low|medium|high|agy-default>]
        [--focus <text>]
+       [--preview] [--require-complete]
        [--json] [--cwd <path>]
 ```
 
@@ -203,6 +204,26 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   gains a "## Reviewer focus (caller instruction)" section immediately before
   "## Output", the job's stored `request.focus` carries the trimmed text, and
   the job title gets a ` focus: <first 40 characters>` suffix.
+- `--preview` (additive) shows exactly what a real run would send, without
+  calling agy: the included files (with their kind, `diff` or `untracked`,
+  and byte size), the skipped files with their reasons, whether the diff was
+  cut by the 196 KB cap, the file/byte counts, and the SHA-256 hash of the
+  prompt. No file changes, no job record, no agy probe. Exit 0 always.
+  `--json` returns `status: "preview"`, `jobId: null`, `answer: null`, and
+  the same fields under `details`. `--preview` cannot combine with
+  `--background`, `--wait`, `--continue`, or `--conversation`; combining
+  them is an argument error (exit 1, stderr only).
+- `--require-complete` (additive) refuses to send a run whose input left
+  something out (a skipped file or a diff cut by the cap), instead of
+  sending it with a warning. On a refusal: stderr prints
+  `antigravity:review — input is incomplete; --require-complete refused to
+  send it.`, agy is never probed or spawned, and exit is 1. `--json` returns
+  `status: "invalid_input"`, `error.code: "input_incomplete"`,
+  `error.phase: "collect"`, and `details.skipped`/`details.truncated`.
+  Without `--require-complete`, the same condition instead prints one
+  warning line before sending:
+  `antigravity:review — warning: input is incomplete (<n> files skipped,
+  diff truncated by <b> bytes); run review --preview for the list.`
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
@@ -225,10 +246,10 @@ background review, or no changes; 1 for validation, Git, authentication, agy,
 or state failure; and 2 when an awaited/foreground agy outcome is cancelled.
 
 Once `--json` is accepted, an invalid `--scope`, an unresolved `--base`, an
-invalid `--focus`, a missing `agy` binary, or a foreground run that did not
-complete emits one error envelope (`details.error`, see
-[COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead of an empty stdout
-body; the stderr line is unchanged either way.
+invalid `--focus`, a `--require-complete` refusal, a missing `agy` binary, or
+a foreground run that did not complete emits one error envelope
+(`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead
+of an empty stdout body; the stderr line is unchanged either way.
 
 ## `rescue`
 
@@ -539,6 +560,14 @@ legacy record written before this field existed.
 model agy's own `result` event named, when that event carries one; `null`
 otherwise, including on every record measured so far.
 
+For a `review` job that computed an input hash (see [`review`'s
+`--preview`/`--require-complete`](#review) above), `details.job.request.inputHash`
+carries `sha256:<hex>` of the exact prompt string sent to agy, and the
+"## Provenance" markdown section adds a line `Input hash: sha256:...`. This
+does not add a field to the `provenance` record itself; it reads the job's
+own `request.inputHash`. Absent for any job that never reached input
+selection (a non-`review` job, or a `no_changes` run).
+
 ## `result`
 
 ```text
@@ -602,13 +631,15 @@ had no print-timeout marker.
 never reported one.
 
 `--json` carries `details.provenance` (the same job provenance record
-`status <id> --json` puts at `details.job.provenance`) and
-`details.reportedModel` (the same field `status <id> --json` puts at
-`details.job.result.reportedModel`). Both `null`/absent on a legacy record.
+`status <id> --json` puts at `details.job.provenance`), `details.inputHash`
+(the same `review`-only field `status <id> --json` puts at
+`details.job.request.inputHash`), and `details.reportedModel` (the same
+field `status <id> --json` puts at `details.job.result.reportedModel`). All
+three are `null`/absent on a legacy record or a non-`review` job.
 The markdown output appends the same "## Provenance" section `status <id>`
-uses, one line per non-null field, after the answer text and after any
-denied-actions/print-timeout sections. It is never folded into the opaque
-`answer` field.
+uses, one line per non-null field including `Input hash: sha256:...` when
+present, after the answer text and after any denied-actions/print-timeout
+sections. It is never folded into the opaque `answer` field.
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is

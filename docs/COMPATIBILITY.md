@@ -253,7 +253,7 @@ fields in envelope version 1:
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
 | `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, or `cancel`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 2.x; consumers must tolerate additions, removals, and changes within it. |
@@ -311,6 +311,10 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `cancelled`, `auth_required`, `timeout` (matching `status`, phase `run`)
 - `invalid_scope`, `unknown_base_ref`, `review_collection_failed`
   (`invalid_input`, phase `collect`; `review` only)
+- `input_incomplete` (`invalid_input`, phase `collect`; `review` only,
+  `--require-complete` refusing an input with a skipped file or a truncated
+  diff; `details.skipped` and `details.truncated` carry the same lists
+  `--preview` would have shown)
 - `missing_task_text` (`invalid_input`, phase `validate`; `task`/`rescue`)
 - `invalid_focus` (`invalid_input`, phase `validate`; `review` only, for an
   empty/whitespace-only or over-500-character `--focus`)
@@ -778,6 +782,30 @@ meaning:
   verbatim as `request.focus`, and appends ` focus: <first 40 characters>`
   to the job title. `--focus` is never derived from the collected diff or
   any other repository content.
+- `--preview` and `--require-complete` on `review`, plus stored
+  `request.inputHash`, `request.inputCounts`, `request.headSha` on every
+  `review` job (foreground and background).
+  `buildReviewInput` (`scripts/lib/review-input.mjs`) is the single
+  selection function every path (`--preview`, foreground, background) calls:
+  it returns the included files (`{ path, kind: "diff" | "untracked",
+  bytes }`), the skipped files (`{ path, reason }`, the same reasons
+  `readUntrackedFiles` already produces), whether the diff was cut by the
+  196 KB cap, the file/byte counts, and `sha256:<hex>` of the exact prompt
+  string. `--preview` prints all of that under `details` with
+  `status: "preview"` (see the `status` field row above) and calls no agy
+  probe. `--require-complete` refuses to send an input that skipped a file
+  or cut the diff: `status: "invalid_input"`,
+  `error.code: "input_incomplete"`, phase `collect`, with
+  `details.skipped`/`details.truncated`, before any agy probe. Without
+  `--require-complete`, the same condition instead prints one warning line
+  on stderr before sending. `request.inputHash`/`request.inputCounts` are
+  additive stored fields, never a second copy of the diff or the prompt
+  (the background job already stores `request.prompt`). `provenance` itself
+  is unchanged; the input hash is read from `request.inputHash`, shown as
+  "Input hash: sha256:..." in the "## Provenance" markdown section and at
+  `details.job.request.inputHash` (`status <id> --json`) /
+  `details.inputHash` (`result <id> --json`). See `docs/COMMANDS.md`
+  `review` for the exact flag/envelope shapes.
 - Job state leaf keyed by the resolved (realpath) workspace path. The
   legacy logical-path leaf is still read while the realpath leaf does not
   exist. The background worker receives the caller's exact workspace
