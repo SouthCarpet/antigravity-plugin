@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Tested agy range extends to 1.2.12.** Live runs covered `setup` with `--skip-vision`, `task` foreground and background, `status` list, and `result` (`probe-setup.txt`, `probe-task-foreground-json.txt`, `probe-background-lifecycle.txt`, `probe-status-list.txt`). A direct agy `--json-schema` capability probe succeeded with `structured_output` field on the result event. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12 (smoke measurement only).
+
 ## [2.0.2] — 2026-09-25
 
 ### Fixed

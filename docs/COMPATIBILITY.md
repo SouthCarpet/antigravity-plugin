@@ -6,8 +6,8 @@ the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
 is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 2.0.2 is this package's version number. agy 1.1.15 to 1.2.11 is the
-tested range of Google's Antigravity CLI, with 1.2.11 as the newest measured
+Plugin 2.0.2 is this package's version number. agy 1.1.15 to 1.2.12 is the
+tested range of Google's Antigravity CLI, with 1.2.12 as the newest measured
 version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.
 
@@ -18,7 +18,7 @@ independently. A new agy release does not change the plugin version.
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.2.11; newest measured 1.2.11. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.2.12; newest measured 1.2.12. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -47,6 +47,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.2.1 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-11 |
 | 1.2.7 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-19 |
 | 1.2.11 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-25 |
+| 1.2.12 | `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and smoke-only measurement. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12. See the [R7 structured output flag](#structured-output-flag) probe. | 2026-09-27 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -57,13 +58,15 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.2.11, on 2026-09-25, from commit
-`e255aba` (`probe-task-foreground-json.txt`). The 1.2.11 rows cover `task`,
+The newest version measured live is agy 1.2.12, on 2026-09-27, from commit
+`9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
+`probe-background-lifecycle.txt`, `probe-status-list.txt`). The 1.2.12 row covers smoke-only measurement: `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and the R7 structured output flag probe. The table also retains the saved
+transcripts for earlier versions. The 1.2.11 rows cover `task`,
 `rescue`, `review`, `vision`, `status`, `result`, and `cancel`
 (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`,
 `probe-review-json.txt`, `probe-vision-json.txt`,
 `probe-background-lifecycle.txt`). The table also retains the saved
-transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions.
+transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions except 1.2.12.
 
 | Verb | Flags | agy | Date | Result | Transcript |
 |---|---|---|---|---|---|
@@ -758,6 +761,10 @@ meaning:
   invocation. It never offers to grant a permission and never writes a
   settings file. `docs/COMMANDS.md`'s "Denied runs" section has the exact
   conditions and the two-choice contract.
+
+### Structured output flag
+
+agy 1.2.12 accepts `--json-schema` with stream-json and returns a `structured_output` field on the result event. Plugin 2.0.2 does not use this flag yet. Measured on 1.2.12: the result event carries `"structured_output":{"answer":"SCHEMA","n":7}` which parses as JSON and matches the provided schema exactly; `result.response` remains JSON text; `step_update.text_delta` still streams; exit code 0 on success. Transcript: `probe-json-schema.txt`.
 
 ## Deprecation and compatibility changes
 
