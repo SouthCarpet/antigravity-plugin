@@ -83,6 +83,10 @@ const COMMAND_HELP = {
     '                          job instead of the dispatch envelope (needs --wait)\n' +
     '  --request-id <id>       idempotent dispatch: a repeat of the same request\n' +
     '                          reports the existing job (not with --foreground)\n' +
+    '  --prompt-file <path>    read the prompt from a file (UTF-8, 512 KiB max)\n' +
+    '                          instead of a positional prompt; cannot combine\n' +
+    '                          with one. `-` reads stdin to EOF (standalone CLI\n' +
+    '                          only; not available through a host wrapper)\n' +
     '  --json                  emit JSON\n' +
     '  --cwd <path>            override working directory',
   vision:

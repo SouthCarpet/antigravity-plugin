@@ -34,7 +34,7 @@ commands:
   - name: rescue
     description: "Delegate an investigation or fix request to agy, for example 'why are the tests failing on main'. Foreground by default; --background returns a job id for $antigravity status / result. Supports --model, --effort <low|medium|high>, (with --background --wait) --show-result, and (with --background) --request-id <id> for an idempotent dispatch."
   - name: task
-    description: "Generic long-running task delegation. Background by default; --foreground to inline, --wait to block. Supports --continue / --conversation <id> / --add-dir / --model / --effort <low|medium|high> for follow-up agy conversations, --show-result (with --wait, on the background path) to print the finished job instead of the queued notice, and --request-id <id> (background path only) so a repeat of the same request reports the existing job instead of starting a new one."
+    description: "Generic long-running task delegation. Background by default; --foreground to inline, --wait to block. Supports --continue / --conversation <id> / --add-dir / --model / --effort <low|medium|high> for follow-up agy conversations, --prompt-file <path> to read the prompt from a file instead of typing it (cannot combine with a positional prompt; `-` reads stdin, standalone CLI only, not through this host), --show-result (with --wait, on the background path) to print the finished job instead of the queued notice, and --request-id <id> (background path only) so a repeat of the same request reports the existing job instead of starting a new one."
   - name: vision
     description: "Ask agy to look at one or more image files (--prompt, --model, --json). Foreground-only; requires setup to have registered the vision MCP server."
   - name: status

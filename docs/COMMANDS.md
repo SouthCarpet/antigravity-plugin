@@ -416,7 +416,7 @@ background job whose worker never started reports the same way.
 ```text
 task <prompt...>
      [--background | --foreground] [--wait] [--show-result] [--request-id <id>]
-     [--continue | --conversation <id>]
+     [--continue | --conversation <id>] [--prompt-file <path>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
      [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
@@ -447,6 +447,23 @@ required unless `--continue` or `--conversation` is supplied.
   [`--request-id`](#--request-id-task-and-rescue) below.
 - `--continue` resumes the most recent conversation and conflicts with
   `--conversation <id>`.
+- `--prompt-file <path>` (additive) reads the prompt from a file instead of
+  a positional prompt: UTF-8, resolved against the invocation working
+  directory, capped at 512 KiB. Combining it with a positional prompt is an
+  argument error (`cannot combine --prompt-file with a positional prompt`).
+  It may be combined with `--continue`/`--conversation`: the file's content
+  becomes the new turn on the resumed conversation. `--prompt-file -` reads
+  the prompt from stdin to EOF instead of a file, and only from the
+  standalone CLI run directly by a person or script; through Claude Code,
+  Codex CLI, or the agy TUI it is refused with `--prompt-file - (stdin) is
+  available in the standalone CLI only`, because those hosts own stdio for
+  their own protocol. An oversized, missing/unreadable, or empty/
+  whitespace-only source is refused with one `invalid_input` error envelope
+  under `--json` (`prompt_file_too_large`, `prompt_file_unreadable`, or
+  `prompt_file_empty`); the file's path and the prompt's content never
+  appear in a diagnostic. The job's title becomes the first non-empty
+  line of the source, truncated the same way a positional prompt's title
+  is. `rescue` does not gain this flag; it is unchanged.
 - `--add-dir <path>` is repeatable and forwards extra workspace directories
   to agy, verbatim and in the order given, on both the foreground and the
   background path. It is the headless read grant described under `rescue`

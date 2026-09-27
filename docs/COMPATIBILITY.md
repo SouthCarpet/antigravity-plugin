@@ -352,6 +352,12 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `request_id_conflict` (`invalid_input`, phase `validate`; `task`/`rescue`
   background dispatch whose `--request-id` another request already uses;
   `details.existingJobId` names that job, `jobId` is `null`; added 2026-09)
+- `prompt_file_too_large`, `prompt_file_unreadable`, `prompt_file_empty`
+  (`invalid_input`, phase `validate`; `task`'s `--prompt-file`/stdin source
+  is over the byte cap, could not be found or read, or is empty/
+  whitespace-only; added 2026-09). Combining `--prompt-file` with a
+  positional prompt, and `--prompt-file -` outside the standalone CLI, are
+  argument errors instead: stderr only, exit 1, no envelope.
 - `invalid_focus` (`invalid_input`, phase `validate`; `review` only, for an
   empty/whitespace-only or over-500-character `--focus`)
 - `missing_image_path`, `image_not_found`, `unsupported_image_extension`,
@@ -992,6 +998,12 @@ meaning:
   list above.
 - `requestIds` in `state.json` (additive, 2026-09): see
   [Job state and configuration locations](#job-state-and-configuration-locations).
+- **`--prompt-file <path>`** (additive, 2026-09): reads `task`'s prompt from
+  a file (or, as `--prompt-file -`, from stdin, standalone CLI only) instead
+  of a positional prompt. See
+  [`--prompt-file`](./COMMANDS.md#task) and the `prompt_file_too_large` /
+  `prompt_file_unreadable` / `prompt_file_empty` error codes above. `rescue`
+  does not gain this flag.
 
 ### Structured output flag
 

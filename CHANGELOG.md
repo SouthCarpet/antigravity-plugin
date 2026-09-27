@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--prompt-file <path>` on `task`.** Opt-in: reads the prompt from a
+  file (UTF-8, 512 KiB max) resolved against the invocation's working
+  directory, instead of a positional prompt. Combining it with a
+  positional prompt is an argument error (`cannot combine --prompt-file
+  with a positional prompt`), stderr only, exit 1. May be combined with
+  `--continue`/`--conversation`: the file becomes the new turn.
+  `--prompt-file -` reads the prompt from stdin to EOF under the same cap,
+  and only from the standalone CLI run directly by a person or script; a
+  host wrapper (Claude Code, Codex CLI, the agy TUI) refuses it (`--prompt-
+  file - (stdin) is available in the standalone CLI only`), stderr only,
+  exit 1. An oversized, missing/unreadable, or empty/whitespace-only
+  source is refused with `invalid_input` and one of `prompt_file_too_large`,
+  `prompt_file_unreadable`, or `prompt_file_empty`, before agy is ever
+  probed. The job's title becomes the 80-char truncation of the source's
+  first non-empty line. Neither the path nor the content ever reaches
+  `provenance` or a stderr diagnostic. `rescue` does not gain this flag.
+  Without the flag, nothing changes. See `docs/COMMANDS.md#task`.
 - **`--request-id <id>` on `task` and `rescue --background`.** Opt-in
   idempotent background dispatch. The id is 1 to 128 characters from
   `[A-Za-z0-9._-]`; any other value, or a foreground run (`task

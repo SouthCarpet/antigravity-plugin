@@ -27,6 +27,9 @@
  *                         same request with the same id reports the existing
  *                         job instead of starting a new one; the same id with
  *                         a different request is refused (background only)
+ *   --prompt-file <path>  read the prompt from a file instead of a
+ *                         positional argument (cannot combine with one);
+ *                         `-` reads stdin, standalone CLI only
  *   --json                emit JSON
  */
 
@@ -51,8 +54,10 @@ import {
   waitAndReport,
   waitForJob,
 } from "../lib/job-helpers.mjs";
+import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { validateRequestIdOption } from "../lib/request-id.mjs";
+import { resolvePromptFileSource, titleFromPromptText, validatePromptFileOption } from "../lib/prompt-source.mjs";
 
 /**
  * @param {{ conversation?: string, continue?: boolean }} options
@@ -113,14 +118,68 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
 }
 
 /**
+ * Report a `--prompt-file`/stdin content failure ({@link resolvePromptFileSource}):
+ * the plugin's own one-line reason on stderr (never the path or the file's
+ * content, per SECURITY.md), plus one `invalid_input` `--json` envelope
+ * when `json` is true. Same shape as `vision.mjs`'s
+ * `reportVisionValidationFailure`.
+ *
+ * @param {{ code: string, message: string }} failure
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportPromptFileError({ code, message }, json) {
+  process.stderr.write(`antigravity:task — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("task", {
+      status: "invalid_input",
+      error: { code, phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * Resolve `task`'s prompt text and title: from `--prompt-file`/stdin when
+ * given, otherwise from the joined positionals (unchanged behaviour). Split
+ * out of `run()` so that function stays a plain sequence of checks under
+ * the project's cyclomatic-complexity ceiling.
+ *
+ * @param {{ options: Record<string, string | boolean | string[]>, positionals: string[] }} parsed
+ * @param {string} cwd invocation cwd
+ * @param {string | undefined} conversationId
+ * @returns {Promise<{ ok: true, userPrompt: string, title: string | null } | { ok: false, exitCode: 1 }>}
+ */
+async function resolveTaskPromptAndTitle({ options, positionals }, cwd, conversationId, json) {
+  const promptSource = await resolvePromptFileSource(options, cwd);
+  if (promptSource) {
+    if (!promptSource.ok) {
+      reportPromptFileError(promptSource, json);
+      return { ok: false, exitCode: 1 };
+    }
+    return { ok: true, userPrompt: promptSource.text, title: titleFromPromptText(promptSource.text) };
+  }
+
+  const userPrompt = positionals.join(" ").trim();
+  if (!userPrompt && !options.continue && !options.conversation) {
+    reportMissingTaskText("task", json);
+    return { ok: false, exitCode: 1 };
+  }
+  const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
+  return { ok: true, userPrompt, title };
+}
+
+/**
  * @param {string[]} [argv] CLI arguments after the verb (a prompt and flags)
- * @param {{ cwd?: string, startBackgroundJob?: typeof startBackgroundJob,
- *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`
+ * @param {{ cwd?: string, host?: string, startBackgroundJob?: typeof startBackgroundJob,
+ *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`/`host`
  * @returns {Promise<number>} process exit code
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "effort", "request-id"],
+    valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "effort", "request-id", "prompt-file"],
     booleanOptions: ["wait", "foreground", "background", "continue", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
@@ -133,25 +192,27 @@ export async function run(argv = [], ctx = {}) {
   if (!parsed) return 1;
   const { options, positionals } = parsed;
 
+  const promptFileError = validatePromptFileOption(parsed, ctx);
+  if (promptFileError) return reportArgsValidationError("task", promptFileError);
+
   const showResultError = validateShowResultDependency(options, "task");
   if (showResultError) return reportArgsValidationError("task", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
-  const userPrompt = positionals.join(" ").trim();
-  if (!userPrompt && !options.continue && !options.conversation) {
-    return reportMissingTaskText("task", Boolean(options.json));
-  }
-
   const { mode, conversationId } = resolveTaskMode(options);
+
+  const resolved = await resolveTaskPromptAndTitle({ options, positionals }, cwd, conversationId, Boolean(options.json));
+  if (!resolved.ok) return resolved.exitCode;
+  const { userPrompt, title } = resolved;
+
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
   const model = options.model ? String(options.model) : undefined;
   const effort = resolveRequestEffort(options.effort, model);
 
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
-  const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
   const probed = await probeAgyForVerb("task");
   if (probed.line) return reportAgyUnavailable("task", probed.line, options.json);

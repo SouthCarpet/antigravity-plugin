@@ -120,6 +120,23 @@ replies wait for stdout drain before the next request is processed.
 
 Users should not set `ANTIGRAVITY_VISION_ALLOWED_PATHS` globally.
 
+### `task --prompt-file` / stdin
+
+`task --prompt-file <path>` reads exactly the one file named on the command
+line, resolved against the invocation's own working directory, and nothing
+else: no directory listing, no glob, no following the file to a different
+location after it is opened. Reading is capped at 512 KiB; an oversized,
+missing/unreadable, or empty/whitespace-only source is refused before agy is
+ever probed or spawned. `--prompt-file -` reads stdin to EOF instead, under
+the same cap, and only from the standalone CLI run directly by a person or
+script. A host wrapper (Claude Code, Codex CLI, the agy TUI) refuses it,
+because that host already owns stdio for its own protocol.
+
+Neither the file's path nor the prompt's content ever appears in a stderr
+diagnostic or in the job's stored `provenance`: a refusal names the byte cap
+and the actual size, or a fixed reason, never the path or the content that
+triggered it.
+
 ### `review` context sent to agy
 
 An untracked file whose basename looks like a secret (`.env` and its

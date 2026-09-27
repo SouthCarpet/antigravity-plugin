@@ -91,6 +91,13 @@ export const ERROR_CODES = Object.freeze([
   // invalid_input, phase validate (task/rescue background): --request-id
   // already claimed by a different request (Senate R12, 2026-09)
   "request_id_conflict",
+  // invalid_input, phase validate (task --prompt-file / stdin, Senate R13,
+  // 2026-09): the named file or stdin content is over the byte cap, the
+  // named file could not be found or read, or the content is empty or
+  // whitespace-only
+  "prompt_file_too_large",
+  "prompt_file_unreadable",
+  "prompt_file_empty",
   // state_error, phase state (status/result/cancel)
   "job_not_found",
   "job_not_ready",
