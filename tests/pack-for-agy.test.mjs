@@ -6,7 +6,7 @@
  * `npm pack` needs no network on a checkout (it tars files already on
  * disk), so every test here runs offline.
  */
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -19,6 +19,15 @@ const SCRIPT = path.join(ROOT, 'scripts', 'pack-for-agy.mjs');
 const TAMPER_PRELOAD = pathToFileURL(
   path.join(ROOT, 'tests', 'helpers', 'tamper-extracted-version.mjs'),
 ).href;
+const SYSTEM32 = 'C:\\Windows\\System32';
+
+/** Every temp dir this file creates (test-owned or script-owned), removed once at the end. */
+const tempDirsToClean = [];
+after(() => {
+  for (const dir of tempDirsToClean) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function toPosix(p) {
   return p.replace(/\\/g, '/');
@@ -64,14 +73,23 @@ function runScript(args, extraEnv) {
 }
 
 function makeTempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'pack-for-agy-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-for-agy-test-'));
+  tempDirsToClean.push(dir);
+  return dir;
+}
+
+/** Run the script with `--json`, assert success, and queue its temp dir for cleanup. */
+function runScriptJson(args, extraEnv) {
+  const result = runScript(['--json', ...args], extraEnv);
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  tempDirsToClean.push(path.dirname(report.dir));
+  return report;
 }
 
 describe('pack-for-agy: extracted directory matches npm pack exactly', () => {
   it('the extracted file list equals the tarball list from npm pack --dry-run --json', () => {
-    const result = runScript(['--json']);
-    assert.equal(result.status, 0, result.stderr);
-    const report = JSON.parse(result.stdout);
+    const report = runScriptJson([]);
 
     const extracted = listFilesRecursive(report.dir);
     const expected = dryRunPackFiles();
@@ -80,9 +98,7 @@ describe('pack-for-agy: extracted directory matches npm pack exactly', () => {
   });
 
   it('contains no .git, tests/, .github/, or .superpowers/ entries', () => {
-    const result = runScript(['--json']);
-    assert.equal(result.status, 0, result.stderr);
-    const report = JSON.parse(result.stdout);
+    const report = runScriptJson([]);
     const extracted = listFilesRecursive(report.dir);
     for (const forbidden of ['.git', 'tests/', '.github/', '.superpowers/']) {
       assert.ok(
@@ -94,19 +110,19 @@ describe('pack-for-agy: extracted directory matches npm pack exactly', () => {
     }
   });
 
-  it('text mode prints the extracted dir, sha256, file count, and the install command', () => {
+  it('text mode prints the extracted dir, integrity, shasum, file count, and the install command', () => {
     const result = runScript([]);
     assert.equal(result.status, 0, result.stderr);
+    tempDirsToClean.push(path.dirname(result.stdout.match(/Extracted: (.+) \(\d+ files\)/)[1]));
     assert.match(result.stdout, /^Packed version /);
-    assert.match(result.stdout, /sha256: [0-9a-f]{40}/);
+    assert.match(result.stdout, /integrity \(sha512\): sha512-/);
+    assert.match(result.stdout, /shasum \(sha1\): [0-9a-f]{40}/);
     assert.match(result.stdout, /Extracted: .+ \(\d+ files\)/);
     assert.match(result.stdout, /agy plugin install .+[\\/]package\s*$/m);
   });
 
   it('--json prints one object with dir, tarball, shasum, integrity, fileCount, version, installCommand', () => {
-    const result = runScript(['--json']);
-    assert.equal(result.status, 0, result.stderr);
-    const report = JSON.parse(result.stdout);
+    const report = runScriptJson([]);
     assert.equal(typeof report.dir, 'string');
     assert.match(report.dir, /package$/);
     assert.match(report.tarball, /\.tgz$/);
@@ -117,6 +133,14 @@ describe('pack-for-agy: extracted directory matches npm pack exactly', () => {
     assert.equal(typeof report.version, 'string');
     assert.equal(report.installCommand, `agy plugin install ${report.dir}`);
     assert.ok(fs.existsSync(path.join(report.dir, 'package.json')), 'extracted package.json must exist');
+  });
+});
+
+describe('pack-for-agy: works with bsdtar (Windows System32 tar) first on PATH', () => {
+  it('extracts successfully when System32 resolves before any other tar', { skip: process.platform !== 'win32' }, () => {
+    const report = runScriptJson([], { PATH: `${SYSTEM32}${path.delimiter}${process.env.PATH ?? ''}` });
+    assert.ok(fs.existsSync(path.join(report.dir, 'package.json')));
+    assert.equal(report.fileCount, dryRunPackFiles().length);
   });
 });
 
@@ -135,6 +159,7 @@ describe('pack-for-agy: version-mismatch path', () => {
   it('a matching checkout still succeeds under the same preload (no env var set)', () => {
     const result = runScript([], { NODE_OPTIONS: `--import ${TAMPER_PRELOAD}` });
     assert.equal(result.status, 0, result.stderr);
+    tempDirsToClean.push(path.dirname(result.stdout.match(/Extracted: (.+) \(\d+ files\)/)[1]));
   });
 });
 
@@ -145,10 +170,7 @@ describe('pack-for-agy: never spawns agy', () => {
     const touchFile = path.join(binDir, 'agy-was-spawned');
     writeFakeAgy(binDir, 'agy', { touchFile, versionOk: true, exitCode: 0 });
 
-    const result = runScript(['--json'], {
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
-    });
-    assert.equal(result.status, 0, result.stderr);
+    runScriptJson([], { PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}` });
     assert.ok(!fs.existsSync(touchFile), 'agy must not be spawned by pack-for-agy.mjs');
   });
 });
@@ -175,10 +197,12 @@ describe('pack-for-agy: missing tar', () => {
     }
   });
 
-  it('manualExtractCommand() prints the manual tar and agy install lines', async () => {
+  it('manualExtractCommand() prints cd, a relative tar -xzf, and the agy install line', async () => {
     const mod = await import('../scripts/pack-for-agy.mjs');
     const message = mod.manualExtractCommand('/tmp/x/thing.tgz', '/tmp/x');
-    assert.match(message, /tar -xzf "\/tmp\/x\/thing\.tgz" -C "\/tmp\/x"/);
+    assert.match(message, /cd "\/tmp\/x"/);
+    assert.match(message, /tar -xzf "thing\.tgz"/);
+    assert.doesNotMatch(message, /-C /);
     assert.match(message, /agy plugin install/);
     assert.match(message, /package/);
   });

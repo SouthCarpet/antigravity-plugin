@@ -104,7 +104,8 @@ node scripts/pack-for-agy.mjs
 
 # From a published version, without a checkout:
 npm pack @southcarpet/antigravity-plugin
-tar -xzf southcarpet-antigravity-plugin-*.tgz
+# Prints the tarball filename, for example southcarpet-antigravity-plugin-2.0.2.tgz
+tar -xzf southcarpet-antigravity-plugin-2.0.2.tgz
 agy plugin install ./package
 ```
 

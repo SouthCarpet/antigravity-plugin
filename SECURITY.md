@@ -312,9 +312,10 @@ the code. It does not cover `agy` or the hosts that load this plugin.
 
 `agy plugin install <path>` copies whatever directory you point it at. A
 plain clone also copies `.git`, `.github`, and `tests/`, none of which npm
-ever publishes. `scripts/pack-for-agy.mjs` closes that gap: it runs the same
-`npm pack` step the release workflow runs, extracts the result, and prints
-the sha256 checksum and the exact `agy plugin install <dir>` command. The
+ever publishes. `scripts/pack-for-agy.mjs` closes that gap: it uses the same
+packing logic `npm publish` uses (`npm pack`), extracts the result, and
+prints the integrity hash (sha512, the value npm itself verifies), the
+shasum (sha1), and the exact `agy plugin install <dir>` command. The
 installed copy is then the published artifact, not the whole working tree.
 The script itself never runs `agy` and never writes under `~/.gemini`; it
 only reads the checkout and writes to a temporary directory.

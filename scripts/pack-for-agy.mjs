@@ -24,13 +24,13 @@
  *   3. Verify `<extracted>/package.json` `.version` equals the checkout's
  *      own `package.json` `.version` (a corrupted or stale tarball would
  *      disagree) -> otherwise exit 1 with a plain message.
- *   4. Print the extracted directory, the shasum, the file count, and the
- *      exact next command.
+ *   4. Print the extracted directory, the integrity (sha512) and shasum
+ *      (sha1), the file count, and the exact next command.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } = fs;
@@ -82,21 +82,21 @@ function readJson(root, rel) {
  * one report `npm pack --json` emits (it prints a one-element array).
  * On Windows, `npm` is `npm.cmd`; Node's `spawn`/`spawnSync` cannot launch
  * a `.cmd` file without `{ shell: true }` since the CVE-2024-27980 fix, so
- * this runs it through `cmd.exe /c` instead (same approach as
- * `scripts/check-pack.mjs`'s `npm pack --dry-run --json` call).
+ * this runs it through `cmd.exe /c` instead (same host as
+ * `scripts/check-pack.mjs`'s `npm pack --dry-run --json` call). Each
+ * argument is its own array element, never hand-joined into one string:
+ * a destination containing a space, quoted by hand into a single command
+ * string, came back mangled (npm received the literal quote characters, or
+ * split the path into two arguments) — passing `cmd.exe` separate argv
+ * elements lets Node's own Windows command-line quoting do this correctly,
+ * confirmed against both a plain and a spaced destination.
  */
 export function packToTarball(root, destDir) {
-  const quotedDest = destDir.includes(' ') ? `"${destDir}"` : destDir;
+  const args = ['pack', '--json', '--pack-destination', destDir];
   const result =
     process.platform === 'win32'
-      ? spawnSync('cmd.exe', ['/c', `npm pack --json --pack-destination ${quotedDest}`], {
-          cwd: root,
-          encoding: 'utf8',
-        })
-      : spawnSync('npm', ['pack', '--json', '--pack-destination', destDir], {
-          cwd: root,
-          encoding: 'utf8',
-        });
+      ? spawnSync('cmd.exe', ['/c', 'npm', ...args], { cwd: root, encoding: 'utf8' })
+      : spawnSync('npm', args, { cwd: root, encoding: 'utf8' });
 
   if (result.status !== 0) {
     throw new Error(
@@ -128,24 +128,31 @@ export function resolveTar() {
 
 /** Printed when `tar` is missing: the same extraction done by hand. */
 export function manualExtractCommand(tarballPath, destDir) {
+  const filename = basename(tarballPath);
   return [
     '`tar` is not on PATH. Extract the tarball yourself, then install that directory:',
     '',
-    `  tar -xzf "${tarballPath}" -C "${destDir}"`,
+    `  cd "${destDir}"`,
+    `  tar -xzf "${filename}"`,
     `  agy plugin install "${join(destDir, 'package')}"`,
   ].join('\n');
 }
 
 /**
  * Extract `tarballPath` into `destDir` and return the extracted `package/`
- * dir. `--force-local` is required on Windows: GNU tar treats an archive
- * path with a colon right after the drive letter (`C:\Users\...`) as a
- * `host:file` remote-archive spec unless told the path is always local.
+ * dir. Runs `tar -xzf <filename>` with `cwd: destDir` and the tarball's own
+ * relative filename, never its absolute path or a `-C` argument: a Windows
+ * absolute path has a colon right after the drive letter (`C:\Users\...`),
+ * and GNU tar treats an archive path with that shape as a `host:file`
+ * remote-archive spec unless told otherwise (`--force-local`). bsdtar (the
+ * `tar` on macOS and `C:\Windows\System32\tar.exe`) has no such rule but
+ * also has no `--force-local` flag and errors on it. Passing only a
+ * relative filename, in the directory that already holds it, needs neither
+ * flag and works the same on both tar implementations.
  */
 export function extractTarball(tarballPath, destDir) {
-  const result = spawnSync('tar', ['--force-local', '-xzf', tarballPath, '-C', destDir], {
-    encoding: 'utf8',
-  });
+  const filename = basename(tarballPath);
+  const result = spawnSync('tar', ['-xzf', filename], { cwd: destDir, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(
       `tar extraction failed (exit ${result.status}).\n${result.stderr || result.stdout || ''}`,
@@ -200,7 +207,8 @@ function printReport(report, json) {
   }
   console.log(`Packed version ${report.version}`);
   console.log(`Tarball: ${report.tarball}`);
-  console.log(`sha256: ${report.shasum}`);
+  console.log(`integrity (sha512): ${report.integrity}`);
+  console.log(`shasum (sha1): ${report.shasum}`);
   console.log(`Extracted: ${report.dir} (${report.fileCount} files)`);
   console.log('');
   console.log('Next:');
@@ -223,12 +231,12 @@ export function run(argv) {
   const expectedVersion = readJson(root, 'package.json').version;
 
   // The prefix deliberately avoids "anti"/"antigravity": Git for Windows'
-  // MSYS `tar` mis-parses an archive path whose immediate parent directory
-  // contains that substring (reproduced 2026-09-27 — the same tarball
-  // extracts fine one directory level down; the tarball's own filename,
-  // which does contain "antigravity-plugin", is unaffected). The Windows
-  // System32 `tar.exe` (bsdtar) does not have this bug, but this prefix
-  // change avoids it for whichever `tar` PATH resolves to.
+  // MSYS `tar`, given an *absolute path containing a drive-letter colon*,
+  // mis-parsed one whose immediate parent directory contained that
+  // substring (reproduced 2026-09-27). `extractTarball` no longer passes
+  // tar any absolute path at all (cwd + relative filename instead), which
+  // already closes that bug for both tar implementations; this prefix
+  // stays as a second, harmless layer.
   const destDir = mkdtempSync(join(os.tmpdir(), 'pack-for-agy-'));
   const packed = packToTarball(root, destDir);
 
