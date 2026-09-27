@@ -228,6 +228,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
        [--focus <text>]
        [--preview] [--require-complete]
        [--findings-json]
+       [--check-locations]
        [--json] [--cwd <path>]
 ```
 
@@ -331,6 +332,25 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   `result.structuredRaw`; `result <job-id>` and `--show-result` report the
   same three fields (see [`result`](#result)). Without the flag, nothing
   changes: no `--json-schema` in argv and no findings fields in `details`.
+- `--check-locations` (additive) heuristically checks each `path:line`
+  citation the answer names against the diff this run actually sent, using
+  the hunks the diff carried (`request.hunks`, stored on every review job,
+  not only under this flag). Local only: it never calls agy again and never
+  changes `argv`, `answer`, or the exit code. Each citation is classified
+  `in_diff` (the path matches a hunk and the cited line, or the whole cited
+  range, lies inside it), `outside_diff` (the path matches but the line does
+  not), or `unknown_path` (no hunk names that path at all). This is a
+  heuristic, not a truth check: a citation outside the diff is not by itself
+  a model error — reviewers legitimately cite context lines and related
+  files the diff never touched. `--json` adds `details.locationCheck: {
+  heuristic: true, citations: [{ text, path, line, state }], counts: {
+  in_diff, outside_diff, unknown_path } }`, and one stderr line,
+  `antigravity:review — location check (heuristic): <in> in diff, <out>
+  outside diff, <unknown> unknown paths.`, also appended to the markdown
+  output after the answer. `result <job-id> --check-locations` runs the same
+  check later, from the stored answer and hunks, and works even on a job
+  reviewed without this flag. See [Heuristic location
+  check](./COMPATIBILITY.md#heuristic-location-check).
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
@@ -941,6 +961,19 @@ stored `details.result.structuredRaw` (agy's structured output as JSON text,
 `null` when agy sent none). The markdown output gets one line,
 `Findings: <valid|invalid|missing>`, before the "## Provenance" section.
 Without the flag, or for a job that did not complete, none of this appears.
+
+`result <job-id> --check-locations` (additive, 2026-09)
+runs the same heuristic citation-location check `review --check-locations`
+runs, against the job's already-stored answer and hunks — it never calls agy
+again. It works even on a job reviewed without `--check-locations` at review
+time, because `request.hunks` is stored on every review job. `--json` adds
+`details.locationCheck`, the same shape [`review`](#review) documents, or
+`null` on a job stored before `request.hunks` existed. Either way, one
+stderr line and one appended markdown line report the outcome: the summary
+line when the check ran, or `antigravity:result — location check
+unavailable: this job predates hunk storage.` when it could not. Without the
+flag, `details` carries no `locationCheck` key. See [Heuristic location
+check](./COMPATIBILITY.md#heuristic-location-check).
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is

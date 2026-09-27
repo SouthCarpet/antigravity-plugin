@@ -762,6 +762,28 @@ export function renderSetupReport(report) {
 }
 
 /**
+ * Append extra display lines after `text`, one per array entry joined with
+ * newlines, adding a newline first only when `text` does not already end in
+ * one. `[]` returns `text` unchanged. Shared by every path that appends an
+ * optional line or section after the answer without folding it into the
+ * opaque `answer`/`rendered` text: the foreground `--check-locations` line
+ * (Task 14, "Senate R8", 2026-09) is the first `finishForeground` caller to
+ * need this. `result.mjs` keeps its own local `appendSectionLines`, the
+ * same shape, for its several appended sections (denied actions,
+ * print-timeout, findings, provenance) — not merged into this helper, since
+ * that file builds its whole answer outside `finishForeground` entirely.
+ *
+ * @param {string} text
+ * @param {string[]} lines
+ * @returns {string}
+ */
+export function appendRenderedLines(text, lines) {
+  if (lines.length === 0) return text;
+  const separator = text.endsWith("\n") ? "" : "\n";
+  return `${text}${separator}${lines.join("\n")}\n`;
+}
+
+/**
  * Output either JSON or rendered markdown based on the --json flag.
  *
  * @param {import('./types.mjs').JsonEnvelopeV1} payload - The structured data.

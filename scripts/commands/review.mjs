@@ -29,6 +29,10 @@
  *                     shipped schema (`--json-schema`) and validate them
  *                     locally into `details.findings` (Senate R7, 2026-09);
  *                     `answer` stays agy's raw response text
+ *   --check-locations heuristically check each `path:line` citation the
+ *                     answer names against the sent diff's own hunks
+ *                     (Task 14, "Senate R8", 2026-09); local only, adds
+ *                     nothing to the agy call; see `review-locations.mjs`
  *   --json            output JSON instead of markdown
  *
  * The diff is collected first. An empty one answers `no_changes` with exit 0
@@ -45,6 +49,7 @@ import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewInput } from "../lib/review-input.mjs";
 import { REVIEW_FINDINGS_SCHEMA_PATH, reviewFindingsDetails } from "../lib/review-findings.mjs";
+import { checkReviewLocations, locationCheckReportLine } from "../lib/review-locations.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   EFFORT_CHOICES,
@@ -89,6 +94,11 @@ function resolveReviewMode(options) {
  * `--findings-json` run, so a request without the flag is unchanged; the
  * worker turns it back into `--json-schema`.
  *
+ * `hunks` (Task 14, "Senate R8", 2026-09) is stored on every request,
+ * unconditionally — not only under `--check-locations` — straight off
+ * `buildReviewInput`'s own return value, so a job reviewed without the flag
+ * can still be checked later with `result <id> --check-locations`.
+ *
  * @param {{ envelope: object, base: string | undefined, mode: string,
  *   model: string | undefined, effort: string | undefined, focus: string | undefined,
  *   findingsJson: boolean,
@@ -106,6 +116,7 @@ function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, 
     inputHash: input.inputHash,
     inputCounts: input.counts,
     headSha: input.headSha,
+    hunks: input.hunks,
     ...(findingsJson ? { findingsJson: true } : {}),
   };
 }
@@ -132,19 +143,40 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
 }
 
 /**
- * The `finishForeground` options for `--findings-json` (Senate R7, 2026-09):
- * the findings fields derived from agy's structured output. `{}` without
- * the flag, so that path's details stay unchanged.
+ * The `finishForeground` options for review's two additive result-shaping
+ * flags — `--findings-json` (Senate R7, 2026-09) and `--check-locations`
+ * (Task 14, "Senate R8", 2026-09) — either, both, or neither active for one
+ * run:
+ *   - `resultDetails` always runs (an empty object when neither flag is
+ *     set, so `finishForeground`'s merge is a no-op); it derives the
+ *     findings fields off `result.structured` and/or `locationCheck` off
+ *     `checkReviewLocations(result.stdout, hunks)`, the same `hunks`
+ *     {@link buildReviewRequestFields} already stored on the job.
+ *   - `--check-locations` alone also adds `extraStderrLines`/`renderedSuffix`
+ *     for the one summary line ({@link locationCheckReportLine}); findings
+ *     already prints its own warning line inside `finishForeground` and
+ *     needs neither hook.
  *
- * @param {boolean} findingsJson
- * @returns {{ resultDetails?: (result: import('../lib/types.mjs').RuntimeResult) => object }}
+ * @param {{ findingsJson: boolean, checkLocations: boolean,
+ *   hunks: Array<{ path: string, newStart: number, newEnd: number }> }} args
+ * @returns {{ resultDetails: (result: import('../lib/types.mjs').RuntimeResult) => object,
+ *   extraStderrLines?: (result: import('../lib/types.mjs').RuntimeResult, ownDetails: object) => string[],
+ *   renderedSuffix?: (result: import('../lib/types.mjs').RuntimeResult, ownDetails: object) => string[] }}
  */
-function findingsFinishOptions(findingsJson) {
-  if (!findingsJson) return {};
-  return { resultDetails: (result) => reviewFindingsDetails(result.structured) };
+function reviewFinishOptions({ findingsJson, checkLocations, hunks }) {
+  const resultDetails = (result) => ({
+    ...(findingsJson ? reviewFindingsDetails(result.structured) : {}),
+    ...(checkLocations ? { locationCheck: checkReviewLocations(result.stdout, hunks) } : {}),
+  });
+  if (!checkLocations) return { resultDetails };
+  const locationLines = (result, ownDetails) => [locationCheckReportLine("review", ownDetails.locationCheck)];
+  return { resultDetails, extraStderrLines: locationLines, renderedSuffix: locationLines };
 }
 
-async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, findingsJson, input, json }) {
+async function runReviewForeground({
+  workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus,
+  findingsJson, checkLocations, input, json,
+}) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "review",
@@ -173,7 +205,7 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
   return runForegroundWithRetryPrompt("review", runOnce, {
     json,
     extraDetails: { scope: envelope.scope },
-    ...findingsFinishOptions(findingsJson),
+    ...reviewFinishOptions({ findingsJson, checkLocations, hunks: input.hunks }),
   });
 }
 
@@ -293,6 +325,7 @@ export async function run(argv = [], ctx = {}) {
     valueOptions: ["base", "scope", "conversation", "cwd", "model", "effort", "focus"],
     booleanOptions: [
       "background", "wait", "continue", "json", "preview", "require-complete", "show-result", "findings-json",
+      "check-locations",
     ],
     valueChoices: { effort: EFFORT_CHOICES },
     conflicts: [
@@ -354,9 +387,10 @@ export async function run(argv = [], ctx = {}) {
   const conversationId = options.conversation ? String(options.conversation) : undefined;
   const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}${focus ? ` focus: ${focus.slice(0, 40)}` : ""}`;
 
+  const checkLocations = Boolean(options["check-locations"]);
   const runArgs = {
     workspaceRoot, title, prompt: input.prompt, mode, conversationId, envelope, base,
-    agyVersion: probed.version, model, effort, focus, findingsJson, input,
+    agyVersion: probed.version, model, effort, focus, findingsJson, checkLocations, input,
   };
 
   if (options.background) {

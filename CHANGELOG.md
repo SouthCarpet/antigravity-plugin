@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   --json` and `--show-result` report the same three fields, and `result
   <job-id>` adds a `Findings: <status>` line. Without the flag, nothing
   changes. See `docs/COMMANDS.md#review`.
+- **`--check-locations` on `review` and `result`.** Opt-in, local-only
+  heuristic: checks each `path:line` citation a review answer names against
+  the diff that run actually sent, using the hunks that diff carried
+  (`request.hunks`, stored on every review job). Classifies each citation
+  `in_diff`, `outside_diff`, or `unknown_path`. Never calls agy again, and
+  adds nothing to the agy call. `--json` adds `details.locationCheck: {
+  heuristic, citations, counts }`, `null` on a job stored before this
+  feature shipped. One stderr line reports the counts, also appended to the
+  markdown output after the answer. `answer` and the exit code are
+  unchanged. `result <job-id> --check-locations` runs the same check later
+  and works even on a job reviewed without the flag. A citation outside the
+  diff is not by itself a model error. See `docs/COMMANDS.md#review`.
 - **`--expect <text>` on `vision`.** Repeatable, opt-in: after a completed
   run, checks each trimmed value against the answer's `## Transcription`
   section — a substring check on what agy already transcribed, never a

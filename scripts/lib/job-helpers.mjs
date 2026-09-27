@@ -40,6 +40,7 @@ import {
   formatDeniedActionLabel,
   stripBypassAdvice,
   redactBypassFlag,
+  appendRenderedLines,
 } from "./render.mjs";
 import { buildResultDetails } from "./job-result.mjs";
 import { findingsWarningLine, storedFindingsDetails, structuredRawText } from "./review-findings.mjs";
@@ -1443,11 +1444,23 @@ export function printMeasuredUsageTrailer(usage) {
  * they sit next to `extraDetails`, and a non-valid `findingsStatus` among
  * them prints one warning line on stderr.
  *
+ * `extraStderrLines`/`renderedSuffix` (Task 14, "Senate R8", 2026-09) are
+ * the same optional-line pattern for a caller whose extra line depends on
+ * `ownDetails` (the merged `extraDetails`/`resultDetails` — `review
+ * --check-locations`'s summary line needs the `locationCheck` counts
+ * `resultDetails` just computed) rather than on `result` alone:
+ * `extraStderrLines` prints to stderr, `renderedSuffix` appends to the
+ * printed markdown ({@link appendRenderedLines}) — `answer` in the `--json`
+ * envelope is never touched by either. Absent for every caller that has
+ * none, so `finishForeground`'s existing callers are unchanged.
+ *
  * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
  * @param {{ id: string }} job
  * @param {import('./types.mjs').RuntimeResult} result
  * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void,
- *   resultDetails?: (result: import('./types.mjs').RuntimeResult) => object }} [options]
+ *   resultDetails?: (result: import('./types.mjs').RuntimeResult) => object,
+ *   extraStderrLines?: (result: import('./types.mjs').RuntimeResult, ownDetails: object) => string[],
+ *   renderedSuffix?: (result: import('./types.mjs').RuntimeResult, ownDetails: object) => string[] }} [options]
  * @returns {number} the verb's exit code
  */
 /**
@@ -1593,7 +1606,9 @@ function finishForegroundFailure(kind, job, result, json) {
   return result.status === "cancelled" ? 2 : 1;
 }
 
-export function finishForeground(kind, job, result, { json, extraDetails = {}, extraFields = {}, beforeAnswer, resultDetails } = {}) {
+export function finishForeground(kind, job, result, {
+  json, extraDetails = {}, extraFields = {}, beforeAnswer, resultDetails, extraStderrLines, renderedSuffix,
+} = {}) {
   if (result.status === "auth_required") return finishForegroundAuthRequired(kind, job, result, json);
   if (result.status !== "completed") return finishForegroundFailure(kind, job, result, json);
 
@@ -1602,8 +1617,10 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
   reportDeniedActionHints(kind, result);
   reportPrintTimeoutHint(kind, result);
   reportFindingsWarning(kind, ownDetails);
+  for (const line of extraStderrLines?.(result, ownDetails) ?? []) process.stderr.write(`${line}\n`);
   beforeAnswer?.();
   printMeasuredUsageTrailer(result.usage);
+  const rendered = appendRenderedLines(result.stdout, renderedSuffix?.(result, ownDetails) ?? []);
   outputCommandResult(
     createJsonEnvelope(kind, {
       status: "completed",
@@ -1617,7 +1634,7 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
         ...warningDetails(result),
       },
     }),
-    result.stdout,
+    rendered,
     Boolean(json),
   );
   return 0;

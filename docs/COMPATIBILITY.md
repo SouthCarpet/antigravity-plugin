@@ -1048,6 +1048,28 @@ meaning:
 - `result.structuredRaw` (additive, 2026-09): agy's structured output as
   JSON text, `null` when agy sent none. It is on every new job record, so
   `details.result.structuredRaw` is `null` for every run without the flag.
+- **`--check-locations` on `review` and `result`** (additive, 2026-09): an
+  opt-in, local-only heuristic that checks each `path:line` citation a
+  review answer names against the diff that run actually sent. It never
+  calls agy again, and adds nothing to `argv` on either verb. See
+  [Heuristic location check](#heuristic-location-check) below and
+  [`review`](./COMMANDS.md#review)/[`result`](./COMMANDS.md#result).
+- `request.hunks` (additive, 2026-09): `[{ path, newStart, newEnd }]`, the
+  hunks the sent diff's own `@@ -a,b +c,d @@` headers carried (plus one
+  `{ newStart: 1, newEnd: <line count> }` entry per included untracked
+  file), computed by `buildReviewInput` and stored on **every** review job —
+  not only under `--check-locations` — so `result --check-locations` works
+  on a job reviewed without the flag. Absent on a job stored before this
+  feature shipped; that absence is what makes the check "unavailable" on
+  such a job.
+- `details.locationCheck` (additive, 2026-09): `{ heuristic: true, citations:
+  [{ text, path, line, state }], counts: { in_diff, outside_diff,
+  unknown_path } }` on a completed `review --check-locations` run and on
+  `result <job-id> --check-locations`; `null` when the flag was given but
+  the job has no stored `request.hunks`; absent without the flag. This is a
+  heuristic, not a truth check: a citation the diff never touched is not by
+  itself a model error — reviewers legitimately cite context lines and
+  related files outside the diff.
 
 ### Structured output flag
 
@@ -1064,6 +1086,26 @@ exit code was 0. `result.response`, which becomes `answer`, was JSON text,
 not prose, and it carried keys the schema did not allow. So under
 `--findings-json`, `answer` is JSON text rather than the Markdown review. The
 plugin reads only `structured_output` and never parses `response`.
+
+### Heuristic location check
+
+`--check-locations` finds `path:line` and `path:start-end` citations in a
+review answer with one regular expression, tuned to exclude two shapes it
+would otherwise catch: a bare three-part version string (`1.2.11`), and a
+`http(s)://` URL whose path segment happens to look like `name.ext:port`
+right after the scheme. It does not chase every possible false positive —
+for one, a bare `host:port` with no `http(s)://` prefix still matches and is
+reported as `unknown_path`. This is why the check is heuristic: it can both
+miss a real citation the model wrote in an unexpected shape and report a
+path-shaped string that was never meant as one.
+
+Measured against two stored `review --json` transcripts from earlier agy
+probes (agy 1.2.11 and agy 1.2.7): neither answer contains a `path:line`-shaped
+citation at all — both cite the changed file with a Markdown link and a `#L1`
+anchor (`[answer.txt](file:///.../answer.txt#L1)`), not a colon. The regex
+matched zero times in either transcript, so the measured false-positive
+count is zero for both. A synthetic hunk set was not needed, since there was
+nothing to classify.
 
 ## Deprecation and compatibility changes
 

@@ -52,6 +52,9 @@ const COMMAND_HELP = {
     '                          the dispatch envelope (needs --wait --background)\n' +
     '  --findings-json         also return structured findings, checked against\n' +
     '                          the shipped schema, in details.findings\n' +
+    '  --check-locations       heuristically check each path:line citation the\n' +
+    '                          answer names against the sent diff\'s own hunks;\n' +
+    '                          local only, adds nothing to the agy call\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:
@@ -121,6 +124,10 @@ const COMMAND_HELP = {
     'Flags:\n' +
     '  --head <n>             show the first n lines\n' +
     '  --tail <n>             show the last n lines\n' +
+    '  --check-locations      heuristically check each path:line citation the\n' +
+    '                         stored answer names against the job\'s own stored\n' +
+    '                         request.hunks; works on a job reviewed without\n' +
+    '                         the flag\n' +
     '  --json                 emit JSON instead of markdown\n' +
     '  --cwd <path>           override working directory\n' +
     'Both --head and --tail may be given; markdown output notes a cut.\n' +

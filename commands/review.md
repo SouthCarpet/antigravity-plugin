@@ -1,6 +1,6 @@
 ---
 description: Review uncommitted changes (or a branch diff) with Google Antigravity (agy)
-argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--show-result] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--preview] [--require-complete] [--findings-json] [--json]'
+argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--show-result] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--preview] [--require-complete] [--findings-json] [--check-locations] [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -31,6 +31,7 @@ Flags:
 - `--preview` shows what would be sent (included files, skipped files with reasons, truncation state, counts, hash), without calling agy or changing anything. Cannot combine with `--background`, `--wait`, `--continue`, or `--conversation`.
 - `--require-complete` refuses to send a review whose input skipped a file or cut the diff, instead of sending it with a warning.
 - `--findings-json` also asks agy for structured findings. The plugin checks them against its own schema and returns them in `details.findings` (with `details.findingsStatus`: `valid`, `invalid`, or `missing`). The answer text stays agy's raw response, which is JSON text in this mode. Forward the flag only when the user asked for it.
+- `--check-locations` heuristically checks each `path:line` citation the answer names against the diff this run actually sent. Local only: no extra agy call, no argv change. Reports `details.locationCheck` and one summary line, appended after the answer. A citation outside the diff is not by itself a model error — reviewers legitimately cite context lines and related files. `result <job-id> --check-locations` runs the same check later, even on a job reviewed without this flag.
 - `--json` emit structured JSON instead of the rendered markdown review.
 
 Denied actions:

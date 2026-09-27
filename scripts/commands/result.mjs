@@ -2,10 +2,16 @@
  * /antigravity:result — fetch a finished job's stored output.
  *
  * Flags:
- *   --head <n>   show only the first n lines of the answer (positive integer)
- *   --tail <n>   show only the last n lines of the answer (positive integer;
- *                may be combined with --head)
- *   --json       emit JSON
+ *   --head <n>          show only the first n lines of the answer (positive integer)
+ *   --tail <n>          show only the last n lines of the answer (positive integer;
+ *                       may be combined with --head)
+ *   --check-locations   heuristically check each `path:line` citation the
+ *                       stored answer names against the job's own stored
+ *                       `request.hunks` (Task 14, "Senate R8", 2026-09);
+ *                       works on a job reviewed without the flag, since
+ *                       hunks are stored on every review job; `null` on a
+ *                       job stored before this feature shipped
+ *   --json              emit JSON
  *
  * Exit codes:
  *   0  completed
@@ -19,6 +25,7 @@ import { readJobFile, validateJobRecord } from "../lib/state.mjs";
 import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
 import { classifyStateError, exitCodeForJobStatus, deniedActionsWithRemedy, printMeasuredUsageTrailer } from "../lib/job-helpers.mjs";
 import { buildResultDetails } from "../lib/job-result.mjs";
+import { checkReviewLocations, locationCheckReportLine } from "../lib/review-locations.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -191,15 +198,34 @@ function appendSectionLines(text, lines) {
 }
 
 /**
+ * The `--check-locations` fields for `buildResultOutput` (Task 14, "Senate
+ * R8", 2026-09): the computed check (`null` when the flag was not given, or
+ * when it was given but the job predates hunk storage), plus the one
+ * markdown line to append — `[]` without the flag, so `appendSectionLines`
+ * is a no-op then. Split out to keep `buildResultOutput` itself under the
+ * complexity ceiling; never re-runs agy, only reads the already-stored
+ * `result.rawOutput`/`request.hunks`.
+ *
+ * @param {import('../lib/types.mjs').JobRecord | null} stored
+ * @param {boolean} checkLocations
+ * @returns {{ locationCheck: ReturnType<typeof checkReviewLocations>, lines: string[] }}
+ */
+function resultLocationCheckFields(stored, checkLocations) {
+  if (!checkLocations) return { locationCheck: null, lines: [] };
+  const locationCheck = checkReviewLocations(stored?.result?.rawOutput ?? "", stored?.request?.hunks);
+  return { locationCheck, lines: [locationCheckReportLine("result", locationCheck)] };
+}
+
+/**
  * Build the markdown and `--json` output for a resolved job, applying the
  * `--head`/`--tail` cut when requested (076-T7 R1).
  *
  * @param {{ workspaceRoot: string, job: import('../lib/types.mjs').JobRecord,
  *   stored: import('../lib/types.mjs').JobRecord }} resolved
- * @param {{ head?: number, tail?: number }} lineWindow
+ * @param {{ head?: number, tail?: number, checkLocations?: boolean }} options
  * @returns {{ rendered: string, payload: object }}
  */
-function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
+function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLocations }) {
   const rendered = renderResultOutput(workspaceRoot, job, stored);
   const { cut, renderedOut } = applyAnswerCut(stored, rendered, { head, tail });
 
@@ -225,12 +251,16 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
     withPrintTimeout,
     resultDetails.findingsStatus ? [`Findings: ${resultDetails.findingsStatus}`] : [],
   );
+  // Task 14 ("Senate R8", 2026-09): `--check-locations` appends one
+  // summary/unavailable line after the findings line.
+  const { locationCheck, lines: locationLines } = resultLocationCheckFields(stored, checkLocations);
+  const withLocationCheck = appendSectionLines(withFindings, locationLines);
   // Senate R11 (2026-09): the "## Provenance" section is appended last,
   // after the answer text and every other appended section — never folded
   // into the opaque `answer`/`rendered` text above. `job` already carries
   // `stored`'s own `provenance` value (`mergeJobDetail`, job-control.mjs).
   const finalRendered = appendSectionLines(
-    withFindings,
+    withLocationCheck,
     renderProvenanceLines(job.provenance ?? null, job.request?.inputHash ?? null),
   );
   const payload = createJsonEnvelope("result", {
@@ -242,6 +272,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail }) {
       ...(cut.truncated ? { truncated: true } : {}),
       ...(deniedList ? { deniedActions: deniedList } : {}),
       ...(agyPrintTimeout ? { agyPrintTimeout } : {}),
+      ...(checkLocations ? { locationCheck } : {}),
       ...failedJobErrorDetail(job),
     },
   });
@@ -279,7 +310,7 @@ function failedJobErrorDetail(job) {
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["cwd", "head", "tail"],
-    booleanOptions: ["json"],
+    booleanOptions: ["json", "check-locations"],
   }, "result");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
@@ -303,7 +334,9 @@ export async function run(argv = [], ctx = {}) {
   if (!resolved) return 1;
 
   printMeasuredUsageTrailer(resolved.stored?.result?.usage ?? null);
-  const { rendered, payload } = buildResultOutput(resolved, { head: head.value, tail: tail.value });
+  const checkLocations = Boolean(options["check-locations"]);
+  const { rendered, payload } = buildResultOutput(resolved, { head: head.value, tail: tail.value, checkLocations });
+  if (checkLocations) process.stderr.write(`${locationCheckReportLine("result", payload.details.locationCheck)}\n`);
   outputCommandResult(payload, rendered, json);
 
   return exitCodeForJobStatus(resolved.job.status);

@@ -30,7 +30,7 @@ commands:
   - name: setup
     description: "One-time agy OAuth wizard (foreground). Idempotent. Also registers the vision MCP server; --skip-vision to opt out, --remove-vision to undo plugin-owned entries."
   - name: review
-    description: "Hand the current git diff (or `--base <ref>`) to agy for a structured code review. Foreground by default; pass --background to fork a worker and poll with $antigravity status. Supports --model, --effort <low|medium|high|agy-default> (no plugin default), an optional --focus <text> to narrow attention, --preview to show what would be sent without calling agy, --require-complete to refuse an input that skipped a file or cut the diff, --findings-json to also get structured findings, checked against the plugin's schema, in details.findings, and (with --background --wait) --show-result to print the finished job instead of the queued notice."
+    description: "Hand the current git diff (or `--base <ref>`) to agy for a structured code review. Foreground by default; pass --background to fork a worker and poll with $antigravity status. Supports --model, --effort <low|medium|high|agy-default> (no plugin default), an optional --focus <text> to narrow attention, --preview to show what would be sent without calling agy, --require-complete to refuse an input that skipped a file or cut the diff, --findings-json to also get structured findings, checked against the plugin's schema, in details.findings, --check-locations to heuristically check each path:line citation against the sent diff's own hunks (local only, adds nothing to the agy call), and (with --background --wait) --show-result to print the finished job instead of the queued notice."
   - name: rescue
     description: "Delegate an investigation or fix request to agy, for example 'why are the tests failing on main'. Foreground by default; --background returns a job id for $antigravity status / result. Supports --model, --effort <low|medium|high>, (with --background --wait) --show-result, and (with --background) --request-id <id> for an idempotent dispatch."
   - name: task
@@ -40,7 +40,7 @@ commands:
   - name: status
     description: "Show current and recent agy jobs, including any pending OAuth URL. With a job id and --wait, --exit-status exits by that job's own outcome instead of the usual 0."
   - name: result
-    description: "Print the stored final output of a completed agy job by id, or part of it with --head / --tail."
+    description: "Print the stored final output of a completed agy job by id, or part of it with --head / --tail. --check-locations runs the same heuristic path:line citation check `review` runs, from the stored answer, even on a job reviewed without that flag."
   - name: cancel
     description: "Send SIGTERM to a running agy worker by job id."
   - name: doctor
