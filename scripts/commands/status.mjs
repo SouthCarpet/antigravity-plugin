@@ -176,10 +176,10 @@ const AGY_VERSION_WARNING_CLASSIFICATIONS = new Set(["beyond_measured", "unmeasu
 
 /**
  * One stderr line when the cached `agyVersionSeen` (written by `review`,
- * `rescue`, `task`, or `vision` after their own probe — see
+ * `rescue`, `task`, or `vision` after their own probe, see
  * `job-helpers.mjs#rememberAgyVersion`) falls outside this plugin's measured
  * range. Reads only the state config; never calls agy itself (Senate R2,
- * 2026-09). A no-reference `status` call only — never printed for
+ * 2026-09). A no-reference `status` call only, never printed for
  * `status <id>`.
  *
  * @param {string} cwd

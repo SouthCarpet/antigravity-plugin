@@ -2,14 +2,14 @@
  * Integration coverage for `rememberAgyVersion` (scripts/lib/job-helpers.mjs,
  * Senate R2, 2026-09): `review`, `rescue`, `task`, and `vision` write
  * `agyVersionSeen` to the workspace's state config right after their own
- * successful agy-version probe — before the run itself, so it lands even
- * when the run afterward fails — and `review --preview` never does, because
+ * successful agy-version probe, before the run itself, so it lands even
+ * when the run afterward fails. `review --preview` never does, because
  * it returns before probing agy at all.
  *
  * Runs `bin/antigravity.mjs <verb>` in a real child process against a fake
  * `agy` that passes the `--version` probe but fails the run itself
  * (`writeFakeAgy`'s `echoArgsStderr` + `exitCode: 1`, the same fake
- * `tests/passthrough-argv.test.mjs` uses) — no mocks, the real spawn path.
+ * `tests/passthrough-argv.test.mjs` uses). No mocks, the real spawn path.
  * The failing run keeps each test to one child process and confirms the
  * cache write happens on the probe, not on a completed job.
  */
@@ -77,7 +77,7 @@ function sh(cmd, cwd) {
   execSync(cmd, { cwd, stdio: 'ignore', env: GIT_ENV });
 }
 
-/** A git repo with one committed file, then modified — a real diff `review` will pick up. */
+/** A git repo with one committed file, then modified: a real diff `review` will pick up. */
 function gitFixtureWithChange() {
   const { work, data } = freshDirs();
   sh('git init -q -b main', work);
@@ -88,7 +88,7 @@ function gitFixtureWithChange() {
   return { work, data };
 }
 
-/** 1x1 transparent PNG — just enough for `vision`'s extension/size checks. */
+/** 1x1 transparent PNG, just enough for `vision`'s extension/size checks. */
 const TINY_PNG_HEX =
   '89504e470d0a1a0a0000000d4948445200000001000000010802000000907724da' +
   '0000000a4944415478da6360000002000155020e2b0100000049454e44ae426082';

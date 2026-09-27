@@ -140,7 +140,7 @@ export function resolveStateFile(cwd) {
 
 /**
  * Describe this workspace's job-state location for `doctor`
- * (scripts/commands/doctor.mjs, Senate R2, 2026-09) — read-only, creates
+ * (scripts/commands/doctor.mjs, Senate R2, 2026-09): read-only, creates
  * nothing. `legacyLeaf` is true when the directory actually in use (an
  * existing older logical-path or fallback-temp-root leaf, see
  * {@link resolveStateDir}) differs from the current realpath-hashed leaf

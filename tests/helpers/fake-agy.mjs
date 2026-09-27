@@ -204,7 +204,7 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
  *   proof a test needs that this binary was never spawned at all.
  *   `helpText` (Senate R2, 2026-09), when given, answers a lone `--help`
  *   with that exact text and exit 0, distinct from `versionOk`'s `--version`
- *   answer and from the generic `stdout` option — `doctor`'s flag-listing
+ *   answer and from the generic `stdout` option: `doctor`'s flag-listing
  *   check needs `--help` output that differs from a `--version` probe.
  * @returns {string} absolute path to the spawnable stub
  */

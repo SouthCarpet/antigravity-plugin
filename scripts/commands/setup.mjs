@@ -27,7 +27,7 @@ const VERSION_WARNING_LINES = {
 
 /**
  * The one warning line `setup` prints after "using <bin> v<version>" when
- * that version falls outside this plugin's measured range — `null` for
+ * that version falls outside this plugin's measured range: `null` for
  * `verified`, `incompatible`, or `missing` (Senate R2, 2026-09).
  *
  * @param {string | null | undefined} version

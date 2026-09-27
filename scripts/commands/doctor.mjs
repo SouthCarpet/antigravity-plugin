@@ -6,7 +6,7 @@
  * `process.version`, `package.json` `engines.node`, `agy --version`,
  * `agy --help`, the two agy config files `vision-config.mjs` already knows
  * about, and the job-state root. Unlike `setup`, this is not a live probe
- * that changes anything — it is the check a caller runs first, and as often
+ * that changes anything. It is the check a caller runs first, and as often
  * as they like, with no side effect to worry about.
  *
  * Flags: `--json` and `--cwd <path>` only. No `--live`: `setup` already is
@@ -41,7 +41,7 @@ const PLUGIN_ROOT = join(HERE, "..", "..");
 /**
  * Every flag the plugin forwards to agy across `review`, `rescue`, `task`,
  * and `vision`. `doctor` only checks whether each one is *listed* in
- * `agy --help`'s text, never whether it works — that distinction is in the
+ * `agy --help`'s text, never whether it works. That distinction is in the
  * header line every text/JSON report carries.
  */
 export const FORWARDED_FLAGS = Object.freeze([
@@ -65,7 +65,7 @@ const BUCKET_KEYS = { ok: "ok", warning: "warnings", problem: "problems" };
 /** agy version classification → this check's bucket. `beyond_measured` and
  * `unmeasured` are both warnings, never problems (the brief is explicit
  * about `beyond_measured`; `unmeasured` gets the same treatment `setup` and
- * `status` already give it — see their own warning lines). */
+ * `status` already give it: see their own warning lines). */
 const AGY_CLASSIFICATION_BUCKET = {
   verified: "ok",
   beyond_measured: "warning",
@@ -76,7 +76,7 @@ const AGY_CLASSIFICATION_BUCKET = {
 
 /** vision-config status → this check's bucket. `absent` just means `setup`
  * has not registered vision yet (a normal state before it runs), so it is a
- * warning, not a problem — the exit-code contract only names Node, agy, and
+ * warning, not a problem. The exit-code contract only names Node, agy, and
  * the state root as problem sources. */
 const VISION_BUCKET = { registered: "ok", absent: "warning", unreadable: "warning" };
 
@@ -95,7 +95,7 @@ function checkNode() {
   const version = process.version;
   const status = compareVersions(version.replace(/^v/, ""), min) >= 0 ? "ok" : "incompatible";
   return {
-    line: `Node ${version} (required ${required}) — ${status}`,
+    line: `Node ${version} (required ${required}): ${status}`,
     bucket: status === "ok" ? "ok" : "problem",
     details: { version, required, status },
   };
@@ -114,7 +114,7 @@ async function checkAgy() {
   const classification = classifyAgyVersion(version);
   const bucket = AGY_CLASSIFICATION_BUCKET[classification];
   const binPath = probe.ok ? bin : null;
-  const suffix = probe.ok ? `${bin} v${version} — ${classification}` : `not found (${probe.reason})`;
+  const suffix = probe.ok ? `${bin} v${version}: ${classification}` : `not found (${probe.reason})`;
   return {
     line: `agy: ${suffix}`,
     bucket,

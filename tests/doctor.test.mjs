@@ -53,7 +53,7 @@ function captureStdio() {
   return { out, err, restore: () => { process.stdout.write = origOut; process.stderr.write = origErr; } };
 }
 
-/** Recursive relative-path listing, sorted — mtimes are known to lie
+/** Recursive relative-path listing, sorted. mtimes are known to lie
  * (bulk ops restamp them), so this snapshot compares presence only. */
 function listTree(root) {
   const out = [];
@@ -84,7 +84,7 @@ function withEnv(overrides, fn) {
     });
 }
 
-describe("doctor — no OAuth, no model call, no write, no network (isolated HOME)", () => {
+describe("doctor: no OAuth, no model call, no write, no network (isolated HOME)", () => {
   it("a full run under an isolated HOME/USERPROFILE leaves that tree byte-for-byte unchanged", async () => {
     const stubDir = tmp("antigravity-doctor-stub-");
     const fakeAgy = writeFakeAgy(stubDir, "agy-fake", {
@@ -111,10 +111,10 @@ describe("doctor — no OAuth, no model call, no write, no network (isolated HOM
   });
 });
 
-describe("doctor — agy classification (Senate R2)", () => {
+describe("doctor: agy classification (Senate R2)", () => {
   it("missing agy: classification 'missing', overall 'problems', exit 1", async () => {
     // resolveAgyBin only trusts AGY_BIN when it exists on disk (agent-runtime.mjs),
-    // otherwise it falls through to a real PATH search — this machine may have
+    // otherwise it falls through to a real PATH search. This machine may have
     // a real `agy` installed, so PATH and the home fallback (~/.local/bin) must
     // both point away from it, not just AGY_BIN.
     const work = tmp("antigravity-doctor-work-");
@@ -178,7 +178,7 @@ describe("doctor — agy classification (Senate R2)", () => {
   }
 });
 
-describe("doctor — flags: listed vs not_listed (Senate R2)", () => {
+describe("doctor: flags, listed vs not_listed (Senate R2)", () => {
   it("a flag present in --help text is 'listed'; one absent from it is 'not_listed'", async () => {
     const stubDir = tmp("antigravity-doctor-stub-");
     const partial = FORWARDED_FLAGS.filter((f) => f !== "--json-schema");
@@ -198,7 +198,7 @@ describe("doctor — flags: listed vs not_listed (Senate R2)", () => {
   });
 });
 
-describe("doctor — --json envelope shape (Senate R2)", () => {
+describe("doctor: --json envelope shape (Senate R2)", () => {
   it("has exactly the top-level envelope keys and the exact details keys from the brief", async () => {
     const stubDir = tmp("antigravity-doctor-stub-");
     const fakeAgy = writeFakeAgy(stubDir, "agy-fake", { versionOk: true, helpText: helpTextListing(FORWARDED_FLAGS) });

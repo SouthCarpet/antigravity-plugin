@@ -1,5 +1,5 @@
 /**
- * compat — the plugin's own measured agy compatibility range, as data.
+ * compat: the plugin's own measured agy compatibility range, as data.
  *
  * `doctor` (scripts/commands/doctor.mjs), `setup`, and `status` all need the
  * same three facts about an agy version: the floor this plugin still works
@@ -54,11 +54,11 @@ const CLASSIFICATION_RULES = [
 /**
  * Classify an agy version against this plugin's measured range.
  *
- * - `missing` — no version (agy was not found).
- * - `incompatible` — older than {@link MIN_AGY_VERSION}.
- * - `beyond_measured` — newer than {@link LAST_MEASURED_AGY_VERSION}.
- * - `verified` — inside the range and a {@link MEASURED_AGY_VERSIONS} row.
- * - `unmeasured` — inside the range but not a matrix row (the default when
+ * - `missing`: no version (agy was not found).
+ * - `incompatible`: older than {@link MIN_AGY_VERSION}.
+ * - `beyond_measured`: newer than {@link LAST_MEASURED_AGY_VERSION}.
+ * - `verified`: inside the range and a {@link MEASURED_AGY_VERSIONS} row.
+ * - `unmeasured`: inside the range but not a matrix row (the default when
  *   no rule above matches).
  *
  * @param {string | null | undefined} version

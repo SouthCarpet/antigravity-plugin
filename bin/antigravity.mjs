@@ -20,7 +20,7 @@ const INSTALL_URL = 'https://antigravity.google/download';
 const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel', 'doctor'];
 // Commands that shell out to `agy`. status/result/cancel/doctor only read
 // disk state (doctor also probes agy read-only, but a missing agy is one of
-// its findings, not a preflight failure — it never needs this fast-fail).
+// its findings, not a preflight failure: it never needs this fast-fail).
 const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
@@ -108,7 +108,7 @@ const COMMAND_HELP = {
     'Usage: antigravity-plugin cancel [<job-id>] [flags]\n\n' +
     'Flags: --json, --cwd <path>',
   doctor:
-    'antigravity-plugin doctor — read-only environment and configuration check.\n\n' +
+    'antigravity-plugin doctor: read-only environment and configuration check.\n\n' +
     'Usage: antigravity-plugin doctor [flags]\n\n' +
     'Flags:\n' +
     '  --json                  emit JSON instead of markdown\n' +

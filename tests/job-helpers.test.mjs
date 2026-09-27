@@ -1617,7 +1617,7 @@ describe('classifyStateError (Task 3)', () => {
   });
 });
 
-describe('rememberAgyVersion — throttled agyVersionSeen cache (Senate R2)', () => {
+describe('rememberAgyVersion: throttled agyVersionSeen cache (Senate R2)', () => {
   it('writes agyVersionSeen on the first call for a workspace', async () => {
     const dir = freshWorkspace();
     const now = () => new Date('2026-09-27T10:00:00.000Z');

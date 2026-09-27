@@ -259,7 +259,7 @@ const MAX_HELP_BYTES = 65_536;
  * Run `agy --help` once and return its stdout, capped and never OAuth-
  * triggering (same read-only contract as {@link probeAgy}'s `--version`
  * call). `doctor` (scripts/commands/doctor.mjs) uses this to check whether a
- * flag the plugin forwards is *listed* in that text — never whether it
+ * flag the plugin forwards is *listed* in that text, never whether it
  * *works*, which `--help` cannot prove.
  *
  * @param {{ bin?: string, timeoutMs?: number, terminateTree?: typeof terminateProcessTree }} [opts]
@@ -282,7 +282,7 @@ export async function probeAgyHelp({
       // Go's `flag` package (agy's flag parser) writes usage text to stderr,
       // not stdout, even on a clean `--help` exit; some other CLI runtimes
       // write it to stdout instead. Concatenate both so this check works
-      // either way — `doctor` only substring-searches this text, never
+      // either way: `doctor` only substring-searches this text, never
       // relies on which stream it arrived on.
       let help = '';
       const appendHelp = (chunk) => {

@@ -287,8 +287,8 @@ export const AGY_VERSION_REMEMBER_INTERVAL_MS = 60 * 60 * 1000;
  * so `status` (with no job id) and `setup` can warn about a version outside
  * this plugin's measured range without probing agy themselves (Senate R2,
  * 2026-09). Called by `review`, `rescue`, `task`, and `vision` right after
- * their own probe succeeds — never on `review --preview` (which returns
- * before probing at all) and never by `doctor` or `status`, which only read
+ * their own probe succeeds. Never on `review --preview` (which returns
+ * before probing at all), and never by `doctor` or `status`, which only read
  * this cache.
  *
  * Throttled to once per {@link AGY_VERSION_REMEMBER_INTERVAL_MS}, compared
@@ -310,7 +310,7 @@ export async function rememberAgyVersion(workspaceRoot, version, { now = () => n
     if (elapsedMs < AGY_VERSION_REMEMBER_INTERVAL_MS) return;
     await setConfig(workspaceRoot, { agyVersionSeen: { version, observedAt: now().toISOString() } });
   } catch {
-    // Advisory cache only — never fail the verb over this.
+    // Advisory cache only. Never fail the verb over this.
   }
 }
 
