@@ -596,6 +596,7 @@ named image.
 vision <image-path> [<image-path>...]
        [--prompt <text>]
        [--model <id>]
+       [--expect <text>]...
        [--json] [--cwd <path>]
 ```
 
@@ -665,6 +666,40 @@ Once `--json` is accepted, a missing image path, a rejected image, a missing
 `agy` binary, or a run that did not complete emits one error envelope
 (`details.error`, see [COMPATIBILITY.md](./COMPATIBILITY.md#--json)) instead
 of an empty stdout body; the stderr line is unchanged either way.
+
+### `--expect`
+
+Repeatable. Each value is trimmed; an empty value or more than 32 values is
+an argument error, stderr only, exit 1. After a completed run, each value is
+checked against the `## Transcription` section of the answer: found when it
+equals one transcription line exactly (both trimmed) or is a substring of
+the section. This is a substring check on what agy already transcribed, not
+a truth check of the image itself — cross-check the transcript against the
+source image the same way the rest of this section already asks.
+
+If the `## Transcription` heading is missing, or the whole answer is the
+single `VISION-UNAVAILABLE: <reason>` line, every value comes back
+unverifiable instead of found or missing: there is nothing to check against.
+
+Under `--json`, `details.expectations` lists `{ value, found, reason? }` per
+value (`found` is `true`, `false`, or `null` when unverifiable) and
+`details.expectationSummary` is `all_found`, `missing`, or `unverifiable`.
+In markdown, a block prints after the answer:
+
+```text
+Expectations: missing
+  missing: <value that was not found>
+```
+
+or, when unverifiable:
+
+```text
+Expectations: unverifiable
+  unverifiable: no transcription section
+```
+
+The exit code is unaffected by `--expect` in this first version, whether
+values are found, missing, or unverifiable.
 
 ## `status`
 

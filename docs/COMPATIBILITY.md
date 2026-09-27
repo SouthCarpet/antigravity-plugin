@@ -1016,6 +1016,17 @@ meaning:
   [`--prompt-file`](./COMMANDS.md#task) and the `prompt_file_too_large` /
   `prompt_file_unreadable` / `prompt_file_empty` error codes above. `rescue`
   does not gain this flag.
+- **`--expect <text>` on `vision`** (additive, 2026-09): repeatable, opt-in.
+  After a completed run, each trimmed value is checked against the answer's
+  `## Transcription` section — a substring check on what agy already
+  transcribed, never a truth check of the image itself. See
+  [`--expect`](./COMMANDS.md#--expect). `--json` adds `details.expectations`
+  (`[{ value, found, reason? }]`, `found` is `true`/`false`/`null`) and
+  `details.expectationSummary` (`all_found`/`missing`/`unverifiable`), both
+  present only when `--expect` was given. Markdown appends a matching
+  `Expectations: <summary>` block after the answer. An empty value or more
+  than 32 values is an argument error, stderr only, exit 1. The exit code is
+  unchanged in every case; this is documented as a first version.
 
 ### Structured output flag
 

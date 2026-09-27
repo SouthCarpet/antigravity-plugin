@@ -1,6 +1,6 @@
 ---
 description: Ask Google Antigravity (agy) to look at one or more image files via the vision MCP channel
-argument-hint: '<image-path> [<image-path>...] [--prompt "<question>"] [--model <id>] [--json]'
+argument-hint: '<image-path> [<image-path>...] [--prompt "<question>"] [--model <id>] [--expect "<text>"]... [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -21,6 +21,12 @@ Flags:
 - `<image-path>` one or more image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`). At least one required.
 - `--prompt "<question>"` what to ask about the image(s). Default: a generic concrete-detail description prompt.
 - `--model <id>` agy model id. Default `gemini-3.6-flash-high`.
+- `--expect "<text>"` repeatable. After a completed run, checks this text
+  against the answer's `## Transcription` section (a substring check on
+  what agy already said, never a truth check of the image). Trimmed; an
+  empty value or more than 32 values is an error. `--json` adds
+  `details.expectations`/`details.expectationSummary`; markdown appends an
+  `Expectations:` block after the answer. Exit code is unaffected.
 - `--json` emit structured JSON instead of the rendered markdown answer.
 
 FOREGROUND ONLY: this verb has no `--background`/`--wait`. `agy --print` has no native image ingestion path — the answer depends on a live MCP tool call round-trip, so it always runs inline and blocks until agy responds.

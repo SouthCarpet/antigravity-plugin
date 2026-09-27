@@ -17,6 +17,11 @@
  *   --model <id>      agy model id (default gemini-3.6-flash-high)
  *   --json            output JSON instead of markdown
  *   --cwd <dir>       override working directory
+ *   --expect <text>   repeatable; after a completed answer, check this text
+ *                      against the `## Transcription` section (see
+ *                      lib/vision-expect.mjs) — a substring check on what
+ *                      agy already said, never a truth check of the image.
+ *                      Trimmed; empty or more than 32 values is a refusal.
  *
  * FOREGROUND ONLY in this version — no --background/--wait. See vision.md.
  */
@@ -37,6 +42,7 @@ import {
   VISION_MAX_BYTES,
   VISION_MIME,
 } from "../lib/vision-capability.mjs";
+import { checkVisionExpectations, formatExpectationsMarkdown, validateExpectOption } from "../lib/vision-expect.mjs";
 
 const DEFAULT_MODEL = "gemini-3.6-flash-high";
 const DEFAULT_PROMPT =
@@ -111,6 +117,8 @@ export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["prompt", "model", "cwd"],
     booleanOptions: ["json"],
+    repeatableOptions: ["expect"],
+    validate: validateExpectOption,
   }, "vision");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
@@ -177,15 +185,38 @@ export async function run(argv = [], ctx = {}) {
   });
 
   const usage = result.usage ?? null;
+  // `--expect` (Senate R6, 2026-09) checks only run on a completed result: a
+  // failed/cancelled/auth_required run never reaches finishForeground's
+  // completed branch, so there is nothing to check and this stays `null`.
+  const expectValues = Array.isArray(options.expect) ? options.expect : null;
+  const expectationResult = expectValues && result.status === "completed"
+    ? checkVisionExpectations(result.stdout, expectValues)
+    : null;
+
   // The measured-usage trailer itself is printed by finishForeground for
   // every kind now (job-helpers.mjs#printMeasuredUsageTrailer); this only
   // still carries `usage` into the JSON envelope's details, which no other
   // verb promises.
-  return finishForeground("vision", job, result, {
+  const exitCode = finishForeground("vision", job, result, {
     json: options.json,
     extraFields: { imagePaths, model },
-    extraDetails: { usage, durationSeconds: result.durationSeconds ?? null },
+    extraDetails: {
+      usage,
+      durationSeconds: result.durationSeconds ?? null,
+      ...(expectationResult ? {
+        expectations: expectationResult.expectations,
+        expectationSummary: expectationResult.expectationSummary,
+      } : {}),
+    },
   });
+  // Markdown mode: append the Expectations block after the answer
+  // finishForeground already printed. `--json` carries the same facts under
+  // `details.expectations`/`details.expectationSummary` above instead; the
+  // exit code is unaffected either way (documented as a first version).
+  if (!options.json && expectationResult) {
+    process.stdout.write(formatExpectationsMarkdown(expectationResult));
+  }
+  return exitCode;
 }
 
 export default run;

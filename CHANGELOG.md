@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--expect <text>` on `vision`.** Repeatable, opt-in: after a completed
+  run, checks each trimmed value against the answer's `## Transcription`
+  section — a substring check on what agy already transcribed, never a
+  truth check of the image itself. A value is found when it equals one
+  transcription line exactly (both trimmed) or is a substring of the
+  section. If the section is missing, or the whole answer is the single
+  `VISION-UNAVAILABLE: <reason>` line, every value comes back unverifiable
+  instead. `--json` adds `details.expectations` (`[{ value, found,
+  reason? }]`) and `details.expectationSummary`
+  (`all_found`/`missing`/`unverifiable`), both present only when `--expect`
+  was given. Markdown appends an `Expectations: <summary>` block after the
+  answer, with one `  missing: <value>` line per value not found, or one
+  `  unverifiable: no transcription section` line. An empty value, or more
+  than 32 values, is an argument error, stderr only, exit 1. The exit code
+  is unaffected either way; this is documented as a first version. See
+  `docs/COMMANDS.md#--expect`.
 - **`--prompt-file <path>` on `task`.** Opt-in: reads the prompt from a
   file (UTF-8, 512 KiB max) resolved against the invocation's working
   directory, instead of a positional prompt. Combining it with a
