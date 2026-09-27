@@ -91,10 +91,10 @@ describe('check-pack: the documentation an installed copy needs', () => {
     }
   });
 
-  it('requires the README How-it-works image in the pack', () => {
+  it('does not link SVG images from the README; verifies SVG files still exist on disk', () => {
     const linked = listReadmeLinkedImages();
-    assert.deepEqual(linked, ['docs/how-it-works.svg']);
-    const required = deriveRequired();
-    assert.ok(required.has('docs/how-it-works.svg'), 'docs/how-it-works.svg must be required');
+    assert.deepEqual(linked, [], 'README should not link SVG images directly');
+    const svgPath = path.join(ROOT, 'docs', 'how-it-works.svg');
+    assert.ok(fs.existsSync(svgPath), 'docs/how-it-works.svg must exist on disk');
   });
 });

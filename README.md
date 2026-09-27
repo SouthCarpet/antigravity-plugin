@@ -94,7 +94,21 @@ The plugin does not update itself.
 
 ## How it works
 
-![How a host command reaches Google: a flowchart from Claude Code, Codex CLI, agy, or a plain shell to the plugin runtime, agy, Google service, job store, and host feedback loop.](./docs/how-it-works.svg)
+```mermaid
+flowchart LR
+    Host["Host or shell command"] --> Runtime["Plugin runtime<br/>bin/antigravity.mjs and scripts/"]
+    Runtime -->|"review, rescue, task, vision: stream-json"| Agy["agy --print"]
+    Agy --> Google["Google service via agy"]
+    Agy -->|"vision: view_image callback"| MCP["Local MCP server<br/>per-run image allowlist"]
+    MCP -->|"image content"| Agy
+    Agy -->|"result and denial details"| Runtime
+    Runtime -->|"job records; status, result, cancel"| Store["Local job store"]
+    Runtime -->|"cancel"| Processes["Local worker and agy process trees"]
+    Runtime -->|"denied action, target when known, remedy"| Denial["Permission-denial report"]
+    Denial -->|"host wrapper"| HostChoice["Host asks user<br/>or reports and stops if no question tool"]
+    Denial -->|"eligible interactive foreground"| TerminalChoice["Terminal: retry or stop"]
+    TerminalChoice -->|"one retry if chosen"| Runtime
+```
 
 `setup` configures agy to launch the local vision MCP server. Each `vision`
 run supplies an image allowlist; agy calls `view_image` and receives image
@@ -150,7 +164,7 @@ For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <path-
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15 to 1.2.12 on `PATH`; newest measured 1.2.12. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+- agy 1.1.15 to 1.2.12 on `PATH`; newest measured 1.2.12 (smoke-only: `setup`, `task`, `status`, `result`). See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy
