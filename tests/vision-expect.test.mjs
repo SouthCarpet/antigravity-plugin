@@ -250,6 +250,12 @@ describe('/antigravity:vision --expect (e2e, fake agy)', () => {
     const stdout = cap.out.join('');
     assert.match(stdout, /Welcome to Acme Corp/); // the answer itself still prints
     assert.match(stdout, /Expectations: missing\n {2}missing: Closed on Sundays\n/);
+    // FIXTURE_WITH_TRANSCRIPTION does not end in "\n", so the block must not
+    // glue onto the answer's own last line.
+    assert.equal(
+      stdout,
+      `${FIXTURE_WITH_TRANSCRIPTION}\nExpectations: missing\n  missing: Closed on Sundays\n`,
+    );
   });
 
   it('--json: no transcription heading is unverifiable', async () => {

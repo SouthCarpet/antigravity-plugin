@@ -109,6 +109,44 @@ function reportVisionValidationFailure(code, message, json) {
 }
 
 /**
+ * The `--expect` check result for `finishForeground`'s completed branch, or
+ * `null` when there is nothing to check: `--expect` was not given, or the
+ * run did not complete (a failed/cancelled/auth_required result never
+ * reaches `finishForeground`'s completed branch either, so there is nothing
+ * to check against). Split out of {@link run} to keep it under the
+ * complexity ceiling.
+ *
+ * @param {Record<string, string | boolean | string[]>} options parsed CLI options
+ * @param {import('../lib/types.mjs').RuntimeResult} result
+ * @returns {ReturnType<typeof checkVisionExpectations> | null}
+ */
+function resolveExpectationResult(options, result) {
+  if (!Array.isArray(options.expect) || result.status !== "completed") return null;
+  return checkVisionExpectations(result.stdout, options.expect);
+}
+
+/**
+ * Append the markdown `Expectations:` block after the answer
+ * `finishForeground` already printed, when there is one to append: a no-op
+ * under `--json` (that shape carries the same facts as
+ * `details.expectations`/`details.expectationSummary` instead) or when
+ * {@link resolveExpectationResult} found nothing to check. A separating
+ * newline is added only when the answer did not already end in one, so the
+ * block never glues onto the answer's last line (the same convention
+ * `finishForegroundFailure`'s own resume-line separator uses, job-helpers.mjs).
+ *
+ * @param {boolean} json
+ * @param {string | undefined} answer `result.stdout`
+ * @param {ReturnType<typeof checkVisionExpectations> | null} expectationResult
+ * @returns {void}
+ */
+function writeExpectationsBlock(json, answer, expectationResult) {
+  if (json || !expectationResult) return;
+  const needsSeparator = typeof answer === "string" && answer.length > 0 && !answer.endsWith("\n");
+  process.stdout.write(`${needsSeparator ? "\n" : ""}${formatExpectationsMarkdown(expectationResult)}`);
+}
+
+/**
  * @param {string[]} [argv] CLI arguments after the verb (one or more image paths and flags)
  * @param {{ cwd?: string }} [ctx] `cwd` override for tests
  * @returns {Promise<number>} process exit code
@@ -185,13 +223,7 @@ export async function run(argv = [], ctx = {}) {
   });
 
   const usage = result.usage ?? null;
-  // `--expect` (Senate R6, 2026-09) checks only run on a completed result: a
-  // failed/cancelled/auth_required run never reaches finishForeground's
-  // completed branch, so there is nothing to check and this stays `null`.
-  const expectValues = Array.isArray(options.expect) ? options.expect : null;
-  const expectationResult = expectValues && result.status === "completed"
-    ? checkVisionExpectations(result.stdout, expectValues)
-    : null;
+  const expectationResult = resolveExpectationResult(options, result);
 
   // The measured-usage trailer itself is printed by finishForeground for
   // every kind now (job-helpers.mjs#printMeasuredUsageTrailer); this only
@@ -209,13 +241,7 @@ export async function run(argv = [], ctx = {}) {
       } : {}),
     },
   });
-  // Markdown mode: append the Expectations block after the answer
-  // finishForeground already printed. `--json` carries the same facts under
-  // `details.expectations`/`details.expectationSummary` above instead; the
-  // exit code is unaffected either way (documented as a first version).
-  if (!options.json && expectationResult) {
-    process.stdout.write(formatExpectationsMarkdown(expectationResult));
-  }
+  writeExpectationsBlock(Boolean(options.json), result.stdout, expectationResult);
   return exitCode;
 }
 
