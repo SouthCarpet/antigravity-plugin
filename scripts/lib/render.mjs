@@ -197,6 +197,52 @@ function formatPrintTimeoutMarker(job) {
 }
 
 /**
+ * True when at least one listed job's provenance names a model or an effort
+ * (plan 103 T2, "Senate R11", 2026-09) — the gate for the Recent Jobs
+ * table's optional `Model`/`Effort` columns, so a fleet of `review`-only or
+ * legacy jobs (which never carry either) leaves the table unchanged.
+ *
+ * @param {import('./types.mjs').JobIndexEntry[]} jobs
+ * @returns {boolean}
+ */
+function recentJobsShowModelEffort(jobs) {
+  return jobs.some((job) => job.provenance?.model || job.provenance?.effort);
+}
+
+/**
+ * The Recent Jobs table header/divider row, with or without the optional
+ * `Model`/`Effort` columns.
+ *
+ * @param {boolean} showModelEffort
+ * @returns {{ header: string, divider: string }}
+ */
+function recentJobsTableFraming(showModelEffort) {
+  if (!showModelEffort) {
+    return {
+      header: "| Job ID | Kind | Status | Duration | Size | Summary | Follow-up | Denied | Partial |",
+      divider: "|--------|------|--------|----------|------|---------|-----------|--------|---------|",
+    };
+  }
+  return {
+    header: "| Job ID | Kind | Status | Duration | Size | Model | Effort | Summary | Follow-up | Denied | Partial |",
+    divider: "|--------|------|--------|----------|------|-------|--------|---------|-----------|--------|---------|",
+  };
+}
+
+/**
+ * The ` <model> | <effort> |` cell fragment for one Recent Jobs row, or `""`
+ * when the table's optional columns are not shown.
+ *
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {boolean} showModelEffort
+ * @returns {string}
+ */
+function formatModelEffortCells(job, showModelEffort) {
+  if (!showModelEffort) return "";
+  return ` ${job.provenance?.model ?? "-"} | ${job.provenance?.effort ?? "-"} |`;
+}
+
+/**
  * One note line when agy's own print timeout truncated the answer (plan 086
  * T1): used by the single-job `status` view and by `result`. Empty when
  * there is nothing to show.
@@ -247,6 +293,37 @@ export function renderDeniedActionLines(list) {
 }
 
 /**
+ * Markdown lines for a job's `provenance` record (plan 103 T2, "Senate R11",
+ * 2026-09): one "- **Label:** value" line per non-null field, under a
+ * "## Provenance" heading, shared by the single-job status view and by
+ * `result` (appended after the answer, never folded into it). Empty when
+ * there is nothing to show — a legacy record with no `provenance` field, or
+ * `null`.
+ *
+ * @param {import('./types.mjs').JobProvenance | null | undefined} provenance
+ * @returns {string[]}
+ */
+export function renderProvenanceLines(provenance) {
+  if (!provenance) return [];
+  const fields = [
+    ["Plugin version", provenance.pluginVersion],
+    ["agy version", provenance.agyVersion],
+    ["Model", provenance.model],
+    ["Effort", provenance.effort],
+    ["Mode", provenance.mode],
+    ["Add-dir count", provenance.addDirCount],
+    ["Requested at", provenance.requestedAt],
+  ];
+  const shown = fields.filter(([, value]) => value !== null && value !== undefined);
+  if (shown.length === 0) return [];
+  const lines = ["", "## Provenance", ""];
+  for (const [label, value] of shown) {
+    lines.push(`- **${label}:** ${value}`);
+  }
+  return lines;
+}
+
+/**
  * Render a status snapshot as markdown.
  *
  * @param {{ workspaceRoot: string, config: object,
@@ -283,12 +360,14 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.recent.length > 0) {
     lines.push("## Recent Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Duration | Size | Summary | Follow-up | Denied | Partial |");
-    lines.push("|--------|------|--------|----------|------|---------|-----------|--------|---------|");
+    const showModelEffort = recentJobsShowModelEffort(snapshot.recent);
+    const { header, divider } = recentJobsTableFraming(showModelEffort);
+    lines.push(header);
+    lines.push(divider);
     for (const job of snapshot.recent) {
       const duration = computeElapsedDisplay(job);
       const followUp = job.status === "completed" ? `/antigravity:result ${job.id}` : "-";
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} | ${summaryForTableCell(job.summary)} | ${followUp} | ${formatDeniedMarker(job)} | ${formatPrintTimeoutMarker(job)} |`);
+      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} |${formatModelEffortCells(job, showModelEffort)} ${summaryForTableCell(job.summary)} | ${followUp} | ${formatDeniedMarker(job)} | ${formatPrintTimeoutMarker(job)} |`);
     }
     lines.push("");
   }
@@ -404,6 +483,7 @@ export function renderSingleJobStatus(snapshotOrJob, _options = {}) {
     ...renderJobHeaderLines(job),
     ...renderJobHealthLines(job),
     ...renderJobRuntimeLines(job),
+    ...renderProvenanceLines(job.provenance),
     ...renderJobErrorLines(job),
     ...renderPrintTimeoutNote(job.agyPrintTimeout),
     // `job.deniedActions` here is expected to already carry `remedy`

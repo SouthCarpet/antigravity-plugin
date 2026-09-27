@@ -132,6 +132,42 @@
  * @property {AgyPrintTimeout | null} [agyPrintTimeout] additive (plan 086
  *   T1); `null`/absent on legacy records and on a run with no print-timeout
  *   marker
+ * @property {string | null} [reportedModel] additive (plan 103 T2, "Senate
+ *   R11", 2026-09): the model agy's own `result` event named, when that
+ *   event carries a model field. Measured against agy 1.2.11/1.2.12 it never
+ *   does, so this is always `null` today; never derived from the model the
+ *   caller requested. `null`/absent on legacy records.
+ */
+
+/**
+ * A job's safe-provenance record (plan 103 T2, "Senate R11", 2026-09),
+ * built once at job creation (`job-helpers.mjs#createTrackedJob`) and
+ * retained on the job's index entry (top-level, so `state.mjs`'s
+ * `jobIndexProjection` keeps it — it is not one of the stripped
+ * `request`/`result`/`stdout` detail fields). Deliberately excludes the
+ * prompt, workspace path, image paths, `extraArgs` content, and tool list:
+ * enough to reproduce the run's settings, nothing free-text the caller gave
+ * the model.
+ *
+ * @typedef {object} JobProvenance
+ * @property {string | null} pluginVersion this plugin's own running version
+ *   (`scripts/lib/update.mjs#readRunningVersion`); `null` only when the
+ *   plugin's own `package.json` could not be read
+ * @property {string | null} agyVersion the version the verb's own
+ *   `agy --version` probe reported (`job-helpers.mjs#probeAgyForVerb`);
+ *   `null` when the probe failed (the verb would already have exited before
+ *   creating the job) or was never run
+ * @property {string | null} model the resolved `--model` value, including
+ *   the `agy-default` sentinel where applicable; `null` for a verb with no
+ *   model concept (`review`)
+ * @property {string | null} effort the resolved `--effort` value, including
+ *   the `agy-default` sentinel; `null` for a verb with no effort flag
+ *   (`review`, `vision`)
+ * @property {"print" | "continue" | "conversation"} mode
+ * @property {number} addDirCount the count of `--add-dir` values only, never
+ *   the paths themselves
+ * @property {string} requestedAt ISO timestamp, the same instant as the
+ *   job's own `createdAt`
  */
 
 /**
@@ -183,6 +219,9 @@
  * @property {AgyPrintTimeout | null} [agyPrintTimeout] agy's print-timeout
  *   truncation marker from the terminal run, set at job finish (plan 086
  *   T1); additive, `null`/absent on legacy records and a run with no marker
+ * @property {JobProvenance | null} [provenance] additive (plan 103 T2,
+ *   "Senate R11", 2026-09), set once at job creation
+ *   (`job-helpers.mjs#createTrackedJob`); `null`/absent on legacy records
  */
 
 /**

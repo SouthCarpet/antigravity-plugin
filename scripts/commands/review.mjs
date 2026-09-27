@@ -21,7 +21,7 @@ import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
-  agyUnavailableLine,
+  probeAgyForVerb,
   reportQueuedJob,
   runForegroundJob,
   runForegroundWithRetryPrompt,
@@ -42,7 +42,7 @@ function resolveReviewMode(options) {
   return "print";
 }
 
-async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, options, ctx }) {
+async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "review",
@@ -51,6 +51,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
     mode,
     conversationId,
     cwd: workspaceRoot,
+    agyVersion,
     request: { scope: envelope.scope, base: base ?? null, mode },
   });
   const queuedExit = reportQueuedJob("review", job, options);
@@ -59,7 +60,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
   return waitAndExit("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
 }
 
-async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, json }) {
+async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "review",
@@ -68,6 +69,7 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
     mode: retryConversationId ? "conversation" : mode,
     conversationId: retryConversationId ?? conversationId,
     cwd: workspaceRoot,
+    agyVersion,
     request: { scope: envelope.scope, base: base ?? null, mode: retryConversationId ? "conversation" : mode },
     onText: (delta) => process.stderr.write(delta),
   });
@@ -120,9 +122,9 @@ export async function run(argv = [], ctx = {}) {
     return 0;
   }
 
-  const unavailable = await agyUnavailableLine("review");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
+  const probed = await probeAgyForVerb("review");
+  if (probed.line) {
+    process.stderr.write(`${probed.line}\n`);
     return 1;
   }
 
@@ -131,7 +133,7 @@ export async function run(argv = [], ctx = {}) {
   const conversationId = options.conversation ? String(options.conversation) : undefined;
   const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}`;
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, envelope, base };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion: probed.version };
 
   if (options.background) {
     return runReviewBackground({ ...runArgs, options, ctx });

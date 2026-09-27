@@ -27,7 +27,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { agyUnavailableLine, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { probeAgyForVerb, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
   encodeVisionAllowlist,
@@ -104,9 +104,9 @@ export async function run(argv = [], ctx = {}) {
     }
   }
 
-  const unavailable = await agyUnavailableLine("vision");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
+  const probed = await probeAgyForVerb("vision");
+  if (probed.line) {
+    process.stderr.write(`${probed.line}\n`);
     return 1;
   }
 
@@ -142,25 +142,20 @@ export async function run(argv = [], ctx = {}) {
     outputFormat: "json",
     cwd: workspaceRoot,
     env,
+    agyVersion: probed.version,
     request: { imagePaths, model, userPrompt },
     onText: (delta) => process.stderr.write(delta),
   });
 
   const usage = result.usage ?? null;
+  // The measured-usage trailer itself is printed by finishForeground for
+  // every kind now (job-helpers.mjs#printMeasuredUsageTrailer); this only
+  // still carries `usage` into the JSON envelope's details, which no other
+  // verb promises.
   return finishForeground("vision", job, result, {
     json: options.json,
     extraFields: { imagePaths, model },
     extraDetails: { usage, durationSeconds: result.durationSeconds ?? null },
-    beforeAnswer: () => {
-      if (usage && typeof usage.total_tokens === "number") {
-        // Measured by agy itself (json envelope). The ledger rule requires
-        // recording measured totals — this trailer is what the orchestrator reads.
-        process.stderr.write(
-          `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
-            `out=${usage.output_tokens ?? "?"}\n`,
-        );
-      }
-    },
   });
 }
 

@@ -209,10 +209,28 @@ Assume anything you hand to `review`, `rescue`, `task`, or `vision` is
 visible to agy. Secrets in a diff, an untracked file, a prompt, or a
 screenshot are secrets you chose to give that process.
 
-This plugin does not bill or estimate cost. Images are large. Successful
-`vision` and `result` (when usage was stored) print
-`usage: total=<N> in=<N> out=<N>` on stderr from whatever agy reported;
-this plugin does not estimate missing counts.
+This plugin does not bill or estimate cost. Images are large. `review`,
+`rescue`, `task`, and `vision` (on a successful run) and `result` (when usage
+was stored) print `usage: total=<N> in=<N> out=<N>` on stderr from whatever
+agy reported; this plugin does not estimate missing counts.
+
+### Job provenance record
+
+Not to be confused with the npm release provenance below: this is a
+per-job record, `provenance`, stored on every job from creation
+(`scripts/lib/job-helpers.mjs#createTrackedJob`).
+
+Stored: the plugin's own running version, the `agy --version` string the
+verb's own probe reported, the resolved `--model`/`--effort` values
+(including the `agy-default` sentinel), the run mode (`print`, `continue`,
+or `conversation`), the count of `--add-dir` values, and the ISO timestamp
+the job was requested.
+
+Excluded, always: the prompt text, the workspace path, image paths, the
+content of `extraArgs`, and any tool list. `status <id>` and `result <id>`
+render the stored record as a "## Provenance" section; a legacy job written
+before this field existed renders and reports it as absent, never as an
+error.
 
 ## Provenance
 

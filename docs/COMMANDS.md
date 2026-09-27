@@ -185,6 +185,9 @@ An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
 agy. A working tree of only untracked files is reviewed.
 
+On a completed run, if agy reported measured usage the stable usage trailer
+(see [Usage trailer](./COMPATIBILITY.md#usage-trailer)) is written to stderr.
+
 Untracked file bodies are capped at 24 KB total (not per file); once the cap
 is reached, remaining files are skipped whole rather than truncated. A file
 whose basename looks like a secret (`.env` and its variants,
@@ -258,6 +261,10 @@ task text as one argument to preserve its boundaries.
   The agy execution budget above applies in both cases; the background wait
   itself has a separate 30-minute deadline.
 
+On a completed run (foreground, or an awaited `--background --wait` run), if
+agy reported measured usage the stable usage trailer (see [Usage
+trailer](./COMPATIBILITY.md#usage-trailer)) is written to stderr.
+
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
 awaited/foreground outcome.
@@ -303,6 +310,10 @@ required unless `--continue` or `--conversation` is supplied.
   Any other value is an argument error.
 
 `review` and `vision` have no `--effort` flag; they never send one.
+
+On a completed run (foreground, or an awaited `--wait` background run), if
+agy reported measured usage the stable usage trailer (see [Usage
+trailer](./COMPATIBILITY.md#usage-trailer)) is written to stderr.
 
 Exit status is 0 for completed foreground work or a successful queue, 1 for
 validation/authentication/execution/state failure, and 2 for a cancelled
@@ -379,6 +390,9 @@ images to agy through the MCP tool with a per-run allowlist instead, so the
 run never needs a directory grant. Passing `--add-dir` to `vision` is an
 argument error: the command exits 1 before it validates any image path or
 spawns agy.
+
+On a completed run, if agy reported measured usage the stable usage trailer
+(see [Usage trailer](./COMPATIBILITY.md#usage-trailer)) is written to stderr.
 
 Exit status is 0 when agy reports a completed response (including the sentinel),
 1 for validation/authentication/execution/state failure, and 2 for a cancelled
@@ -457,6 +471,21 @@ distinct from `conversationId` (the same envelope's existing field), which
 is only the id the *caller* passed in via `--conversation`; `null` when agy
 never reported a conversation id, including on a legacy record.
 
+A job's `provenance` record (`pluginVersion`, `agyVersion`, `model`,
+`effort`, `mode`, `addDirCount`, `requestedAt`) is set once when the job is
+created and carried at `--json`'s `details.job.provenance` for `status <id>`
+and as a per-job `provenance` field in the all-jobs list (it lives on the
+index entry, so a list needs no per-job disk read for it). `status <id>`
+(single job) adds a "## Provenance" markdown section, one line per non-null
+field; a field is omitted, not shown as `null`. The Recent Jobs table adds
+`Model` and `Effort` columns only when at least one listed job's provenance
+names either one; otherwise the table is unchanged. `null`/absent on a
+legacy record written before this field existed.
+
+`status <id> --json` also carries `details.job.result.reportedModel`: the
+model agy's own `result` event named, when that event carries one; `null`
+otherwise, including on every record measured so far.
+
 ## `result`
 
 ```text
@@ -510,6 +539,15 @@ had no print-timeout marker.
 --json` puts it (`details.job.agyConversationId`). Distinct from
 `details.conversationId` (the id the caller passed in). `null` when agy
 never reported one.
+
+`--json` carries `details.provenance` (the same job provenance record
+`status <id> --json` puts at `details.job.provenance`) and
+`details.reportedModel` (the same field `status <id> --json` puts at
+`details.job.result.reportedModel`). Both `null`/absent on a legacy record.
+The markdown output appends the same "## Provenance" section `status <id>`
+uses, one line per non-null field, after the answer text and after any
+denied-actions/print-timeout sections. It is never folded into the opaque
+`answer` field.
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is

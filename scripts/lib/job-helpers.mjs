@@ -24,6 +24,7 @@ import {
 import { SESSION_ID_ENV } from "./job-control.mjs";
 import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
+import { readRunningVersion } from "./update.mjs";
 import {
   createJsonEnvelope,
   outputCommandResult,
@@ -159,18 +160,37 @@ export function agyModeArgs(mode) {
 
 /**
  * Probe the agy binary once, before a verb collects a diff, writes a job
- * record or starts anything. Returns `null` when agy can be spawned, else
- * the one stderr line the verb prints before it exits 1. `setup` keeps its
- * own wording and exit 2; this is for the four verbs that run agy.
+ * record or starts anything, returning both the one stderr line a verb
+ * prints before it exits 1 (or `null` when agy can be spawned) and the
+ * version agy itself reported (`null` only when the probe failed). The one
+ * probe every delegating verb needs: a job's `provenance.agyVersion` (plan
+ * 103 T2, "Senate R11", 2026-09) comes from this same probe, never a second
+ * `agy --version` call. `setup` keeps its own wording and exit 2; this is
+ * for the four verbs that run agy.
+ *
+ * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
+ * @param {{ bin?: string, probe?: typeof probeAgy }} [opts]
+ * @returns {Promise<{ line: string | null, version: string | null }>}
+ */
+export async function probeAgyForVerb(kind, { bin = resolveAgyBin(), probe = probeAgy } = {}) {
+  const result = await probe({ bin });
+  if (result.ok) return { line: null, version: result.version ?? null };
+  return {
+    line: `antigravity:${kind} — \`agy\` is not on PATH (${result.reason}). Run /antigravity:setup.`,
+    version: null,
+  };
+}
+
+/**
+ * The failure line alone from {@link probeAgyForVerb}, for a caller with no
+ * use for the probed version.
  *
  * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
  * @param {{ bin?: string, probe?: typeof probeAgy }} [opts]
  * @returns {Promise<string | null>}
  */
-export async function agyUnavailableLine(kind, { bin = resolveAgyBin(), probe = probeAgy } = {}) {
-  const result = await probe({ bin });
-  if (result.ok) return null;
-  return `antigravity:${kind} — \`agy\` is not on PATH (${result.reason}). Run /antigravity:setup.`;
+export async function agyUnavailableLine(kind, opts) {
+  return (await probeAgyForVerb(kind, opts)).line;
 }
 
 /**
@@ -293,6 +313,7 @@ export function reportQueuedJob(kind, job, options) {
  */
 export async function waitAndExit(kind, workspaceRoot, jobId, wait) {
   const final = await wait(workspaceRoot, jobId);
+  if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
   const line = waitOutcomeLine(kind, final);
   if (line) process.stderr.write(`${line}\n`);
   return exitCodeForJobStatus(final?.status);
@@ -503,6 +524,35 @@ export function deriveJobStatus(result, kind) {
 }
 
 /**
+ * Build the `provenance` object every job record carries from creation
+ * (plan 103 T2, "Senate R11", 2026-09): enough for a later reader to
+ * reproduce the run's settings, and nothing the caller gave the model — no
+ * prompt, workspace path, image path, `extraArgs` content, or tool list.
+ * `pluginVersion` is this plugin's own running version
+ * (`scripts/lib/update.mjs#readRunningVersion`); every other field is a
+ * plain projection off the caller's already-built `request` (itself already
+ * scrubbed of free text by the verb) or the `agyVersion` the caller's own
+ * {@link probeAgyForVerb} call already ran. `model`/`effort` are `null` for
+ * a verb that has none (`review`); `mode` defaults to `"print"` and
+ * `addDirCount` to `0` when the request carries neither.
+ *
+ * @param {{ agyVersion: string | null, request: import('./types.mjs').JobRequest | null,
+ *   requestedAt: string }} args
+ * @returns {import('./types.mjs').JobProvenance}
+ */
+function buildJobProvenance({ agyVersion, request, requestedAt }) {
+  return {
+    pluginVersion: readRunningVersion(),
+    agyVersion: agyVersion ?? null,
+    model: request?.model ?? null,
+    effort: request?.effort ?? null,
+    mode: request?.mode ?? "print",
+    addDirCount: Array.isArray(request?.addDirs) ? request.addDirs.length : 0,
+    requestedAt,
+  };
+}
+
+/**
  * Create a tracked job record on disk.
  *
  * Returns the job index entry. The detailed payload (request, result,
@@ -510,7 +560,8 @@ export function deriveJobStatus(result, kind) {
  *
  * @param {{ workspaceRoot: string, kind: import('./types.mjs').JobKind,
  *   title?: string | null, request?: import('./types.mjs').JobRequest | null,
- *   conversationId?: string | null, env?: NodeJS.ProcessEnv }} options
+ *   conversationId?: string | null, env?: NodeJS.ProcessEnv,
+ *   agyVersion?: string | null }} options
  * @returns {Promise<import('./types.mjs').JobIndexEntry>}
  */
 export async function createTrackedJob({
@@ -520,6 +571,7 @@ export async function createTrackedJob({
   request = null,
   conversationId = null,
   env = process.env,
+  agyVersion = null,
 }) {
   const id = newJobId();
   const now = new Date().toISOString();
@@ -540,6 +592,7 @@ export async function createTrackedJob({
     startedAt: null,
     completedAt: null,
     logFile: resolveJobLogFile(workspaceRoot, id),
+    provenance: buildJobProvenance({ agyVersion, request, requestedAt: now }),
   };
   await patchJob(workspaceRoot, id, {
     ...job,
@@ -579,7 +632,7 @@ function stripDetail(patch) {
  *
  * @param {import('./types.mjs').ProcessRequest & { workspaceRoot: string,
  *   kind: string, title?: string | null, request?: object | null,
- *   env?: NodeJS.ProcessEnv }} options
+ *   env?: NodeJS.ProcessEnv, agyVersion?: string | null }} options
  * @returns {Promise<{ job: import('./types.mjs').JobRecord, result: import('./types.mjs').RuntimeResult }>}
  */
 export async function runForegroundJob({
@@ -597,6 +650,7 @@ export async function runForegroundJob({
   cwd,
   request = null,
   env = process.env,
+  agyVersion = null,
   onStdout,
   onStderr,
   onText,
@@ -608,6 +662,7 @@ export async function runForegroundJob({
     request,
     conversationId,
     env,
+    agyVersion,
   });
 
   const startedAt = new Date().toISOString();
@@ -726,6 +781,17 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
  * 076-T6 each hand-wrote its own copy and only the worker's stored
  * `agyConversationId` (item 16).
  *
+ * `reportedModel` (plan 103 T2, "Senate R11", 2026-09) is taken from agy's
+ * own `result` event when that event carries a model field. Measured against
+ * agy 1.2.11 and 1.2.12 (`agy-1.2.11-20260925/`, `agy-1.2.12-20260927/`
+ * transcript directories, including `probe-json-schema.txt` and
+ * `probe-background-lifecycle.txt`), the `result` event never carries one —
+ * only agy's own `status --json` model listing and request-side argv do — so
+ * `result.reportedModel` is always absent today and this stays `null`. It is
+ * never derived from the model the caller requested (`request.model`); if a
+ * future agy version adds the field, `agent-runtime.mjs` would need to parse
+ * it onto `RuntimeResult.reportedModel` for this line to stop being `null`.
+ *
  * @param {import('./types.mjs').RuntimeResult} result
  * @returns {import('./types.mjs').JobResult}
  */
@@ -742,7 +808,29 @@ export function buildStoredResult(result) {
     warnings: result.warnings ?? [],
     deniedActions: result.deniedActions ?? null,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
+    reportedModel: result.reportedModel ?? null,
   };
+}
+
+/**
+ * Print agy's measured token usage to stderr in the plugin's one stable
+ * shape (docs/COMPATIBILITY.md, "Usage trailer"), when `usage.total_tokens`
+ * is a number. A no-op otherwise — the plugin never estimates missing usage
+ * and never emits the line when a measured total is absent. The one helper
+ * for `finishForeground`'s foreground tail (all four verbs) and the two
+ * background-wait paths (`waitAndExit` below, `task --wait`'s own tail);
+ * `result.mjs` and `vision.mjs` each hand-wrote a copy of this exact line
+ * before plan 103 T2 ("Senate R11", 2026-09).
+ *
+ * @param {import('./types.mjs').AgyUsage | null | undefined} usage
+ * @returns {void}
+ */
+export function printMeasuredUsageTrailer(usage) {
+  if (!usage || typeof usage.total_tokens !== "number") return;
+  process.stderr.write(
+    `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
+      `out=${usage.output_tokens ?? "?"}\n`,
+  );
 }
 
 /**
@@ -757,8 +845,11 @@ export function buildStoredResult(result) {
  * one; `extraFields` covers additional stable top-level envelope fields
  * (only `vision`'s `imagePaths`/`model`, docs/COMPATIBILITY.md); a
  * `beforeAnswer` callback runs right after `reportWarnings` and before the
- * envelope is built, for `vision`'s measured-usage trailer print, which no
- * other verb has.
+ * envelope is built, for a caller-specific stderr line with no shared home.
+ * The measured-usage trailer itself (plan 103 T2, "Senate R11", 2026-09) is
+ * no longer one of those callbacks: {@link printMeasuredUsageTrailer} runs
+ * here for every kind whenever `result.usage.total_tokens` is a number —
+ * `vision.mjs` used to pass its own copy of that line as `beforeAnswer`.
  *
  * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
  * @param {{ id: string }} job
@@ -800,6 +891,7 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
   reportDeniedActionHints(kind, result);
   reportPrintTimeoutHint(kind, result);
   beforeAnswer?.();
+  printMeasuredUsageTrailer(result.usage);
   outputCommandResult(
     createJsonEnvelope(kind, {
       status: "completed",
@@ -997,6 +1089,31 @@ export function resolveWorkerPath() {
 }
 
 /**
+ * The `request` object `startBackgroundJob` persists on the job (and a
+ * background worker later replays): the caller's own fields plus its
+ * `request` fragment layered on top, plus the execution timeout budget.
+ * Split out so `startBackgroundJob` itself stays under the complexity
+ * ceiling.
+ *
+ * @param {{ prompt: string, mode: string, conversationId: string | null,
+ *   addDirs: string[], extraArgs: string[], cwd: string | undefined,
+ *   workspaceRoot: string, request: object | null, env: NodeJS.ProcessEnv }} args
+ * @returns {import('./types.mjs').JobRequest}
+ */
+function buildBackgroundRequest({ prompt, mode, conversationId, addDirs, extraArgs, cwd, workspaceRoot, request, env }) {
+  return {
+    prompt,
+    mode,
+    conversationId,
+    addDirs,
+    extraArgs,
+    cwd: cwd ?? workspaceRoot,
+    ...(request ?? {}),
+    timeoutMs: agyTimeoutMs(env),
+  };
+}
+
+/**
  * Fire-and-forget a background worker that will run the prompt with the
  * given mode. Returns the queued job index entry.
  *
@@ -1006,7 +1123,8 @@ export function resolveWorkerPath() {
  * @param {import('./types.mjs').ProcessRequest & { workspaceRoot: string,
  *   kind: import('./types.mjs').JobKind, title?: string | null,
  *   request?: object | null, env?: NodeJS.ProcessEnv,
- *   spawnWorker?: typeof spawn, persistWorkerPid?: typeof patchJob,
+ *   agyVersion?: string | null, spawnWorker?: typeof spawn,
+ *   persistWorkerPid?: typeof patchJob,
  *   terminateTree?: typeof terminateProcessTree }} options
  * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
  */
@@ -1022,6 +1140,7 @@ export async function startBackgroundJob({
   cwd,
   request = null,
   env = process.env,
+  agyVersion = null,
   spawnWorker = spawn,
   persistWorkerPid = patchJob,
   terminateTree = terminateProcessTree,
@@ -1030,18 +1149,10 @@ export async function startBackgroundJob({
     workspaceRoot,
     kind,
     title,
-    request: {
-      prompt,
-      mode,
-      conversationId,
-      addDirs,
-      extraArgs,
-      cwd: cwd ?? workspaceRoot,
-      ...(request ?? {}),
-      timeoutMs: agyTimeoutMs(env),
-    },
+    request: buildBackgroundRequest({ prompt, mode, conversationId, addDirs, extraArgs, cwd, workspaceRoot, request, env }),
     conversationId,
     env,
+    agyVersion,
   });
 
   const workerPath = resolveWorkerPath();

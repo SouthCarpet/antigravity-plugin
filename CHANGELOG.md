@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Safe job provenance.** Every job now carries a `provenance` record
+  (plugin version, agy version, model, effort, mode, and the count, never the
+  paths, of `--add-dir` values), set once at creation, with no prompt,
+  workspace path, image path, `extraArgs` content, or tool list ever stored.
+  `status <id>` and `result <id>` render it as a "## Provenance" section
+  (markdown) and `details.job.provenance` / `details.provenance` (`--json`);
+  the Recent Jobs table adds `Model`/`Effort` columns only when at least one
+  listed job's provenance names either one. The stored result also carries
+  `reportedModel`, the model agy's own `result` event named when that event
+  carries one; measured against agy 1.2.11 and 1.2.12 it never does, so this
+  is always `null` today. Legacy job records without either field still
+  render and report `null`.
+- **Usage trailer on `review`, `rescue`, and `task`.** The measured-usage
+  trailer (`usage: total=<N> in=<N> out=<N>`) now prints on stderr for these
+  three verbs' successful runs, foreground or an awaited `--wait` background
+  run, the same way it already did for `vision` and `result`.
+
 ### Changed
 
 - **Tested agy range extends to 1.2.12.** Live runs covered `setup` with `--skip-vision`, `task` foreground and background, `status` list, and `result` (`probe-setup.txt`, `probe-task-foreground-json.txt`, `probe-background-lifecycle.txt`, `probe-status-list.txt`). A direct agy `--json-schema` capability probe succeeded with `structured_output` field on the result event. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12 (smoke measurement only).

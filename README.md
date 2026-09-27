@@ -86,6 +86,7 @@ The plugin does not update itself.
 - **Account for agy print-timeout history.** Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`).
 - **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
 - **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
+- **Record safe job provenance.** Every job carries a `provenance` record (plugin version, agy version, model, effort, mode, and the count, never the paths, of `--add-dir` values), so a later reader can reproduce the run's settings without the prompt, workspace path, image paths, or tool list ever being stored. `status <id>` and `result <id>` show it as a "## Provenance" section. `review`, `rescue`, `task`, and `vision` also print the measured usage trailer on a successful run now, not just `vision` and `result`.
 - **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
 - **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
 - **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.

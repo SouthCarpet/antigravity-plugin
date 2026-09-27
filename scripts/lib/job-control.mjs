@@ -247,6 +247,36 @@ function agyConversationIdProjection(source) {
 }
 
 /**
+ * The `provenance` projection carried through enrichment (plan 103 T2,
+ * "Senate R11", 2026-09): split out for the same reason
+ * {@link deniedActionsProjection} is — one fewer branch inline in
+ * `enrichJob` keeps it under the complexity ceiling.
+ *
+ * @param {import('./types.mjs').JobRecord} source
+ * @returns {{ provenance: import('./types.mjs').JobProvenance | null }}
+ */
+function provenanceProjection(source) {
+  return { provenance: source.provenance ?? null };
+}
+
+/**
+ * The `result.reportedModel` projection carried through enrichment (plan
+ * 103 T2, "Senate R11", 2026-09): `enrichJob` otherwise drops the full
+ * nested `result` object below (it holds raw output/stderr — too large and
+ * too raw for a status view), but `status <id> --json`'s
+ * `details.job.result.reportedModel` needs somewhere to live that is not
+ * the top level, matching `result <id> --json`'s own `details.reportedModel`
+ * placement (`job-helpers.mjs#buildStoredResult`). A narrow one-field
+ * object, never the caller's full stored result.
+ *
+ * @param {import('./types.mjs').JobRecord} source
+ * @returns {{ result: { reportedModel: string | null } }}
+ */
+function reportedModelProjection(source) {
+  return { result: { reportedModel: source.result?.reportedModel ?? null } };
+}
+
+/**
  * @param {string} workspaceRoot the resolved workspace root
  * @param {import('./types.mjs').JobIndexEntry} job
  * @param {{ maxProgressLines?: number, now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
@@ -273,9 +303,11 @@ function enrichJob(workspaceRoot, job, options = {}) {
     recommendedAction:
       runtimeHealth.recommendedAction ?? source.recommendedAction ?? null,
     oauthUrl: source.oauthUrl ?? null,
+    ...provenanceProjection(source),
     ...printTimeoutProjection(source),
     ...agyConversationIdProjection(source),
     ...deniedActionsProjection(source),
+    ...reportedModelProjection(source),
     lastHeartbeatAt: source.lastHeartbeatAt ?? null,
     lastProgressAt: source.lastProgressAt ?? null,
     lastModelOutputAt: source.lastModelOutputAt ?? null,

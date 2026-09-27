@@ -281,8 +281,12 @@ it.
 
 ### Usage trailer
 
-On a successful `vision`, and when `result` reads a stored result with measured
-usage, the command writes this exact newline-terminated trailer to stderr:
+On a successful `review`, `rescue`, `task`, or `vision` (foreground, or an
+awaited `--wait` background run), and when `result` reads a stored result
+with measured usage, the command writes this exact newline-terminated
+trailer to stderr. Before 2026-09 only `vision` and `result` did this;
+`review`, `rescue`, and `task` now do the same whenever agy reported
+measured usage for that run.
 
 ```text
 usage: total=<N> in=<N> out=<N>
@@ -761,6 +765,24 @@ meaning:
   invocation. It never offers to grant a permission and never writes a
   settings file. `docs/COMMANDS.md`'s "Denied runs" section has the exact
   conditions and the two-choice contract.
+- `provenance` (additive, 2026-09): a top-level object on
+  every job record and index entry (`{ pluginVersion, agyVersion, model,
+  effort, mode, addDirCount, requestedAt }`), set once at job creation. Never
+  carries the prompt, workspace path, image paths, `extraArgs` content, or a
+  tool list. `--json`: `details.job.provenance` on `status <id>` and per job
+  in `status --json`'s job lists (it lives on the index entry); `details.provenance`
+  on `result <id> --json`. `status <id>`/`result <id>` markdown each add a
+  "## Provenance" section, one line per non-null field. The Recent Jobs table
+  (`status`) adds `Model`/`Effort` columns only when at least one listed
+  job's provenance names either one. `null`/absent on a job record written
+  before this field existed.
+- `reportedModel` (additive, 2026-09): the model agy's own
+  `result` event named, when that event carries a model field, on the stored
+  result. Measured against agy 1.2.11 and 1.2.12, the `result` event never
+  carries one, so this is always `null` today; it is never derived from the
+  model the caller requested. `--json`: `details.job.result.reportedModel` on
+  `status <id>` and `details.reportedModel` on `result <id> --json`.
+  `null`/absent on a legacy record.
 
 ### Structured output flag
 

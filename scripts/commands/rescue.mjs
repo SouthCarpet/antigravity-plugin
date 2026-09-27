@@ -27,7 +27,7 @@ import {
   AGY_MODES,
   EFFORT_CHOICES,
   agyModeArgs,
-  agyUnavailableLine,
+  probeAgyForVerb,
   reportQueuedJob,
   resolveRequestEffort,
   runForegroundJob,
@@ -51,7 +51,7 @@ function resolveRescueMode(options) {
   return { mode: "print", conversationId: undefined };
 }
 
-async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, json }) {
+async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "rescue",
@@ -64,6 +64,7 @@ async function runRescueForeground({ workspaceRoot, title, prompt, mode, convers
     effort,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
     onText: (delta) => process.stderr.write(delta),
   });
@@ -71,7 +72,7 @@ async function runRescueForeground({ workspaceRoot, title, prompt, mode, convers
   return runForegroundWithRetryPrompt("rescue", runOnce, { json });
 }
 
-async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, options, ctx }) {
+async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "rescue",
@@ -82,6 +83,7 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
     addDirs,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { mode, addDirs, model, effort },
   });
   const queuedExit = reportQueuedJob("rescue", job, options);
@@ -132,13 +134,13 @@ export async function run(argv = [], ctx = {}) {
   const prompt = buildRescuePrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
-  const unavailable = await agyUnavailableLine("rescue");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
+  const probed = await probeAgyForVerb("rescue");
+  if (probed.line) {
+    process.stderr.write(`${probed.line}\n`);
     return 1;
   }
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
 
   if (options.background) {
     return runRescueBackground({ ...runArgs, options, ctx });

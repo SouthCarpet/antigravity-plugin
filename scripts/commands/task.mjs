@@ -29,8 +29,9 @@ import {
   AGY_MODES,
   EFFORT_CHOICES,
   agyModeArgs,
-  agyUnavailableLine,
   exitCodeForJobStatus,
+  printMeasuredUsageTrailer,
+  probeAgyForVerb,
   reportQueuedJob,
   resolveRequestEffort,
   runForegroundJob,
@@ -65,7 +66,7 @@ function printCompletedRawOutput(final, json) {
   process.stdout.write(final.result.rawOutput);
 }
 
-async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, json }) {
+async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "task",
@@ -78,6 +79,7 @@ async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversat
     effort,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { prompt, mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
     onText: (delta) => process.stderr.write(delta),
   });
@@ -85,7 +87,7 @@ async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversat
   return runForegroundWithRetryPrompt("task", runOnce, { json });
 }
 
-async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, options, ctx }) {
+async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, options, ctx }) {
   const start = ctx.startBackgroundJob ?? startBackgroundJob;
   const wait = ctx.waitForJob ?? waitForJob;
   const { job } = await start({
@@ -98,6 +100,7 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
     addDirs,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { mode, addDirs, model, effort },
   });
   const queuedExit = reportQueuedJob("task", job, options);
@@ -105,6 +108,7 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
 
   if (!options.wait) return 0;
   const final = await wait(workspaceRoot, job.id);
+  if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
   const line = waitOutcomeLine("task", final);
   if (line) process.stderr.write(`${line}\n`);
   if (!final) return 1;
@@ -150,13 +154,13 @@ export async function run(argv = [], ctx = {}) {
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
-  const unavailable = await agyUnavailableLine("task");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
+  const probed = await probeAgyForVerb("task");
+  if (probed.line) {
+    process.stderr.write(`${probed.line}\n`);
     return 1;
   }
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
 
   if (options.foreground) {
     return runTaskForeground({ ...runArgs, json: options.json });
