@@ -66,13 +66,14 @@ const {
   askRetryOrStop, runForegroundWithRetryPrompt, resolveRequestEffort,
   reportQueuedJob, reportAgyUnavailable, reportMissingTaskText, classifyStateError,
   resolveReviewEffort, resolveReviewFocus, reportInvalidFocus, MAX_REVIEW_FOCUS_CHARS,
+  rememberAgyVersion, AGY_VERSION_REMEMBER_INTERVAL_MS,
 } = await import('../scripts/lib/job-helpers.mjs');
 const {
   createJobActivityRecorder,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_MIN_GAP_MS,
 } = await import('../scripts/lib/job-activity.mjs');
-const { readJobFile, listJobs } = await import('../scripts/lib/state.mjs');
+const { readJobFile, listJobs, getConfig } = await import('../scripts/lib/state.mjs');
 
 let workspaceRoot;
 const tmpToCleanup = [];
@@ -1613,5 +1614,40 @@ describe('classifyStateError (Task 3)', () => {
     const out = classifyStateError(err);
     assert.equal(out.code, 'state_locked');
     assert.equal(out.message, 'job state is busy with another update; try again shortly');
+  });
+});
+
+describe('rememberAgyVersion — throttled agyVersionSeen cache (Senate R2)', () => {
+  it('writes agyVersionSeen on the first call for a workspace', async () => {
+    const dir = freshWorkspace();
+    const now = () => new Date('2026-09-27T10:00:00.000Z');
+    await rememberAgyVersion(dir, '1.2.12', { now });
+    assert.deepEqual(getConfig(dir).agyVersionSeen, { version: '1.2.12', observedAt: '2026-09-27T10:00:00.000Z' });
+  });
+
+  it('does nothing when version is null, undefined, or empty', async () => {
+    const dir = freshWorkspace();
+    await rememberAgyVersion(dir, null);
+    await rememberAgyVersion(dir, undefined);
+    await rememberAgyVersion(dir, '');
+    assert.equal(getConfig(dir).agyVersionSeen, undefined);
+  });
+
+  it('does not overwrite within the 60-minute window, even with a different version', async () => {
+    const dir = freshWorkspace();
+    const first = new Date('2026-09-27T10:00:00.000Z');
+    await rememberAgyVersion(dir, '1.2.11', { now: () => first });
+    const stillInside = new Date(first.getTime() + AGY_VERSION_REMEMBER_INTERVAL_MS - 1);
+    await rememberAgyVersion(dir, '1.2.12', { now: () => stillInside });
+    assert.deepEqual(getConfig(dir).agyVersionSeen, { version: '1.2.11', observedAt: first.toISOString() });
+  });
+
+  it('writes again once the 60-minute window has elapsed', async () => {
+    const dir = freshWorkspace();
+    const first = new Date('2026-09-27T10:00:00.000Z');
+    await rememberAgyVersion(dir, '1.2.11', { now: () => first });
+    const afterWindow = new Date(first.getTime() + AGY_VERSION_REMEMBER_INTERVAL_MS);
+    await rememberAgyVersion(dir, '1.2.12', { now: () => afterWindow });
+    assert.deepEqual(getConfig(dir).agyVersionSeen, { version: '1.2.12', observedAt: afterWindow.toISOString() });
   });
 });

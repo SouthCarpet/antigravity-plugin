@@ -151,14 +151,24 @@ host-owned data directory.
 
 ## Verifying
 
+Run `doctor` first. It is read-only, needs no OAuth, and checks Node,
+the agy binary and version, the forwarded flags `agy --help` lists, the
+vision configuration, and the job-state root in one call:
+
 ```bash
-# host-agnostic check
+npx @southcarpet/antigravity-plugin doctor
+```
+
+Then, or instead, the individual host-agnostic checks:
+
+```bash
 agy --version              # 1.1.15 to 1.2.11; newest measured 1.2.11
 node --version             # 22.3.0+
 which agy                  # /home/<user>/.local/bin/agy on Linux
 ```
 
-See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table.
+See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table and
+[COMMANDS.md](./COMMANDS.md#doctor) for `doctor`'s exact checks.
 
 ## Troubleshooting
 

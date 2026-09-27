@@ -170,7 +170,8 @@ accept the documented arguments when the host can load this plugin.
 
 The public verbs are exactly:
 
-`setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, and `cancel`.
+`setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`,
+and `doctor`.
 
 Their positional arguments, flags, defaults, conflicts, and foreground versus
 background behavior are defined in [COMMANDS.md](./COMMANDS.md). Verb names,
@@ -252,8 +253,8 @@ fields in envelope version 1:
 | Field | 2.x contract |
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
-| `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, or `cancel`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. |
+| `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 2.x; consumers must tolerate additions, removals, and changes within it. |
@@ -884,6 +885,44 @@ meaning:
   model the caller requested. `--json`: `details.job.result.reportedModel` on
   `status <id>` and `details.reportedModel` on `result <id> --json`.
   `null`/absent on a legacy record.
+- **`doctor`** (additive, 2026-09): a ninth, read-only verb
+  (`scripts/commands/doctor.mjs`). It never runs OAuth, never calls a
+  model, never writes a file, and never opens the network. It reports five
+  checks: Node version against `package.json`'s `engines.node`; the agy
+  binary, its version, and that version's classification against this
+  plugin's measured range (`verified`, `beyond_measured`, `unmeasured`,
+  `incompatible`, or `missing`); for each flag this plugin forwards to agy,
+  whether `agy --help` lists it (`listed`, never proof the flag still
+  works, or `not_listed`); the vision configuration
+  (`registered`/`absent`/`unreadable`); and the job-state root (source,
+  directory, whether it exists, and whether this workspace is on a legacy
+  leaf). Markdown output ends with `doctor: <n> ok, <m> warnings, <k>
+  problems`. `--json`: `status: "ok" | "warnings" | "problems"`, `jobId:
+  null`, `answer: null`, `details: { node, agy: { path, version,
+  classification }, flags: [{ flag, state }], vision, stateRoot: { source,
+  dir, exists, legacyLeaf }, measuredRange: { min, newest } }`. Exit 0 for
+  `ok`/`warnings`, 1 for `problems` (an incompatible or missing agy, an
+  incompatible Node version, or an unreadable job-state root).
+  `beyond_measured` is always a warning, never a problem. There is no
+  `--live` flag: `setup` is already this plugin's live probe. See
+  [`doctor`](./COMMANDS.md#doctor).
+- **`agyVersionSeen`** (additive, 2026-09): after a successful
+  agy-version probe, `review`, `rescue`, `task`, and `vision` cache
+  `{ version, observedAt }` in the workspace's state config
+  (`setConfig`/`getConfig`, `scripts/lib/state.mjs`), at most once per 60
+  minutes per workspace. Never on `review --preview`, which returns
+  before probing agy at all. `doctor` and `status` only read this cache;
+  neither writes it or calls agy for it.
+- **Version warnings** (additive, 2026-09): when the probed or
+  cached agy version classifies as `beyond_measured` or `unmeasured`
+  (see `doctor` above), `setup` prints one line right after `using <bin>
+  v<version>`: `antigravity:setup — agy <v> is newer than the last
+  measured version <newest>; see docs/COMPATIBILITY.md.` (or `... is not
+  in the measured matrix; see docs/COMPATIBILITY.md.`). A no-reference
+  `status` call prints one stderr line when `agyVersionSeen` is cached and
+  classifies the same way: `antigravity:status — agy <v> (seen <date>) is
+  newer than the last measured version <newest>.` `status <id>` never
+  prints it, and `status` never calls agy to produce it.
 
 ### Structured output flag
 

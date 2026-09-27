@@ -32,6 +32,7 @@ import {
   exitCodeForJobStatus,
   printMeasuredUsageTrailer,
   probeAgyForVerb,
+  rememberAgyVersion,
   reportAgyUnavailable,
   reportMissingTaskText,
   reportQueuedJob,
@@ -157,6 +158,7 @@ export async function run(argv = [], ctx = {}) {
 
   const probed = await probeAgyForVerb("task");
   if (probed.line) return reportAgyUnavailable("task", probed.line, options.json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
 
   const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
 

@@ -148,6 +148,7 @@ const EXPECTED_VERBS = uniqueSorted([
   'status',
   'result',
   'cancel',
+  'doctor',
 ]);
 
 describe('host verb inventory', () => {

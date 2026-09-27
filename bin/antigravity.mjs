@@ -17,8 +17,10 @@ const SCRIPT_ROOT_OVERRIDE = process.env.ANTIGRAVITY_SCRIPT_ROOT
 const SCRIPT_ROOT = SCRIPT_ROOT_OVERRIDE ?? resolve(ROOT, 'scripts', 'commands');
 
 const INSTALL_URL = 'https://antigravity.google/download';
-const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel'];
-// Commands that shell out to `agy`. status/result/cancel only read disk state.
+const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel', 'doctor'];
+// Commands that shell out to `agy`. status/result/cancel/doctor only read
+// disk state (doctor also probes agy read-only, but a missing agy is one of
+// its findings, not a preflight failure — it never needs this fast-fail).
 const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
@@ -105,6 +107,16 @@ const COMMAND_HELP = {
     'antigravity-plugin cancel — terminate an active background job.\n\n' +
     'Usage: antigravity-plugin cancel [<job-id>] [flags]\n\n' +
     'Flags: --json, --cwd <path>',
+  doctor:
+    'antigravity-plugin doctor — read-only environment and configuration check.\n\n' +
+    'Usage: antigravity-plugin doctor [flags]\n\n' +
+    'Flags:\n' +
+    '  --json                  emit JSON instead of markdown\n' +
+    '  --cwd <path>            override working directory\n\n' +
+    'Checks Node version, the agy binary and version, which forwarded flags\n' +
+    'agy --help lists, the vision configuration, and the job-state root.\n' +
+    'Never runs OAuth, never calls a model, never writes a file, never opens\n' +
+    'the network. Exit 0 for ok or warnings, 1 for problems.',
   update:
     'antigravity-plugin update — check npm for a newer plugin version.\n\n' +
     'Usage: antigravity-plugin update [--apply] [--json]\n\n' +
@@ -286,6 +298,7 @@ function printHelp(stream = process.stdout) {
     '  status     List active/recent delegation jobs',
     '  result     Fetch the result of a finished job',
     '  cancel     Cancel a running job',
+    '  doctor     Read-only environment and configuration check',
     '',
     'Standalone only (not a runtime verb):',
     '  update     Check npm for a newer version; --apply runs each host\'s update command',

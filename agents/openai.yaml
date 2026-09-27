@@ -43,6 +43,8 @@ commands:
     description: "Print the stored final output of a completed agy job by id, or part of it with --head / --tail."
   - name: cancel
     description: "Send SIGTERM to a running agy worker by job id."
+  - name: doctor
+    description: "Read-only environment and configuration check: Node version, the agy binary and version, which forwarded flags agy --help lists, the vision configuration, and the job-state root. Never runs OAuth, never calls a model, never writes a file, never opens the network."
 
 # Auth notes (surfaced via SKILL.md too):
 # - agy 1.0.x is OAuth-only — there is no API-key / headless path. The very

@@ -18,7 +18,7 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 
 ## What it is
 
-This plugin starts `agy --print` from the host that you already use. It gives Claude Code, Codex CLI, agy, and the standalone CLI the same eight verbs. You can review a diff, run a delegated prompt, analyze named images, and inspect or stop a background job from that host.
+This plugin starts `agy --print` from the host that you already use. It gives Claude Code, Codex CLI, agy, and the standalone CLI the same nine verbs. You can review a diff, run a delegated prompt, analyze named images, and inspect or stop a background job from that host.
 
 ## Installation and quick start
 
@@ -54,6 +54,7 @@ agy plugin install <path-to-clone>
 ```bash
 # Run from any shell:
 npx @southcarpet/antigravity-plugin setup
+npx @southcarpet/antigravity-plugin doctor
 npx @southcarpet/antigravity-plugin review
 ```
 
@@ -89,7 +90,8 @@ The plugin does not update itself.
 - **Record safe job provenance.** Every job carries a `provenance` record (plugin version, agy version, model, effort, mode, and the count, never the paths, of `--add-dir` values), so a later reader can reproduce the run's settings without the prompt, workspace path, image paths, or tool list ever being stored. `status <id>` and `result <id>` show it as a "## Provenance" section. `review`, `rescue`, `task`, and `vision` also print the measured usage trailer on a successful run now, not just `vision` and `result`.
 - **Preview what a review would send, or refuse an incomplete one.** `review --preview` shows the included files, the skipped files with their reasons, whether the diff was cut, the counts, and the hash of the exact prompt, without calling agy or changing anything. `review --require-complete` refuses to send an input that skipped a file or cut the diff, instead of sending it with a warning. Every review job stores the input hash and file/byte counts, shown as "Input hash: sha256:..." in `status`/`result`.
 - **One JSON error envelope for expected failures.** Once `--json` is accepted, a run that fails on a known path (bad input, no `agy`, a run that did not complete, an unresolved job) still writes exactly one envelope to stdout, with `answer: null` and `details.error` naming the reason, instead of nothing. A parser error still writes nothing to stdout, unchanged.
-- **Use one command set.** The same eight verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
+- **Use one command set.** The same nine verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
+- **Check your setup with one read-only command.** `doctor` reports Node, the agy binary and version, which forwarded flags `agy --help` lists, the vision configuration, and the job-state root, with no OAuth, no model call, no write, and no network. `setup` and `status` also warn when the agy version in use falls outside this plugin's measured range.
 - **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
 - **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
 - **Verify releases.** npm provenance and signed tags connect a package to its source commit.
@@ -139,8 +141,9 @@ flag. `setup` writes user-level files under `~/.gemini`, not the repository.
 | `status` | List jobs or inspect and wait for one job. |
 | `result` | Read the stored result for a job. |
 | `cancel` | Stop a queued or running job. |
+| `doctor` | Read-only environment and configuration check. No OAuth, no model call, no write, no network. |
 
-`update` is a standalone convenience command. It is not one of the eight verbs. See [Commands reference](./docs/COMMANDS.md) for flags and exit codes.
+`update` is a standalone convenience command. It is not one of the nine verbs. See [Commands reference](./docs/COMMANDS.md) for flags and exit codes.
 
 ## Vision
 
@@ -229,7 +232,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 - [Installation](./docs/INSTALL.md): per-host setup recipes.
 - [Troubleshooting](./docs/INSTALL.md#troubleshooting): command failures and corrective actions.
 - [2.x compatibility contract](./docs/COMPATIBILITY.md): supported matrix, outputs, state, and versioning promises.
-- [Commands reference](./docs/COMMANDS.md): all eight verbs, flags, defaults, and exit behavior.
+- [Commands reference](./docs/COMMANDS.md): all nine verbs, flags, defaults, and exit behavior.
 - [Security](./SECURITY.md): reporting channel, scope, and what leaves the machine.
 - [Release smoke checklist](./docs/SMOKE.md): four-host pre-release pass.
 - [Spike findings](./docs/SPIKE-findings.md): why the project does not use ACP.

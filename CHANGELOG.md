@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`doctor`, a ninth, read-only verb.** Checks Node's version against
+  `package.json`'s `engines.node`, the `agy` binary and version (classified
+  against this plugin's measured range: `verified`, `beyond_measured`,
+  `unmeasured`, `incompatible`, or `missing`), which of the flags this
+  plugin forwards appear in `agy --help`'s text (`listed`, never proof the
+  flag works, or `not_listed`), the vision configuration
+  (`registered`/`absent`/`unreadable`), and the job-state root. Never runs
+  OAuth, never calls a model, never writes a file, never opens the network.
+  No `--live` flag: `setup` is already this plugin's live probe. Markdown
+  output ends with `doctor: <n> ok, <m> warnings, <k> problems`; `--json`
+  returns `status: "ok" | "warnings" | "problems"`, `jobId: null`, `answer:
+  null`. Exit 0 for `ok`/`warnings`, 1 for `problems`.
+- **agy version warnings on `setup` and `status`.** After a successful agy
+  probe, `review`, `rescue`, `task`, and `vision` cache the version seen
+  (throttled to once per 60 minutes per workspace, never on `review
+  --preview`). `setup` prints one line after `using <bin> v<version>`, and a
+  no-reference `status` prints one stderr line, when that version falls
+  outside this plugin's measured range. See `doctor` above and
+  `docs/COMPATIBILITY.md` for the exact wording and the measured range.
+
 - **`review --preview` and `--require-complete`.** `--preview` shows exactly
   what a real run would send: the included files (with kind, `diff` or
   `untracked`, and byte size), the skipped files with their reasons,

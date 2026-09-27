@@ -1,6 +1,6 @@
 # Commands reference
 
-This is the argument and execution reference for the eight public 2.x verbs,
+This is the argument and execution reference for the nine public 2.x verbs,
 and for the standalone `update` convenience at the end. The broader
 versioning, output, environment, and state promises are in the
 [2.x compatibility contract](./COMPATIBILITY.md).
@@ -128,6 +128,7 @@ exactly once; a second denial is reported the same way and the plugin stops
 | `status` | optional job reference | foreground state read; optionally waits |
 | `result` | optional job reference | foreground state read |
 | `cancel` | optional job reference | foreground control operation |
+| `doctor` | none | foreground, read-only state read |
 
 ## `setup`
 
@@ -147,10 +148,75 @@ Setup is always foreground and has no `--json` mode. A normal setup probes
 with inherited terminal streams. It enables vision only after that probe exits
 successfully.
 
+Right after the `using <bin> v<version>` line, when that version is
+`beyond_measured` or `unmeasured` (see [`doctor`](#doctor) and
+[COMPATIBILITY.md](./COMPATIBILITY.md#supported-matrix)), setup prints one
+more line: `antigravity:setup — agy <v> is newer than the last measured
+version <newest>; see docs/COMPATIBILITY.md.` (or `... is not in the
+measured matrix; see docs/COMPATIBILITY.md.`). Setup never refuses to run
+on an unmeasured or newer version; the line is advisory only.
+
 Exit status is 0 on success, 1 when vision configuration/removal or spawning
 fails, and 2 when the agy version probe cannot find or run agy. A nonzero exit
 from the interactive agy call is passed through unchanged. The standalone
 dispatcher can return 127 earlier when an explicit `AGY_BIN` path is missing.
+
+## `doctor`
+
+```text
+doctor [--json] [--cwd <path>]
+```
+
+Read-only environment and configuration check. Unlike `setup`, `doctor`
+never runs OAuth, never calls a model, never writes a file, and never opens
+the network: it reads `process.version`, `package.json` `engines.node`,
+`agy --version`, `agy --help`, the two agy config files `setup`'s vision
+step writes, and the job-state root. There is no `--live` flag: `setup`
+already is this plugin's live probe, so a read-only verb stays read-only.
+
+Five checks, one line each in markdown mode:
+
+1. **Node.** `process.version` compared against `package.json`'s
+   `engines.node` (`>=22.3.0`): `ok` or `incompatible`.
+2. **agy binary.** The resolved path (`resolveAgyBin`), whether it is
+   spawnable, and its version (`agy --version`). The version is classified
+   against this plugin's measured range (`scripts/lib/compat.mjs`):
+   `verified` (a
+   [matrix](./COMPATIBILITY.md#supported-matrix) row), `beyond_measured`
+   (newer than the newest measured row), `unmeasured` (inside the range but
+   not a matrix row), `incompatible` (older than the oldest measured row),
+   or `missing` (agy was not found).
+3. **Flags.** One `agy --help` call, checked once, for every flag this
+   plugin forwards (`--add-dir`, `--model`, `--effort`, `--mode`,
+   `--continue`, `--conversation`, `--print-timeout`,
+   `--disable-slash-commands`, `--input-format`, `--output-format`,
+   `--print`, `--json-schema`): `listed` when the flag's text appears in
+   that output, `not_listed` otherwise. A `listed` flag is not a promise
+   that the flag still works; the report header says so.
+4. **Vision configuration.** A read-only presence check of the
+   plugin-owned entry in `~/.gemini/config/mcp_config.json`
+   (`mcpServers.vision`) and the `mcp(vision/view_image)` permission in
+   `~/.gemini/antigravity-cli/settings.json`
+   ([vision configuration](./COMPATIBILITY.md#vision-configuration)):
+   `registered`, `absent` (normal before `setup` has run without
+   `--skip-vision`), or `unreadable` (a file exists but could not be
+   parsed).
+5. **Job-state root.** Which environment variable selected it
+   (`CLAUDE_PLUGIN_DATA`, `CODEX_PLUGIN_DATA`, `AGY_PLUGIN_DATA`, or the
+   standalone temp default), the resulting workspace directory, whether it
+   exists yet, and whether this workspace is still on an older ("legacy")
+   leaf (see [job state and configuration
+   locations](./COMPATIBILITY.md#job-state-and-configuration-locations)).
+
+Markdown output ends with `doctor: <n> ok, <m> warnings, <k> problems`.
+`--json` returns `command: "doctor"`, `jobId: null`, `answer: null`, and
+`details: { node, agy: { path, version, classification }, flags: [{ flag,
+state }], vision, stateRoot: { source, dir, exists, legacyLeaf },
+measuredRange: { min, newest } }`. `status` is `"ok"`, `"warnings"`, or
+`"problems"`. `beyond_measured` and `unmeasured` are warnings, never
+problems. Exit status is 0 for `ok` or `warnings`, and 1 for `problems`
+(an incompatible or missing agy, an incompatible Node version, or a
+job-state root that could not be read).
 
 ## `review`
 
@@ -483,6 +549,13 @@ A job reference can be an exact id, a unique id substring, or a 1-based index
 into the newest-first candidate list. Extra positional arguments are not
 public.
 
+Without a reference, if `review`, `rescue`, `task`, or `vision` cached an
+agy version outside this plugin's measured range (see
+[`doctor`](#doctor)), status prints one stderr line: `antigravity:status —
+agy <v> (seen <date>) is newer than the last measured version <newest>.`
+This reads only the cached value; status itself never calls agy. `status
+<id>` never prints this line.
+
 For queued and running jobs, health is observed from the worker PID, a
 persisted heartbeat written every 15 seconds, and persisted model-output
 progress. Output and heartbeat updates share a five-second write throttle.
@@ -681,7 +754,7 @@ failure keeps its own existing `cancel_failed`/`state_busy` envelope
 update [--apply] [--json]
 ```
 
-`update` is a standalone dispatcher convenience, not one of the eight verbs.
+`update` is a standalone dispatcher convenience, not one of the nine verbs.
 No host wrapper reaches it, and its `--json` output is unstable in 2.x. It
 reads the running version, asks the npm registry for the latest version
 (cached 24 hours), and prints the update command of every host it finds on

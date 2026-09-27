@@ -20,6 +20,8 @@ import {
   resolveJobLogFile,
   patchJobState,
   readJobFile,
+  getConfig,
+  setConfig,
 } from "./state.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
 import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
@@ -275,6 +277,41 @@ export async function probeAgyForVerb(kind, { bin = resolveAgyBin(), probe = pro
  */
 export async function agyUnavailableLine(kind, opts) {
   return (await probeAgyForVerb(kind, opts)).line;
+}
+
+/** `rememberAgyVersion` writes no more often than this, per workspace. */
+export const AGY_VERSION_REMEMBER_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Cache the agy version a successful {@link probeAgyForVerb} call just saw,
+ * so `status` (with no job id) and `setup` can warn about a version outside
+ * this plugin's measured range without probing agy themselves (Senate R2,
+ * 2026-09). Called by `review`, `rescue`, `task`, and `vision` right after
+ * their own probe succeeds — never on `review --preview` (which returns
+ * before probing at all) and never by `doctor` or `status`, which only read
+ * this cache.
+ *
+ * Throttled to once per {@link AGY_VERSION_REMEMBER_INTERVAL_MS}, compared
+ * against the cached `observedAt`, so a burst of foreground/background jobs
+ * does not turn into a state-file write per job. A write failure (state
+ * locked by a concurrent job) is swallowed: this cache is advisory, and
+ * losing one update is cheaper than failing the verb that just succeeded.
+ *
+ * @param {string} workspaceRoot the resolved workspace root (`resolveWorkspaceRoot`)
+ * @param {string | null | undefined} version the version {@link probeAgyForVerb} returned
+ * @param {{ now?: () => Date }} [opts] `now` is injectable for tests
+ * @returns {Promise<void>}
+ */
+export async function rememberAgyVersion(workspaceRoot, version, { now = () => new Date() } = {}) {
+  if (!version) return;
+  try {
+    const seen = getConfig(workspaceRoot)?.agyVersionSeen;
+    const elapsedMs = seen?.observedAt ? now().getTime() - new Date(seen.observedAt).getTime() : Infinity;
+    if (elapsedMs < AGY_VERSION_REMEMBER_INTERVAL_MS) return;
+    await setConfig(workspaceRoot, { agyVersionSeen: { version, observedAt: now().toISOString() } });
+  } catch {
+    // Advisory cache only — never fail the verb over this.
+  }
 }
 
 /**

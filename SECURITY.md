@@ -86,6 +86,16 @@ vision entries described in the
 It does not revoke Google OAuth, delete job state, or touch unrelated MCP
 servers.
 
+### `doctor` (read-only)
+
+`doctor` reads `process.version`, this package's own `package.json`, the
+resolved `agy` binary's `--version` and `--help` output, the same two
+`~/.gemini` config files `setup`'s vision step writes (read-only, never
+the OAuth token store), and the job-state root. It never runs OAuth, never
+calls a model, never writes a file anywhere, and never opens the network.
+`tests/doctor.test.mjs` proves this with a byte-for-byte snapshot of an
+isolated `HOME`/`USERPROFILE` before and after a full run.
+
 ### `vision` (per invocation)
 
 `vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array of the
@@ -223,6 +233,7 @@ agy's and Google's behaviour, not this plugin's.
 | `rescue` / `task` | The user prompt; agy may also read workspace files with its own tools, including `--add-dir` extra roots | Plugin job state |
 | `vision` | The text prompt and the image bytes of allowlisted files (base64 MCP image content via agy) | The image files themselves; MCP reads them only for that invocation |
 | `status` / `result` / `cancel` | Nothing via this plugin | Job JSON/logs; `cancel` only signals local processes |
+| `doctor` | Nothing to agy beyond `--version` and `--help` (no prompt, no OAuth) | Node version, agy version/flags, vision config presence, job-state root: all read-only, never written anywhere |
 
 Assume anything you hand to `review`, `rescue`, `task`, or `vision` is
 visible to agy. Secrets in a diff, an untracked file, a prompt, or a

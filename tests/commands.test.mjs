@@ -29,6 +29,7 @@ import {
   resolveJobFile,
   listJobs,
   readJobFile,
+  setConfig,
 } from '../scripts/lib/state.mjs';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -526,6 +527,64 @@ describe('/antigravity:status', () => {
     finally { cap2.restore(); }
     assert.equal(exit2, 0);
     assert.match(cap2.out.join(''), new RegExp(`\\| ${id} \\|.*\\| partial \\|`));
+  });
+});
+
+describe('/antigravity:status — agy version warning (Senate R2)', () => {
+  it('prints nothing when no agyVersionSeen is cached', async () => {
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    try { await run([], { cwd: tempDir }); } finally { cap.restore(); }
+    assert.doesNotMatch(cap.err.join(''), /is newer than the last measured version/);
+  });
+
+  it('prints nothing when the cached version is inside the verified matrix', async () => {
+    await setConfig(tempDir, { agyVersionSeen: { version: '1.2.12', observedAt: '2026-09-27T00:00:00.000Z' } });
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    try { await run([], { cwd: tempDir }); } finally { cap.restore(); }
+    assert.doesNotMatch(cap.err.join(''), /is newer than the last measured version/);
+  });
+
+  it('warns on stderr for a cached beyond_measured version, with no reference and no agy call', async () => {
+    await setConfig(tempDir, { agyVersionSeen: { version: '1.3.0', observedAt: '2026-09-20T00:00:00.000Z' } });
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    let exit;
+    try { exit = await run([], { cwd: tempDir }); } finally { cap.restore(); }
+    assert.equal(exit, 0);
+    assert.match(
+      cap.err.join(''),
+      /antigravity:status — agy 1\.3\.0 \(seen 2026-09-20\) is newer than the last measured version 1\.2\.12\.\n/,
+    );
+  });
+
+  it('warns the same way for a cached unmeasured (in-range, non-matrix) version', async () => {
+    await setConfig(tempDir, { agyVersionSeen: { version: '1.1.16', observedAt: '2026-09-20T00:00:00.000Z' } });
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    try { await run([], { cwd: tempDir }); } finally { cap.restore(); }
+    assert.match(
+      cap.err.join(''),
+      /antigravity:status — agy 1\.1\.16 \(seen 2026-09-20\) is newer than the last measured version 1\.2\.12\.\n/,
+    );
+  });
+
+  it('never warns on a single-job status <id> call, even with a beyond_measured version cached', async () => {
+    await setConfig(tempDir, { agyVersionSeen: { version: '1.3.0', observedAt: '2026-09-20T00:00:00.000Z' } });
+    const id = 'jobw' + randomBytes(2).toString('hex');
+    ensureStateDir(tempDir);
+    await upsertJob(tempDir, {
+      id, kind: 'task', status: 'completed',
+      sessionId: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    await writeJobFile(tempDir, id, { id, status: 'completed', result: { rawOutput: 'ok' } });
+    const { run } = await import('../scripts/commands/status.mjs');
+    const cap = captureStdio();
+    try { await run([id], { cwd: tempDir }); } finally { cap.restore(); }
+    assert.doesNotMatch(cap.err.join(''), /is newer than the last measured version/);
   });
 });
 

@@ -23,6 +23,9 @@ import {
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { readUpdateNotice } from "../lib/update.mjs";
 import { classifyStateError, deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
+import { getConfig } from "../lib/state.mjs";
+import { classifyAgyVersion, LAST_MEASURED_AGY_VERSION } from "../lib/compat.mjs";
+import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
@@ -70,6 +73,7 @@ export async function run(argv = [], ctx = {}) {
       const final = await waitForAllActive(cwd, options, builders.all);
       const rendered = renderStatusSnapshot(final);
       outputCommandResult(statusEnvelope(final), rendered, json);
+      printAgyVersionWarning(cwd, ctx);
       printUpdateNotice(ctx);
       return 0;
     }
@@ -77,6 +81,7 @@ export async function run(argv = [], ctx = {}) {
     const snapshot = builders.all(cwd, { env: process.env });
     const rendered = renderStatusSnapshot(snapshot);
     outputCommandResult(statusEnvelope(snapshot), rendered, json);
+    printAgyVersionWarning(cwd, ctx);
     printUpdateNotice(ctx);
     return 0;
   } catch (err) {
@@ -164,6 +169,32 @@ async function waitForAllActive(cwd, options, buildAll) {
 function printUpdateNotice(ctx) {
   const notice = (ctx.readUpdateNotice ?? readUpdateNotice)();
   if (notice) process.stderr.write(`${notice}\n`);
+}
+
+/** Classifications that earn `printAgyVersionWarning`'s one stderr line. */
+const AGY_VERSION_WARNING_CLASSIFICATIONS = new Set(["beyond_measured", "unmeasured"]);
+
+/**
+ * One stderr line when the cached `agyVersionSeen` (written by `review`,
+ * `rescue`, `task`, or `vision` after their own probe — see
+ * `job-helpers.mjs#rememberAgyVersion`) falls outside this plugin's measured
+ * range. Reads only the state config; never calls agy itself (Senate R2,
+ * 2026-09). A no-reference `status` call only — never printed for
+ * `status <id>`.
+ *
+ * @param {string} cwd
+ * @param {{ getConfig?: typeof getConfig, resolveWorkspaceRoot?: typeof resolveWorkspaceRoot }} ctx
+ * @returns {void}
+ */
+function printAgyVersionWarning(cwd, ctx) {
+  const resolve = ctx.resolveWorkspaceRoot ?? resolveWorkspaceRoot;
+  const readConfig = ctx.getConfig ?? getConfig;
+  const seen = readConfig(resolve(cwd))?.agyVersionSeen;
+  if (!seen?.version || !AGY_VERSION_WARNING_CLASSIFICATIONS.has(classifyAgyVersion(seen.version))) return;
+  const date = typeof seen.observedAt === "string" ? seen.observedAt.slice(0, 10) : "unknown date";
+  process.stderr.write(
+    `antigravity:status — agy ${seen.version} (seen ${date}) is newer than the last measured version ${LAST_MEASURED_AGY_VERSION}.\n`,
+  );
 }
 
 function maybeAnnotateOAuth(job) {

@@ -41,6 +41,7 @@ import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   EFFORT_CHOICES,
   probeAgyForVerb,
+  rememberAgyVersion,
   reportAgyUnavailable,
   reportInvalidFocus,
   reportQueuedJob,
@@ -306,6 +307,7 @@ export async function run(argv = [], ctx = {}) {
 
   const probed = await probeAgyForVerb("review");
   if (probed.line) return reportAgyUnavailable("review", probed.line, json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
 
   const mode = resolveReviewMode(options);
   const conversationId = options.conversation ? String(options.conversation) : undefined;

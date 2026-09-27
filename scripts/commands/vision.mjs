@@ -27,7 +27,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { probeAgyForVerb, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
 import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
@@ -137,6 +137,7 @@ export async function run(argv = [], ctx = {}) {
 
   const probed = await probeAgyForVerb("vision");
   if (probed.line) return reportAgyUnavailable("vision", probed.line, options.json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
 
   const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
   const model = options.model ? String(options.model) : DEFAULT_MODEL;

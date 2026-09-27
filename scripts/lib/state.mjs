@@ -138,6 +138,31 @@ export function resolveStateFile(cwd) {
   return path.join(resolveStateDir(cwd), STATE_FILE_NAME);
 }
 
+/**
+ * Describe this workspace's job-state location for `doctor`
+ * (scripts/commands/doctor.mjs, Senate R2, 2026-09) — read-only, creates
+ * nothing. `legacyLeaf` is true when the directory actually in use (an
+ * existing older logical-path or fallback-temp-root leaf, see
+ * {@link resolveStateDir}) differs from the current realpath-hashed leaf
+ * under the host-selected root, so a caller can tell "this workspace is
+ * still on a pre-upgrade leaf" apart from "this is a brand new workspace".
+ *
+ * @param {string} cwd the resolved workspace root
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ source: string, dir: string, exists: boolean, legacyLeaf: boolean }}
+ */
+export function describeStateLocation(cwd, env = process.env) {
+  const selected = resolveStateRoot(env);
+  const preferred = path.join(selected.root, leafFor(canonicalWorkspaceRoot(String(cwd))));
+  const dir = resolveStateDir(cwd, env);
+  return {
+    source: selected.source,
+    dir,
+    exists: fs.existsSync(dir),
+    legacyLeaf: dir !== preferred,
+  };
+}
+
 /** @param {string} cwd the resolved workspace root @returns {string} */
 export function resolveJobsDir(cwd) {
   return path.join(resolveStateDir(cwd), JOBS_DIR_NAME);

@@ -251,6 +251,68 @@ export async function probeAgy({
   }
 }
 
+/** `probeAgyHelp`'s captured `--help` stdout is capped here; real help text
+ * is a few KB at most, so this only guards against a misbehaving binary. */
+const MAX_HELP_BYTES = 65_536;
+
+/**
+ * Run `agy --help` once and return its stdout, capped and never OAuth-
+ * triggering (same read-only contract as {@link probeAgy}'s `--version`
+ * call). `doctor` (scripts/commands/doctor.mjs) uses this to check whether a
+ * flag the plugin forwards is *listed* in that text — never whether it
+ * *works*, which `--help` cannot prove.
+ *
+ * @param {{ bin?: string, timeoutMs?: number, terminateTree?: typeof terminateProcessTree }} [opts]
+ * @returns {Promise<{ ok: boolean, help?: string, reason?: string }>}
+ */
+export async function probeAgyHelp({
+  bin = resolveAgyBin(),
+  timeoutMs = 5000,
+  terminateTree = terminateProcessTree,
+} = {}) {
+  try {
+    assertAgyBinSpawnable(bin);
+  } catch (err) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
+  let timer;
+  try {
+    return await new Promise((resolve) => {
+      const child = spawnAgy(bin, ['--help'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      // Go's `flag` package (agy's flag parser) writes usage text to stderr,
+      // not stdout, even on a clean `--help` exit; some other CLI runtimes
+      // write it to stdout instead. Concatenate both so this check works
+      // either way — `doctor` only substring-searches this text, never
+      // relies on which stream it arrived on.
+      let help = '';
+      const appendHelp = (chunk) => {
+        if (help.length < MAX_HELP_BYTES) help += chunk.toString('utf8').slice(0, MAX_HELP_BYTES - help.length);
+      };
+      const abandon = (reason) => {
+        terminateTree(child.pid).catch(() => {});
+        child.stdout.destroy?.();
+        child.stderr.destroy?.();
+        child.unref?.();
+        resolve({ ok: false, reason });
+      };
+      timer = setTimeout(() => abandon('timeout'), timeoutMs);
+      child.stdout.on('data', appendHelp);
+      child.stderr.on('data', appendHelp);
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        resolve({ ok: false, reason: e.code === 'ENOENT' ? 'not-installed' : e.message });
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) return resolve({ ok: false, reason: `exit ${code}` });
+        resolve({ ok: true, help });
+      });
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Build the single NDJSON line agy expects on stdin in stream-json mode.
  *
