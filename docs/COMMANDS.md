@@ -330,7 +330,13 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   change the exit code: a completed review exits 0. On the background path
   the job stores `request.findingsJson: true` and agy's structured output as
   `result.structuredRaw`; `result <job-id>` and `--show-result` report the
-  same three fields (see [`result`](#result)). Without the flag, nothing
+  same three fields (see [`result`](#result)). On a foreground run, the live
+  stderr stream (the `onText` echo of agy's response as it generates) is
+  therefore this same JSON text under `--findings-json`, not readable prose,
+  the same way it is Markdown without the flag. The prompt's Output section
+  also gains one sentence about the schema under this flag, so
+  `request.inputHash` (and the hash `--preview` shows) differs from a run of
+  the identical diff without `--findings-json`. Without the flag, nothing
   changes: no `--json-schema` in argv and no findings fields in `details`.
 - `--check-locations` (additive) heuristically checks each `path:line`
   citation the answer names against the diff this run actually sent, using
@@ -341,7 +347,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   range, lies inside it), `outside_diff` (the path matches but the line does
   not), or `unknown_path` (no hunk names that path at all). This is a
   heuristic, not a truth check: a citation outside the diff is not by itself
-  a model error — reviewers legitimately cite context lines and related
+  a model error. Reviewers legitimately cite context lines and related
   files the diff never touched. `--json` adds `details.locationCheck: {
   heuristic: true, citations: [{ text, path, line, state }], counts: {
   in_diff, outside_diff, unknown_path } }`, and one stderr line,
@@ -587,6 +593,15 @@ alike; and after the wait, one of four outcomes is reported:
 `--show-result` takes no `--head`/`--tail`; the printed or returned answer is
 always the complete stored text.
 
+The Claude Code `rescue` host wrapper (`commands/rescue.md`) strips
+`--background` and `--wait` before it calls the runtime, because Claude Code
+runs the background fork itself. `--show-result` and `--request-id` do not
+apply through that wrapper as a result: the runtime never sees the
+`--background`/`--wait` flags either one needs, so it refuses them with its
+usual validation error. Both flags work in the standalone CLI and on `task`,
+whose wrapper forwards `--background`/`--wait` unchanged and defaults to
+background.
+
 ### `--request-id` (task and rescue)
 
 `--request-id <id>` is an opt-in idempotency key for a background dispatch:
@@ -725,7 +740,7 @@ an argument error, stderr only, exit 1. After a completed run, each value is
 checked against the `## Transcription` section of the answer: found when it
 equals one transcription line exactly (both trimmed) or is a substring of
 the section. This is a substring check on what agy already transcribed, not
-a truth check of the image itself — cross-check the transcript against the
+a truth check of the image itself. Cross-check the transcript against the
 source image the same way the rest of this section already asks.
 
 If the `## Transcription` heading is missing, or the whole answer is the
@@ -964,7 +979,7 @@ Without the flag, or for a job that did not complete, none of this appears.
 
 `result <job-id> --check-locations` (additive, 2026-09)
 runs the same heuristic citation-location check `review --check-locations`
-runs, against the job's already-stored answer and hunks — it never calls agy
+runs, against the job's already-stored answer and hunks. It never calls agy
 again. It works even on a job reviewed without `--check-locations` at review
 time, because `request.hunks` is stored on every review job. `--json` adds
 `details.locationCheck`, the same shape [`review`](#review) documents, or

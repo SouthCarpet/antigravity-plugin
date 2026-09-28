@@ -200,6 +200,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stdout, unchanged. A script that treated any stdout as success must now
   read `status` instead.
 
+### Added
+
+- A ninth command, `doctor`: a read-only check of your setup (Node version,
+  the `agy` binary and version, which flags this plugin forwards that
+  `agy --help` lists, the vision setup, and where job data is stored). It
+  makes no changes and needs no login.
+- `review --model`, `--effort`, and `--focus`: pick the model, set how much
+  reasoning effort agy spends, and point the reviewer's attention where you
+  want it.
+- `review --preview`: see exactly what a review would send, without sending
+  it.
+- `review --require-complete`: refuse to send a review that is missing a
+  file or was cut short, instead of sending it with a warning.
+- `review --findings-json`: ask for a checked, structured list of findings
+  alongside the review.
+- `review --check-locations` and `result --check-locations`: a best-effort
+  check of whether each file-and-line a review cites actually falls inside
+  the diff it reviewed.
+- `--show-result` on `review`, `rescue`, and `task`: after waiting for a
+  background job, print its finished answer directly instead of the plain
+  dispatch notice.
+- `--request-id` on `task` and `rescue --background`: send the same request
+  twice by accident and get back the one job it started, not two.
+- `task --prompt-file`: read a long or scripted prompt from a file, or from
+  standard input in the standalone command.
+- `status --exit-status`: exit with the code that matches a waited job's own
+  outcome, instead of always exiting 0.
+- `vision --expect`: check specific text against what agy actually saw in an
+  image, after the run finishes.
+- A release check that stops a release when a user-facing document still
+  names an internal planning reference, so no document ships pointing to
+  tracking nobody outside the project can see.
+
+### Changed
+
+- The plugin's tested range of the `agy` CLI now reaches 1.2.12.
+- The README, the commands reference, the compatibility contract, every
+  command's own help text, and the security notes were reviewed together and
+  brought back into agreement after nine releases' worth of additions.
+
+### Fixed
+
+- A stale "eight commands" count in a few documents now correctly says
+  nine, now that `doctor` is one of them.
+- A few outdated `agy` version numbers in the installation guide and the
+  release-smoke checklist now match the version this release actually tests.
+
 ## [2.0.2] — 2026-09-25
 
 ### Fixed

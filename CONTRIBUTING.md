@@ -14,9 +14,17 @@ node scripts/check-pack.mjs
 node scripts/bump-version.mjs --check
 ```
 
+`bump-version.mjs --check` also fails, naming the file and line, when a
+tracked markdown file other than `CLAUDE.md` or `AGENTS.md` still names an
+internal planning identifier: the word "plan", one space, then three digits,
+case-sensitive (the word "planning" does not match). Before a release, run
+`git grep -n -E "plan [0-9]{3}" -- '*.md' ':!CLAUDE.md' ':!AGENTS.md'` and
+remove every hit, or replace it with a user-facing explanation, so this gate
+passes.
+
 ## The 2.x contract
 
-The eight verbs, their flags, exit codes, `--json` envelope, and state locations are frozen for 2.x. Read [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) before you propose a change to any of them; a breaking change needs a 3.0.0 release.
+The nine verbs, their flags, exit codes, `--json` envelope, and state locations are frozen for 2.x. Read [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) before you propose a change to any of them; a breaking change needs a 3.0.0 release.
 
 ## Branches and releases
 

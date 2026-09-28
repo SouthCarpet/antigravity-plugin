@@ -191,8 +191,8 @@ documented flag names, documented positional meanings, and documented defaults
 are stable through 2.x subject to the deprecation and emergency rules below.
 
 The standalone dispatcher's `help`, `-h`/`--help`, and `-v`/`--version` entry
-points are also public. They are dispatcher conveniences, not ninth and tenth
-runtime verbs. Per-command help interception is guaranteed only through the
+points are also public. They are dispatcher conveniences, not tenth and
+eleventh runtime verbs. Per-command help interception is guaranteed only through the
 standalone dispatcher. `update` (from 1.1.0) is a third convenience in the
 same carve-out: it is reachable only through the standalone dispatcher
 (`antigravity-plugin update`, `npx @southcarpet/antigravity-plugin update`,
@@ -1003,8 +1003,11 @@ meaning:
   sha256 hex fingerprint of the request. Absent on every other job record.
 - `details.deduplicated` (additive, 2026-09): `true` on the envelope that a
   repeated `--request-id` call prints for the existing job. `status` is the
-  current status of that job and the exit code is 0. Absent on every other
-  envelope.
+  current status of that job and the exit code is 0. This holds even when
+  the existing job's own status is `failed` or `cancelled`: the dedup call
+  itself succeeded, so it still exits 0 with no `details.error`; only
+  `status <id>` or `result <id>` on that job's id reports the failure or
+  cancellation detail. Absent on every other envelope.
 - `request_id_conflict` (additive, 2026-09): the error code for a
   `--request-id` that another request already uses; see the error code
   list above.
@@ -1018,7 +1021,7 @@ meaning:
   does not gain this flag.
 - **`--expect <text>` on `vision`** (additive, 2026-09): repeatable, opt-in.
   After a completed run, each trimmed value is checked against the answer's
-  `## Transcription` section — a substring check on what agy already
+  `## Transcription` section. This is a substring check on what agy already
   transcribed, never a truth check of the image itself. See
   [`--expect`](./COMMANDS.md#--expect). `--json` adds `details.expectations`
   (`[{ value, found, reason? }]`, `found` is `true`/`false`/`null`) and
@@ -1057,8 +1060,8 @@ meaning:
 - `request.hunks` (additive, 2026-09): `[{ path, newStart, newEnd }]`, the
   hunks the sent diff's own `@@ -a,b +c,d @@` headers carried (plus one
   `{ newStart: 1, newEnd: <line count> }` entry per included untracked
-  file), computed by `buildReviewInput` and stored on **every** review job —
-  not only under `--check-locations` — so `result --check-locations` works
+  file), computed by `buildReviewInput` and stored on **every** review job
+  (not only under `--check-locations`), so `result --check-locations` works
   on a job reviewed without the flag. Absent on a job stored before this
   feature shipped; that absence is what makes the check "unavailable" on
   such a job.
@@ -1068,7 +1071,7 @@ meaning:
   `result <job-id> --check-locations`; `null` when the flag was given but
   the job has no stored `request.hunks`; absent without the flag. This is a
   heuristic, not a truth check: a citation the diff never touched is not by
-  itself a model error — reviewers legitimately cite context lines and
+  itself a model error. Reviewers legitimately cite context lines and
   related files outside the diff.
 
 ### Structured output flag
@@ -1093,15 +1096,18 @@ plugin reads only `structured_output` and never parses `response`.
 review answer with one regular expression, tuned to exclude two shapes it
 would otherwise catch: a bare three-part version string (`1.2.11`), and a
 `http(s)://` URL whose path segment happens to look like `name.ext:port`
-right after the scheme. It does not chase every possible false positive —
-for one, a bare `host:port` with no `http(s)://` prefix still matches and is
+right after the scheme. It does not chase every possible false positive. For
+one, a bare `host:port` with no `http(s)://` prefix still matches and is
 reported as `unknown_path`. This is why the check is heuristic: it can both
 miss a real citation the model wrote in an unexpected shape and report a
-path-shaped string that was never meant as one.
+path-shaped string that was never meant as one. The path class also excludes
+`\`, so a Windows-separator citation such as `C:\repo\src\file.mjs:42`
+truncates to `file.mjs:42`, the file name only; the directory segments are
+silently dropped rather than checked.
 
 Measured against two stored `review --json` transcripts from earlier agy
 probes (agy 1.2.11 and agy 1.2.7): neither answer contains a `path:line`-shaped
-citation at all — both cite the changed file with a Markdown link and a `#L1`
+citation at all: both cite the changed file with a Markdown link and a `#L1`
 anchor (`[answer.txt](file:///.../answer.txt#L1)`), not a colon. The regex
 matched zero times in either transcript, so the measured false-positive
 count is zero for both. A synthetic hunk set was not needed, since there was
