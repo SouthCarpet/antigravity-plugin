@@ -30,7 +30,7 @@
  * one call site.
  */
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -109,7 +109,25 @@ function resolveCsc() {
 
 let cachedTemplatePath = null;
 
-/** Compile (or reuse a cached compile of) the fake-agy template exe. */
+/**
+ * Compile (or reuse a cached compile of) the fake-agy template exe.
+ *
+ * `node --test` runs each test file in its own process, so the four test
+ * files that call `writeFakeAgy` each load a fresh copy of this module: the
+ * `cachedTemplatePath` variable above is not shared between them. Without
+ * care, several of those processes race to compile the SAME content-hashed
+ * output path at once, and `csc.exe` refuses a concurrent writer with
+ * `error CS0016: Could not write to output file '...' -- 'The process
+ * cannot access the file because it is being used by another process.'`
+ * (observed on windows-latest, Node 22.3.x on 2026-09-12 and Node 24 on
+ * 2026-09-25, both times on the very first `writeFakeAgy` call of the run).
+ *
+ * The fix: every call compiles to its OWN unique temp path, so no two
+ * `csc.exe` processes ever target the same file, then promotes that copy to
+ * the shared cache name with an atomic rename. If another process already
+ * won that promotion, this process's compile is simply discarded. The
+ * shared cache still ends up with one valid, complete exe either way.
+ */
 function ensureTemplateExe() {
   if (cachedTemplatePath && fs.existsSync(cachedTemplatePath)) return cachedTemplatePath;
 
@@ -122,9 +140,22 @@ function ensureTemplateExe() {
   }
 
   fs.mkdirSync(cacheDir, { recursive: true });
-  const srcPath = path.join(cacheDir, `template-${hash}.cs`);
+  const unique = `${process.pid}-${randomBytes(4).toString("hex")}`;
+  const srcPath = path.join(cacheDir, `template-${hash}-${unique}.cs`);
+  const tmpExePath = path.join(cacheDir, `template-${hash}-${unique}.exe`);
   fs.writeFileSync(srcPath, CSHARP_SOURCE, "utf8");
-  execFileSync(resolveCsc(), ["/nologo", `/out:${exePath}`, srcPath], { stdio: "pipe" });
+  execFileSync(resolveCsc(), ["/nologo", `/out:${tmpExePath}`, srcPath], { stdio: "pipe" });
+
+  if (!fs.existsSync(exePath)) {
+    try {
+      fs.renameSync(tmpExePath, exePath);
+    } catch {
+      // Another process's rename won the race first; drop ours below.
+    }
+  }
+  fs.rmSync(srcPath, { force: true });
+  fs.rmSync(tmpExePath, { force: true });
+
   cachedTemplatePath = exePath;
   return exePath;
 }

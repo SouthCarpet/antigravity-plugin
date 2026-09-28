@@ -246,6 +246,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nine, now that `doctor` is one of them.
 - A few outdated `agy` version numbers in the installation guide and the
   release-smoke checklist now match the version this release actually tests.
+- **CI: the `windows-latest` fake-agy `csc.exe` compile could race and fail
+  with `CS0016`.** `node --test` runs each test file as its own process, and
+  four test files call `writeFakeAgy`, so several processes could compile the
+  same content-hashed template path at once. `csc.exe` refused the losing
+  writer with `error CS0016: Could not write to output file '...' -- The
+  process cannot access the file because it is being used by another
+  process.` (`windows-latest`, `Node 24`, CI runs on 2026-09-12 and
+  2026-09-25). `tests/helpers/fake-agy.mjs` now compiles to a unique
+  per-call temp path and promotes it into the shared cache with an atomic
+  rename, so no two processes ever write the same output file.
 
 ## [2.0.2] — 2026-09-25
 
