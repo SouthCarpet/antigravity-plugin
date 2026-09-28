@@ -62,7 +62,7 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 ## Status
 
-> **v2.0.2.** From 2.0.0 forward, while the first number of this version
+> **v2.1.0.** From 2.0.0 forward, while the first number of this version
 > stays 2, an update does not break a command or an output that already
 > works. If a command, flag, exit code, `--json` envelope, state location,
 > or supported host is removed, release notes and documentation first mark
@@ -71,11 +71,11 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 > [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 2.0.2 is this package's version number. agy is Google's Antigravity
+Plugin 2.1.0 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.0.2 is tested with agy 1.1.15 to 1.2.12; newest measured 1.2.12 (smoke-only: `setup`, `task`, `status`, `result`). See
+Plugin 2.1.0 is tested with agy 1.1.15 to 1.2.12; newest measured 1.2.12 (smoke-only: `setup`, `task`, `status`, `result`). See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 

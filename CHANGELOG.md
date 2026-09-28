@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-09-28
+
 ### Added
 
 - **`--findings-json` on `review`.** Opt-in structured findings. agy gets
@@ -1205,7 +1207,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...v2.1.0
 [2.0.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.3.0...v2.0.0
