@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { captureStdio } from './helpers/capture-stdio.mjs';
 
 mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
@@ -57,31 +58,6 @@ function initEmptyGitRepo(cwd) {
 function setPluginDataEnv(dir) {
   process.env.CLAUDE_PLUGIN_DATA = dir;
   process.env.ANTIGRAVITY_PLUGIN_SESSION_ID = 'test-session-' + randomBytes(3).toString('hex');
-}
-
-function captureStdio() {
-  const out = [];
-  const err = [];
-  const origStdout = process.stdout.write.bind(process.stdout);
-  const origStderr = process.stderr.write.bind(process.stderr);
-  process.stdout.write = (chunk, ...rest) => {
-    if (typeof chunk !== 'string') return origStdout(chunk, ...rest);
-    out.push(chunk);
-    return true;
-  };
-  process.stderr.write = (chunk, ...rest) => {
-    if (typeof chunk !== 'string') return origStderr(chunk, ...rest);
-    err.push(chunk);
-    return true;
-  };
-  return {
-    out,
-    err,
-    restore: () => {
-      process.stdout.write = origStdout;
-      process.stderr.write = origStderr;
-    },
-  };
 }
 
 /** A queued job {@link startBackgroundJob} hands back, never `failed`, so

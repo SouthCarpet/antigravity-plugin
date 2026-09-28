@@ -22,6 +22,7 @@ import {
   MAX_EXPECT_VALUES,
 } from '../scripts/lib/vision-expect.mjs';
 import { ArgsError } from '../scripts/lib/args.mjs';
+import { captureStdio } from './helpers/capture-stdio.mjs';
 
 // --- Fixtures -----------------------------------------------------------
 
@@ -167,31 +168,6 @@ const { run } = await import('../scripts/commands/vision.mjs');
 
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-
-function captureStdio() {
-  const out = [];
-  const err = [];
-  const origStdout = process.stdout.write.bind(process.stdout);
-  const origStderr = process.stderr.write.bind(process.stderr);
-  process.stdout.write = (chunk, ...rest) => {
-    if (typeof chunk !== 'string') return origStdout(chunk, ...rest);
-    out.push(chunk);
-    return true;
-  };
-  process.stderr.write = (chunk, ...rest) => {
-    if (typeof chunk !== 'string') return origStderr(chunk, ...rest);
-    err.push(chunk);
-    return true;
-  };
-  return {
-    out,
-    err,
-    restore: () => {
-      process.stdout.write = origStdout;
-      process.stderr.write = origStderr;
-    },
-  };
-}
 
 let tmpDir;
 let dataDir;
