@@ -645,6 +645,56 @@ describe('bump-version documentation version phrases', () => {
   });
 });
 
+describe('bump-version internal identifier gate', () => {
+  it('--check fails on a tracked markdown file with plan NNN, naming file and line', () => {
+    const root = makeTree();
+    const lines = ['# Notes', '', 'See plan 086 for the background.', ''];
+    writeDoc(root, 'PLAN-NOTE.md', lines.join('\n'));
+    const line = lines.findIndex((text) => text.includes('plan 086')) + 1;
+    assert.ok(line > 0, 'the fixture must hold the identifier');
+
+    const result = runBump(root, ['--check']);
+    assert.notEqual(result.status, 0);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.match(output, /version check failed:/);
+    assert.match(
+      output,
+      new RegExp(`docs/PLAN-NOTE\\.md:${line}: internal identifier "plan 086"`),
+    );
+  });
+
+  it('--check passes when tracked markdown names no internal identifier', () => {
+    const root = makeTree();
+    writeDoc(
+      root,
+      'PLAN-NOTE.md',
+      ['# Notes', '', 'This work has no internal planning reference.', ''].join('\n'),
+    );
+
+    const result = runBump(root, ['--check']);
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /ok: no internal "plan NNN" identifier/);
+  });
+
+  it('--check exempts CLAUDE.md and AGENTS.md even when they name plan NNN', () => {
+    const root = makeTree();
+    fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'Local notes for plan 086.\n');
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), 'Local notes for plan 086.\n');
+
+    const result = runBump(root, ['--check']);
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /ok: no internal "plan NNN" identifier/);
+  });
+
+  it('does not flag "planning" as the whole-token identifier', () => {
+    const root = makeTree();
+    writeDoc(root, 'PLAN-NOTE.md', 'Planning 123 items is not an internal identifier.\n');
+
+    const result = runBump(root, ['--check']);
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  });
+});
+
 describe('bump-version increments and explicit targets', () => {
   /** Named cases, generated once at module scope — each becomes its own `it`. */
   const SCALAR_BUMP_CASES = [

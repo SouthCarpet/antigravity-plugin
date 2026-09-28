@@ -48,6 +48,12 @@ describe("compat.mjs stays in sync with the docs", () => {
     assert.ok(matches.length > 0, "README.md has no 'newest measured <v>' phrase");
     for (const version of matches) assert.equal(version, LAST_MEASURED_AGY_VERSION);
   });
+
+  it("docs/INSTALL.md's 'newest measured <v>' phrase(s) all equal LAST_MEASURED_AGY_VERSION", () => {
+    const matches = [...read("docs/INSTALL.md").matchAll(/newest measured (\d+\.\d+\.\d+)/g)].map((m) => m[1]);
+    assert.ok(matches.length > 0, "docs/INSTALL.md has no 'newest measured <v>' phrase");
+    for (const version of matches) assert.equal(version, LAST_MEASURED_AGY_VERSION);
+  });
 });
 
 describe("classifyAgyVersion", () => {

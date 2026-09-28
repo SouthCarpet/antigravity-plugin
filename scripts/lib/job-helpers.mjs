@@ -273,18 +273,6 @@ export async function probeAgyForVerb(kind, { bin = resolveAgyBin(), probe = pro
   };
 }
 
-/**
- * The failure line alone from {@link probeAgyForVerb}, for a caller with no
- * use for the probed version.
- *
- * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
- * @param {{ bin?: string, probe?: typeof probeAgy }} [opts]
- * @returns {Promise<string | null>}
- */
-export async function agyUnavailableLine(kind, opts) {
-  return (await probeAgyForVerb(kind, opts)).line;
-}
-
 /** `rememberAgyVersion` writes no more often than this, per workspace. */
 export const AGY_VERSION_REMEMBER_INTERVAL_MS = 60 * 60 * 1000;
 

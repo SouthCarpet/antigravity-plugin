@@ -125,7 +125,7 @@ export function checkVisionExpectations(answer, expectValues) {
 }
 
 /**
- * Render the markdown block `finishExpectationsMarkdown` appends after the
+ * Render the markdown block `writeExpectationsBlock` appends after the
  * answer (Senate R6, 2026-09): the header line always prints; a `"missing"`
  * summary adds one `  missing: <value>` line per value not found; an
  * `"unverifiable"` summary adds the one fixed `  unverifiable: ...` line

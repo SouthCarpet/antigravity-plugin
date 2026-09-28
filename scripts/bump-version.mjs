@@ -456,6 +456,79 @@ function tagReport(root, version) {
   return `note: git tag v${version} is absent (this script does not create, move, or delete tags)`;
 }
 
+/** Tracked markdown files this check never flags, even when they match. */
+const INTERNAL_ID_EXEMPT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
+
+/** Directory names a plain-walk fallback never descends into. */
+const INTERNAL_ID_WALK_SKIP = new Set(['node_modules', '.git']);
+
+/**
+ * `plan NNN`, case-sensitive, three digits, as a whole token: `plan 086`
+ * matches, `planning 123` does not (no literal `plan ` substring in it).
+ */
+const INTERNAL_ID_RE = /\bplan \d{3}\b/;
+
+/**
+ * Every tracked `*.md` file, repo-root-relative with `/` separators. Uses
+ * `git ls-files` when `root` is a git checkout; falls back to a plain
+ * directory walk (skipping `node_modules` and `.git`) so the check still
+ * runs against a tree with no `.git` directory, such as some test fixtures.
+ */
+function trackedMarkdownFiles(root) {
+  const result = spawnSync('git', ['ls-files', '--', '*.md'], { cwd: root, encoding: 'utf8' });
+  if (result.status === 0) {
+    return result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+  const files = [];
+  const walk = (relDir) => {
+    const absDir = join(root, relDir);
+    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (INTERNAL_ID_WALK_SKIP.has(entry.name)) continue;
+        walk(rel);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        files.push(rel);
+      }
+    }
+  };
+  walk('');
+  return files;
+}
+
+/**
+ * Fail with file:line when a tracked markdown file (other than `CLAUDE.md`
+ * or `AGENTS.md`, both git-ignored machine-local orientation files) still
+ * names an internal planning identifier. User-facing docs, commit messages,
+ * and CLI strings must read on their own; `plan NNN` means nothing to
+ * someone who does not have this repository's planning tree.
+ */
+function internalIdErrors(root) {
+  const errors = [];
+  for (const rel of trackedMarkdownFiles(root)) {
+    if (INTERNAL_ID_EXEMPT_FILES.has(rel)) continue;
+    let text;
+    try {
+      text = readBuf(root, rel).toString('utf8');
+    } catch {
+      continue; // git ls-files named it but it is absent from this root (e.g. a slim fixture)
+    }
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const match = lines[i].match(INTERNAL_ID_RE);
+      if (match) {
+        errors.push(
+          `${rel}:${i + 1}: internal identifier "${match[0]}" (remove it or replace it with a user-facing explanation)`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
 function checkAgreement(root, expectedVersion) {
   const errors = [];
   const { values, errors: readErrors } = readScalars(root);
@@ -469,6 +542,7 @@ function checkAgreement(root, expectedVersion) {
   errors.push(...changelogErrors(root, expectedVersion));
   errors.push(...readmeStatusErrors(root, expectedVersion));
   errors.push(...phraseErrors(root, expectedVersion));
+  errors.push(...internalIdErrors(root));
   return { errors, values };
 }
 
@@ -718,6 +792,7 @@ function printCheck(root, expectedVersion) {
   console.log(`ok: CHANGELOG.md has ## [${expectedVersion}] and matching compare links`);
   console.log(`ok: README.md Status is v${expectedVersion}`);
   console.log('ok: no stale Plugin <version> phrase in README.md or docs/*.md');
+  console.log('ok: no internal "plan NNN" identifier in tracked markdown outside CLAUDE.md/AGENTS.md');
   console.log(tagLine);
 }
 
