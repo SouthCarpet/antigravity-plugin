@@ -22,13 +22,14 @@ All verbs map to the same `scripts/commands/<verb>.mjs` runtime across Claude Co
 | Verb     | What it does |
 |----------|--------------|
 | `setup`  | One-time OAuth wizard. Runs an authenticated `agy --print` probe in the foreground so the user can complete the Google OAuth flow visibly. Idempotent. Also registers the vision MCP server (`--skip-vision` to opt out, `--remove-vision` to undo plugin-owned entries). Foreground-only. |
-| `review` | Reviews the current git diff (or `--base <ref>`). Foreground by default; pass `--background` to fork a worker and get a job id. |
-| `rescue` | Delegates an investigation or fix to agy, for example `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. Supports `--model <id>` and `--effort <low|medium|high|agy-default>`. |
-| `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--add-dir <path>`, `--model <id>`, `--effort <low|medium|high|agy-default>`, `--json`. |
-| `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
-| `status` | Shows current and recent jobs for this repository. Surfaces any pending OAuth URL prominently. |
-| `result` | Prints the final output of a completed job by id. |
+| `review` | Reviews the current git diff (or `--base <ref>`). Foreground by default; pass `--background` to fork a worker and get a job id. Supports `--model <id>`, `--effort <low|medium|high|agy-default>` (no plugin default, unlike `task`/`rescue`), an optional `--focus <text>` to narrow attention, `--preview` to show what would be sent without calling agy, `--require-complete` to refuse an input that skipped a file or cut the diff, `--findings-json` to also get structured findings, checked against the plugin's schema, in `details.findings`, `--check-locations` to heuristically check each `path:line` citation against the sent diff's own hunks (local only, adds nothing to the agy call), and (with `--background --wait`) `--show-result` to print the finished job instead of the queued notice. |
+| `rescue` | Delegates an investigation or fix to agy, for example `$antigravity rescue why are the tests failing`. Foreground by default; `--background` returns a job id. Supports `--model <id>`, `--effort <low|medium|high|agy-default>`, (with `--background --wait`) `--show-result`, and (with `--background`) `--request-id <id>` for an idempotent dispatch. |
+| `task`   | Generic long-running delegation. Background by default; `--foreground` to inline, `--wait` to block. Supports `--continue`, `--conversation <id>`, `--prompt-file <path>` (read the prompt from a file instead of typing it; `-` reads stdin, standalone CLI only), `--add-dir <path>`, `--model <id>`, `--effort <low|medium|high|agy-default>`, `--show-result` (with `--wait`, on the background path), `--request-id <id>` (background path only: a repeat of the same request reports the existing job instead of starting a new one), `--json`. |
+| `vision` | Ask agy to look at one or more image files (`--prompt`, `--model`, `--expect <text>` repeatable, `--json`). Foreground-only; needs the vision MCP server registered by `setup` (see Auth requirements below). |
+| `status` | Shows current and recent jobs for this repository. Surfaces any pending OAuth URL prominently. With a job id and `--wait`, `--exit-status` exits by that job's own outcome instead of the usual 0. |
+| `result` | Prints the final output of a completed job by id. `--check-locations` runs the same heuristic citation check `review --check-locations` runs, from the stored answer, even on a job reviewed without that flag. |
 | `cancel` | Sends SIGTERM to a running worker by job id. |
+| `doctor` | Read-only environment and configuration check: Node version, the agy binary and version, which forwarded flags `agy --help` lists, the vision configuration, and the job-state root. Never runs OAuth, never calls a model, never writes a file, never opens the network. |
 
 For `task` and `rescue`, an explicit `low`, `medium`, or `high` is forwarded verbatim. A job with neither `--effort` nor `--model` sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, the plugin sends no `--effort` flag. agy applies the level carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since 2.0.2 because agy 1.2.11 validates the pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no flag. Because `medium` runs longer than `low`, a job with neither `--model` nor `--effort` is more likely to reach the plugin's execution budget and be stored as failed with no answer. Pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
 
@@ -57,6 +58,7 @@ $antigravity task --continue draft a migration plan from Sequelize to Drizzle
 $antigravity vision ./screenshot.png --prompt "does this chart render the values 3, 5, 8?"
 $antigravity status
 $antigravity result 0193e2c9-...
+$antigravity doctor
 ```
 
 ## Where this plugin lives (for Codex auto-discovery)

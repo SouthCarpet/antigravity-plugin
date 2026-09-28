@@ -14,7 +14,29 @@ import { spawn } from '../lib/process-adapter.mjs';
 import { readCommandInput } from '../lib/args.mjs';
 import { resolveAgyBin, probeAgy, assertAgyBinSpawnable } from '../lib/agent-runtime.mjs';
 import { ensureVisionConfig, removeVisionConfig, VISION_PERMISSION } from '../lib/vision-config.mjs';
+import { classifyAgyVersion, LAST_MEASURED_AGY_VERSION } from '../lib/compat.mjs';
 import { runIfMain } from '../lib/cli-entry.mjs';
+
+/** Classification → the one warning line `setupVersionWarning` prints. */
+const VERSION_WARNING_LINES = {
+  beyond_measured: (version) =>
+    `antigravity:setup — agy ${version} is newer than the last measured version ${LAST_MEASURED_AGY_VERSION}; see docs/COMPATIBILITY.md.`,
+  unmeasured: (version) =>
+    `antigravity:setup — agy ${version} is not in the measured matrix; see docs/COMPATIBILITY.md.`,
+};
+
+/**
+ * The one warning line `setup` prints after "using <bin> v<version>" when
+ * that version falls outside this plugin's measured range: `null` for
+ * `verified`, `incompatible`, or `missing` (Senate R2, 2026-09).
+ *
+ * @param {string | null | undefined} version
+ * @returns {string | null}
+ */
+function setupVersionWarning(version) {
+  const build = VERSION_WARNING_LINES[classifyAgyVersion(version)];
+  return build ? build(version) : null;
+}
 
 /**
  * @param {string[]} [argv] CLI arguments after the verb (`--skip-vision`, `--remove-vision`)
@@ -55,6 +77,8 @@ export async function run(argv = [], ctx = {}) {
   }
 
   process.stdout.write(`antigravity:setup — using ${bin} v${probe.version}\n`);
+  const versionWarning = setupVersionWarning(probe.version);
+  if (versionWarning) process.stdout.write(`${versionWarning}\n`);
   process.stdout.write(`Triggering an authenticated probe. Complete the OAuth flow in your browser if prompted.\n\n`);
 
   const child = spawn(bin, ['--print', 'Reply with the word OK and nothing else.'], {

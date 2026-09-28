@@ -101,6 +101,20 @@ function verbsFromSkillMd(source) {
   return verbs;
 }
 
+/**
+ * The Codex install recipe's own verb sentence in docs/INSTALL.md ("Verbs:
+ * `setup`, ..., `doctor`."), the exact line the review found stale (missing
+ * `doctor`) because Task 15's sweep only matched the literal strings "eight
+ * verb"/"eight commands"/etc., which this sentence never contained.
+ */
+function verbsFromInstallMd(source) {
+  const match = source.match(/Verbs:\s*([\s\S]*?)\./);
+  if (!match) {
+    throw new Error('docs/INSTALL.md: could not find the Codex "Verbs: ..." sentence');
+  }
+  return [...match[1].matchAll(/`([a-z][a-z0-9-]*)`/g)].map((m) => m[1]);
+}
+
 function uniqueSorted(list) {
   return [...new Set(list)].sort();
 }
@@ -131,6 +145,10 @@ const SURFACES = [
     name: 'SKILL.md verb table',
     verbs: verbsFromSkillMd(read('SKILL.md')),
   },
+  {
+    name: 'docs/INSTALL.md Codex verb list',
+    verbs: verbsFromInstallMd(read('docs/INSTALL.md')),
+  },
 ];
 
 /**
@@ -148,6 +166,7 @@ const EXPECTED_VERBS = uniqueSorted([
   'status',
   'result',
   'cancel',
+  'doctor',
 ]);
 
 describe('host verb inventory', () => {

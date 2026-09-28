@@ -216,6 +216,35 @@ export function resolveVisionServerPath() {
 }
 
 /**
+ * Read-only presence check for `doctor` (scripts/commands/doctor.mjs, Senate
+ * R2, 2026-09): does the plugin-owned vision MCP entry and its exact
+ * permission already exist in the two agy config files? Never writes,
+ * never locks (a lock only matters for read-modify-write consistency), and
+ * never reads a file other than the same two `ensureVisionConfig`/
+ * `removeVisionConfig` already know about.
+ *
+ * @param {{ homeDir?: string, serverPath?: string, nodePath?: string }} [options]
+ * @returns {{ status: "registered" | "absent" | "unreadable", detail?: string }}
+ */
+export function readVisionStatus({
+  homeDir = os.homedir(),
+  serverPath = resolveVisionServerPath(),
+  nodePath = process.execPath,
+} = {}) {
+  const files = pathsFor(homeDir);
+  const mcpRead = readJsonConfig(files.mcp);
+  const settingsRead = readJsonConfig(files.settings);
+  const readError = mcpRead.error || settingsRead.error;
+  if (readError) return { status: "unreadable", detail: readError };
+
+  const desired = desiredMcp(serverPath, nodePath);
+  const mcpEntry = mcpRead.value.mcpServers?.vision;
+  const allow = settingsRead.value.permissions?.allow;
+  const registered = isDesiredMcp(mcpEntry, desired) && Array.isArray(allow) && allow.includes(VISION_PERMISSION);
+  return { status: registered ? "registered" : "absent" };
+}
+
+/**
  * @param {{ homeDir?: string, serverPath?: string, nodePath?: string,
  *   lockTimeoutMs?: number, now?: Date, atomicWriter?: typeof defaultAtomicWriter }} [options]
  * @returns {{ changed: boolean, filePath: string, warning?: string }}

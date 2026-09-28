@@ -1,6 +1,6 @@
 ---
 description: Delegate a task to Google Antigravity (agy) for debugging, implementation, or deeper investigation
-argument-hint: '[--background|--wait] [--resume|--fresh] [--continue] [--conversation <id>] [--add-dir <path>] [--model <id>] [--effort <low|medium|high>] [what Antigravity should investigate, solve, or continue]'
+argument-hint: '[--background|--wait] [--show-result] [--request-id <id>] [--resume|--fresh] [--continue] [--conversation <id>] [--add-dir <path>] [--model <id>] [--effort <low|medium|high>] [what Antigravity should investigate, solve, or continue]'
 context: fork
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -37,6 +37,7 @@ Invocation:
 - Everything remaining after stripping flags is the task text — pass it through as the trailing positional.
 - `--model <id>` selects the agy model for this run. Forward it through unchanged when present.
 - `--effort <low|medium|high|agy-default>` selects agy's reasoning effort for this run. Forward an explicit `low`, `medium`, or `high` verbatim. A job with neither `--effort` nor `--model` sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, the plugin sends no `--effort` flag. agy applies the level carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since 2.0.2 because agy 1.2.11 validates the pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no flag. `medium` runs longer than `low`, so a job with neither `--model` nor `--effort` is more likely to reach the plugin's execution budget and be stored as failed with no answer. Pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.
+- `--show-result` and `--request-id <id>` do not apply through this wrapper. This wrapper strips `--background` and `--wait` before it calls `rescue.mjs` (Claude Code runs the fork itself, so the runtime never sees either flag), and `--show-result` needs both while `--request-id` needs `--background`; passed here, the runtime refuses them with its usual validation error. Use the standalone CLI (`npx @southcarpet/antigravity-plugin rescue --background --wait --show-result`) or `task`, whose wrapper forwards `--background`/`--wait` unchanged and defaults to background.
 
 Denied actions:
 - If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.

@@ -87,6 +87,26 @@ after(() => {
   delete process.env.CLAUDE_PLUGIN_DATA;
 });
 
+/**
+ * Task 3 ("Senate R1", 2026-09): parse the single stdout envelope, assert
+ * the stable shape, and check the caller's own `details.error` fields.
+ *
+ * @param {string[]} out captured stdout chunks
+ * @param {{ code: string, phase: string }} expected
+ * @returns {object} the parsed payload
+ */
+function parseVisionErrorEnvelope(out, expected) {
+  const payload = JSON.parse(out.join(''));
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.command, 'vision');
+  assert.equal(payload.status, 'invalid_input');
+  assert.equal(payload.jobId, null);
+  assert.equal(payload.answer, null);
+  assert.equal(payload.details.error.code, expected.code);
+  assert.equal(payload.details.error.phase, expected.phase);
+  return payload;
+}
+
 describe('/antigravity:vision', () => {
   it('errors when no image path is given', async () => {
     const cap = captureStdio();
@@ -97,6 +117,23 @@ describe('/antigravity:vision', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
+    assert.match(cap.err.join(''), /no image path provided/);
+  });
+
+  // Task 3 ("Senate R1", 2026-09): the same validation failure emits one
+  // invalid_input error envelope under --json.
+  it('errors when no image path is given: one invalid_input envelope under --json', async () => {
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['--json'], { cwd: tmpDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseVisionErrorEnvelope(cap.out, { code: 'missing_image_path', phase: 'validate' });
+    assert.match(payload.details.error.message, /no image path provided/);
     assert.match(cap.err.join(''), /no image path provided/);
   });
 
@@ -109,8 +146,22 @@ describe('/antigravity:vision', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
     assert.match(cap.err.join(''), /image file not found/);
     assert.match(cap.err.join(''), /definitely-missing\.png/);
+  });
+
+  it('errors naming a missing image path: one invalid_input envelope under --json', async () => {
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run(['definitely-missing.png', '--prompt', 'x', '--json'], { cwd: tmpDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    const payload = parseVisionErrorEnvelope(cap.out, { code: 'image_not_found', phase: 'validate' });
+    assert.match(payload.details.error.message, /definitely-missing\.png/);
   });
 
   // The MCP server refuses both of these too, but only after agy has started
@@ -128,10 +179,27 @@ describe('/antigravity:vision', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
     assert.equal(runtime.calls.length, 0, 'agy was started for an unsupported file');
     const err = cap.err.join('');
     assert.match(err, /antigravity:vision — unsupported image extension "\.txt"/);
     assert.ok(err.includes(VISION_EXTENSIONS.join(', ')), err);
+  });
+
+  it('refuses an unsupported extension before any spawn: one invalid_input envelope under --json', async () => {
+    runtime.calls = [];
+    const notAnImage = path.join(tmpDir, 'note2.txt');
+    fs.writeFileSync(notAnImage, 'plain text');
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([notAnImage, '--prompt', 'probe', '--json'], { cwd: tmpDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.equal(runtime.calls.length, 0, 'agy was started for an unsupported file');
+    parseVisionErrorEnvelope(cap.out, { code: 'unsupported_image_extension', phase: 'validate' });
   });
 
   it('refuses a file over the size cap before any spawn', async () => {
@@ -149,11 +217,31 @@ describe('/antigravity:vision', () => {
       cap.restore();
     }
     assert.equal(exit, 1);
+    assert.equal(cap.out.join(''), '');
     assert.equal(runtime.calls.length, 0, 'agy was started for an oversized file');
     assert.match(
       cap.err.join(''),
       new RegExp(`image too large \\(${size} bytes > ${VISION_MAX_BYTES} byte cap\\)`),
     );
+  });
+
+  it('refuses a file over the size cap before any spawn: one invalid_input envelope under --json', async () => {
+    runtime.calls = [];
+    const tooBig = path.join(tmpDir, 'large2.png');
+    const size = VISION_MAX_BYTES + 1024 * 1024;
+    const fd = fs.openSync(tooBig, 'w');
+    fs.ftruncateSync(fd, size);
+    fs.closeSync(fd);
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([tooBig, '--prompt', 'probe', '--json'], { cwd: tmpDir });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 1);
+    assert.equal(runtime.calls.length, 0, 'agy was started for an oversized file');
+    parseVisionErrorEnvelope(cap.out, { code: 'image_too_large', phase: 'validate' });
   });
 
   it('allows a file exactly at the size cap', async () => {

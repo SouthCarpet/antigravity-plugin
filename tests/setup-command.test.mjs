@@ -162,3 +162,57 @@ describe('/antigravity:setup — vision config wiring', () => {
     assert.match(cap.out.join(''), /Only the MCP entry and permission recorded as plugin-owned/);
   });
 });
+
+describe('/antigravity:setup — agy version warning (Senate R2)', () => {
+  it('prints no warning line for a measured version', async () => {
+    state.probe = { ok: true, version: '1.2.12' };
+    const cap = captureStdio();
+    try {
+      await run(['--skip-vision'], {});
+    } finally {
+      cap.restore();
+    }
+    assert.doesNotMatch(cap.out.join(''), /is newer than the last measured version|is not in the measured matrix/);
+  });
+
+  it('warns when the version is newer than the last measured version', async () => {
+    state.probe = { ok: true, version: '1.3.0' };
+    const cap = captureStdio();
+    try {
+      await run(['--skip-vision'], {});
+    } finally {
+      cap.restore();
+    }
+    const text = cap.out.join('');
+    assert.match(
+      text,
+      /antigravity:setup — agy 1\.3\.0 is newer than the last measured version 1\.2\.12; see docs\/COMPATIBILITY\.md\.\n/,
+    );
+  });
+
+  it('warns when the version is inside the range but not a matrix row', async () => {
+    state.probe = { ok: true, version: '1.1.16' };
+    const cap = captureStdio();
+    try {
+      await run(['--skip-vision'], {});
+    } finally {
+      cap.restore();
+    }
+    const text = cap.out.join('');
+    assert.match(text, /antigravity:setup — agy 1\.1\.16 is not in the measured matrix; see docs\/COMPATIBILITY\.md\.\n/);
+  });
+
+  it('prints the warning line immediately after the "using <bin> v<version>" line', async () => {
+    state.probe = { ok: true, version: '1.3.0' };
+    const cap = captureStdio();
+    try {
+      await run(['--skip-vision'], {});
+    } finally {
+      cap.restore();
+    }
+    const lines = cap.out.join('').split('\n');
+    const usingIdx = lines.findIndex((l) => l.includes('using') && l.includes('v1.3.0'));
+    assert.ok(usingIdx >= 0, 'expected a "using ... v1.3.0" line');
+    assert.match(lines[usingIdx + 1], /is newer than the last measured version/);
+  });
+});

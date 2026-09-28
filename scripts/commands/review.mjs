@@ -8,28 +8,67 @@
  *   --wait            block until completion (foreground default)
  *   --continue        resume the last review conversation
  *   --conversation <id>  resume a specific conversation
+ *   --model <id>      agy model id for this run
+ *   --effort <low|medium|high|agy-default>  agy reasoning effort for this
+ *                     run; unlike `task`/`rescue` there is no plugin
+ *                     default: with neither flag, no `--effort` reaches agy;
+ *                     `agy-default` sends none either
+ *   --focus <text>    narrows the review's attention (never required, never
+ *                     derived from repository content); trimmed, max 500
+ *                     characters
+ *   --preview         show what would be sent (included/skipped files,
+ *                     counts, truncation, hash); no agy call, no state
+ *                     change (Task 5, "Senate R5", 2026-09); conflicts with
+ *                     --background, --wait, --continue, --conversation
+ *   --require-complete  refuse to send an input with a skipped file or a
+ *                     truncated diff, instead of sending it with a warning
+ *   --show-result     after a background --wait completes, print the
+ *                     finished job's own result instead of the dispatch
+ *                     envelope (requires --wait and --background)
+ *   --findings-json   also ask agy for structured findings under the
+ *                     shipped schema (`--json-schema`) and validate them
+ *                     locally into `details.findings` (Senate R7, 2026-09);
+ *                     `answer` stays agy's raw response text
+ *   --check-locations heuristically check each `path:line` citation the
+ *                     answer names against the sent diff's own hunks
+ *                     (Task 14, "Senate R8", 2026-09); local only, adds
+ *                     nothing to the agy call; see `review-locations.mjs`
  *   --json            output JSON instead of markdown
  *
  * The diff is collected first. An empty one answers `no_changes` with exit 0
- * from Git alone, so a machine without `agy` can still run this. `agy` is
- * probed only when there is content to send, before the prompt, the job
- * record and any spawn.
+ * from Git alone, so a machine without `agy` can still run this. Every
+ * remaining path (foreground, background, `--preview`) then builds one
+ * `buildReviewInput` record (`review-input.mjs`) — the single place that
+ * decides what reaches agy, from the exact prompt string to the
+ * included/skipped lists and the input hash. `agy` is probed only after
+ * that, and only when the run is actually going to send something: never
+ * for `--preview`, and never when `--require-complete` refuses first.
  */
 
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
-import { buildReviewPrompt } from "../lib/prompt-templates.mjs";
+import { buildReviewInput } from "../lib/review-input.mjs";
+import { REVIEW_FINDINGS_SCHEMA_PATH, reviewFindingsDetails } from "../lib/review-findings.mjs";
+import { checkReviewLocations, locationCheckReportLine } from "../lib/review-locations.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
-  agyUnavailableLine,
+  EFFORT_CHOICES,
+  probeAgyForVerb,
+  rememberAgyVersion,
+  reportAgyUnavailable,
+  reportArgsValidationError,
+  reportInvalidFocus,
   reportQueuedJob,
+  resolveReviewEffort,
+  resolveReviewFocus,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
-  waitAndExit,
+  validateShowResultDependency,
+  waitAndReport,
   waitForJob,
 } from "../lib/job-helpers.mjs";
-import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderReviewPreview } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -42,7 +81,47 @@ function resolveReviewMode(options) {
   return "print";
 }
 
-async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, options, ctx }) {
+/**
+ * The `request` fields common to the foreground and background review job
+ * (Task 5, "Senate R5", 2026-09): the existing `scope`/`base`/`mode`/`model`/
+ * `effort`/`focus` fields, plus `inputHash`, `inputCounts`, and `headSha`
+ * straight off `buildReviewInput`'s own return value — never a second copy
+ * of the diff or the prompt (that already lives at the top-level `prompt`
+ * argument `runForegroundJob`/`startBackgroundJob` store as `request.prompt`
+ * on the background path).
+ *
+ * `findingsJson: true` (Senate R7, 2026-09) is stored only for a
+ * `--findings-json` run, so a request without the flag is unchanged; the
+ * worker turns it back into `--json-schema`.
+ *
+ * `hunks` (Task 14, "Senate R8", 2026-09) is stored on every request,
+ * unconditionally — not only under `--check-locations` — straight off
+ * `buildReviewInput`'s own return value, so a job reviewed without the flag
+ * can still be checked later with `result <id> --check-locations`.
+ *
+ * @param {{ envelope: object, base: string | undefined, mode: string,
+ *   model: string | undefined, effort: string | undefined, focus: string | undefined,
+ *   findingsJson: boolean,
+ *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput> }} args
+ * @returns {object}
+ */
+function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, findingsJson, input }) {
+  return {
+    scope: envelope.scope,
+    base: base ?? null,
+    mode,
+    model,
+    effort,
+    focus,
+    inputHash: input.inputHash,
+    inputCounts: input.counts,
+    headSha: input.headSha,
+    hunks: input.hunks,
+    ...(findingsJson ? { findingsJson: true } : {}),
+  };
+}
+
+async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, findingsJson, input, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "review",
@@ -51,15 +130,53 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
     mode,
     conversationId,
     cwd: workspaceRoot,
-    request: { scope: envelope.scope, base: base ?? null, mode },
+    agyVersion,
+    request: buildReviewRequestFields({ envelope, base, mode, model, effort, focus, findingsJson, input }),
   });
   const queuedExit = reportQueuedJob("review", job, options);
   if (queuedExit !== null) return queuedExit;
   if (!options.wait) return 0;
-  return waitAndExit("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
+  return waitAndReport("review", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob, {
+    json: Boolean(options.json),
+    showResult: Boolean(options["show-result"]),
+  });
 }
 
-async function runReviewForeground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, json }) {
+/**
+ * The `finishForeground` options for review's two additive result-shaping
+ * flags — `--findings-json` (Senate R7, 2026-09) and `--check-locations`
+ * (Task 14, "Senate R8", 2026-09) — either, both, or neither active for one
+ * run:
+ *   - `resultDetails` always runs (an empty object when neither flag is
+ *     set, so `finishForeground`'s merge is a no-op); it derives the
+ *     findings fields off `result.structured` and/or `locationCheck` off
+ *     `checkReviewLocations(result.stdout, hunks)`, the same `hunks`
+ *     {@link buildReviewRequestFields} already stored on the job.
+ *   - `--check-locations` alone also adds `extraStderrLines`/`renderedSuffix`
+ *     for the one summary line ({@link locationCheckReportLine}); findings
+ *     already prints its own warning line inside `finishForeground` and
+ *     needs neither hook.
+ *
+ * @param {{ findingsJson: boolean, checkLocations: boolean,
+ *   hunks: Array<{ path: string, newStart: number, newEnd: number }> }} args
+ * @returns {{ resultDetails: (result: import('../lib/types.mjs').RuntimeResult) => object,
+ *   extraStderrLines?: (result: import('../lib/types.mjs').RuntimeResult, ownDetails: object) => string[],
+ *   renderedSuffix?: (result: import('../lib/types.mjs').RuntimeResult, ownDetails: object) => string[] }}
+ */
+function reviewFinishOptions({ findingsJson, checkLocations, hunks }) {
+  const resultDetails = (result) => ({
+    ...(findingsJson ? reviewFindingsDetails(result.structured) : {}),
+    ...(checkLocations ? { locationCheck: checkReviewLocations(result.stdout, hunks) } : {}),
+  });
+  if (!checkLocations) return { resultDetails };
+  const locationLines = (result, ownDetails) => [locationCheckReportLine("review", ownDetails.locationCheck)];
+  return { resultDetails, extraStderrLines: locationLines, renderedSuffix: locationLines };
+}
+
+async function runReviewForeground({
+  workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus,
+  findingsJson, checkLocations, input, json,
+}) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "review",
@@ -68,14 +185,133 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
     mode: retryConversationId ? "conversation" : mode,
     conversationId: retryConversationId ?? conversationId,
     cwd: workspaceRoot,
-    request: { scope: envelope.scope, base: base ?? null, mode: retryConversationId ? "conversation" : mode },
+    agyVersion,
+    model,
+    effort,
+    jsonSchemaPath: findingsJson ? REVIEW_FINDINGS_SCHEMA_PATH : undefined,
+    request: buildReviewRequestFields({
+      envelope,
+      base,
+      mode: retryConversationId ? "conversation" : mode,
+      model,
+      effort,
+      focus,
+      findingsJson,
+      input,
+    }),
     onText: (delta) => process.stderr.write(delta),
   });
 
   return runForegroundWithRetryPrompt("review", runOnce, {
     json,
     extraDetails: { scope: envelope.scope },
+    ...reviewFinishOptions({ findingsJson, checkLocations, hunks: input.hunks }),
   });
+}
+
+/**
+ * Resolve `review`'s three additive flags (Task 4, "Senate R4", 2026-09) off
+ * the parsed CLI options, split out of `run` to keep it under the
+ * complexity ceiling: `--model` (verbatim string or `undefined`), `--effort`
+ * (via {@link resolveReviewEffort}, which has no plugin default), and
+ * `--focus` (via {@link resolveReviewFocus}, already trimmed and capped).
+ *
+ * @param {Record<string, string | boolean | string[]>} options parsed CLI options
+ * @returns {{ model: string | undefined, effort: string | undefined,
+ *   focus: string | undefined, focusError: string | null }}
+ */
+function resolveReviewFlagOptions(options) {
+  const model = options.model ? String(options.model) : undefined;
+  const effort = resolveReviewEffort(options.effort);
+  const { focus, error: focusError } = resolveReviewFocus(options.focus);
+  return { model, effort, focus, focusError };
+}
+
+/**
+ * True when `buildReviewInput`'s own record left something out of the
+ * prompt: a skipped file, or a diff cut by the 196 KiB cap (Task 5, "Senate
+ * R5", 2026-09). The one condition both the incomplete-input warning and
+ * `--require-complete`'s refusal gate on, so the two can never disagree
+ * about what counts as "incomplete".
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @returns {boolean}
+ */
+function isReviewInputIncomplete(input) {
+  return input.skipped.length > 0 || input.truncated.diff;
+}
+
+/**
+ * Print the one stderr warning line for a normal run whose input is
+ * incomplete (Task 5, "Senate R5", 2026-09): printed once, before the agy
+ * probe or any spawn.
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @returns {void}
+ */
+function printIncompleteInputWarning(input) {
+  process.stderr.write(
+    `antigravity:review — warning: input is incomplete (${input.skipped.length} files skipped, ` +
+      `diff truncated by ${input.truncated.droppedBytes} bytes); run review --preview for the list.\n`,
+  );
+}
+
+/**
+ * Report `--require-complete`'s refusal (Task 5, "Senate R5", 2026-09): the
+ * plugin's own one-line reason on stderr, plus the Task 3 `invalid_input`
+ * `--json` envelope (`error.code: "input_incomplete"`, phase `collect`),
+ * before any agy probe or spawn. Exit 1, same as every other validation
+ * failure this verb reports.
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportInputIncomplete(input, json) {
+  const message = "input is incomplete; --require-complete refused to send it.";
+  process.stderr.write(`antigravity:review — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("review", {
+      status: "invalid_input",
+      error: { code: "input_incomplete", phase: "collect", message },
+      details: { skipped: input.skipped, truncated: input.truncated },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * Report `--preview` (Task 5, "Senate R5", 2026-09): the included/skipped
+ * lists, counts, truncation state, and hash `buildReviewInput` already
+ * computed. No agy probe, no spawn, no state change, exit 0 always.
+ *
+ * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
+ * @param {boolean} json
+ * @returns {0}
+ */
+function reportReviewPreview(input, json) {
+  outputCommandResult(
+    createJsonEnvelope("review", {
+      status: "preview",
+      jobId: null,
+      answer: null,
+      details: {
+        included: input.included,
+        skipped: input.skipped,
+        truncated: input.truncated,
+        counts: input.counts,
+        inputHash: input.inputHash,
+        scope: input.scope,
+        base: input.base,
+        headSha: input.headSha,
+      },
+    }),
+    renderReviewPreview(input),
+    json,
+  );
+  return 0;
 }
 
 /**
@@ -86,26 +322,39 @@ async function runReviewForeground({ workspaceRoot, title, prompt, mode, convers
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["base", "scope", "conversation", "cwd"],
-    booleanOptions: ["background", "wait", "continue", "json"],
+    valueOptions: ["base", "scope", "conversation", "cwd", "model", "effort", "focus"],
+    booleanOptions: [
+      "background", "wait", "continue", "json", "preview", "require-complete", "show-result", "findings-json",
+      "check-locations",
+    ],
+    valueChoices: { effort: EFFORT_CHOICES },
     conflicts: [
       ["continue", "conversation"],
+      ["preview", "background"],
+      ["preview", "wait"],
+      ["preview", "continue"],
+      ["preview", "conversation"],
     ],
   }, "review");
   if (!parsed) return 1;
   const { options } = parsed;
+
+  const showResultError = validateShowResultDependency(options, "review");
+  if (showResultError) return reportArgsValidationError("review", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const scope = (options.scope ? String(options.scope) : "auto");
   const base = options.base ? String(options.base) : undefined;
 
+  const { model, effort, focus, focusError } = resolveReviewFlagOptions(options);
+  if (focusError) return reportInvalidFocus(focusError, Boolean(options.json));
+
   let envelope;
   try {
     envelope = collectReviewContext(workspaceRoot, { scope, base });
   } catch (err) {
-    process.stderr.write(`antigravity:review — ${err?.message ?? err}\n`);
-    return 1;
+    return reportReviewCollectionFailure(err, Boolean(options.json));
   }
 
   if (!hasReviewableContent(envelope.context)) {
@@ -120,24 +369,75 @@ export async function run(argv = [], ctx = {}) {
     return 0;
   }
 
-  const unavailable = await agyUnavailableLine("review");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
-    return 1;
-  }
+  const findingsJson = Boolean(options["findings-json"]);
+  const input = buildReviewInput(envelope, { focus, findingsJson });
+  const json = Boolean(options.json);
 
-  const prompt = buildReviewPrompt(envelope);
+  if (options.preview) return reportReviewPreview(input, json);
+
+  const incomplete = isReviewInputIncomplete(input);
+  if (incomplete && options["require-complete"]) return reportInputIncomplete(input, json);
+  if (incomplete) printIncompleteInputWarning(input);
+
+  const probed = await probeAgyForVerb("review");
+  if (probed.line) return reportAgyUnavailable("review", probed.line, json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
+
   const mode = resolveReviewMode(options);
   const conversationId = options.conversation ? String(options.conversation) : undefined;
-  const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}`;
+  const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}${focus ? ` focus: ${focus.slice(0, 40)}` : ""}`;
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, envelope, base };
+  const checkLocations = Boolean(options["check-locations"]);
+  const runArgs = {
+    workspaceRoot, title, prompt: input.prompt, mode, conversationId, envelope, base,
+    agyVersion: probed.version, model, effort, focus, findingsJson, checkLocations, input,
+  };
 
   if (options.background) {
     return runReviewBackground({ ...runArgs, options, ctx });
   }
 
-  return runReviewForeground({ ...runArgs, json: options.json });
+  return runReviewForeground({ ...runArgs, json });
+}
+
+/**
+ * The `error.code` for a `collectReviewContext` failure (Task 3, "Senate
+ * R1", 2026-09): the two validation shapes `git.mjs` throws today
+ * (`collectReviewContext`'s own scope check, `resolveBaseCommit`'s ref
+ * check), or a generic collection failure for anything else (a missing
+ * `git` binary, a spawn error) — never invented from a message this module
+ * has not actually seen thrown.
+ *
+ * @param {string} message
+ * @returns {string}
+ */
+function classifyReviewCollectionError(message) {
+  if (message.startsWith("Invalid scope")) return "invalid_scope";
+  if (message.startsWith("unknown base ref")) return "unknown_base_ref";
+  return "review_collection_failed";
+}
+
+/**
+ * Report a `collectReviewContext` failure: the existing stderr line,
+ * unchanged, plus (Task 3, "Senate R1", 2026-09) one `invalid_input`
+ * `--json` envelope when `json` is true.
+ *
+ * @param {unknown} err
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportReviewCollectionFailure(err, json) {
+  const message = err?.message ?? String(err);
+  process.stderr.write(`antigravity:review — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("review", {
+      status: "invalid_input",
+      error: { code: classifyReviewCollectionError(message), phase: "collect", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
 }
 
 /**

@@ -17,6 +17,11 @@
  *   --model <id>      agy model id (default gemini-3.6-flash-high)
  *   --json            output JSON instead of markdown
  *   --cwd <dir>       override working directory
+ *   --expect <text>   repeatable; after a completed answer, check this text
+ *                      against the `## Transcription` section (see
+ *                      lib/vision-expect.mjs) — a substring check on what
+ *                      agy already said, never a truth check of the image.
+ *                      Trimmed; empty or more than 32 values is a refusal.
  *
  * FOREGROUND ONLY in this version — no --background/--wait. See vision.md.
  */
@@ -27,7 +32,8 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { agyUnavailableLine, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
   encodeVisionAllowlist,
@@ -36,6 +42,7 @@ import {
   VISION_MAX_BYTES,
   VISION_MIME,
 } from "../lib/vision-capability.mjs";
+import { checkVisionExpectations, formatExpectationsMarkdown, validateExpectOption } from "../lib/vision-expect.mjs";
 
 const DEFAULT_MODEL = "gemini-3.6-flash-high";
 const DEFAULT_PROMPT =
@@ -48,25 +55,95 @@ const DEFAULT_PROMPT =
  * only after agy has started and spent tokens, and its refusal comes back as
  * an answer-shaped reply. Checking here fails before any spawn.
  *
+ * `code` (Task 3, "Senate R1", 2026-09) feeds the `invalid_input` envelope's
+ * `error.code`; `message` is the same text this function has always
+ * returned, printed verbatim on stderr.
+ *
  * @param {string} imagePath - absolute path
- * @returns {string|null}
+ * @returns {{ code: string, message: string } | null}
  */
 function imageProblem(imagePath) {
   if (!existsSync(imagePath) || !statSync(imagePath).isFile()) {
-    return `image file not found: ${imagePath}`;
+    return { code: "image_not_found", message: `image file not found: ${imagePath}` };
   }
   const ext = extname(imagePath).toLowerCase();
   if (!VISION_MIME[ext]) {
-    return (
-      `unsupported image extension "${ext || "(none)"}": ${imagePath}. ` +
-      `Supported: ${VISION_EXTENSIONS.join(", ")}`
-    );
+    return {
+      code: "unsupported_image_extension",
+      message: `unsupported image extension "${ext || "(none)"}": ${imagePath}. ` +
+        `Supported: ${VISION_EXTENSIONS.join(", ")}`,
+    };
   }
   const { size } = statSync(imagePath);
   if (size > VISION_MAX_BYTES) {
-    return `image too large (${size} bytes > ${VISION_MAX_BYTES} byte cap): ${imagePath}`;
+    return {
+      code: "image_too_large",
+      message: `image too large (${size} bytes > ${VISION_MAX_BYTES} byte cap): ${imagePath}`,
+    };
   }
   return null;
+}
+
+/**
+ * Report a `vision` input-validation failure (no image path at all, or the
+ * first path {@link imageProblem} rejects): the existing stderr line,
+ * unchanged, plus (Task 3, "Senate R1", 2026-09) one `invalid_input`
+ * `--json` envelope when `json` is true.
+ *
+ * @param {string} code
+ * @param {string} message
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportVisionValidationFailure(code, message, json) {
+  process.stderr.write(`antigravity:vision — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("vision", {
+      status: "invalid_input",
+      error: { code, phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * The `--expect` check result for `finishForeground`'s completed branch, or
+ * `null` when there is nothing to check: `--expect` was not given, or the
+ * run did not complete (a failed/cancelled/auth_required result never
+ * reaches `finishForeground`'s completed branch either, so there is nothing
+ * to check against). Split out of {@link run} to keep it under the
+ * complexity ceiling.
+ *
+ * @param {Record<string, string | boolean | string[]>} options parsed CLI options
+ * @param {import('../lib/types.mjs').RuntimeResult} result
+ * @returns {ReturnType<typeof checkVisionExpectations> | null}
+ */
+function resolveExpectationResult(options, result) {
+  if (!Array.isArray(options.expect) || result.status !== "completed") return null;
+  return checkVisionExpectations(result.stdout, options.expect);
+}
+
+/**
+ * Append the markdown `Expectations:` block after the answer
+ * `finishForeground` already printed, when there is one to append: a no-op
+ * under `--json` (that shape carries the same facts as
+ * `details.expectations`/`details.expectationSummary` instead) or when
+ * {@link resolveExpectationResult} found nothing to check. A separating
+ * newline is added only when the answer did not already end in one, so the
+ * block never glues onto the answer's last line (the same convention
+ * `finishForegroundFailure`'s own resume-line separator uses, job-helpers.mjs).
+ *
+ * @param {boolean} json
+ * @param {string | undefined} answer `result.stdout`
+ * @param {ReturnType<typeof checkVisionExpectations> | null} expectationResult
+ * @returns {void}
+ */
+function writeExpectationsBlock(json, answer, expectationResult) {
+  if (json || !expectationResult) return;
+  const needsSeparator = typeof answer === "string" && answer.length > 0 && !answer.endsWith("\n");
+  process.stdout.write(`${needsSeparator ? "\n" : ""}${formatExpectationsMarkdown(expectationResult)}`);
 }
 
 /**
@@ -78,6 +155,8 @@ export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["prompt", "model", "cwd"],
     booleanOptions: ["json"],
+    repeatableOptions: ["expect"],
+    validate: validateExpectOption,
   }, "vision");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
@@ -86,10 +165,11 @@ export async function run(argv = [], ctx = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
   if (positionals.length === 0) {
-    process.stderr.write(
-      'antigravity:vision — no image path provided. Usage: vision <image-path> [<image-path>...] --prompt "<question>"\n',
+    return reportVisionValidationFailure(
+      "missing_image_path",
+      'no image path provided. Usage: vision <image-path> [<image-path>...] --prompt "<question>"',
+      Boolean(options.json),
     );
-    return 1;
   }
 
   // Resolve to absolute paths up front: agy (and the vision-server it spawns
@@ -98,17 +178,12 @@ export async function run(argv = [], ctx = {}) {
   const imagePaths = positionals.map((p) => resolvePath(cwd, String(p)));
   for (const imagePath of imagePaths) {
     const problem = imageProblem(imagePath);
-    if (problem) {
-      process.stderr.write(`antigravity:vision — ${problem}\n`);
-      return 1;
-    }
+    if (problem) return reportVisionValidationFailure(problem.code, problem.message, Boolean(options.json));
   }
 
-  const unavailable = await agyUnavailableLine("vision");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
-    return 1;
-  }
+  const probed = await probeAgyForVerb("vision");
+  if (probed.line) return reportAgyUnavailable("vision", probed.line, options.json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
 
   const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
   const model = options.model ? String(options.model) : DEFAULT_MODEL;
@@ -142,26 +217,32 @@ export async function run(argv = [], ctx = {}) {
     outputFormat: "json",
     cwd: workspaceRoot,
     env,
+    agyVersion: probed.version,
     request: { imagePaths, model, userPrompt },
     onText: (delta) => process.stderr.write(delta),
   });
 
   const usage = result.usage ?? null;
-  return finishForeground("vision", job, result, {
+  const expectationResult = resolveExpectationResult(options, result);
+
+  // The measured-usage trailer itself is printed by finishForeground for
+  // every kind now (job-helpers.mjs#printMeasuredUsageTrailer); this only
+  // still carries `usage` into the JSON envelope's details, which no other
+  // verb promises.
+  const exitCode = finishForeground("vision", job, result, {
     json: options.json,
     extraFields: { imagePaths, model },
-    extraDetails: { usage, durationSeconds: result.durationSeconds ?? null },
-    beforeAnswer: () => {
-      if (usage && typeof usage.total_tokens === "number") {
-        // Measured by agy itself (json envelope). The ledger rule requires
-        // recording measured totals — this trailer is what the orchestrator reads.
-        process.stderr.write(
-          `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
-            `out=${usage.output_tokens ?? "?"}\n`,
-        );
-      }
+    extraDetails: {
+      usage,
+      durationSeconds: result.durationSeconds ?? null,
+      ...(expectationResult ? {
+        expectations: expectationResult.expectations,
+        expectationSummary: expectationResult.expectationSummary,
+      } : {}),
     },
   });
+  writeExpectationsBlock(Boolean(options.json), result.stdout, expectationResult);
+  return exitCode;
 }
 
 export default run;

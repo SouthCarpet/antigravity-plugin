@@ -110,6 +110,14 @@
  *   086 T2 added the `medium` default when the caller passes none; plan 086
  *   T5i added the sentinel). Records written before 086 T2 have no
  *   `request.effort` field.
+ * @property {string} [requestId] the caller's `--request-id` (Senate R12,
+ *   2026-09, background `task`/`rescue` only); absent without the flag
+ * @property {string} [requestFingerprint] sha256 hex over the request's
+ *   canonical JSON (`request-id.mjs#requestFingerprint`); present exactly
+ *   when `requestId` is
+ * @property {true} [findingsJson] `review --findings-json` (Senate R7,
+ *   2026-09); absent without the flag. The worker forwards `--json-schema`
+ *   for it and fails a job whose stored value is not a boolean.
  */
 
 /**
@@ -132,6 +140,45 @@
  * @property {AgyPrintTimeout | null} [agyPrintTimeout] additive (plan 086
  *   T1); `null`/absent on legacy records and on a run with no print-timeout
  *   marker
+ * @property {string | null} [reportedModel] additive (plan 103 T2, "Senate
+ *   R11", 2026-09): the model agy's own `result` event named, when that
+ *   event carries a model field. Measured against agy 1.2.11/1.2.12 it never
+ *   does, so this is always `null` today; never derived from the model the
+ *   caller requested. `null`/absent on legacy records.
+ * @property {string | null} [structuredRaw] additive (Senate R7, 2026-09):
+ *   agy's `structured_output` as JSON text, `null` when agy sent none (every
+ *   run without `review --findings-json`); absent on legacy records.
+ */
+
+/**
+ * A job's safe-provenance record (plan 103 T2, "Senate R11", 2026-09),
+ * built once at job creation (`job-helpers.mjs#createTrackedJob`) and
+ * retained on the job's index entry (top-level, so `state.mjs`'s
+ * `jobIndexProjection` keeps it — it is not one of the stripped
+ * `request`/`result`/`stdout` detail fields). Deliberately excludes the
+ * prompt, workspace path, image paths, `extraArgs` content, and tool list:
+ * enough to reproduce the run's settings, nothing free-text the caller gave
+ * the model.
+ *
+ * @typedef {object} JobProvenance
+ * @property {string | null} pluginVersion this plugin's own running version
+ *   (`scripts/lib/update.mjs#readRunningVersion`); `null` only when the
+ *   plugin's own `package.json` could not be read
+ * @property {string | null} agyVersion the version the verb's own
+ *   `agy --version` probe reported (`job-helpers.mjs#probeAgyForVerb`);
+ *   `null` when the probe failed (the verb would already have exited before
+ *   creating the job) or was never run
+ * @property {string | null} model the resolved `--model` value, including
+ *   the `agy-default` sentinel where applicable; `null` for a verb with no
+ *   model concept (`review`)
+ * @property {string | null} effort the resolved `--effort` value, including
+ *   the `agy-default` sentinel; `null` for a verb with no effort flag
+ *   (`review`, `vision`)
+ * @property {"print" | "continue" | "conversation"} mode
+ * @property {number} addDirCount the count of `--add-dir` values only, never
+ *   the paths themselves
+ * @property {string} requestedAt ISO timestamp, the same instant as the
+ *   job's own `createdAt`
  */
 
 /**
@@ -183,6 +230,9 @@
  * @property {AgyPrintTimeout | null} [agyPrintTimeout] agy's print-timeout
  *   truncation marker from the terminal run, set at job finish (plan 086
  *   T1); additive, `null`/absent on legacy records and a run with no marker
+ * @property {JobProvenance | null} [provenance] additive (plan 103 T2,
+ *   "Senate R11", 2026-09), set once at job creation
+ *   (`job-helpers.mjs#createTrackedJob`); `null`/absent on legacy records
  */
 
 /**
@@ -215,6 +265,9 @@
  *   see `agent-runtime.mjs#mergeDeniedActions`
  * @property {AgyPrintTimeout | null} [agyPrintTimeout] additive (plan 086
  *   T1); see `agent-runtime.mjs#detectPrintTimeoutTruncation`
+ * @property {unknown} [structured] additive (Senate R7, 2026-09): the
+ *   `result` event's `structured_output` as agy sent it (object or string),
+ *   `null` when absent
  * @property {string | null} [spawnError]
  */
 
@@ -241,6 +294,24 @@
  *   `details.job.agyPrintTimeout` carries the same shape on `status <id>
  *   --json`. Distinct from `details.truncated` above on purpose — that key
  *   already means the `--head`/`--tail` display cut.
+ * @property {JsonErrorDetail} [details.error] additive (plan 103 T3, "Senate
+ *   R1", 2026-09; `render.mjs#createErrorEnvelope`): present on an expected
+ *   failure once `--json` was accepted by the parser — `answer` is `null` on
+ *   every envelope that carries this, except `result <id>` on a stored
+ *   failed job, which keeps its stored answer and adds this key alongside
+ *   it. Absent on every completed/queued/no_changes envelope.
+ */
+
+/**
+ * The `details.error` shape a Task 3 failure envelope always carries
+ * (`render.mjs#createErrorEnvelope`, `render.mjs#ERROR_CODES` for the full
+ * `code` enum). `message` is the plugin's own one-line reason: never a
+ * token, an OAuth URL, or the full upstream stderr.
+ *
+ * @typedef {object} JsonErrorDetail
+ * @property {string} code snake_case, one of `render.mjs#ERROR_CODES`
+ * @property {"validate" | "collect" | "probe" | "run" | "wait" | "state"} phase
+ * @property {string} message
  */
 
 /**
@@ -270,6 +341,8 @@
  * @property {string} [effort] agy reasoning effort, one of `AGY_EFFORTS`
  *   (`job-helpers.mjs`); additive (plan 085 T3), forwarded only when given
  * @property {string[]} [extraArgs]
+ * @property {string} [jsonSchemaPath] forwarded as `--json-schema <path>`
+ *   right before `--print-timeout` (Senate R7, 2026-09)
  * @property {string} [bin]
  * @property {NodeJS.ProcessEnv} [env]
  * @property {number} [timeoutMs]

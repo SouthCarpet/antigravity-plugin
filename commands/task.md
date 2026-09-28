@@ -1,6 +1,6 @@
 ---
 description: Free-form Antigravity task with state tracking (background by default)
-argument-hint: '[--wait] [--foreground] [--continue] [--conversation <id>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
+argument-hint: '[--wait] [--foreground] [--show-result] [--request-id <id>] [--continue] [--conversation <id>] [--prompt-file <path>] [--add-dir <path>] [--mode <plan|accept-edits>] [--model <id>] [--effort <low|medium|high>] [--json] <prompt>'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -21,8 +21,11 @@ Flags:
 - Default execution is `--background`. A job id is returned immediately.
 - `--wait` block until the worker finishes and stream its final output.
 - `--foreground` run inline instead of forking a worker.
+- `--show-result` requires `--wait`; refused the same way with `--foreground` too, since foreground has no `--wait` semantics. After the wait, prints the finished job's own result instead of the queued dispatch notice; that notice moves to stderr instead.
+- `--request-id <id>` makes the background dispatch idempotent. A repeat of the same request with the same id reports the existing job (`deduplicated: true`) and starts nothing; the same id with a different request is refused (`request_id_conflict`, exit 1). The id is 1 to 128 characters from `A-Z a-z 0-9 . _ -`. Refused with `--foreground`.
 - `--continue` resume the most recent agy conversation.
 - `--conversation <id>` resume a specific conversation.
+- `--prompt-file <path>` read the prompt from a file instead of typing it (UTF-8, 512 KiB max); cannot combine with a positional prompt. May be combined with `--continue`/`--conversation`: the file becomes the new turn. `--prompt-file -` reads the prompt from stdin, but only in the standalone CLI (`npx @southcarpet/antigravity-plugin task`) run directly by a person or script: this host cannot pipe stdin through to the plugin, so `-` here is refused with `--prompt-file - (stdin) is available in the standalone CLI only`.
 - `--add-dir <path>` extra workspace directory (repeatable).
 - `--model <id>` agy model id for this run.
 - `--effort <low|medium|high|agy-default>` sets agy's reasoning effort for this run. An explicit `low`, `medium`, or `high` is forwarded verbatim. A job with neither `--effort` nor `--model` sends `medium`, unchanged since 2.0.0. With `--model` and no `--effort`, the plugin sends no `--effort` flag. agy applies the level carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since 2.0.2 because agy 1.2.11 validates the pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no flag. `medium` runs longer than `low`, so a job with neither `--model` nor `--effort` is more likely to reach the plugin's execution budget and be stored as failed with no answer. Pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` to avoid this.

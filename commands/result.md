@@ -1,6 +1,6 @@
 ---
 description: Show the stored final output for a finished Antigravity job in this repository
-argument-hint: '[job-id] [--head <n>] [--tail <n>] [--json]'
+argument-hint: '[job-id] [--head <n>] [--tail <n>] [--check-locations] [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*)
 ---

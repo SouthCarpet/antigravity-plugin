@@ -2,6 +2,8 @@
  * Output rendering — formats reviews, status, results, and reports as markdown.
  */
 
+import { sanitizeDisplayPath } from "./fs.mjs";
+
 export const JSON_ENVELOPE_VERSION = 1;
 
 /**
@@ -50,6 +52,96 @@ export function createJsonEnvelope(command, fields = {}) {
     ...stableCommandFields,
     details,
   };
+}
+
+/**
+ * Every `details.error.code` value a Task 3 ("Senate R1", 2026-09) envelope
+ * can carry, frozen so docs and tests enumerate the same list this module
+ * builds from — never a second, hand-copied list. A later task
+ * (`--require-complete`, `--show-result`, `--request-id`) adds its own codes
+ * only through {@link createErrorEnvelope}, and should extend this array in
+ * the same change.
+ */
+export const ERROR_CODES = Object.freeze([
+  // no_agy, phase probe
+  "agy_not_found",
+  // failed, phase run
+  "worker_start_failed",
+  "spawn_failed",
+  "agy_denied",
+  "run_failed",
+  // cancelled | auth_required | timeout, phase run (code matches status)
+  "cancelled",
+  "auth_required",
+  "timeout",
+  // invalid_input, phase collect (review only)
+  "invalid_scope",
+  "unknown_base_ref",
+  "review_collection_failed",
+  // invalid_input, phase collect (review only): --require-complete refused
+  // to send an input with a skip or a truncation (Task 5, "Senate R5", 2026-09)
+  "input_incomplete",
+  // invalid_input, phase validate
+  "missing_task_text",
+  "invalid_focus",
+  "missing_image_path",
+  "image_not_found",
+  "unsupported_image_extension",
+  "image_too_large",
+  // invalid_input, phase validate (task/rescue background): --request-id
+  // already claimed by a different request (Senate R12, 2026-09)
+  "request_id_conflict",
+  // invalid_input, phase validate (task --prompt-file / stdin, Senate R13,
+  // 2026-09): the named file or stdin content is over the byte cap, the
+  // named file could not be found or read, or the content is empty or
+  // whitespace-only
+  "prompt_file_too_large",
+  "prompt_file_unreadable",
+  "prompt_file_empty",
+  // state_error, phase state (status/result/cancel)
+  "job_not_found",
+  "job_not_ready",
+  "invalid_job_record",
+  "state_locked",
+  // result <id> on a stored failed job (status stays "failed")
+  "job_failed",
+  // --show-result after a background --wait (Task 7, "Senate R9", 2026-09):
+  // the awaited job settled cancelled, or the wait itself timed out while
+  // the job was still queued/running (status matches, phase "wait")
+  "job_cancelled",
+  "wait_timeout",
+]);
+
+/**
+ * Build the one failure envelope every expected-failure path emits under
+ * `--json` (Task 3, "Senate R1", 2026-09): `answer` is always `null`, and
+ * `error` (`{ code, phase, message }`) is always present under `details`.
+ * `error.message` never carries a token, an OAuth URL, or the full upstream
+ * stderr — callers pass the plugin's own one-line reason.
+ *
+ * Built on {@link createJsonEnvelope}, so it inherits the same field
+ * validation; a later task adds a new `status`/`error.code` pairing only by
+ * calling this helper, never by hand-assembling the shape again.
+ *
+ * @param {string} command
+ * @param {{ status: string, jobId?: string|null,
+ *   error: { code: string, phase: string, message: string },
+ *   details?: object }} fields
+ * @returns {import('./types.mjs').JsonEnvelopeV1}
+ */
+export function createErrorEnvelope(command, { status, jobId = null, error, details = {} } = {}) {
+  if (!error || typeof error !== "object" ||
+      typeof error.code !== "string" || !error.code ||
+      typeof error.phase !== "string" || !error.phase ||
+      typeof error.message !== "string" || !error.message) {
+    throw new TypeError("error envelope requires error.code, error.phase, and error.message");
+  }
+  return createJsonEnvelope(command, {
+    status,
+    jobId,
+    answer: null,
+    details: { ...details, error },
+  });
 }
 
 /**
@@ -197,6 +289,52 @@ function formatPrintTimeoutMarker(job) {
 }
 
 /**
+ * True when at least one listed job's provenance names a model or an effort
+ * (plan 103 T2, "Senate R11", 2026-09) — the gate for the Recent Jobs
+ * table's optional `Model`/`Effort` columns, so a fleet of `review`-only or
+ * legacy jobs (which never carry either) leaves the table unchanged.
+ *
+ * @param {import('./types.mjs').JobIndexEntry[]} jobs
+ * @returns {boolean}
+ */
+function recentJobsShowModelEffort(jobs) {
+  return jobs.some((job) => job.provenance?.model || job.provenance?.effort);
+}
+
+/**
+ * The Recent Jobs table header/divider row, with or without the optional
+ * `Model`/`Effort` columns.
+ *
+ * @param {boolean} showModelEffort
+ * @returns {{ header: string, divider: string }}
+ */
+function recentJobsTableFraming(showModelEffort) {
+  if (!showModelEffort) {
+    return {
+      header: "| Job ID | Kind | Status | Duration | Size | Summary | Follow-up | Denied | Partial |",
+      divider: "|--------|------|--------|----------|------|---------|-----------|--------|---------|",
+    };
+  }
+  return {
+    header: "| Job ID | Kind | Status | Duration | Size | Model | Effort | Summary | Follow-up | Denied | Partial |",
+    divider: "|--------|------|--------|----------|------|-------|--------|---------|-----------|--------|---------|",
+  };
+}
+
+/**
+ * The ` <model> | <effort> |` cell fragment for one Recent Jobs row, or `""`
+ * when the table's optional columns are not shown.
+ *
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {boolean} showModelEffort
+ * @returns {string}
+ */
+function formatModelEffortCells(job, showModelEffort) {
+  if (!showModelEffort) return "";
+  return ` ${job.provenance?.model ?? "-"} | ${job.provenance?.effort ?? "-"} |`;
+}
+
+/**
  * One note line when agy's own print timeout truncated the answer (plan 086
  * T1): used by the single-job `status` view and by `result`. Empty when
  * there is nothing to show.
@@ -247,6 +385,98 @@ export function renderDeniedActionLines(list) {
 }
 
 /**
+ * Markdown lines for a job's `provenance` record (plan 103 T2, "Senate R11",
+ * 2026-09): one "- **Label:** value" line per non-null field, under a
+ * "## Provenance" heading, shared by the single-job status view and by
+ * `result` (appended after the answer, never folded into it). Empty when
+ * there is nothing to show — a legacy record with no `provenance` field, or
+ * `null`.
+ *
+ * `inputHash` (Task 5, "Senate R5", 2026-09) is a separate parameter, not a
+ * `provenance` field: it lives on the job's `request` (`review-input.mjs`'s
+ * `buildReviewInput`), and `provenance` itself is deliberately never
+ * extended with it — this only adds one more line to the same section.
+ *
+ * @param {import('./types.mjs').JobProvenance | null | undefined} provenance
+ * @param {string | null | undefined} [inputHash] `request.inputHash`, when the job carries one
+ * @returns {string[]}
+ */
+export function renderProvenanceLines(provenance, inputHash = null) {
+  const fields = [
+    ["Plugin version", provenance?.pluginVersion],
+    ["agy version", provenance?.agyVersion],
+    ["Model", provenance?.model],
+    ["Effort", provenance?.effort],
+    ["Mode", provenance?.mode],
+    ["Add-dir count", provenance?.addDirCount],
+    ["Requested at", provenance?.requestedAt],
+    ["Input hash", inputHash],
+  ];
+  const shown = fields.filter(([, value]) => value !== null && value !== undefined);
+  if (shown.length === 0) return [];
+  const lines = ["", "## Provenance", ""];
+  for (const [label, value] of shown) {
+    lines.push(`- **${label}:** ${value}`);
+  }
+  return lines;
+}
+
+/**
+ * Markdown for `review --preview` (Task 5, "Senate R5", 2026-09): the exact
+ * included/skipped lists, counts, truncation state and hash
+ * `buildReviewInput` (`review-input.mjs`) already computed, before any agy
+ * call. The one place this text is built, so the markdown and the `--json`
+ * `details` block can never drift onto two different word choices for the
+ * same underlying object. Paths run through {@link sanitizeDisplayPath}
+ * (matching `buildWorkingTreeSummary`'s own file-list lines, git.mjs):
+ * an untracked or diffed file name is repository content, not plugin text.
+ *
+ * @param {import('./types.mjs').ReviewInput} input return value of
+ *   `buildReviewInput`
+ * @returns {string}
+ */
+export function renderReviewPreview(input) {
+  const scopeLine = input.base ? `${input.scope} vs ${input.base}` : input.scope;
+  const lines = [`antigravity:review — preview (scope: ${scopeLine})`, "", "## Included", ""];
+  if (input.included.length === 0) {
+    lines.push("(none)");
+  } else {
+    for (const entry of input.included) {
+      const size = entry.bytes === null ? "" : ` (${entry.bytes} bytes)`;
+      lines.push(`- ${entry.kind} ${sanitizeDisplayPath(entry.path)}${size}`);
+    }
+  }
+  lines.push("", "## Skipped", "");
+  if (input.skipped.length === 0) {
+    lines.push("(none)");
+  } else {
+    for (const entry of input.skipped) {
+      lines.push(`- ${sanitizeDisplayPath(entry.path)} (${entry.reason})`);
+    }
+  }
+  lines.push(
+    "",
+    "## Truncation",
+    "",
+    input.truncated.diff
+      ? `Diff truncated: yes (${input.truncated.droppedBytes} bytes dropped)`
+      : "Diff truncated: no",
+    "",
+    "## Counts",
+    "",
+    `- Included files: ${input.counts.includedFiles}`,
+    `- Skipped files: ${input.counts.skippedFiles}`,
+    `- Diff bytes: ${input.counts.diffBytes}`,
+    `- Untracked bytes: ${input.counts.untrackedBytes}`,
+    "",
+    "## Input hash",
+    "",
+    input.inputHash,
+  );
+  return `${lines.join("\n")}\n`;
+}
+
+/**
  * Render a status snapshot as markdown.
  *
  * @param {{ workspaceRoot: string, config: object,
@@ -283,12 +513,14 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.recent.length > 0) {
     lines.push("## Recent Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Duration | Size | Summary | Follow-up | Denied | Partial |");
-    lines.push("|--------|------|--------|----------|------|---------|-----------|--------|---------|");
+    const showModelEffort = recentJobsShowModelEffort(snapshot.recent);
+    const { header, divider } = recentJobsTableFraming(showModelEffort);
+    lines.push(header);
+    lines.push(divider);
     for (const job of snapshot.recent) {
       const duration = computeElapsedDisplay(job);
       const followUp = job.status === "completed" ? `/antigravity:result ${job.id}` : "-";
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} | ${summaryForTableCell(job.summary)} | ${followUp} | ${formatDeniedMarker(job)} | ${formatPrintTimeoutMarker(job)} |`);
+      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${formatAnswerSize(job)} |${formatModelEffortCells(job, showModelEffort)} ${summaryForTableCell(job.summary)} | ${followUp} | ${formatDeniedMarker(job)} | ${formatPrintTimeoutMarker(job)} |`);
     }
     lines.push("");
   }
@@ -404,6 +636,7 @@ export function renderSingleJobStatus(snapshotOrJob, _options = {}) {
     ...renderJobHeaderLines(job),
     ...renderJobHealthLines(job),
     ...renderJobRuntimeLines(job),
+    ...renderProvenanceLines(job.provenance, job.request?.inputHash ?? null),
     ...renderJobErrorLines(job),
     ...renderPrintTimeoutNote(job.agyPrintTimeout),
     // `job.deniedActions` here is expected to already carry `remedy`
@@ -526,6 +759,28 @@ export function renderSetupReport(report) {
   }
 
   return `${lines.join("\n").trimEnd()}\n`;
+}
+
+/**
+ * Append extra display lines after `text`, one per array entry joined with
+ * newlines, adding a newline first only when `text` does not already end in
+ * one. `[]` returns `text` unchanged. Shared by every path that appends an
+ * optional line or section after the answer without folding it into the
+ * opaque `answer`/`rendered` text: the foreground `--check-locations` line
+ * (Task 14, "Senate R8", 2026-09) is the first `finishForeground` caller to
+ * need this. `result.mjs` keeps its own local `appendSectionLines`, the
+ * same shape, for its several appended sections (denied actions,
+ * print-timeout, findings, provenance) — not merged into this helper, since
+ * that file builds its whole answer outside `finishForeground` entirely.
+ *
+ * @param {string} text
+ * @param {string[]} lines
+ * @returns {string}
+ */
+export function appendRenderedLines(text, lines) {
+  if (lines.length === 0) return text;
+  const separator = text.endsWith("\n") ? "" : "\n";
+  return `${text}${separator}${lines.join("\n")}\n`;
 }
 
 /**

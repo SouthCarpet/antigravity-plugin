@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const BIN = path.resolve(REPO_ROOT, 'bin', 'antigravity.mjs');
-const VERBS = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel'];
+const VERBS = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel', 'doctor'];
 const HELP_TARGETS = [...VERBS, 'update'];
 const PLUGIN_JSON = JSON.parse(
   fs.readFileSync(path.resolve(REPO_ROOT, 'plugin.json'), 'utf8'),
@@ -44,10 +44,19 @@ export async function run(argv, ctx) {
 }
 `;
 
+/**
+ * Spawn the bin with `env` merged over the ambient environment, except for
+ * `AGY_BIN`: this file's tests each control that variable explicitly when
+ * they mean to, so an ambient value (a real path, or a deliberately invalid
+ * one set to prove the suite needs no real `agy`) never leaks into a test
+ * that is not testing `AGY_BIN` itself.
+ */
 function run(args, env = {}) {
+  const merged = { ...process.env, ...env };
+  if (!('AGY_BIN' in env)) delete merged.AGY_BIN;
   return spawnSync(process.execPath, [BIN, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: merged,
   });
 }
 

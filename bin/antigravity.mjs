@@ -17,8 +17,10 @@ const SCRIPT_ROOT_OVERRIDE = process.env.ANTIGRAVITY_SCRIPT_ROOT
 const SCRIPT_ROOT = SCRIPT_ROOT_OVERRIDE ?? resolve(ROOT, 'scripts', 'commands');
 
 const INSTALL_URL = 'https://antigravity.google/download';
-const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel'];
-// Commands that shell out to `agy`. status/result/cancel only read disk state.
+const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel', 'doctor'];
+// Commands that shell out to `agy`. status/result/cancel/doctor only read
+// disk state (doctor also probes agy read-only, but a missing agy is one of
+// its findings, not a preflight failure: it never needs this fast-fail).
 const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
@@ -40,6 +42,19 @@ const COMMAND_HELP = {
     '  --wait                  block until the job finishes\n' +
     '  --continue              resume the last review conversation\n' +
     '  --conversation <id>     resume a specific conversation\n' +
+    '  --model <id>            agy model id for this run\n' +
+    '  --effort <low|medium|high|agy-default>  agy reasoning effort for this run\n' +
+    "  --focus <text>          narrow the review's attention (max 500 chars)\n" +
+    '  --preview               show what would be sent, no agy call (conflicts with\n' +
+    '                          --background, --wait, --continue, --conversation)\n' +
+    '  --require-complete      refuse an incomplete input instead of a warning\n' +
+    '  --show-result           after --wait, print the finished job instead of\n' +
+    '                          the dispatch envelope (needs --wait --background)\n' +
+    '  --findings-json         also return structured findings, checked against\n' +
+    '                          the shipped schema, in details.findings\n' +
+    '  --check-locations       heuristically check each path:line citation the\n' +
+    '                          answer names against the sent diff\'s own hunks;\n' +
+    '                          local only, adds nothing to the agy call\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:
@@ -52,6 +67,10 @@ const COMMAND_HELP = {
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
+    '  --show-result           after --wait, print the finished job instead of\n' +
+    '                          the dispatch envelope (needs --wait --background)\n' +
+    '  --request-id <id>       idempotent dispatch: a repeat of the same request\n' +
+    '                          reports the existing job (needs --background)\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   task:
@@ -65,6 +84,14 @@ const COMMAND_HELP = {
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
+    '  --show-result           after a background --wait, print the finished\n' +
+    '                          job instead of the dispatch envelope (needs --wait)\n' +
+    '  --request-id <id>       idempotent dispatch: a repeat of the same request\n' +
+    '                          reports the existing job (not with --foreground)\n' +
+    '  --prompt-file <path>    read the prompt from a file (UTF-8, 512 KiB max)\n' +
+    '                          instead of a positional prompt; cannot combine\n' +
+    '                          with one. `-` reads stdin to EOF (standalone CLI\n' +
+    '                          only; not available through a host wrapper)\n' +
     '  --json                  emit JSON\n' +
     '  --cwd <path>            override working directory',
   vision:
@@ -73,6 +100,9 @@ const COMMAND_HELP = {
     'Flags:\n' +
     '  --prompt <text>         question to ask about the image(s)\n' +
     '  --model <id>            agy model id (default gemini-3.6-flash-high)\n' +
+    '  --expect <text>         repeatable; check this text against the answer\'s\n' +
+    '                          `## Transcription` section after a completed run\n' +
+    '                          (substring check, not a truth check of the image)\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory\n\n' +
     'Foreground only — no --background/--wait. Requires `setup` to have\n' +
@@ -83,6 +113,9 @@ const COMMAND_HELP = {
     'Flags:\n' +
     '  --wait                  block until terminal state\n' +
     '  --timeout-ms <ms>       override wait timeout (default 15m)\n' +
+    '  --exit-status           with a job id and --wait, exit by that job\'s\n' +
+    '                          own outcome (0/1/2, or 3 on wait timeout)\n' +
+    '                          instead of the usual 0\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   result:
@@ -91,6 +124,10 @@ const COMMAND_HELP = {
     'Flags:\n' +
     '  --head <n>             show the first n lines\n' +
     '  --tail <n>             show the last n lines\n' +
+    '  --check-locations      heuristically check each path:line citation the\n' +
+    '                         stored answer names against the job\'s own stored\n' +
+    '                         request.hunks; works on a job reviewed without\n' +
+    '                         the flag\n' +
     '  --json                 emit JSON instead of markdown\n' +
     '  --cwd <path>           override working directory\n' +
     'Both --head and --tail may be given; markdown output notes a cut.\n' +
@@ -99,6 +136,16 @@ const COMMAND_HELP = {
     'antigravity-plugin cancel — terminate an active background job.\n\n' +
     'Usage: antigravity-plugin cancel [<job-id>] [flags]\n\n' +
     'Flags: --json, --cwd <path>',
+  doctor:
+    'antigravity-plugin doctor: read-only environment and configuration check.\n\n' +
+    'Usage: antigravity-plugin doctor [flags]\n\n' +
+    'Flags:\n' +
+    '  --json                  emit JSON instead of markdown\n' +
+    '  --cwd <path>            override working directory\n\n' +
+    'Checks Node version, the agy binary and version, which forwarded flags\n' +
+    'agy --help lists, the vision configuration, and the job-state root.\n' +
+    'Never runs OAuth, never calls a model, never writes a file, never opens\n' +
+    'the network. Exit 0 for ok or warnings, 1 for problems.',
   update:
     'antigravity-plugin update — check npm for a newer plugin version.\n\n' +
     'Usage: antigravity-plugin update [--apply] [--json]\n\n' +
@@ -280,6 +327,7 @@ function printHelp(stream = process.stdout) {
     '  status     List active/recent delegation jobs',
     '  result     Fetch the result of a finished job',
     '  cancel     Cancel a running job',
+    '  doctor     Read-only environment and configuration check',
     '',
     'Standalone only (not a runtime verb):',
     '  update     Check npm for a newer version; --apply runs each host\'s update command',

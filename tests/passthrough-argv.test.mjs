@@ -13,7 +13,7 @@
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -385,6 +385,95 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     // The prompt text is not parsed as a flag: agy still gets the plugin's
     // own default `--effort medium` (plan 086 T2), never the prompt's "high".
     assert.deepEqual(argvOf(stored.result.stderr).slice(0, 2), ['--effort', 'medium']);
+  });
+});
+
+describe('review --model/--effort reach agy argv; review has no plugin-side effort default (Task 4, "Senate R4")', () => {
+  const DEFAULT_BUDGET_ARGV_TAIL = [
+    '--print-timeout', '1860s',
+    '--disable-slash-commands',
+    '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+  ];
+  const GIT_ENV = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'test', GIT_AUTHOR_EMAIL: 't@example.com',
+    GIT_COMMITTER_NAME: 'test', GIT_COMMITTER_EMAIL: 't@example.com',
+  };
+
+  /** An untracked file is reviewable content (docs/COMMANDS.md), so this
+   * needs no commit — just a git repo with one new file. */
+  function initReviewableRepo(dir) {
+    execSync('git init -q', { cwd: dir, stdio: 'ignore', env: GIT_ENV });
+    execSync('git commit --allow-empty -q -m init', { cwd: dir, stdio: 'ignore', env: GIT_ENV });
+    fs.writeFileSync(path.join(dir, 'brand-new.txt'), 'never committed\n');
+  }
+
+  it('review with no flags: argv is today\'s argv, byte-identical (neither --model nor --effort)', () => {
+    const { work, data } = freshDirs();
+    initReviewableRepo(work);
+    const res = runVerb(['review'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), [...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('review --model X alone: --model X, no --effort', () => {
+    const { work, data } = freshDirs();
+    initReviewableRepo(work);
+    const res = runVerb(['review', '--model', 'gemini-x'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--model', 'gemini-x', ...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('review --effort high alone: --effort high, no --model', () => {
+    const { work, data } = freshDirs();
+    initReviewableRepo(work);
+    const res = runVerb(['review', '--effort', 'high'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--effort', 'high', ...DEFAULT_BUDGET_ARGV_TAIL]);
+  });
+
+  it('review --model X --effort E: both, --model before --effort', () => {
+    const { work, data } = freshDirs();
+    initReviewableRepo(work);
+    const res = runVerb(['review', '--model', 'gemini-x', '--effort', 'low'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(
+      argvOf(res.stderr),
+      ['--model', 'gemini-x', '--effort', 'low', ...DEFAULT_BUDGET_ARGV_TAIL],
+    );
+  });
+
+  it('review --effort agy-default sends no --effort flag, same as omitting it, but stores the sentinel verbatim', () => {
+    const { work, data } = freshDirs();
+    initReviewableRepo(work);
+    const env = makeEnv(data);
+    const res = runVerb(['review', '--effort', 'agy-default', '--json'], env, work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), [...DEFAULT_BUDGET_ARGV_TAIL]);
+    // Controller ruling on Task 4 review: review stores whatever the caller
+    // gave, exactly like task/rescue do for their own explicit values — only
+    // the argv translation (agyEffortArg) collapses the sentinel to no flag.
+    const { jobId } = JSON.parse(res.stdout);
+    const records = fs.readdirSync(data, { recursive: true }).filter((file) => file.endsWith(jobId + '.json'));
+    assert.equal(records.length, 1);
+    const jobFile = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
+    assert.equal(jobFile.request.effort, 'agy-default');
+  });
+
+  it('review --background --model: the worker argv carries --model the same way', () => {
+    const { work, data } = freshDirs();
+    initReviewableRepo(work);
+    const env = makeEnv(data);
+    const queued = runVerb(['review', '--model', 'gemini-x', '--background', '--wait', '--json'], env, work);
+    assert.equal(queued.status, 1, queued.stderr); // the fake exits 1, so the job fails
+    const { jobId } = JSON.parse(queued.stdout);
+    const stored = runVerb(['result', jobId, '--json'], env, work);
+    assert.equal(stored.status, 1, stored.stderr); // failed job → 1, payload still emitted
+    const payload = JSON.parse(stored.stdout);
+    assert.deepEqual(
+      argvOf(payload.details.result.stderr),
+      ['--model', 'gemini-x', ...DEFAULT_BUDGET_ARGV_TAIL],
+    );
   });
 });
 

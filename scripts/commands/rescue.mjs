@@ -17,6 +17,14 @@
  *                         --model and no --effort no flag is sent (the model
  *                         id decides); agy-default sends no --effort flag at
  *                         all
+ *   --show-result         after a background --wait completes, print the
+ *                         finished job's own result instead of the dispatch
+ *                         envelope (requires --wait and --background)
+ *   --request-id <id>     idempotent background dispatch (requires
+ *                         --background): a repeat of the same request with
+ *                         the same id reports the existing job instead of
+ *                         starting a new one; the same id with a different
+ *                         request is refused
  *   --json                emit JSON instead of markdown
  */
 
@@ -27,16 +35,22 @@ import {
   AGY_MODES,
   EFFORT_CHOICES,
   agyModeArgs,
-  agyUnavailableLine,
-  reportQueuedJob,
+  probeAgyForVerb,
+  rememberAgyVersion,
+  reportAgyUnavailable,
+  reportArgsValidationError,
+  reportMissingTaskText,
+  reportBackgroundStart,
   resolveRequestEffort,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
-  waitAndExit,
+  validateShowResultDependency,
+  waitAndReport,
   waitForJob,
 } from "../lib/job-helpers.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+import { validateRequestIdOption } from "../lib/request-id.mjs";
 
 /**
  * Resolve conversation mode: `--conversation` wins; then `--resume`/
@@ -51,7 +65,7 @@ function resolveRescueMode(options) {
   return { mode: "print", conversationId: undefined };
 }
 
-async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, json }) {
+async function runRescueForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "rescue",
@@ -64,6 +78,7 @@ async function runRescueForeground({ workspaceRoot, title, prompt, mode, convers
     effort,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
     onText: (delta) => process.stderr.write(delta),
   });
@@ -71,8 +86,8 @@ async function runRescueForeground({ workspaceRoot, title, prompt, mode, convers
   return runForegroundWithRetryPrompt("rescue", runOnce, { json });
 }
 
-async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, options, ctx }) {
-  const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
+async function runRescueBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, options, ctx }) {
+  const started = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "rescue",
     title,
@@ -82,12 +97,17 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
     addDirs,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { mode, addDirs, model, effort },
+    requestId: options["request-id"] ?? null,
   });
-  const queuedExit = reportQueuedJob("rescue", job, options);
-  if (queuedExit !== null) return queuedExit;
+  const { exit, jobId } = reportBackgroundStart("rescue", started, options);
+  if (exit !== null) return exit;
   if (!options.wait) return 0;
-  return waitAndExit("rescue", workspaceRoot, job.id, ctx.waitForJob ?? waitForJob);
+  return waitAndReport("rescue", workspaceRoot, jobId, ctx.waitForJob ?? waitForJob, {
+    json: Boolean(options.json),
+    showResult: Boolean(options["show-result"]),
+  });
 }
 
 /**
@@ -98,8 +118,8 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "model", "cwd", "add-dir", "mode", "effort"],
-    booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json"],
+    valueOptions: ["conversation", "model", "cwd", "add-dir", "mode", "effort", "request-id"],
+    booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
@@ -109,17 +129,20 @@ export async function run(argv = [], ctx = {}) {
       ["fresh", "continue"],
       ["fresh", "conversation"],
     ],
+    validate: (options) => validateRequestIdOption(options, "rescue"),
   }, "rescue");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
+
+  const showResultError = validateShowResultDependency(options, "rescue");
+  if (showResultError) return reportArgsValidationError("rescue", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
   const userPrompt = positionals.join(" ").trim();
   if (!userPrompt && !options.resume && !options.continue && !options.conversation) {
-    process.stderr.write("antigravity:rescue — no task text provided. Pass a prompt or --conversation <id>.\n");
-    return 1;
+    return reportMissingTaskText("rescue", Boolean(options.json));
   }
 
   const { mode, conversationId } = resolveRescueMode(options);
@@ -132,13 +155,11 @@ export async function run(argv = [], ctx = {}) {
   const prompt = buildRescuePrompt(userPrompt || "(continue)");
   const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
-  const unavailable = await agyUnavailableLine("rescue");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
-    return 1;
-  }
+  const probed = await probeAgyForVerb("rescue");
+  if (probed.line) return reportAgyUnavailable("rescue", probed.line, options.json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
 
   if (options.background) {
     return runRescueBackground({ ...runArgs, options, ctx });

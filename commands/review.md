@@ -1,6 +1,6 @@
 ---
 description: Review uncommitted changes (or a branch diff) with Google Antigravity (agy)
-argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--continue] [--conversation <id>] [--json]'
+argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--background] [--wait] [--show-result] [--continue] [--conversation <id>] [--model <id>] [--effort <low|medium|high|agy-default>] [--focus <text>] [--preview] [--require-complete] [--findings-json] [--check-locations] [--json]'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -22,8 +22,16 @@ Flags:
 - `--scope <auto|working-tree|branch>` overrides the auto-detection. Default `auto`.
 - `--background` fork a worker, return immediately. Use `/antigravity:status` to poll.
 - `--wait` combined with `--background`, block until completion.
+- `--show-result` requires both `--wait` and `--background`; missing either is a validation error. After the wait, print the finished job's own result (its answer, or its failure/cancellation) instead of the queued dispatch notice; that notice moves to stderr instead, in both plain and `--json` output.
 - `--continue` resume the most recent review conversation.
 - `--conversation <id>` resume a specific conversation by id.
+- `--model <id>` selects the agy model for this run. Forward it through unchanged when present.
+- `--effort <low|medium|high|agy-default>` selects agy's reasoning effort for this run. Unlike `rescue`/`task`, review has no plugin default: with neither `--effort` nor `--model`, no `--effort` flag is sent. Forward an explicit `low`, `medium`, or `high` verbatim; `agy-default` sends no `--effort` flag, same as omitting it.
+- `--focus <text>` narrows the review's attention. Optional; never infer it from the diff or from repository content. Only forward text the user actually typed. Trimmed; empty, whitespace-only, or over 500 characters is a validation error.
+- `--preview` shows what would be sent (included files, skipped files with reasons, truncation state, counts, hash), without calling agy or changing anything. Cannot combine with `--background`, `--wait`, `--continue`, or `--conversation`.
+- `--require-complete` refuses to send a review whose input skipped a file or cut the diff, instead of sending it with a warning.
+- `--findings-json` also asks agy for structured findings. The plugin checks them against its own schema and returns them in `details.findings` (with `details.findingsStatus`: `valid`, `invalid`, or `missing`). The answer text stays agy's raw response, which is JSON text in this mode. Forward the flag only when the user asked for it.
+- `--check-locations` heuristically checks each `path:line` citation the answer names against the diff this run actually sent. Local only: no extra agy call, no argv change. Reports `details.locationCheck` and one summary line, appended after the answer. A citation outside the diff is not by itself a model error. Reviewers legitimately cite context lines and related files. `result <job-id> --check-locations` runs the same check later, even on a job reviewed without this flag.
 - `--json` emit structured JSON instead of the rendered markdown review.
 
 Denied actions:

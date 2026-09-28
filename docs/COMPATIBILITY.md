@@ -6,8 +6,8 @@ the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
 is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 2.0.2 is this package's version number. agy 1.1.15 to 1.2.11 is the
-tested range of Google's Antigravity CLI, with 1.2.11 as the newest measured
+Plugin 2.1.0 is this package's version number. agy 1.1.15 to 1.2.12 is the
+tested range of Google's Antigravity CLI, with 1.2.12 as the newest measured
 version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.
 
@@ -18,7 +18,7 @@ independently. A new agy release does not change the plugin version.
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.2.11; newest measured 1.2.11. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.2.12; newest measured 1.2.12. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -47,6 +47,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.2.1 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel`. `setup` was not run live. | 2026-09-11 |
 | 1.2.7 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-19 |
 | 1.2.11 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-25 |
+| 1.2.12 | `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and smoke-only measurement. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12. See the [structured output flag](#structured-output-flag) probe. | 2026-09-27 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -57,13 +58,15 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.2.11, on 2026-09-25, from commit
-`e255aba` (`probe-task-foreground-json.txt`). The 1.2.11 rows cover `task`,
+The newest version measured live is agy 1.2.12, on 2026-09-27, from commit
+`9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
+`probe-background-lifecycle.txt`, `probe-status-list.txt`). The 1.2.12 row covers smoke-only measurement: `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and the structured output flag probe. The table also retains the saved
+transcripts for earlier versions. The 1.2.11 rows cover `task`,
 `rescue`, `review`, `vision`, `status`, `result`, and `cancel`
 (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`,
 `probe-review-json.txt`, `probe-vision-json.txt`,
 `probe-background-lifecycle.txt`). The table also retains the saved
-transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions.
+transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions except 1.2.12.
 
 | Verb | Flags | agy | Date | Result | Transcript |
 |---|---|---|---|---|---|
@@ -144,9 +147,9 @@ prompt answers this: it tells the model to open exactly that path with agy's
 every run and a 790-byte image was offloaded in some runs, so there is no
 size limit you can depend on.
 
-agy is a real host for discovery and lifecycle: `agy plugin install <path-to-clone>`,
+agy is a real host for discovery and lifecycle: `agy plugin install <path>`,
 `list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no
-`plugin run` subcommand. After install, the eight verbs are reachable from an
+`plugin run` subcommand. After install, the nine verbs are reachable from an
 interactive agy TUI as `/antigravity:<verb>` (command markdown converted to
 skills) and from the standalone CLI. The TUI wrappers locate the copied runtime
 in Node: `CLAUDE_PLUGIN_ROOT` when that is set and non-empty, otherwise
@@ -158,16 +161,29 @@ run or does not succeed, they
 instruct the reading model to print the error and stop rather than perform the
 task itself; `npx @southcarpet/antigravity-plugin <verb>` is the fallback that
 always works. agy stores its own copy of the tree, so an upgrade takes effect
-in the TUI only after `agy plugin install <path-to-clone>` is re-run. Host
+in the TUI only after `agy plugin install <path>` is re-run. Host
 installers and host-owned invocation wrappers can evolve independently. The
-promise is that the four surfaces above reach the same eight runtime verbs and
+promise is that the four surfaces above reach the same nine runtime verbs and
 accept the documented arguments when the host can load this plugin.
+
+`agy plugin install <path>` copies the directory it is pointed at; it does not
+read `package.json` `files`. `scripts/pack-for-agy.mjs` packs this checkout
+the same way `npm publish` would, extracts that tarball into a temporary
+directory, and prints the exact `agy plugin install <dir>` command for it, so
+the installed copy holds the same files an npm install would hold, not the
+whole working tree. A hash-guarded isolated run (fresh `HOME`/`USERPROFILE`/
+`APPDATA`/`LOCALAPPDATA`, real `~/.gemini` hashed before and after every step)
+confirmed on 2026-09-27 that `agy plugin install`, `plugin list`,
+`plugin validate`, and `plugin uninstall` against that packed copy never
+touched the real `~/.gemini` store on agy 1.2.12: verified, transcript
+`probe-plugin-install-pack.txt`.
 
 ## Public command surface
 
 The public verbs are exactly:
 
-`setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, and `cancel`.
+`setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`,
+and `doctor`.
 
 Their positional arguments, flags, defaults, conflicts, and foreground versus
 background behavior are defined in [COMMANDS.md](./COMMANDS.md). Verb names,
@@ -175,8 +191,8 @@ documented flag names, documented positional meanings, and documented defaults
 are stable through 2.x subject to the deprecation and emergency rules below.
 
 The standalone dispatcher's `help`, `-h`/`--help`, and `-v`/`--version` entry
-points are also public. They are dispatcher conveniences, not ninth and tenth
-runtime verbs. Per-command help interception is guaranteed only through the
+points are also public. They are dispatcher conveniences, not tenth and
+eleventh runtime verbs. Per-command help interception is guaranteed only through the
 standalone dispatcher. `update` (from 1.1.0) is a third convenience in the
 same carve-out: it is reachable only through the standalone dispatcher
 (`antigravity-plugin update`, `npx @southcarpet/antigravity-plugin update`,
@@ -201,9 +217,10 @@ has command-specific meanings, and this contract preserves that reality.
 
 | Exit status | Current contract |
 |---|---|
-| `0` | The command itself succeeded. For a background launch, this means the job was queued, not that agy completed it. `status --wait` also returns 0 after its timeout and when the observed job ended failed or cancelled, because status retrieval itself succeeded. |
-| `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. |
-| `2` | A cancelled agy outcome from `review`, `rescue`, `task`, or `vision`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. It is therefore not a global “cancelled” code. |
+| `0` | The command itself succeeded. For a background launch, this means the job was queued, not that agy completed it; with `--request-id`, it can also mean that an existing job was found for the same request. `status --wait` also returns 0 after its timeout and when the observed job ended failed or cancelled, because status retrieval itself succeeded (unless `--exit-status` is given; see the `3` row). |
+| `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. `status --exit-status` uses 1 for a `failed` waited job. |
+| `2` | A cancelled agy outcome from `review`, `rescue`, `task`, or `vision`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. `status --exit-status` uses 2 for a `cancelled` waited job. It is therefore not a global “cancelled” code. |
+| `3` | `status <id> --wait --exit-status` only (added 2026-09): the wait's own deadline passed while the job was still `queued`/`running`. No other command uses this value. |
 | `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy. |
 | other nonzero | `setup` passes through the exit status of its interactive agy OAuth probe. No meaning beyond “setup failed” is promised for that upstream value. |
 
@@ -220,6 +237,19 @@ standalone dispatcher return 1.
 No stronger exit-code taxonomy is implied. In particular, callers must not
 interpret every 2 as cancellation. See [COMMANDS.md](./COMMANDS.md) for the
 per-verb details.
+
+The opt-in exception (added 2026-09): passing `--exit-status` alongside a
+job reference and `--wait` on `status` (`status <id> --wait --exit-status`)
+makes the exit code report that job's own outcome instead of the plain
+retrieval-succeeded `0` above: `0` completed, `1` failed, `2` cancelled, or
+`3` when the wait's own deadline passes first with the job still
+`queued`/`running` (with one added stderr line naming the id and its live
+status). `--exit-status` requires both the job reference and `--wait`;
+missing either is refused before any job lookup, stderr only, exit 1.
+Markdown and `--json` output are unchanged by this flag in every case; only
+the exit code, and, on the timeout outcome, that one stderr line, differ
+from a call without it. See
+[`docs/COMMANDS.md`](./COMMANDS.md#status) for the full table.
 
 ## Output contract
 
@@ -249,10 +279,10 @@ fields in envelope version 1:
 | Field | 2.x contract |
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
-| `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, or `cancel`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; an empty review is `no_changes`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. |
+| `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
-| `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. |
+| `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 2.x; consumers must tolerate additions, removals, and changes within it. |
 
 Consumers must tolerate additive top-level fields. `vision` additionally
@@ -270,16 +300,103 @@ untracked snippets) emits an envelope with `status: "no_changes"`,
 `jobId: null`, and `answer: null`. These make both previously exceptional
 stdout streams valid single JSON documents.
 
-Errors that occur before a normal output path still produce diagnostics on
-stderr and no stdout body. `--json` is not a JSON error-envelope guarantee.
+The opt-in exception (added 2026-09): passing `--show-result`
+alongside `--wait` on a background dispatch (`review --background`, `rescue
+--background`, or background-default `task`) drops the dispatch envelope
+entirely: dispatch-time stdout stays empty, and the queued notice moves to
+stderr as `Background <verb> started: <jobId>`, in text mode and under
+`--json` alike. It then reports the awaited job's own outcome instead: a
+`completed` job's stored answer and `result <jobId> --json`'s own `details`
+shape; a `failed` or `cancelled` job as the matching error envelope
+(`job_failed`/`job_cancelled`); or, if the wait's own deadline passes first,
+`wait_timeout` with the job's still-live `status` (`"queued"` or
+`"running"`) and no completion ever reported for that call. `--show-result`
+requires `--wait` (and, on `review`/`rescue`, `--background` too; `task`'s
+`--foreground` has no `--wait` semantics and fails the same check). See
+[`docs/COMMANDS.md`](./COMMANDS.md#--show-result-all-three-verbs) for the
+full per-outcome contract.
+
+A parser error (an unknown flag, a missing value, a conflicting pair) happens
+before `--json` is even known, so it is unchanged: stderr only, no stdout
+body, whatever flags follow it.
+
+Once `--json` is accepted, an expected failure on a known path (a validation
+error, a missing `agy` binary, a run that did not complete, a job reference
+or a stored job record that cannot be resolved) also emits exactly one
+version-1 envelope: `answer` is `null`, and `details.error` carries `{ code,
+phase, message }`. `message` is the plugin's own one-line reason; it never
+carries a token, an OAuth URL, or the full upstream stderr. The human-
+readable line stays on stderr, unchanged, on every one of these paths.
 Therefore the precise stream promise is: if `--json` writes any stdout, that
 stdout is exactly one version-1 envelope and contains no text before or after
-it.
+it, on success or on failure. A script that used to treat any stdout as
+success must now read `status` (and, on a failure, `details.error.code`).
+
+`status` values a `details.error` envelope can carry:
+
+- `failed`: the run did not complete, including a headless auto-denial that
+  starved the answer
+- `cancelled`: the run was cancelled
+- `auth_required`: Antigravity needs the OAuth flow repeated
+- `timeout`: the run did not finish before its execution budget
+- `no_agy`: the `agy` binary could not be found or spawned
+- `invalid_input`: the caller's own input failed validation
+- `state_error`: a job reference or a stored job record could not be
+  resolved
+- `queued`/`running`: `--show-result`'s own wait timed out while the job was
+  still live; the job's own current status, not a new status word
+
+`details.error.code` values:
+
+- `agy_not_found` (`no_agy`, phase `probe`)
+- `worker_start_failed` (`failed`, phase `run`; a background worker never started)
+- `spawn_failed`, `agy_denied`, `run_failed` (`failed`, phase `run`; a
+  foreground run that spawned but did not complete: a process that never
+  started, a headless auto-denial that starved the answer, or anything else)
+- `cancelled`, `auth_required`, `timeout` (matching `status`, phase `run`)
+- `invalid_scope`, `unknown_base_ref`, `review_collection_failed`
+  (`invalid_input`, phase `collect`; `review` only)
+- `input_incomplete` (`invalid_input`, phase `collect`; `review` only,
+  `--require-complete` refusing an input with a skipped file or a truncated
+  diff; `details.skipped` and `details.truncated` carry the same lists
+  `--preview` would have shown)
+- `missing_task_text` (`invalid_input`, phase `validate`; `task`/`rescue`)
+- `request_id_conflict` (`invalid_input`, phase `validate`; `task`/`rescue`
+  background dispatch whose `--request-id` another request already uses;
+  `details.existingJobId` names that job, `jobId` is `null`; added 2026-09)
+- `prompt_file_too_large`, `prompt_file_unreadable`, `prompt_file_empty`
+  (`invalid_input`, phase `validate`; `task`'s `--prompt-file`/stdin source
+  is over the byte cap, could not be found or read, or is empty/
+  whitespace-only; added 2026-09). Combining `--prompt-file` with a
+  positional prompt, and `--prompt-file -` outside the standalone CLI, are
+  argument errors instead: stderr only, exit 1, no envelope.
+- `invalid_focus` (`invalid_input`, phase `validate`; `review` only, for an
+  empty/whitespace-only or over-500-character `--focus`)
+- `missing_image_path`, `image_not_found`, `unsupported_image_extension`,
+  `image_too_large` (`invalid_input`, phase `validate`; `vision` only)
+- `job_not_found`, `job_not_ready`, `invalid_job_record`, `state_locked`
+  (`state_error`, phase `state`; `status`/`result`/`cancel`)
+- `job_failed` (`result <id>` on a stored failed job: `status` stays
+  `"failed"` and the answer stays whatever was stored; this code names why;
+  `--show-result` reuses the same code for its own awaited job ending
+  `failed`, phase `run`)
+- `job_cancelled` (`--show-result`'s own awaited job ending `cancelled`,
+  phase `run`; added 2026-09)
+- `wait_timeout` (`--show-result`'s own wait timing out while the job is
+  still `queued`/`running`, phase `wait`; added 2026-09)
+
+Quota exhaustion is not yet classified into its own `status`/`error.code`
+pair. A run that fails on a provider quota limit still reports as the
+generic `failed` path above.
 
 ### Usage trailer
 
-On a successful `vision`, and when `result` reads a stored result with measured
-usage, the command writes this exact newline-terminated trailer to stderr:
+On a successful `review`, `rescue`, `task`, or `vision` (foreground, or an
+awaited `--wait` background run), and when `result` reads a stored result
+with measured usage, the command writes this exact newline-terminated
+trailer to stderr. Before 2026-09 only `vision` and `result` did this;
+`review`, `rescue`, and `task` now do the same whenever agy reported
+measured usage for that run.
 
 ```text
 usage: total=<N> in=<N> out=<N>
@@ -549,6 +666,15 @@ The `state.json.corrupt-*` sibling is additive and appears only when
 kept while the plugin rebuilds `state.json` from valid `jobs/*.json` records;
 the persistent state and job locations themselves do not move.
 
+`state.json` can hold a `requestIds` object (additive, 2026-09):
+`{ "<request-id>": { "jobId", "fingerprint", "createdAt" } }`. It is
+written only after a background job was started with `--request-id` (see
+[`--request-id`](./COMMANDS.md#--request-id-task-and-rescue)). A
+`state.json` without it reads as an empty map. An entry is removed when the
+history limit drops its job. When `state.json` is rebuilt from
+`jobs/*.json`, the map is rebuilt from the job files whose stored request
+has both `requestId` and `requestFingerprint`.
+
 The state root is selected from the first non-empty variable in this exact
 order:
 
@@ -567,6 +693,8 @@ workspace lock directories live under
 If a 2.x release moves or changes persistent state, it must preserve access to
 existing jobs, including jobs written by 1.x, through automatic migration or a
 compatibility read path.
+The `requestIds` map follows this rule: an index without it reads as an
+empty map, and a rebuilt index recreates it from the job files.
 It must not silently orphan existing state. A manual migration may be required
 only when automatic migration cannot be made safe, and must be documented in
 the release notes before the new location becomes the default.
@@ -617,8 +745,9 @@ meaning:
   --effort flag`).
   agy applies the level carried by a variant id such as
   `gemini-3.1-pro-high`, and rejects a base id that needs one
-  (`raw-base-gemini-3.1-pro-no-effort.txt`). `review` and `vision` have no
-  `--effort` flag and never send one. agy 1.2.11 says it improved reasoning
+  (`raw-base-gemini-3.1-pro-no-effort.txt`). `vision` has no `--effort` flag
+  and never sends one (`review` gained one in a later additive change; see
+  below). agy 1.2.11 says it improved reasoning
   effort levels for models with different support
   (`agy-changelog-1.2.11.txt`). Raw probes establish these rules:
   - A variant id accepts no `--effort` or only its own level
@@ -663,8 +792,9 @@ meaning:
   user's own agy configuration decides, and the run is therefore not
   reproducible across machines. That is the same argv shape releases through
   1.3.0 had when `--effort` was absent. It is an opt-in value, not the
-  default. `review` and `vision` still have no `--effort` flag. Stored
-  `request.effort` keeps `"agy-default"` verbatim; the background worker's
+  default. `vision` still has no `--effort` flag (`review` gained one in a
+  later additive change; see below). Stored `request.effort` keeps
+  `"agy-default"` verbatim on `task`/`rescue`; the background worker's
   revalidation accepts it.
 - **agy 1.2.1 vision MCP schema:** `scripts/mcp/vision-server.mjs`'s
   `view_image` tool now declares `additionalProperties: false` on its input
@@ -696,8 +826,57 @@ meaning:
   `--effort` nor `--model`; `agy-default` when the caller passed `--model` and
   no `--effort` (since 2.0.2); the explicit value otherwise.
   `task`/`rescue` records written before 2.0.0 have no `request.effort`
-  field; `review`/`vision` records never do. The background worker revalidates the
-  stored value and fails the job before starting agy on an unknown one.
+  field; `vision` records never do. `review` records carry `request.effort`
+  only when the caller gave one, and store the given value verbatim,
+  including the `agy-default` sentinel itself (see below). This is the same
+  "store what the caller gave" rule `task`/`rescue` already follow for their
+  own explicit values. The background worker revalidates the stored value and
+  fails the job before starting agy on an unknown one.
+- `--model <id>`, `--effort <low|medium|high|agy-default>`, and
+  `--focus <text>` on `review`, forwarded on both the foreground and the
+  background path. Unlike `task`/`rescue`,
+  `review` has no plugin-side effort default: with neither flag given, no
+  `--effort` reaches agy, unchanged from before this addition. An explicit
+  value, including `agy-default`, is stored verbatim on `request.effort` and
+  reported the same way in `provenance.effort`
+  (`scripts/lib/job-helpers.mjs`, `resolveReviewEffort`); only the argv sent
+  to agy collapses `agy-default` to no `--effort` flag at all, via the same
+  `agyEffortArg` translation `task`/`rescue` already use
+  (`tests/passthrough-argv.test.mjs`'s `review --model/--effort reach agy
+  argv` block asserts the complete argv, and the stored `request.effort`,
+  for every combination). `--focus` is
+  trimmed and capped at 500 characters (`MAX_REVIEW_FOCUS_CHARS`,
+  `resolveReviewFocus`); an empty, whitespace-only, or over-cap value is an
+  `invalid_focus` validation error, exit 1. A given focus adds a "## Reviewer
+  focus (caller instruction)" section to the prompt immediately before
+  "## Output" (`buildReviewPrompt`, `prompt-templates.mjs`), is stored
+  verbatim as `request.focus`, and appends ` focus: <first 40 characters>`
+  to the job title. `--focus` is never derived from the collected diff or
+  any other repository content.
+- `--preview` and `--require-complete` on `review`, plus stored
+  `request.inputHash`, `request.inputCounts`, `request.headSha` on every
+  `review` job (foreground and background).
+  `buildReviewInput` (`scripts/lib/review-input.mjs`) is the single
+  selection function every path (`--preview`, foreground, background) calls:
+  it returns the included files (`{ path, kind: "diff" | "untracked",
+  bytes }`), the skipped files (`{ path, reason }`, the same reasons
+  `readUntrackedFiles` already produces), whether the diff was cut by the
+  196 KB cap, the file/byte counts, and `sha256:<hex>` of the exact prompt
+  string. `--preview` prints all of that under `details` with
+  `status: "preview"` (see the `status` field row above) and calls no agy
+  probe. `--require-complete` refuses to send an input that skipped a file
+  or cut the diff: `status: "invalid_input"`,
+  `error.code: "input_incomplete"`, phase `collect`, with
+  `details.skipped`/`details.truncated`, before any agy probe. Without
+  `--require-complete`, the same condition instead prints one warning line
+  on stderr before sending. `request.inputHash`/`request.inputCounts` are
+  additive stored fields, never a second copy of the diff or the prompt
+  (the background job already stores `request.prompt`). `provenance` itself
+  is unchanged; the input hash is read from `request.inputHash`, shown as
+  "Input hash: sha256:..." in the "## Provenance" markdown section and at
+  `details.job.request.inputHash` (`status <id> --json`) /
+  `details.inputHash` (`result <id> --json`). See `docs/COMMANDS.md`
+  `review` for the exact flag/envelope shapes.
 - Job state leaf keyed by the resolved (realpath) workspace path. The
   legacy logical-path leaf is still read while the realpath leaf does not
   exist. The background worker receives the caller's exact workspace
@@ -758,6 +937,181 @@ meaning:
   invocation. It never offers to grant a permission and never writes a
   settings file. `docs/COMMANDS.md`'s "Denied runs" section has the exact
   conditions and the two-choice contract.
+- `provenance` (additive, 2026-09): a top-level object on
+  every job record and index entry (`{ pluginVersion, agyVersion, model,
+  effort, mode, addDirCount, requestedAt }`), set once at job creation. Never
+  carries the prompt, workspace path, image paths, `extraArgs` content, or a
+  tool list. `--json`: `details.job.provenance` on `status <id>` and per job
+  in `status --json`'s job lists (it lives on the index entry); `details.provenance`
+  on `result <id> --json`. `status <id>`/`result <id>` markdown each add a
+  "## Provenance" section, one line per non-null field. The Recent Jobs table
+  (`status`) adds `Model`/`Effort` columns only when at least one listed
+  job's provenance names either one. `null`/absent on a job record written
+  before this field existed.
+- `reportedModel` (additive, 2026-09): the model agy's own
+  `result` event named, when that event carries a model field, on the stored
+  result. Measured against agy 1.2.11 and 1.2.12, the `result` event never
+  carries one, so this is always `null` today; it is never derived from the
+  model the caller requested. `--json`: `details.job.result.reportedModel` on
+  `status <id>` and `details.reportedModel` on `result <id> --json`.
+  `null`/absent on a legacy record.
+- **`doctor`** (additive, 2026-09): a ninth, read-only verb
+  (`scripts/commands/doctor.mjs`). It never runs OAuth, never calls a
+  model, never writes a file, and never opens the network. It reports five
+  checks: Node version against `package.json`'s `engines.node`; the agy
+  binary, its version, and that version's classification against this
+  plugin's measured range (`verified`, `beyond_measured`, `unmeasured`,
+  `incompatible`, or `missing`); for each flag this plugin forwards to agy,
+  whether `agy --help` lists it (`listed`, never proof the flag still
+  works, or `not_listed`); the vision configuration
+  (`registered`/`absent`/`unreadable`); and the job-state root (source,
+  directory, whether it exists, and whether this workspace is on a legacy
+  leaf). Markdown output ends with `doctor: <n> ok, <m> warnings, <k>
+  problems`. `--json`: `status: "ok" | "warnings" | "problems"`, `jobId:
+  null`, `answer: null`, `details: { node, agy: { path, version,
+  classification }, flags: [{ flag, state }], vision, stateRoot: { source,
+  dir, exists, legacyLeaf }, measuredRange: { min, newest } }`. Exit 0 for
+  `ok`/`warnings`, 1 for `problems` (an incompatible or missing agy, an
+  incompatible Node version, or an unreadable job-state root).
+  `beyond_measured` is always a warning, never a problem. There is no
+  `--live` flag: `setup` is already this plugin's live probe. See
+  [`doctor`](./COMMANDS.md#doctor).
+- **`agyVersionSeen`** (additive, 2026-09): after a successful
+  agy-version probe, `review`, `rescue`, `task`, and `vision` cache
+  `{ version, observedAt }` in the workspace's state config
+  (`setConfig`/`getConfig`, `scripts/lib/state.mjs`), at most once per 60
+  minutes per workspace. Never on `review --preview`, which returns
+  before probing agy at all. `doctor` and `status` only read this cache;
+  neither writes it or calls agy for it.
+- **Version warnings** (additive, 2026-09): when the probed or
+  cached agy version classifies as `beyond_measured` or `unmeasured`
+  (see `doctor` above), `setup` prints one line right after `using <bin>
+  v<version>`: `antigravity:setup — agy <v> is newer than the last
+  measured version <newest>; see docs/COMPATIBILITY.md.` (or `... is not
+  in the measured matrix; see docs/COMPATIBILITY.md.`). A no-reference
+  `status` call prints one stderr line when `agyVersionSeen` is cached and
+  classifies the same way: `antigravity:status — agy <v> (seen <date>) is
+  newer than the last measured version <newest>.` `status <id>` never
+  prints it, and `status` never calls agy to produce it.
+- **`--request-id <id>`** (additive, 2026-09): an opt-in idempotency key
+  on `task` (background path) and `rescue --background`. See
+  [`--request-id`](./COMMANDS.md#--request-id-task-and-rescue). A
+  foreground run, or an id outside 1 to 128 characters from
+  `[A-Za-z0-9._-]`, is an argument error: stderr only, exit 1.
+- `request.requestId` and `request.requestFingerprint` (additive,
+  2026-09): on a job record started with `--request-id`, the id and the
+  sha256 hex fingerprint of the request. Absent on every other job record.
+- `details.deduplicated` (additive, 2026-09): `true` on the envelope that a
+  repeated `--request-id` call prints for the existing job. `status` is the
+  current status of that job and the exit code is 0. This holds even when
+  the existing job's own status is `failed` or `cancelled`: the dedup call
+  itself succeeded, so it still exits 0 with no `details.error`; only
+  `status <id>` or `result <id>` on that job's id reports the failure or
+  cancellation detail. Absent on every other envelope.
+- `request_id_conflict` (additive, 2026-09): the error code for a
+  `--request-id` that another request already uses; see the error code
+  list above.
+- `requestIds` in `state.json` (additive, 2026-09): see
+  [Job state and configuration locations](#job-state-and-configuration-locations).
+- **`--prompt-file <path>`** (additive, 2026-09): reads `task`'s prompt from
+  a file (or, as `--prompt-file -`, from stdin, standalone CLI only) instead
+  of a positional prompt. See
+  [`--prompt-file`](./COMMANDS.md#task) and the `prompt_file_too_large` /
+  `prompt_file_unreadable` / `prompt_file_empty` error codes above. `rescue`
+  does not gain this flag.
+- **`--expect <text>` on `vision`** (additive, 2026-09): repeatable, opt-in.
+  After a completed run, each trimmed value is checked against the answer's
+  `## Transcription` section. This is a substring check on what agy already
+  transcribed, never a truth check of the image itself. See
+  [`--expect`](./COMMANDS.md#--expect). `--json` adds `details.expectations`
+  (`[{ value, found, reason? }]`, `found` is `true`/`false`/`null`) and
+  `details.expectationSummary` (`all_found`/`missing`/`unverifiable`), both
+  present only when `--expect` was given. Markdown appends a matching
+  `Expectations: <summary>` block after the answer. An empty value or more
+  than 32 values is an argument error, stderr only, exit 1. The exit code is
+  unchanged in every case; this is documented as a first version.
+- **`--findings-json` on `review`** (additive, 2026-09): opt-in structured
+  findings. agy gets `--json-schema <absolute path of
+  scripts/lib/review-findings.schema.json>` immediately before
+  `--print-timeout`, on the foreground and the background path. Without the
+  flag the argv is unchanged. See
+  [Structured output flag](#structured-output-flag) below and
+  [`review`](./COMMANDS.md#review).
+- `details.findings`, `details.findingsStatus`, `details.findingsError`
+  (additive, 2026-09): on a completed `review --findings-json` run, on
+  `--show-result`, and on `result <id> --json` for such a job.
+  `findingsStatus` is `valid`, `invalid`, or `missing`. `findings` is the
+  parsed object when valid, else `null`. `findingsError` is one line and is
+  present only when the status is not `valid`. A status other than `valid`
+  also prints one stderr warning line. All three are absent without the
+  flag. The exit code does not change.
+- `request.findingsJson` (additive, 2026-09): `true` on a job record started
+  with `review --findings-json`, absent otherwise. The background worker
+  fails the job before starting agy when the stored value is not a boolean.
+- `result.structuredRaw` (additive, 2026-09): agy's structured output as
+  JSON text, `null` when agy sent none. It is on every new job record, so
+  `details.result.structuredRaw` is `null` for every run without the flag.
+- **`--check-locations` on `review` and `result`** (additive, 2026-09): an
+  opt-in, local-only heuristic that checks each `path:line` citation a
+  review answer names against the diff that run actually sent. It never
+  calls agy again, and adds nothing to `argv` on either verb. See
+  [Heuristic location check](#heuristic-location-check) below and
+  [`review`](./COMMANDS.md#review)/[`result`](./COMMANDS.md#result).
+- `request.hunks` (additive, 2026-09): `[{ path, newStart, newEnd }]`, the
+  hunks the sent diff's own `@@ -a,b +c,d @@` headers carried (plus one
+  `{ newStart: 1, newEnd: <line count> }` entry per included untracked
+  file), computed by `buildReviewInput` and stored on **every** review job
+  (not only under `--check-locations`), so `result --check-locations` works
+  on a job reviewed without the flag. Absent on a job stored before this
+  feature shipped; that absence is what makes the check "unavailable" on
+  such a job.
+- `details.locationCheck` (additive, 2026-09): `{ heuristic: true, citations:
+  [{ text, path, line, state }], counts: { in_diff, outside_diff,
+  unknown_path } }` on a completed `review --check-locations` run and on
+  `result <job-id> --check-locations`; `null` when the flag was given but
+  the job has no stored `request.hunks`; absent without the flag. This is a
+  heuristic, not a truth check: a citation the diff never touched is not by
+  itself a model error. Reviewers legitimately cite context lines and
+  related files outside the diff.
+
+### Structured output flag
+
+`answer` stays opaque, with or without `--findings-json`. `details.findings`
+is the only structured contract for review content. The plugin validates it
+locally against the schema it ships, `scripts/lib/review-findings.schema.json`,
+and never trusts agy to enforce the schema.
+
+Measured on agy 1.2.12 (transcript `probe-json-schema.txt`): with
+`--json-schema` and the stream-json transport, the final `result` event
+carries a `structured_output` field. In the probe it parsed as JSON and
+matched the schema exactly. `step_update.text_delta` still streams, and the
+exit code was 0. `result.response`, which becomes `answer`, was JSON text,
+not prose, and it carried keys the schema did not allow. So under
+`--findings-json`, `answer` is JSON text rather than the Markdown review. The
+plugin reads only `structured_output` and never parses `response`.
+
+### Heuristic location check
+
+`--check-locations` finds `path:line` and `path:start-end` citations in a
+review answer with one regular expression, tuned to exclude two shapes it
+would otherwise catch: a bare three-part version string (`1.2.11`), and a
+`http(s)://` URL whose path segment happens to look like `name.ext:port`
+right after the scheme. It does not chase every possible false positive. For
+one, a bare `host:port` with no `http(s)://` prefix still matches and is
+reported as `unknown_path`. This is why the check is heuristic: it can both
+miss a real citation the model wrote in an unexpected shape and report a
+path-shaped string that was never meant as one. The path class also excludes
+`\`, so a Windows-separator citation such as `C:\repo\src\file.mjs:42`
+truncates to `file.mjs:42`, the file name only; the directory segments are
+silently dropped rather than checked.
+
+Measured against two stored `review --json` transcripts from earlier agy
+probes (agy 1.2.11 and agy 1.2.7): neither answer contains a `path:line`-shaped
+citation at all: both cite the changed file with a Markdown link and a `#L1`
+anchor (`[answer.txt](file:///.../answer.txt#L1)`), not a colon. The regex
+matched zero times in either transcript, so the measured false-positive
+count is zero for both. A synthetic hunk set was not needed, since there was
+nothing to classify.
 
 ## Deprecation and compatibility changes
 

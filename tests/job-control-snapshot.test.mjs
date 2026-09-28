@@ -191,8 +191,10 @@ describe('buildSingleJobSnapshot', () => {
   // Plan 085 T2: enrichJob drops the nested `result` object for status
   // views, so the top-level `deniedActions`/`deniedActionsCount` (persisted
   // as job fields, not only inside `result`) are what must carry the
-  // projection through.
-  it('carries deniedActions and deniedActionsCount through enrichment despite dropping result', async () => {
+  // projection through. Plan 103 T2 narrows that drop: `result.reportedModel`
+  // alone survives, as `{ reportedModel: null | string }` — never the
+  // caller's full raw output/stderr.
+  it('carries deniedActions and deniedActionsCount through enrichment despite dropping result (except reportedModel)', async () => {
     const denied = [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }];
     const job = await seedJob({
       id: 'denied1',
@@ -204,7 +206,7 @@ describe('buildSingleJobSnapshot', () => {
     const snap = buildSingleJobSnapshot(workCwd, job.id);
     assert.deepEqual(snap.job.deniedActions, denied);
     assert.equal(snap.job.deniedActionsCount, 1);
-    assert.equal(snap.job.result, undefined, 'the nested result object is still dropped for status views');
+    assert.deepEqual(snap.job.result, { reportedModel: null }, 'only the narrow reportedModel projection survives');
   });
 
   it('a legacy job without deniedActions enriches to null/0', async () => {

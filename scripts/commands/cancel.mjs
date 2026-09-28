@@ -8,8 +8,8 @@
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveCancelableJob } from "../lib/job-control.mjs";
 import { appendJobLog, recoverStateLock } from "../lib/state.mjs";
-import { createJsonEnvelope, outputCommandResult, renderCancelReport } from "../lib/render.mjs";
-import { patchJob } from "../lib/job-helpers.mjs";
+import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderCancelReport } from "../lib/render.mjs";
+import { classifyStateError, patchJob } from "../lib/job-helpers.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { terminateProcessTree } from "../lib/process.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
@@ -194,11 +194,7 @@ export async function run(argv = [], ctx = {}) {
   try {
     ({ workspaceRoot, job } = resolveCancelableJob(cwd, reference));
   } catch (err) {
-    const message = isFileLockTimeoutError(err)
-      ? "job state is busy with another update; try again shortly"
-      : err?.message ?? err;
-    process.stderr.write(`antigravity:cancel — ${message}\n`);
-    return 1;
+    return reportCancelResolutionError(err, json);
   }
 
   const terminate = ctx.terminateProcessTree ?? terminateProcessTree;
@@ -216,6 +212,27 @@ export async function run(argv = [], ctx = {}) {
   }
 
   return reportCancelSuccess(workspaceRoot, job, termination, persist, output, json);
+}
+
+/**
+ * Report a `resolveCancelableJob` failure (no active job, or none matching
+ * `reference`): the existing stderr line, unchanged, plus (Task 3, "Senate
+ * R1", 2026-09) one `state_error` `--json` envelope when `json` is true.
+ * `jobId` is always `null` here — the job was never resolved.
+ *
+ * @param {unknown} err
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportCancelResolutionError(err, json) {
+  const { code, message } = classifyStateError(err);
+  process.stderr.write(`antigravity:cancel — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("cancel", { status: "state_error", error: { code, phase: "state", message } }),
+    "",
+    json,
+  );
+  return 1;
 }
 
 function reportStateContention(jobId, json, error, prefix, output, stopped = false) {

@@ -7,8 +7,247 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-09-28
+
+### Added
+
+- **`--findings-json` on `review`.** Opt-in structured findings. agy gets
+  `--json-schema <path>` for the schema the plugin ships
+  (`scripts/lib/review-findings.schema.json`), right before
+  `--print-timeout`. The prompt's Output section gains one sentence about
+  the schema. The plugin checks agy's structured output against the schema
+  with its own validator: types, enums, required keys, no extra keys, at
+  most 200 findings, and at most 2000 characters per string. `--json` adds
+  `details.findings` (the parsed object, or `null`),
+  `details.findingsStatus` (`valid`, `invalid`, or `missing`), and, when
+  not valid, a one-line `details.findingsError` plus one stderr warning
+  line. `answer` is unchanged: it is agy's raw response text, which is JSON
+  text under this flag. The exit code is unchanged. Background jobs store
+  `request.findingsJson` and `result.structuredRaw`. `result <job-id>
+  --json` and `--show-result` report the same three fields, and `result
+  <job-id>` adds a `Findings: <status>` line. Without the flag, nothing
+  changes. See `docs/COMMANDS.md#review`.
+- **`--check-locations` on `review` and `result`.** Opt-in, local-only
+  heuristic: checks each `path:line` citation a review answer names against
+  the diff that run actually sent, using the hunks that diff carried
+  (`request.hunks`, stored on every review job). Classifies each citation
+  `in_diff`, `outside_diff`, or `unknown_path`. Never calls agy again, and
+  adds nothing to the agy call. `--json` adds `details.locationCheck: {
+  heuristic, citations, counts }`, `null` on a job stored before this
+  feature shipped. One stderr line reports the counts, also appended to the
+  markdown output after the answer. `answer` and the exit code are
+  unchanged. `result <job-id> --check-locations` runs the same check later
+  and works even on a job reviewed without the flag. A citation outside the
+  diff is not by itself a model error. See `docs/COMMANDS.md#review`.
+- **`--expect <text>` on `vision`.** Repeatable, opt-in: after a completed
+  run, checks each trimmed value against the answer's `## Transcription`
+  section — a substring check on what agy already transcribed, never a
+  truth check of the image itself. A value is found when it equals one
+  transcription line exactly (both trimmed) or is a substring of the
+  section. If the section is missing, or the whole answer is the single
+  `VISION-UNAVAILABLE: <reason>` line, every value comes back unverifiable
+  instead. `--json` adds `details.expectations` (`[{ value, found,
+  reason? }]`) and `details.expectationSummary`
+  (`all_found`/`missing`/`unverifiable`), both present only when `--expect`
+  was given. Markdown appends an `Expectations: <summary>` block after the
+  answer, with one `  missing: <value>` line per value not found, or one
+  `  unverifiable: no transcription section` line. An empty value, or more
+  than 32 values, is an argument error, stderr only, exit 1. The exit code
+  is unaffected either way; this is documented as a first version. See
+  `docs/COMMANDS.md#--expect`.
+- **`--prompt-file <path>` on `task`.** Opt-in: reads the prompt from a
+  file (UTF-8, 512 KiB max) resolved against the invocation's working
+  directory, instead of a positional prompt. Combining it with a
+  positional prompt is an argument error (`cannot combine --prompt-file
+  with a positional prompt`), stderr only, exit 1. May be combined with
+  `--continue`/`--conversation`: the file becomes the new turn.
+  `--prompt-file -` reads the prompt from stdin to EOF under the same cap,
+  and only from the standalone CLI run directly by a person or script; a
+  host wrapper (Claude Code, Codex CLI, the agy TUI) refuses it (`--prompt-
+  file - (stdin) is available in the standalone CLI only`), stderr only,
+  exit 1. An oversized, missing/unreadable, or empty/whitespace-only
+  source is refused with `invalid_input` and one of `prompt_file_too_large`,
+  `prompt_file_unreadable`, or `prompt_file_empty`, before agy is ever
+  probed. The job's title becomes the 80-char truncation of the source's
+  first non-empty line. Neither the path nor the content ever reaches
+  `provenance` or a stderr diagnostic. `rescue` does not gain this flag.
+  Without the flag, nothing changes. See `docs/COMMANDS.md#task`.
+- **`--request-id <id>` on `task` and `rescue --background`.** Opt-in
+  idempotent background dispatch. The id is 1 to 128 characters from
+  `[A-Za-z0-9._-]`; any other value, or a foreground run (`task
+  --foreground`, `rescue` without `--background`), is an argument error
+  (`--request-id applies to background jobs only`), stderr only, exit 1.
+  The plugin stores a sha256 fingerprint of the request (verb, prompt,
+  conversation mode and id, `--add-dir` values, agy mode arguments, model,
+  effort, workspace root) as `request.requestFingerprint` next to
+  `request.requestId`, and maps the id to its job in `state.json`'s new
+  `requestIds` object. The claim and the job creation share one state
+  lock, so two concurrent calls with one id create one job. A repeat with
+  the same request starts nothing and prints the existing job's envelope
+  with its current `status` and `details.deduplicated: true`, exit 0
+  (`--wait` then waits on that job). A repeat with a different request
+  starts nothing and fails with `invalid_input` / `request_id_conflict`
+  and `details.existingJobId`, exit 1. A rebuilt `state.json` recreates the
+  map from the job files. No automatic retry. Without the flag, nothing
+  changes. See `docs/COMMANDS.md#--request-id-task-and-rescue`.
+- **`--exit-status` on `status <id> --wait`.** Opt-in: requires both a job
+  reference and `--wait` (an argument error otherwise, `--exit-status
+  requires a job id and --wait`, before any job lookup). With the flag,
+  `status` exits by the waited job's own outcome instead of the usual 0: 0
+  completed, 1 failed, 2 cancelled, and a new 3 when the wait's own
+  deadline passes first with the job still `queued`/`running` (one added
+  stderr line names the id and its live status). Without the flag, `status
+  --wait` is unchanged: always 0. Markdown and `--json` output are
+  identical either way. See `docs/COMMANDS.md#status`.
+- **`--show-result` after a background `--wait`, on `review`, `rescue`, and
+  `task`.** Opt-in: requires `--wait` (an argument error otherwise,
+  `--show-result requires --wait`), and on `review`/`rescue` also requires
+  `--background` (`--show-result requires --background`); on `task`,
+  `--foreground` fails the same `--wait` check instead, since foreground has
+  no wait to opt into. With the flag, the dispatch prints nothing on
+  stdout: the queued notice moves to stderr as `Background <verb> started:
+  <job-id>`, in text mode and under `--json` alike. After the wait, one
+  of four outcomes is reported: a completed job's stored answer (with the
+  same `details` `result <job-id> --json` builds); a failed or cancelled job
+  as an error envelope (`job_failed`/`job_cancelled`); or, if the wait's own
+  deadline passes first, `wait_timeout` with the job's still-live status and
+  no completion ever reported for that call. Without the flag, all three
+  verbs are unchanged. See `docs/COMMANDS.md#--show-result-all-three-verbs`.
+- **`doctor`, a ninth, read-only verb.** Checks Node's version against
+  `package.json`'s `engines.node`, the `agy` binary and version (classified
+  against this plugin's measured range: `verified`, `beyond_measured`,
+  `unmeasured`, `incompatible`, or `missing`), which of the flags this
+  plugin forwards appear in `agy --help`'s text (`listed`, never proof the
+  flag works, or `not_listed`), the vision configuration
+  (`registered`/`absent`/`unreadable`), and the job-state root. Never runs
+  OAuth, never calls a model, never writes a file, never opens the network.
+  No `--live` flag: `setup` is already this plugin's live probe. Markdown
+  output ends with `doctor: <n> ok, <m> warnings, <k> problems`; `--json`
+  returns `status: "ok" | "warnings" | "problems"`, `jobId: null`, `answer:
+  null`. Exit 0 for `ok`/`warnings`, 1 for `problems`.
+- **agy version warnings on `setup` and `status`.** After a successful agy
+  probe, `review`, `rescue`, `task`, and `vision` cache the version seen
+  (throttled to once per 60 minutes per workspace, never on `review
+  --preview`). `setup` prints one line after `using <bin> v<version>`, and a
+  no-reference `status` prints one stderr line, when that version falls
+  outside this plugin's measured range. See `doctor` above and
+  `docs/COMPATIBILITY.md` for the exact wording and the measured range.
+
+- **`review --preview` and `--require-complete`.** `--preview` shows exactly
+  what a real run would send: the included files (with kind, `diff` or
+  `untracked`, and byte size), the skipped files with their reasons,
+  whether the diff was cut by the 196 KB cap, the file/byte counts, and the
+  SHA-256 hash of the exact prompt string, all from one selection function
+  (`buildReviewInput`) every path (`--preview`, foreground, background) now
+  calls. It never calls agy and changes nothing; `--json` returns
+  `status: "preview"`. It cannot combine with `--background`, `--wait`,
+  `--continue`, or `--conversation`. `--require-complete` refuses to send an
+  input that skipped a file or cut the diff, instead of sending it with a
+  warning: `status: "invalid_input"`, `error.code: "input_incomplete"`,
+  exit 1, before any agy probe. Without `--require-complete`, the same
+  condition prints one warning line on stderr before sending. Every review
+  job now stores `request.inputHash`, `request.inputCounts`, and
+  `request.headSha`; `status <id>` and `result <id>` show the hash as
+  "Input hash: sha256:..." in the "## Provenance" section.
+
+- **Safe job provenance.** Every job now carries a `provenance` record
+  (plugin version, agy version, model, effort, mode, and the count, never the
+  paths, of `--add-dir` values), set once at creation, with no prompt,
+  workspace path, image path, `extraArgs` content, or tool list ever stored.
+  `status <id>` and `result <id>` render it as a "## Provenance" section
+  (markdown) and `details.job.provenance` / `details.provenance` (`--json`);
+  the Recent Jobs table adds `Model`/`Effort` columns only when at least one
+  listed job's provenance names either one. The stored result also carries
+  `reportedModel`, the model agy's own `result` event named when that event
+  carries one; measured against agy 1.2.11 and 1.2.12 it never does, so this
+  is always `null` today. Legacy job records without either field still
+  render and report `null`.
+- **Usage trailer on `review`, `rescue`, and `task`.** The measured-usage
+  trailer (`usage: total=<N> in=<N> out=<N>`) now prints on stderr for these
+  three verbs' successful runs, foreground or an awaited `--wait` background
+  run, the same way it already did for `vision` and `result`.
+- **`--model`, `--effort`, and `--focus` on `review`.** `review` now accepts
+  `--model <id>` and `--effort <low|medium|high|agy-default>`, forwarded on
+  both the foreground and the background path. Unlike `task`/`rescue`,
+  `review` has no plugin-side effort default: with neither flag, no
+  `--effort` reaches agy, unchanged from before this addition; `agy-default`
+  sends none either. A new optional `--focus <text>` narrows the review's
+  attention: trimmed, capped at 500 characters, never required, and never
+  derived from the diff or any other repository content. A given focus adds
+  a "## Reviewer focus (caller instruction)" section to the prompt
+  immediately before "## Output", is stored as `request.focus`, and appends
+  ` focus: <first 40 characters>` to the job title. An empty, whitespace-only,
+  or over-cap focus is a new `invalid_focus` validation error, exit 1.
+- **`scripts/pack-for-agy.mjs`.** Packs the checkout the way `npm publish`
+  would, extracts the tarball into a temporary directory, and prints the
+  extracted directory, its integrity hash (sha512) and shasum (sha1), the
+  file count, and the exact `agy plugin install <dir>` command. It never
+  runs `agy` and never touches
+  `~/.gemini`. This closes the gap where `agy plugin install <path>` copies
+  the entire directory it is pointed at, including `.git`, `.github`, and
+  `tests/` on a plain clone, because it does not read `package.json`
+  `files`. A hash-guarded isolated run against agy 1.2.12 confirmed that
+  installing, listing, validating, and uninstalling a packed copy never
+  touched the real `~/.gemini` store. See
+  [docs/INSTALL.md](./docs/INSTALL.md#agy-itself).
+
+### Changed
+
+- **Tested agy range extends to 1.2.12.** Live runs covered `setup` with `--skip-vision`, `task` foreground and background, `status` list, and `result` (`probe-setup.txt`, `probe-task-foreground-json.txt`, `probe-background-lifecycle.txt`, `probe-status-list.txt`). A direct agy `--json-schema` capability probe succeeded with `structured_output` field on the result event. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12 (smoke measurement only).
+- **One JSON error envelope for expected failures.** Once `--json` is
+  accepted by the parser, an expected failure (bad input, no `agy` binary, a
+  run that did not complete, an unresolved job reference) now emits exactly
+  one envelope on stdout, with `answer: null` and `details.error` naming the
+  reason, instead of empty stdout. A parser error still emits nothing on
+  stdout, unchanged. A script that treated any stdout as success must now
+  read `status` instead.
+
+### Added
+
+- A ninth command, `doctor`: a read-only check of your setup (Node version,
+  the `agy` binary and version, which flags this plugin forwards that
+  `agy --help` lists, the vision setup, and where job data is stored). It
+  makes no changes and needs no login.
+- `review --model`, `--effort`, and `--focus`: pick the model, set how much
+  reasoning effort agy spends, and point the reviewer's attention where you
+  want it.
+- `review --preview`: see exactly what a review would send, without sending
+  it.
+- `review --require-complete`: refuse to send a review that is missing a
+  file or was cut short, instead of sending it with a warning.
+- `review --findings-json`: ask for a checked, structured list of findings
+  alongside the review.
+- `review --check-locations` and `result --check-locations`: a best-effort
+  check of whether each file-and-line a review cites actually falls inside
+  the diff it reviewed.
+- `--show-result` on `review`, `rescue`, and `task`: after waiting for a
+  background job, print its finished answer directly instead of the plain
+  dispatch notice.
+- `--request-id` on `task` and `rescue --background`: send the same request
+  twice by accident and get back the one job it started, not two.
+- `task --prompt-file`: read a long or scripted prompt from a file, or from
+  standard input in the standalone command.
+- `status --exit-status`: exit with the code that matches a waited job's own
+  outcome, instead of always exiting 0.
+- `vision --expect`: check specific text against what agy actually saw in an
+  image, after the run finishes.
+- A release check that stops a release when a user-facing document still
+  names an internal planning reference, so no document ships pointing to
+  tracking nobody outside the project can see.
+
+### Changed
+
+- The plugin's tested range of the `agy` CLI now reaches 1.2.12.
+- The README, the commands reference, the compatibility contract, every
+  command's own help text, and the security notes were reviewed together and
+  brought back into agreement after nine releases' worth of additions.
+
 ### Fixed
 
+- A stale "eight commands" count in a few documents now correctly says
+  nine, now that `doctor` is one of them.
+- A few outdated `agy` version numbers in the installation guide and the
+  release-smoke checklist now match the version this release actually tests.
 - **CI: the `windows-latest` fake-agy `csc.exe` compile could race and fail
   with `CS0016`.** `node --test` runs each test file as its own process, and
   four test files call `writeFakeAgy`, so several processes could compile the
@@ -968,7 +1207,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...v2.1.0
 [2.0.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v1.3.0...v2.0.0

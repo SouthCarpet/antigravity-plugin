@@ -86,6 +86,16 @@ vision entries described in the
 It does not revoke Google OAuth, delete job state, or touch unrelated MCP
 servers.
 
+### `doctor` (read-only)
+
+`doctor` reads `process.version`, this package's own `package.json`, the
+resolved `agy` binary's `--version` and `--help` output, the same two
+`~/.gemini` config files `setup`'s vision step writes (read-only, never
+the OAuth token store), and the job-state root. It never runs OAuth, never
+calls a model, never writes a file anywhere, and never opens the network.
+`tests/doctor.test.mjs` proves this with a byte-for-byte snapshot of an
+isolated `HOME`/`USERPROFILE` before and after a full run.
+
 ### `vision` (per invocation)
 
 `vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array of the
@@ -110,6 +120,23 @@ replies wait for stdout drain before the next request is processed.
 
 Users should not set `ANTIGRAVITY_VISION_ALLOWED_PATHS` globally.
 
+### `task --prompt-file` / stdin
+
+`task --prompt-file <path>` reads exactly the one file named on the command
+line, resolved against the invocation's own working directory, and nothing
+else: no directory listing, no glob, no following the file to a different
+location after it is opened. Reading is capped at 512 KiB; an oversized,
+missing/unreadable, or empty/whitespace-only source is refused before agy is
+ever probed or spawned. `--prompt-file -` reads stdin to EOF instead, under
+the same cap, and only from the standalone CLI run directly by a person or
+script. A host wrapper (Claude Code, Codex CLI, the agy TUI) refuses it,
+because that host already owns stdio for its own protocol.
+
+Neither the file's path nor the prompt's content ever appears in a stderr
+diagnostic or in the job's stored `provenance`: a refusal names the byte cap
+and the actual size, or a fixed reason, never the path or the content that
+triggered it.
+
 ### `review` context sent to agy
 
 An untracked file whose basename looks like a secret (`.env` and its
@@ -119,6 +146,25 @@ Diffs, commit messages, and untracked file contents that are sent are wrapped
 in a labeled data block that tells the model the content is untrusted
 repository data, not instructions — this narrows, but does not eliminate,
 prompt injection from repository content (see "Out of scope").
+
+The optional `--focus <text>` is caller text only: it comes from the
+invocation's own flag, never from the diff or any other repository content,
+and the plugin never infers it. When given, it is
+placed in its own "## Reviewer focus (caller instruction)" section, outside
+every data block, so it is never mistaken for reviewed content and cannot be
+used to smuggle instructions through the untrusted data blocks above.
+
+`review --preview` shows exactly what a real run would send to agy: the same
+included/skipped file lists, the same truncation state, and the SHA-256 hash
+of the exact prompt string a real run would compute, all from the one
+`buildReviewInput` selection function every path (`--preview`, foreground,
+background) calls. It never calls agy itself. The hash lets a caller confirm,
+after the fact, exactly which input a completed job actually sent, by
+comparing the stored `request.inputHash` against a fresh `--preview` run on
+the same tree. `review --require-complete` refuses to send an input that
+left something out (a skipped file, a diff cut by the cap) instead of
+sending it silently with a warning; the refusal happens before agy is ever
+probed or spawned.
 
 ### Headless denial reporting
 
@@ -132,7 +178,7 @@ text: each `action`/`display_name` string is validated, length-capped, and
 stripped of control characters before it is ever rendered or written to a
 job record.
 
-Since plan 086 T3, the target agy named for the denial (model-chosen
+Since 2.0.0, the target agy named for the denial (model-chosen
 tool-parameter text, equally untrusted) is validated, length-capped, and
 control-character-stripped the same way before display. It is shown to the
 caller for context only; the plugin never assembles it into a
@@ -204,15 +250,47 @@ agy's and Google's behaviour, not this plugin's.
 | `rescue` / `task` | The user prompt; agy may also read workspace files with its own tools, including `--add-dir` extra roots | Plugin job state |
 | `vision` | The text prompt and the image bytes of allowlisted files (base64 MCP image content via agy) | The image files themselves; MCP reads them only for that invocation |
 | `status` / `result` / `cancel` | Nothing via this plugin | Job JSON/logs; `cancel` only signals local processes |
+| `doctor` | Nothing to agy beyond `--version` and `--help` (no prompt, no OAuth) | Node version, agy version/flags, vision config presence, job-state root: all read-only, never written anywhere |
 
 Assume anything you hand to `review`, `rescue`, `task`, or `vision` is
 visible to agy. Secrets in a diff, an untracked file, a prompt, or a
 screenshot are secrets you chose to give that process.
 
-This plugin does not bill or estimate cost. Images are large. Successful
-`vision` and `result` (when usage was stored) print
-`usage: total=<N> in=<N> out=<N>` on stderr from whatever agy reported;
-this plugin does not estimate missing counts.
+This plugin does not bill or estimate cost. Images are large. `review`,
+`rescue`, `task`, and `vision` (on a successful run) and `result` (when usage
+was stored) print `usage: total=<N> in=<N> out=<N>` on stderr from whatever
+agy reported; this plugin does not estimate missing counts.
+
+### Job provenance record
+
+Not to be confused with the npm release provenance below: this is a
+per-job record, `provenance`, stored on every job from creation
+(`scripts/lib/job-helpers.mjs#createTrackedJob`).
+
+Stored: the plugin's own running version, the `agy --version` string the
+verb's own probe reported, the resolved `--model`/`--effort` values
+(including the `agy-default` sentinel), the run mode (`print`, `continue`,
+or `conversation`), the count of `--add-dir` values, and the ISO timestamp
+the job was requested.
+
+Excluded, always: the prompt text, the workspace path, image paths, the
+content of `extraArgs`, and any tool list. `status <id>` and `result <id>`
+render the stored record as a "## Provenance" section; a legacy job written
+before this field existed renders and reports it as absent, never as an
+error.
+
+### Request fingerprint (`--request-id`)
+
+A background `task` or `rescue` started with `--request-id <id>` stores the
+id and a fingerprint on the job request (`request.requestId`,
+`request.requestFingerprint`), and the pair in `state.json`'s `requestIds`
+map. The fingerprint is a sha256 hash of the request, which includes the
+prompt, the conversation id, the `--add-dir` paths, the model, the effort,
+and the workspace root. The hash adds no new exposure: the prompt and those
+fields are already stored in plain text on the same job record, in the same
+private job state directory. The plugin compares fingerprints only to
+decide whether a repeated id is the same request; it never retries a call
+by itself.
 
 ## Provenance
 
@@ -229,6 +307,18 @@ release tag ties in, are in [docs/RELEASING.md](./docs/RELEASING.md).
 
 A valid attestation identifies where a tarball came from. It does not review
 the code. It does not cover `agy` or the hosts that load this plugin.
+
+### Installing into agy from the same artifact npm publishes
+
+`agy plugin install <path>` copies whatever directory you point it at. A
+plain clone also copies `.git`, `.github`, and `tests/`, none of which npm
+ever publishes. `scripts/pack-for-agy.mjs` closes that gap: it uses the same
+packing logic `npm publish` uses (`npm pack`), extracts the result, and
+prints the integrity hash (sha512, the value npm itself verifies), the
+shasum (sha1), and the exact `agy plugin install <dir>` command. The
+installed copy is then the published artifact, not the whole working tree.
+The script itself never runs `agy` and never writes under `~/.gemini`; it
+only reads the checkout and writes to a temporary directory.
 
 ## Threat boundaries this plugin does **not** close
 

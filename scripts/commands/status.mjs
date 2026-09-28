@@ -5,6 +5,8 @@
  * Flags:
  *   --wait        block until the job (or all active jobs) reach terminal state.
  *   --timeout-ms <ms>  override the wait timeout (default 15m).
+ *   --exit-status opt-in: exit by the waited job's own outcome instead of
+ *                 the usual 0 (requires a job id and --wait).
  *   --json        emit JSON instead of markdown.
  */
 
@@ -14,15 +16,24 @@ import {
   buildSingleJobSnapshot,
 } from "../lib/job-control.mjs";
 import {
+  createErrorEnvelope,
   createJsonEnvelope,
   outputCommandResult,
   renderStatusSnapshot,
   renderSingleJobStatus,
 } from "../lib/render.mjs";
-import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { readUpdateNotice } from "../lib/update.mjs";
-import { deniedActionsWithRemedy } from "../lib/job-helpers.mjs";
+import {
+  classifyStateError,
+  deniedActionsWithRemedy,
+  exitCodeForJobStatus,
+  reportArgsValidationError,
+  waitOutcomeLine,
+} from "../lib/job-helpers.mjs";
+import { getConfig } from "../lib/state.mjs";
+import { classifyAgyVersion, LAST_MEASURED_AGY_VERSION } from "../lib/compat.mjs";
+import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_MS = 1000;
@@ -37,7 +48,7 @@ const POLL_MS = 1000;
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["timeout-ms", "cwd"],
-    booleanOptions: ["wait", "json"],
+    booleanOptions: ["wait", "json", "exit-status"],
   }, "status");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
@@ -45,6 +56,10 @@ export async function run(argv = [], ctx = {}) {
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
   const reference = positionals[0] ?? null;
   const json = Boolean(options.json);
+  const exitStatus = Boolean(options["exit-status"]);
+  if (exitStatus && (!reference || !options.wait)) {
+    return reportArgsValidationError("status", "--exit-status requires a job id and --wait");
+  }
   const builders = {
     all: ctx.buildStatusSnapshot ?? buildStatusSnapshot,
     single: ctx.buildSingleJobSnapshot ?? buildSingleJobSnapshot,
@@ -58,7 +73,7 @@ export async function run(argv = [], ctx = {}) {
         const rendered = renderSingleJobStatus(finished);
         maybeAnnotateOAuth(finished.job);
         outputCommandResult(statusEnvelope(finished), rendered, json);
-        return 0;
+        return exitStatus ? exitStatusOutcome(finished.job) : 0;
       }
       const rendered = renderSingleJobStatus(snapshot);
       maybeAnnotateOAuth(snapshot.job);
@@ -70,6 +85,7 @@ export async function run(argv = [], ctx = {}) {
       const final = await waitForAllActive(cwd, options, builders.all);
       const rendered = renderStatusSnapshot(final);
       outputCommandResult(statusEnvelope(final), rendered, json);
+      printAgyVersionWarning(cwd, ctx);
       printUpdateNotice(ctx);
       return 0;
     }
@@ -77,12 +93,34 @@ export async function run(argv = [], ctx = {}) {
     const snapshot = builders.all(cwd, { env: process.env });
     const rendered = renderStatusSnapshot(snapshot);
     outputCommandResult(statusEnvelope(snapshot), rendered, json);
+    printAgyVersionWarning(cwd, ctx);
     printUpdateNotice(ctx);
     return 0;
   } catch (err) {
-    process.stderr.write(`antigravity:status — ${friendlyStateError(err)}\n`);
-    return 1;
+    return reportStatusStateError(err, json);
   }
+}
+
+/**
+ * Report a job-lookup/state-read failure from the `try` block above: the
+ * existing stderr line, unchanged, plus (Task 3, "Senate R1", 2026-09) one
+ * `state_error` `--json` envelope when `json` is true. `jobId` is always
+ * `null` here — every throw site this catches fails before it resolves a
+ * job.
+ *
+ * @param {unknown} err
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportStatusStateError(err, json) {
+  const { code, message } = classifyStateError(err);
+  process.stderr.write(`antigravity:status — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("status", { status: "state_error", error: { code, phase: "state", message } }),
+    "",
+    json,
+  );
+  return 1;
 }
 
 /**
@@ -101,6 +139,37 @@ function withDenialRemedies(snapshot) {
   const list = deniedActionsWithRemedy(snapshot?.job?.deniedActions, snapshot?.job?.kind);
   if (!list) return snapshot;
   return { ...snapshot, job: { ...snapshot.job, deniedActions: list } };
+}
+
+/**
+ * Map `--exit-status`'s post-wait outcome onto the process exit code (Task
+ * 8, "Senate R10", 2026-09): a terminal job's status feeds the same
+ * {@link exitCodeForJobStatus} every other verb uses (0 completed, 1
+ * failed, 2 cancelled); a job still `queued`/`running` once the wait
+ * deadline passed prints one stderr line and exits 3. The snapshot's own
+ * output (already written by the caller) is unaffected either way.
+ *
+ * A vanished job record (`job` is `undefined`: the index entry disappeared
+ * while `--wait` was polling it) has no status to report either, so it
+ * takes the same "wait timed out" exit code (3) as a job still
+ * `queued`/`running` when the deadline passed, with the one shared line
+ * {@link waitOutcomeLine} already prints for this exact case elsewhere
+ * (`buildShowResultEnvelope`'s `--show-result` counterpart).
+ *
+ * @param {import('../lib/types.mjs').JobRecord | undefined} job
+ * @returns {number}
+ */
+function exitStatusOutcome(job) {
+  if (!job) {
+    process.stderr.write(`${waitOutcomeLine("status", job)}\n`);
+    return 3;
+  }
+  const status = job.status;
+  if (status === "completed" || status === "failed" || status === "cancelled") {
+    return exitCodeForJobStatus(status);
+  }
+  process.stderr.write(`antigravity:status — wait timed out; job ${job.id} is still ${status}.\n`);
+  return 3;
 }
 
 function statusEnvelope(snapshot) {
@@ -136,12 +205,6 @@ async function waitForAllActive(cwd, options, buildAll) {
   return buildAll(cwd, { env: process.env });
 }
 
-function friendlyStateError(error) {
-  return isFileLockTimeoutError(error)
-    ? "job state is busy with another update; try again shortly"
-    : error?.message ?? String(error);
-}
-
 /**
  * One line on stderr when the update cache already knows a newer version.
  * Cache only: `status` never calls the network (docs/COMPATIBILITY.md).
@@ -149,6 +212,32 @@ function friendlyStateError(error) {
 function printUpdateNotice(ctx) {
   const notice = (ctx.readUpdateNotice ?? readUpdateNotice)();
   if (notice) process.stderr.write(`${notice}\n`);
+}
+
+/** Classifications that earn `printAgyVersionWarning`'s one stderr line. */
+const AGY_VERSION_WARNING_CLASSIFICATIONS = new Set(["beyond_measured", "unmeasured"]);
+
+/**
+ * One stderr line when the cached `agyVersionSeen` (written by `review`,
+ * `rescue`, `task`, or `vision` after their own probe, see
+ * `job-helpers.mjs#rememberAgyVersion`) falls outside this plugin's measured
+ * range. Reads only the state config; never calls agy itself (Senate R2,
+ * 2026-09). A no-reference `status` call only, never printed for
+ * `status <id>`.
+ *
+ * @param {string} cwd
+ * @param {{ getConfig?: typeof getConfig, resolveWorkspaceRoot?: typeof resolveWorkspaceRoot }} ctx
+ * @returns {void}
+ */
+function printAgyVersionWarning(cwd, ctx) {
+  const resolve = ctx.resolveWorkspaceRoot ?? resolveWorkspaceRoot;
+  const readConfig = ctx.getConfig ?? getConfig;
+  const seen = readConfig(resolve(cwd))?.agyVersionSeen;
+  if (!seen?.version || !AGY_VERSION_WARNING_CLASSIFICATIONS.has(classifyAgyVersion(seen.version))) return;
+  const date = typeof seen.observedAt === "string" ? seen.observedAt.slice(0, 10) : "unknown date";
+  process.stderr.write(
+    `antigravity:status — agy ${seen.version} (seen ${date}) is newer than the last measured version ${LAST_MEASURED_AGY_VERSION}.\n`,
+  );
 }
 
 function maybeAnnotateOAuth(job) {

@@ -15,6 +15,9 @@ dist/
 # Local vault-ops notes for this machine's knowledge vault; not part of the project
 .vault/
 
+# Spec-driven-development workspace for this machine's planning; not shipped
+.superpowers/
+
 # Agent orientation files kept locally on this machine, not shipped as product
 CLAUDE.md
 AGENTS.md

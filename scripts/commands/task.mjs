@@ -19,6 +19,17 @@
  *                         --model and no --effort no flag is sent (the model
  *                         id decides); agy-default sends no --effort flag at
  *                         all
+ *   --show-result         after a background --wait completes, print the
+ *                         finished job's own result instead of the dispatch
+ *                         envelope (requires --wait; refused with
+ *                         --foreground, which has no --wait semantics)
+ *   --request-id <id>     idempotent background dispatch: a repeat of the
+ *                         same request with the same id reports the existing
+ *                         job instead of starting a new one; the same id with
+ *                         a different request is refused (background only)
+ *   --prompt-file <path>  read the prompt from a file instead of a
+ *                         positional argument (cannot combine with one);
+ *                         `-` reads stdin, standalone CLI only
  *   --json                emit JSON
  */
 
@@ -29,17 +40,24 @@ import {
   AGY_MODES,
   EFFORT_CHOICES,
   agyModeArgs,
-  agyUnavailableLine,
-  exitCodeForJobStatus,
-  reportQueuedJob,
+  probeAgyForVerb,
+  rememberAgyVersion,
+  reportAgyUnavailable,
+  reportArgsValidationError,
+  reportMissingTaskText,
+  reportBackgroundStart,
   resolveRequestEffort,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
+  validateShowResultDependency,
+  waitAndReport,
   waitForJob,
-  waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
+import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
+import { validateRequestIdOption } from "../lib/request-id.mjs";
+import { resolvePromptFileSource, titleFromPromptText, validatePromptFileOption } from "../lib/prompt-source.mjs";
 
 /**
  * @param {{ conversation?: string, continue?: boolean }} options
@@ -51,21 +69,7 @@ function resolveTaskMode(options) {
   return { mode: "print", conversationId: undefined };
 }
 
-/**
- * Print the finished job's raw output on stdout when `--wait` completed
- * without `--json` — the one behaviour `task --wait` has that `rescue`/
- * `review`'s wait tail does not.
- *
- * @param {import('../lib/types.mjs').JobRecord} final
- * @param {boolean} json
- * @returns {void}
- */
-function printCompletedRawOutput(final, json) {
-  if (json || final.status !== "completed" || !final.result?.rawOutput) return;
-  process.stdout.write(final.result.rawOutput);
-}
-
-async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, json }) {
+async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "task",
@@ -78,6 +82,7 @@ async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversat
     effort,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { prompt, mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
     onText: (delta) => process.stderr.write(delta),
   });
@@ -85,10 +90,10 @@ async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversat
   return runForegroundWithRetryPrompt("task", runOnce, { json });
 }
 
-async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, options, ctx }) {
+async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, options, ctx }) {
   const start = ctx.startBackgroundJob ?? startBackgroundJob;
   const wait = ctx.waitForJob ?? waitForJob;
-  const { job } = await start({
+  const started = await start({
     workspaceRoot,
     kind: "task",
     title,
@@ -98,65 +103,123 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
     addDirs,
     extraArgs,
     cwd: workspaceRoot,
+    agyVersion,
     request: { mode, addDirs, model, effort },
+    requestId: options["request-id"] ?? null,
   });
-  const queuedExit = reportQueuedJob("task", job, options);
-  if (queuedExit !== null) return queuedExit;
+  const { exit, jobId } = reportBackgroundStart("task", started, options);
+  if (exit !== null) return exit;
 
   if (!options.wait) return 0;
-  const final = await wait(workspaceRoot, job.id);
-  const line = waitOutcomeLine("task", final);
-  if (line) process.stderr.write(`${line}\n`);
-  if (!final) return 1;
-  printCompletedRawOutput(final, options.json);
-  return exitCodeForJobStatus(final.status);
+  return waitAndReport("task", workspaceRoot, jobId, wait, {
+    json: Boolean(options.json),
+    showResult: Boolean(options["show-result"]),
+  });
+}
+
+/**
+ * Report a `--prompt-file`/stdin content failure ({@link resolvePromptFileSource}):
+ * the plugin's own one-line reason on stderr (never the path or the file's
+ * content, per SECURITY.md), plus one `invalid_input` `--json` envelope
+ * when `json` is true. Same shape as `vision.mjs`'s
+ * `reportVisionValidationFailure`.
+ *
+ * @param {{ code: string, message: string }} failure
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportPromptFileError({ code, message }, json) {
+  process.stderr.write(`antigravity:task — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("task", {
+      status: "invalid_input",
+      error: { code, phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * Resolve `task`'s prompt text and title: from `--prompt-file`/stdin when
+ * given, otherwise from the joined positionals (unchanged behaviour). Split
+ * out of `run()` so that function stays a plain sequence of checks under
+ * the project's cyclomatic-complexity ceiling.
+ *
+ * @param {{ options: Record<string, string | boolean | string[]>, positionals: string[] }} parsed
+ * @param {string} cwd invocation cwd
+ * @param {string | undefined} conversationId
+ * @param {boolean} json
+ * @returns {Promise<{ ok: true, userPrompt: string, title: string | null } | { ok: false, exitCode: 1 }>}
+ */
+async function resolveTaskPromptAndTitle({ options, positionals }, cwd, conversationId, json) {
+  const promptSource = await resolvePromptFileSource(options, cwd);
+  if (promptSource) {
+    if (!promptSource.ok) {
+      reportPromptFileError(promptSource, json);
+      return { ok: false, exitCode: 1 };
+    }
+    return { ok: true, userPrompt: promptSource.text, title: titleFromPromptText(promptSource.text) };
+  }
+
+  const userPrompt = positionals.join(" ").trim();
+  if (!userPrompt && !options.continue && !options.conversation) {
+    reportMissingTaskText("task", json);
+    return { ok: false, exitCode: 1 };
+  }
+  const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
+  return { ok: true, userPrompt, title };
 }
 
 /**
  * @param {string[]} [argv] CLI arguments after the verb (a prompt and flags)
- * @param {{ cwd?: string, startBackgroundJob?: typeof startBackgroundJob,
- *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`
+ * @param {{ cwd?: string, host?: string, startBackgroundJob?: typeof startBackgroundJob,
+ *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`/`host`
  * @returns {Promise<number>} process exit code
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "effort"],
-    booleanOptions: ["wait", "foreground", "background", "continue", "json"],
+    valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "effort", "request-id", "prompt-file"],
+    booleanOptions: ["wait", "foreground", "background", "continue", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
       ["foreground", "background"],
       ["continue", "conversation"],
     ],
+    validate: (options) => validateRequestIdOption(options, "task"),
   }, "task");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
 
+  const promptFileError = validatePromptFileOption(parsed, ctx);
+  if (promptFileError) return reportArgsValidationError("task", promptFileError);
+
+  const showResultError = validateShowResultDependency(options, "task");
+  if (showResultError) return reportArgsValidationError("task", showResultError);
+
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
-  const userPrompt = positionals.join(" ").trim();
-  if (!userPrompt && !options.continue && !options.conversation) {
-    process.stderr.write("antigravity:task — no task text provided. Pass a prompt or --conversation <id>.\n");
-    return 1;
-  }
-
   const { mode, conversationId } = resolveTaskMode(options);
+
+  const resolved = await resolveTaskPromptAndTitle({ options, positionals }, cwd, conversationId, Boolean(options.json));
+  if (!resolved.ok) return resolved.exitCode;
+  const { userPrompt, title } = resolved;
+
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
   const model = options.model ? String(options.model) : undefined;
   const effort = resolveRequestEffort(options.effort, model);
 
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
-  const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
-  const unavailable = await agyUnavailableLine("task");
-  if (unavailable) {
-    process.stderr.write(`${unavailable}\n`);
-    return 1;
-  }
+  const probed = await probeAgyForVerb("task");
+  if (probed.line) return reportAgyUnavailable("task", probed.line, options.json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
 
   if (options.foreground) {
     return runTaskForeground({ ...runArgs, json: options.json });

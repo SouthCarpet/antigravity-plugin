@@ -17,22 +17,33 @@ import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
+  claimRequestId,
   resolveJobLogFile,
   patchJobState,
+  patchJobStateUnlocked,
   readJobFile,
+  getConfig,
+  setConfig,
 } from "./state.mjs";
+import { requestFingerprint } from "./request-id.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
 import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
+import { readRunningVersion } from "./update.mjs";
+import { isFileLockTimeoutError } from "./file-lock.mjs";
 import {
   createJsonEnvelope,
+  createErrorEnvelope,
   outputCommandResult,
   reportWarnings,
   warningDetails,
   formatDeniedActionLabel,
   stripBypassAdvice,
   redactBypassFlag,
+  appendRenderedLines,
 } from "./render.mjs";
+import { buildResultDetails } from "./job-result.mjs";
+import { findingsWarningLine, storedFindingsDetails, structuredRawText } from "./review-findings.mjs";
 
 export const AGY_TIMEOUT_ENV = "ANTIGRAVITY_AGY_TIMEOUT_MS";
 export const DEFAULT_AGY_TIMEOUT_MS = 30 * 60 * 1000;
@@ -69,8 +80,11 @@ export const AGY_MODES = ["plan", "accept-edits"];
  * lists a fourth choice, `max`, but no model on this account exposes it
  * (`raw-effort-max-default-model.txt`: "gemini-3.8-flash has no \"max\"
  * effort (available: low, medium, high)"), so the plugin keeps accepting
- * only these three plus the sentinel below. `review` and `vision` never
- * expose `--effort`; only `task` and `rescue` forward it. */
+ * only these three plus the sentinel below. `vision` never exposes
+ * `--effort`. `task` and `rescue` forward it with a plugin-side default
+ * ({@link resolveRequestEffort}); `review` forwards it too, through
+ * {@link EFFORT_CHOICES} and {@link resolveReviewEffort}, but with no
+ * plugin-side default of its own. */
 export const AGY_EFFORTS = ["low", "medium", "high"];
 
 /**
@@ -79,8 +93,10 @@ export const AGY_EFFORTS = ["low", "medium", "high"];
  * case is `resolveRequestEffort`). Measured basis: a run without `--effort`
  * sends no effort field at all, so the value agy uses comes from whatever
  * that machine has saved — a delegated run is not reproducible across
- * machines without a plugin default. `review` and `vision` do not read this
- * constant: neither exposes `--effort`, so neither gets a default.
+ * machines without a plugin default. `vision` does not read this constant:
+ * it exposes no `--effort` at all. `review` does not read it either, but for
+ * a different reason: it exposes `--effort` (via {@link resolveReviewEffort})
+ * without ever falling back to a plugin default.
  */
 export const DEFAULT_AGY_EFFORT = "medium";
 
@@ -95,9 +111,9 @@ export const DEFAULT_AGY_EFFORT = "medium";
 export const AGY_DEFAULT_EFFORT = "agy-default";
 
 /**
- * The four values `--effort` accepts on `task` and `rescue`: agy's own three
- * ({@link AGY_EFFORTS}) plus the sentinel above. `review` and `vision` do not
- * use this; neither exposes `--effort` at all.
+ * The four values `--effort` accepts on `task`, `rescue`, and `review`: agy's
+ * own three ({@link AGY_EFFORTS}) plus the sentinel above. `vision` does not
+ * use this; it exposes no `--effort` at all.
  */
 export const EFFORT_CHOICES = [...AGY_EFFORTS, AGY_DEFAULT_EFFORT];
 
@@ -146,6 +162,83 @@ export function resolveRequestEffort(effortOption, model) {
 }
 
 /**
+ * Resolve the `--effort` value `review` stores on the job request (Task 4,
+ * "Senate R4", 2026-09). Unlike {@link resolveRequestEffort} (`task`/
+ * `rescue`), `review` has no plugin-side default: an absent `--effort`
+ * resolves to `undefined`, with no fallback to {@link DEFAULT_AGY_EFFORT} or
+ * to the `agy-default` sentinel. An explicit value, including the
+ * `agy-default` sentinel itself, passes through unchanged and verbatim
+ * (the parser's `valueChoices` already rejected anything else) — the
+ * caller's given value is what gets stored on `request.effort` and
+ * reported in `provenance.effort`, exactly as `task`/`rescue` already do
+ * for their own explicit values. The sentinel-to-no-flag translation still
+ * happens exactly once, downstream, via {@link agyEffortArg} (already
+ * applied by `runForegroundJob` and by the background worker) — this
+ * function has no second, separate translation step of its own.
+ *
+ * @param {unknown} effortOption raw `--effort` value from the parser, if any
+ * @returns {string | undefined}
+ */
+export function resolveReviewEffort(effortOption) {
+  return effortOption ? String(effortOption) : undefined;
+}
+
+/**
+ * The maximum length, after trimming, `review`'s `--focus` accepts (Task 4,
+ * "Senate R4", 2026-09).
+ */
+export const MAX_REVIEW_FOCUS_CHARS = 500;
+
+/**
+ * Validate and trim a `review` `--focus` value (Task 4, "Senate R4",
+ * 2026-09): trimmed of surrounding whitespace; empty or whitespace-only, or
+ * longer than {@link MAX_REVIEW_FOCUS_CHARS} after trimming, is a validation
+ * error the caller reports via {@link reportInvalidFocus}. `--focus` is
+ * never required and never derived from repository content — an absent
+ * value is not an error, it is simply "no focus given".
+ *
+ * @param {unknown} focusOption raw `--focus` value from the parser, if any
+ * @returns {{ focus: string | undefined, error: string | null }}
+ */
+export function resolveReviewFocus(focusOption) {
+  if (focusOption === undefined) return { focus: undefined, error: null };
+  const trimmed = String(focusOption).trim();
+  if (trimmed === "") {
+    return { focus: undefined, error: "invalid value for --focus: empty or whitespace-only" };
+  }
+  if (trimmed.length > MAX_REVIEW_FOCUS_CHARS) {
+    return {
+      focus: undefined,
+      error: `invalid value for --focus: longer than ${MAX_REVIEW_FOCUS_CHARS} characters`,
+    };
+  }
+  return { focus: trimmed, error: null };
+}
+
+/**
+ * Report `review`'s `--focus` validation failure ({@link resolveReviewFocus}):
+ * the plugin's own one-line reason on stderr, plus (Task 4, "Senate R4",
+ * 2026-09, following the Task 3 pattern) one `invalid_input` `--json`
+ * envelope when `json` is true.
+ *
+ * @param {string} message
+ * @param {boolean} json
+ * @returns {1}
+ */
+export function reportInvalidFocus(message, json) {
+  process.stderr.write(`antigravity:review — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("review", {
+      status: "invalid_input",
+      error: { code: "invalid_focus", phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
  * agy argv for a validated `--mode` value; empty when the flag was not given.
  * Validation itself is the parser's job (`valueChoices`), so this never sees
  * an unknown value.
@@ -159,18 +252,182 @@ export function agyModeArgs(mode) {
 
 /**
  * Probe the agy binary once, before a verb collects a diff, writes a job
- * record or starts anything. Returns `null` when agy can be spawned, else
- * the one stderr line the verb prints before it exits 1. `setup` keeps its
- * own wording and exit 2; this is for the four verbs that run agy.
+ * record or starts anything, returning both the one stderr line a verb
+ * prints before it exits 1 (or `null` when agy can be spawned) and the
+ * version agy itself reported (`null` only when the probe failed). The one
+ * probe every delegating verb needs: a job's `provenance.agyVersion` (plan
+ * 103 T2, "Senate R11", 2026-09) comes from this same probe, never a second
+ * `agy --version` call. `setup` keeps its own wording and exit 2; this is
+ * for the four verbs that run agy.
  *
  * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
  * @param {{ bin?: string, probe?: typeof probeAgy }} [opts]
- * @returns {Promise<string | null>}
+ * @returns {Promise<{ line: string | null, version: string | null }>}
  */
-export async function agyUnavailableLine(kind, { bin = resolveAgyBin(), probe = probeAgy } = {}) {
+export async function probeAgyForVerb(kind, { bin = resolveAgyBin(), probe = probeAgy } = {}) {
   const result = await probe({ bin });
-  if (result.ok) return null;
-  return `antigravity:${kind} — \`agy\` is not on PATH (${result.reason}). Run /antigravity:setup.`;
+  if (result.ok) return { line: null, version: result.version ?? null };
+  return {
+    line: `antigravity:${kind} — \`agy\` is not on PATH (${result.reason}). Run /antigravity:setup.`,
+    version: null,
+  };
+}
+
+/** `rememberAgyVersion` writes no more often than this, per workspace. */
+export const AGY_VERSION_REMEMBER_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Cache the agy version a successful {@link probeAgyForVerb} call just saw,
+ * so `status` (with no job id) and `setup` can warn about a version outside
+ * this plugin's measured range without probing agy themselves (Senate R2,
+ * 2026-09). Called by `review`, `rescue`, `task`, and `vision` right after
+ * their own probe succeeds. Never on `review --preview` (which returns
+ * before probing at all), and never by `doctor` or `status`, which only read
+ * this cache.
+ *
+ * Throttled to once per {@link AGY_VERSION_REMEMBER_INTERVAL_MS}, compared
+ * against the cached `observedAt`, so a burst of foreground/background jobs
+ * does not turn into a state-file write per job. A write failure (state
+ * locked by a concurrent job) is swallowed: this cache is advisory, and
+ * losing one update is cheaper than failing the verb that just succeeded.
+ *
+ * @param {string} workspaceRoot the resolved workspace root (`resolveWorkspaceRoot`)
+ * @param {string | null | undefined} version the version {@link probeAgyForVerb} returned
+ * @param {{ now?: () => Date }} [opts] `now` is injectable for tests
+ * @returns {Promise<void>}
+ */
+export async function rememberAgyVersion(workspaceRoot, version, { now = () => new Date() } = {}) {
+  if (!version) return;
+  try {
+    const seen = getConfig(workspaceRoot)?.agyVersionSeen;
+    const elapsedMs = seen?.observedAt ? now().getTime() - new Date(seen.observedAt).getTime() : Infinity;
+    if (elapsedMs < AGY_VERSION_REMEMBER_INTERVAL_MS) return;
+    await setConfig(workspaceRoot, { agyVersionSeen: { version, observedAt: now().toISOString() } });
+  } catch {
+    // Advisory cache only. Never fail the verb over this.
+  }
+}
+
+/**
+ * Report a probe failure from {@link probeAgyForVerb}: the existing stderr
+ * line, unchanged, plus (Task 3, "Senate R1", 2026-09) one `no_agy`
+ * `--json` envelope when `json` is true. `line` already carries the
+ * `antigravity:<kind> — ` prefix; `details.error.message` is that same line
+ * with the prefix stripped, so it stays the plugin's own one-line reason.
+ *
+ * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
+ * @param {string} line the non-null `probeAgyForVerb(...).line`
+ * @param {boolean} [json]
+ * @returns {1} the exit code every caller returns on this path
+ */
+export function reportAgyUnavailable(kind, line, json) {
+  process.stderr.write(`${line}\n`);
+  const prefix = `antigravity:${kind} — `;
+  const message = line.startsWith(prefix) ? line.slice(prefix.length) : line;
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: "no_agy",
+      error: { code: "agy_not_found", phase: "probe", message },
+    }),
+    "",
+    Boolean(json),
+  );
+  return 1;
+}
+
+/** A thrown job-lookup message reports the job is not yet in the terminal
+ * state the caller needs (`resolveResultJob`, job-control.mjs: "Job <id> is
+ * still running/queued..."). Matched by shape, not owned by this module — the
+ * one place every `status`/`result`/`cancel` job-lookup failure is classified
+ * into a `state_error` envelope's `error.code` (Task 3, "Senate R1", 2026-09). */
+const JOB_NOT_READY_RE = / is still (running|queued)\./;
+
+/**
+ * Classify a job-state lookup failure (job-control.mjs's `resolveResultJob`,
+ * `resolveCancelableJob`, `buildSingleJobSnapshot`, or a `state.mjs` read)
+ * into the `state_error` envelope's `error.code` and a safe one-line message
+ * (Task 3, "Senate R1", 2026-09): a lock-contention timeout, a job that
+ * exists but has not reached the caller's required state yet, or no matching
+ * job at all. Table-driven on the message shape every throw site already
+ * uses, never a new message format of its own.
+ *
+ * @param {unknown} err
+ * @returns {{ code: string, message: string }}
+ */
+export function classifyStateError(err) {
+  if (isFileLockTimeoutError(err)) {
+    return { code: "state_locked", message: "job state is busy with another update; try again shortly" };
+  }
+  const message = err?.message ?? String(err);
+  if (JOB_NOT_READY_RE.test(message)) return { code: "job_not_ready", message };
+  return { code: "job_not_found", message };
+}
+
+/**
+ * Report `task`/`rescue`'s "no task text provided" validation failure: the
+ * existing stderr line, unchanged, plus (Task 3, "Senate R1", 2026-09) one
+ * `invalid_input` `--json` envelope when `json` is true. The one message
+ * both verbs print identically.
+ *
+ * @param {"task" | "rescue"} kind
+ * @param {boolean} json
+ * @returns {1}
+ */
+export function reportMissingTaskText(kind, json) {
+  const message = "no task text provided. Pass a prompt or --conversation <id>.";
+  process.stderr.write(`antigravity:${kind} — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: "invalid_input",
+      error: { code: "missing_task_text", phase: "validate", message },
+    }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * Report a post-parse "flag A requires flag B" validation failure in the
+ * exact shape `readCommandInput` already uses for a parser-level failure
+ * (`args.mjs`'s `schema.conflicts`, e.g. "cannot combine --foreground and
+ * --background"): one stderr line, prefixed, exit 1, no `--json` envelope on
+ * any path (Task 7, "Senate R9", 2026-09). Split out for a dependency
+ * `schema.conflicts` itself cannot express: two flags that must appear
+ * together, not two flags that must never coexist.
+ *
+ * @param {string} kind verb name
+ * @param {string} message
+ * @returns {1}
+ */
+export function reportArgsValidationError(kind, message) {
+  process.stderr.write(`antigravity:${kind} — ${message}\n`);
+  return 1;
+}
+
+/**
+ * Validate `--show-result`'s dependency on `--wait` (Task 7, "Senate R9",
+ * 2026-09; all three verbs it applies to: `task`, `review`, `rescue`) and,
+ * for `review`/`rescue` only, on `--background` too. `task` has no separate
+ * "opt into background" flag of its own; its default already IS background,
+ * so the equivalent failure there is `--foreground`: that mode
+ * runs synchronously and has no `--wait` semantics at all, so it fails the
+ * identical "requires --wait" message an absent `--wait` would, rather than
+ * a second, `task`-only message.
+ *
+ * @param {Record<string, string | boolean | string[]>} options parsed CLI options
+ * @param {"task" | "review" | "rescue"} kind
+ * @returns {string | null} the message for {@link reportArgsValidationError}, or null when valid
+ */
+export function validateShowResultDependency(options, kind) {
+  if (!options["show-result"]) return null;
+  if (!options.wait || (kind === "task" && options.foreground)) {
+    return "--show-result requires --wait";
+  }
+  if ((kind === "review" || kind === "rescue") && !options.background) {
+    return "--show-result requires --background";
+  }
+  return null;
 }
 
 /**
@@ -254,16 +511,41 @@ export function exitCodeForJobStatus(status) {
  * one background-start report `task.mjs`, `rescue.mjs` and `review.mjs`
  * each hand-wrote (item 19).
  *
+ * Under `--show-result` (Task 7, "Senate R9", 2026-09) a successful dispatch
+ * prints no envelope at all on stdout, in either mode: the caller is about
+ * to wait for and print the completed job itself, so the dispatch-time
+ * stdout stays empty and the one-line notice moves to stderr instead. A
+ * failed dispatch (`job.status === "failed"`) is unaffected: the caller
+ * never reaches `--wait` on that path, so it keeps reporting on stdout under
+ * `--json` exactly as it always has.
+ *
  * @param {string} kind verb name
  * @param {import('./types.mjs').JobIndexEntry} job
- * @param {{ json?: boolean }} options
+ * @param {{ json?: boolean, "show-result"?: boolean }} options
  * @returns {number | null} an exit code when the job failed to start, else
  *   null so the caller continues (e.g. to an optional `--wait`)
  */
 export function reportQueuedJob(kind, job, options) {
   if (job.status === "failed") {
     process.stderr.write(`${foregroundFailureLine(kind, { spawnError: job.errorMessage })}\n`);
+    outputCommandResult(
+      createErrorEnvelope(kind, {
+        status: "failed",
+        jobId: job.id,
+        error: {
+          code: "worker_start_failed",
+          phase: "run",
+          message: job.errorMessage ?? "the worker failed to start",
+        },
+      }),
+      "",
+      Boolean(options.json),
+    );
     return 1;
+  }
+  if (options["show-result"]) {
+    process.stderr.write(`Background ${kind} started: ${job.id}\n`);
+    return null;
   }
   const payload = createJsonEnvelope(kind, {
     status: "queued",
@@ -281,20 +563,289 @@ export function reportQueuedJob(kind, job, options) {
 }
 
 /**
- * Await a background job's terminal state, print the wait-timeout line (if
- * any), and map the outcome to an exit code. The one background-wait tail
- * `rescue.mjs` and `review.mjs` each hand-wrote (item 19).
+ * Report a `--request-id` dispatch that found the id already claimed with
+ * the same request (Senate R12, 2026-09): the existing job's queued-style
+ * envelope, carrying that job's current status and
+ * `details.deduplicated: true`. Under `--show-result` the notice goes to
+ * stderr instead, as {@link reportQueuedJob} does for a new job.
+ *
+ * @param {string} kind verb name
+ * @param {import('./types.mjs').JobIndexEntry} job the existing job's index entry
+ * @param {{ json?: boolean, "show-result"?: boolean, "request-id"?: string }} options
+ * @returns {void}
+ */
+function reportDeduplicatedJob(kind, job, options) {
+  const requestId = options["request-id"];
+  if (options["show-result"]) {
+    process.stderr.write(`Background ${kind} already started for request id ${requestId}: ${job.id}\n`);
+    return;
+  }
+  const message = `Background ${kind} already started for request id ${requestId}: ${job.id}. ` +
+    `Run /antigravity:status ${job.id} to check progress.`;
+  outputCommandResult(
+    createJsonEnvelope(kind, { status: job.status, jobId: job.id, details: { deduplicated: true, message } }),
+    `Background ${kind} already started for request id ${requestId}: ${job.id}\n` +
+      `Run /antigravity:status ${job.id} to check progress.\n`,
+    Boolean(options.json),
+  );
+}
+
+/**
+ * Report a `--request-id` dispatch that found the id already claimed by a
+ * different request (Senate R12, 2026-09): one stderr line plus the
+ * `invalid_input` / `request_id_conflict` envelope under `--json`. No job
+ * was created and nothing is retried.
+ *
+ * @param {string} kind verb name
+ * @param {string} existingJobId
+ * @param {{ json?: boolean, "request-id"?: string }} options
+ * @returns {1}
+ */
+function reportRequestIdConflict(kind, existingJobId, options) {
+  const message = `--request-id ${options["request-id"]} is already used by job ${existingJobId} for a different request`;
+  process.stderr.write(`antigravity:${kind} — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: "invalid_input",
+      error: { code: "request_id_conflict", phase: "validate", message },
+      details: { existingJobId },
+    }),
+    "",
+    Boolean(options.json),
+  );
+  return 1;
+}
+
+/**
+ * Report what {@link startBackgroundJob} returned, for `task` and
+ * `rescue --background`: a new job goes through {@link reportQueuedJob}
+ * unchanged; a `--request-id` claim that found an existing job reports it
+ * as deduplicated or as a conflict (Senate R12, 2026-09).
+ *
+ * @param {string} kind verb name
+ * @param {Awaited<ReturnType<typeof startBackgroundJob>>} started
+ * @param {{ json?: boolean, "show-result"?: boolean, "request-id"?: string }} options
+ * @returns {{ exit: number | null, jobId: string | null }} `exit` is null
+ *   when the caller continues (e.g. to an optional `--wait` on `jobId`)
+ */
+export function reportBackgroundStart(kind, started, options) {
+  const claim = started.requestClaim;
+  if (!claim) return { exit: reportQueuedJob(kind, started.job, options), jobId: started.job.id };
+  if (claim.outcome === "conflict") return { exit: reportRequestIdConflict(kind, claim.jobId, options), jobId: null };
+  reportDeduplicatedJob(kind, claim.job, options);
+  return { exit: null, jobId: claim.jobId };
+}
+
+/**
+ * Print the finished job's raw output on stdout when a text-mode `--wait`
+ * completed: `task --wait`'s own behaviour since before `--show-result`
+ * existed, and (Task 7, "Senate R9", 2026-09) also `review`/`rescue --wait
+ * --show-result`'s completed-text-mode behaviour. A no-op under `--json`, for
+ * any status but `completed`, or when the stored result carries no
+ * `rawOutput`. `final` may be `null` (the job record vanished while
+ * waiting); optional chaining makes that the same no-op as any other
+ * non-completed status, rather than a thrown error.
+ *
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @param {boolean} json
+ * @returns {void}
+ */
+export function printCompletedRawOutput(final, json) {
+  if (json || final?.status !== "completed" || !final.result?.rawOutput) return;
+  process.stdout.write(final.result.rawOutput);
+}
+
+/**
+ * The `details` for a `--show-result` completion envelope: the same
+ * projection `result <id> --json` builds (`buildResultDetails`, shared via
+ * `job-result.mjs`), plus the same `deniedActions` (with remedy) and
+ * `agyPrintTimeout` keys that envelope adds on top (Task 7, "Senate R9",
+ * 2026-09). `final` (the terminal `JobRecord` `waitForJob` returns) plays
+ * both the `job` and `stored` role `buildResultDetails` expects: unlike
+ * `result.mjs`'s index-entry-plus-detail-file split, a background wait's
+ * `waitForJob` already reads the one complete per-job file, so there is no
+ * second, thinner record to merge in. No `--head`/`--tail` cut ever applies
+ * here (`--show-result` takes no such flag), so the shared helper's default
+ * `{ truncated: false }` cut is always what this passes.
+ *
+ * @param {import('./types.mjs').JobRecord} final a job with `status: "completed"`
+ * @returns {object}
+ */
+function buildShowResultCompletedDetails(final) {
+  const deniedList = deniedActionsWithRemedy(final.result?.deniedActions, final.kind);
+  const agyPrintTimeout = final.result?.agyPrintTimeout ?? null;
+  return {
+    ...buildResultDetails(final, final, { truncated: false }),
+    ...(deniedList ? { deniedActions: deniedList } : {}),
+    ...(agyPrintTimeout ? { agyPrintTimeout } : {}),
+  };
+}
+
+/**
+ * The `details.error.message` for a `--show-result` wait-timeout envelope
+ * (job still `queued`/`running` when the wait's own deadline passed): the
+ * same one-line reason {@link waitOutcomeLine} already gives the text-mode
+ * stderr path, with its own `antigravity:<kind>` prefix stripped, the same
+ * "strip the stderr line's own prefix for JSON reuse" convention
+ * `foregroundErrorMessage` uses below.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').JobRecord} final a job still `queued` or `running`
+ * @returns {string}
+ */
+function showResultTimeoutMessage(kind, final) {
+  const line = waitOutcomeLine(kind, final);
+  const prefix = `antigravity:${kind} — `;
+  if (line?.startsWith(prefix)) return line.slice(prefix.length);
+  return line ?? `wait timed out; job ${final.id} is still ${final.status}.`;
+}
+
+/**
+ * Build the one `--show-result --json` envelope for an awaited background
+ * job (Task 7, "Senate R9", 2026-09): `completed` reuses `result <id>
+ * --json`'s own details shape; `failed`/`cancelled` are the Task 3 error
+ * envelope with `error.code: "job_failed"`/`"job_cancelled"`; a job still
+ * `queued`/`running` (the wait's own deadline passed, not the job) is
+ * `error.code: "wait_timeout"` and never reports completion. A vanished job
+ * record (`final` is `null`) is reported the same way a stored failure is,
+ * since there is no terminal status left to represent.
+ *
+ * @param {string} kind verb name
+ * @param {string} jobId the id the caller waited on (used when `final` is `null`)
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @returns {import('./types.mjs').JsonEnvelopeV1}
+ */
+function buildShowResultEnvelope(kind, jobId, final) {
+  if (!final) {
+    // phase "wait", not "run": the job record itself vanished while this
+    // call was waiting on it, so there is no run outcome to report; reusing
+    // "job_failed" still names the terminal shape correctly (a failure, not
+    // a timeout or a cancellation).
+    return createErrorEnvelope(kind, {
+      status: "failed",
+      jobId,
+      error: { code: "job_failed", phase: "wait", message: "job record vanished while waiting." },
+    });
+  }
+  if (final.status === "completed") {
+    return createJsonEnvelope(kind, {
+      status: "completed",
+      jobId: final.id,
+      answer: typeof final.result?.rawOutput === "string" ? final.result.rawOutput : null,
+      details: buildShowResultCompletedDetails(final),
+    });
+  }
+  if (final.status === "failed" || final.status === "cancelled") {
+    return createErrorEnvelope(kind, {
+      status: final.status,
+      jobId: final.id,
+      error: {
+        code: final.status === "cancelled" ? "job_cancelled" : "job_failed",
+        phase: "run",
+        message: final.errorMessage ?? final.healthMessage ?? `job ${final.id} ${final.status}.`,
+      },
+    });
+  }
+  return createErrorEnvelope(kind, {
+    status: final.status,
+    jobId: final.id,
+    error: { code: "wait_timeout", phase: "wait", message: showResultTimeoutMessage(kind, final) },
+  });
+}
+
+/**
+ * The `--show-result` text-mode tail (Task 7, "Senate R9", 2026-09): a
+ * `completed` job prints its stored `rawOutput` on stdout (the usage
+ * trailer, when measured, is printed by the caller, see
+ * {@link reportShowResultOutcome}, the same way it always precedes a
+ * completed answer, in `--json` or not); a `failed` job prints its own
+ * stored reason on stderr and nothing on stdout; `cancelled` prints nothing
+ * at all; a job still `queued`/`running` (the wait timed out) prints the
+ * existing `wait timed out` line, unchanged. Every branch is silent on the
+ * stream it does not own. There is no envelope in text mode.
+ *
+ * @param {string} kind verb name
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @returns {void}
+ */
+function reportShowResultText(kind, final) {
+  if (!final) {
+    process.stderr.write(`antigravity:${kind} — job record vanished while waiting.\n`);
+    return;
+  }
+  if (final.status === "completed") {
+    printCompletedRawOutput(final, false);
+    return;
+  }
+  if (final.status === "failed") {
+    const message = final.errorMessage ?? final.healthMessage ?? `job ${final.id} failed.`;
+    process.stderr.write(`antigravity:${kind} — ${message}\n`);
+    return;
+  }
+  if (final.status === "cancelled") return;
+  const line = waitOutcomeLine(kind, final);
+  if (line) process.stderr.write(`${line}\n`);
+}
+
+/**
+ * `--show-result`'s own background-wait tail (Task 7, "Senate R9", 2026-09):
+ * the usage trailer on a completed job (unconditional on `--json`, matching
+ * every other completed path in this module), then exactly one `--json`
+ * envelope on stdout via {@link buildShowResultEnvelope}, or the text-mode
+ * report via {@link reportShowResultText}, never both, and never the
+ * dispatch-time queued envelope `reportQueuedJob` already suppressed for
+ * this flag. Split out of {@link waitAndReport} so that function's own two
+ * branches (the flag on, and the pre-existing behaviour it must stay
+ * byte-identical to) each read as one call.
+ *
+ * @param {string} kind verb name
+ * @param {string} jobId
+ * @param {import('./types.mjs').JobRecord | null} final
+ * @param {boolean} json
+ * @returns {number}
+ */
+function reportShowResultOutcome(kind, jobId, final, json) {
+  if (final?.status === "completed") {
+    printMeasuredUsageTrailer(final.result?.usage ?? null);
+    reportFindingsWarning(kind, storedFindingsDetails(final));
+  }
+  if (json) {
+    outputCommandResult(buildShowResultEnvelope(kind, jobId, final), "", true);
+  } else {
+    reportShowResultText(kind, final);
+  }
+  return exitCodeForJobStatus(final?.status);
+}
+
+/**
+ * Await a background job's terminal state and report it: the one
+ * background-wait tail `task.mjs`, `rescue.mjs` and `review.mjs` share
+ * (item 19; extended for `--show-result` in Task 7, "Senate R9", 2026-09).
+ *
+ * Without `showResult` this is byte-identical to the pre-Task-7 behaviour:
+ * print the wait-timeout line (if any), map the outcome to an exit code,
+ * and, `task` only, print the completed job's raw output on stdout in
+ * text mode (`printCompletedRawOutput`; `review`/`rescue` never have,
+ * before or after this task). With `showResult` this reports through
+ * {@link reportShowResultOutcome} instead, for all three verbs alike.
  *
  * @param {string} kind verb name
  * @param {string} workspaceRoot
  * @param {string} jobId
  * @param {typeof waitForJob} wait
+ * @param {{ json?: boolean, showResult?: boolean }} [options]
  * @returns {Promise<number>}
  */
-export async function waitAndExit(kind, workspaceRoot, jobId, wait) {
+export async function waitAndReport(kind, workspaceRoot, jobId, wait, { json = false, showResult = false } = {}) {
   const final = await wait(workspaceRoot, jobId);
+  if (showResult) return reportShowResultOutcome(kind, jobId, final, json);
+  if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
   const line = waitOutcomeLine(kind, final);
   if (line) process.stderr.write(`${line}\n`);
+  if (kind === "task") {
+    if (!final) return 1;
+    printCompletedRawOutput(final, json);
+  }
   return exitCodeForJobStatus(final?.status);
 }
 
@@ -503,23 +1054,88 @@ export function deriveJobStatus(result, kind) {
 }
 
 /**
+ * Build the `provenance` object every job record carries from creation
+ * (plan 103 T2, "Senate R11", 2026-09): enough for a later reader to
+ * reproduce the run's settings, and nothing the caller gave the model — no
+ * prompt, workspace path, image path, `extraArgs` content, or tool list.
+ * `pluginVersion` is this plugin's own running version
+ * (`scripts/lib/update.mjs#readRunningVersion`); every other field is a
+ * plain projection off the caller's already-built `request` (itself already
+ * scrubbed of free text by the verb) or the `agyVersion` the caller's own
+ * {@link probeAgyForVerb} call already ran. `model`/`effort` are `null` for
+ * a verb that has none (`review`); `mode` defaults to `"print"` and
+ * `addDirCount` to `0` when the request carries neither.
+ *
+ * @param {{ agyVersion: string | null, request: import('./types.mjs').JobRequest | null,
+ *   requestedAt: string }} args
+ * @returns {import('./types.mjs').JobProvenance}
+ */
+function buildJobProvenance({ agyVersion, request, requestedAt }) {
+  return {
+    pluginVersion: readRunningVersion(),
+    agyVersion: agyVersion ?? null,
+    model: request?.model ?? null,
+    effort: request?.effort ?? null,
+    mode: request?.mode ?? "print",
+    addDirCount: Array.isArray(request?.addDirs) ? request.addDirs.length : 0,
+    requestedAt,
+  };
+}
+
+/**
+ * @typedef {{ workspaceRoot: string, kind: import('./types.mjs').JobKind,
+ *   title?: string | null, request?: import('./types.mjs').JobRequest | null,
+ *   conversationId?: string | null, env?: NodeJS.ProcessEnv,
+ *   agyVersion?: string | null }} TrackedJobOptions
+ */
+
+/**
  * Create a tracked job record on disk.
  *
  * Returns the job index entry. The detailed payload (request, result,
  * stdout) lives in the per-job file written via `writeJobFile`.
  *
- * @param {{ workspaceRoot: string, kind: import('./types.mjs').JobKind,
- *   title?: string | null, request?: import('./types.mjs').JobRequest | null,
- *   conversationId?: string | null, env?: NodeJS.ProcessEnv }} options
+ * @param {TrackedJobOptions} options
  * @returns {Promise<import('./types.mjs').JobIndexEntry>}
  */
-export async function createTrackedJob({
+export async function createTrackedJob(options) {
+  const { job, detail } = buildTrackedJob(options);
+  await patchJob(options.workspaceRoot, job.id, detail);
+  appendJobLog(options.workspaceRoot, job.id, `[job] created kind=${job.kind}`);
+  return job;
+}
+
+/**
+ * {@link createTrackedJob} for a caller that already holds the workspace
+ * mutex: `state.mjs#claimRequestId` runs this as its `createJob` callback,
+ * so the `--request-id` claim and the job it creates share one locked
+ * critical section (Senate R12, 2026-09). Same record, same log line.
+ *
+ * @param {TrackedJobOptions} options
+ * @returns {import('./types.mjs').JobIndexEntry}
+ */
+function createTrackedJobUnlocked(options) {
+  const { job, detail } = buildTrackedJob(options);
+  patchJobStateUnlocked(options.workspaceRoot, job.id, detail, stripDetail(detail));
+  appendJobLog(options.workspaceRoot, job.id, `[job] created kind=${job.kind}`);
+  return job;
+}
+
+/**
+ * The new job's index entry and its full detail record (the entry plus
+ * `request` and a `null` `result`), not yet written anywhere.
+ *
+ * @param {TrackedJobOptions} options
+ * @returns {{ job: import('./types.mjs').JobIndexEntry, detail: import('./types.mjs').JobRecord }}
+ */
+function buildTrackedJob({
   workspaceRoot,
   kind,
   title,
   request = null,
   conversationId = null,
   env = process.env,
+  agyVersion = null,
 }) {
   const id = newJobId();
   const now = new Date().toISOString();
@@ -540,14 +1156,9 @@ export async function createTrackedJob({
     startedAt: null,
     completedAt: null,
     logFile: resolveJobLogFile(workspaceRoot, id),
+    provenance: buildJobProvenance({ agyVersion, request, requestedAt: now }),
   };
-  await patchJob(workspaceRoot, id, {
-    ...job,
-    request,
-    result: null,
-  });
-  appendJobLog(workspaceRoot, id, `[job] created kind=${kind}`);
-  return job;
+  return { job, detail: { ...job, request, result: null } };
 }
 
 /**
@@ -579,7 +1190,7 @@ function stripDetail(patch) {
  *
  * @param {import('./types.mjs').ProcessRequest & { workspaceRoot: string,
  *   kind: string, title?: string | null, request?: object | null,
- *   env?: NodeJS.ProcessEnv }} options
+ *   env?: NodeJS.ProcessEnv, agyVersion?: string | null }} options
  * @returns {Promise<{ job: import('./types.mjs').JobRecord, result: import('./types.mjs').RuntimeResult }>}
  */
 export async function runForegroundJob({
@@ -594,9 +1205,11 @@ export async function runForegroundJob({
   effort,
   outputFormat,
   extraArgs = [],
+  jsonSchemaPath,
   cwd,
   request = null,
   env = process.env,
+  agyVersion = null,
   onStdout,
   onStderr,
   onText,
@@ -608,6 +1221,7 @@ export async function runForegroundJob({
     request,
     conversationId,
     env,
+    agyVersion,
   });
 
   const startedAt = new Date().toISOString();
@@ -632,6 +1246,7 @@ export async function runForegroundJob({
       effort: agyEffortArg(effort),
       outputFormat,
       extraArgs,
+      jsonSchemaPath,
       cwd: cwd ?? workspaceRoot,
       env,
       timeoutMs: agyTimeoutMs(env),
@@ -726,6 +1341,17 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
  * 076-T6 each hand-wrote its own copy and only the worker's stored
  * `agyConversationId` (item 16).
  *
+ * `reportedModel` (plan 103 T2, "Senate R11", 2026-09) is taken from agy's
+ * own `result` event when that event carries a model field. Measured against
+ * agy 1.2.11 and 1.2.12 (`agy-1.2.11-20260925/`, `agy-1.2.12-20260927/`
+ * transcript directories, including `probe-json-schema.txt` and
+ * `probe-background-lifecycle.txt`), the `result` event never carries one —
+ * only agy's own `status --json` model listing and request-side argv do — so
+ * `result.reportedModel` is always absent today and this stays `null`. It is
+ * never derived from the model the caller requested (`request.model`); if a
+ * future agy version adds the field, `agent-runtime.mjs` would need to parse
+ * it onto `RuntimeResult.reportedModel` for this line to stop being `null`.
+ *
  * @param {import('./types.mjs').RuntimeResult} result
  * @returns {import('./types.mjs').JobResult}
  */
@@ -742,7 +1368,46 @@ export function buildStoredResult(result) {
     warnings: result.warnings ?? [],
     deniedActions: result.deniedActions ?? null,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
+    reportedModel: result.reportedModel ?? null,
+    // Senate R7 (2026-09): agy's `--json-schema` answer as JSON text, `null`
+    // when agy sent none. Validated at read time (review-findings.mjs).
+    structuredRaw: structuredRawText(result.structured),
   };
+}
+
+/**
+ * Print the one findings warning line (`review --findings-json`, Senate R7,
+ * 2026-09) when `details` carries a `findingsStatus` other than `valid`. A
+ * no-op for every other run, which has no such key.
+ *
+ * @param {string} kind
+ * @param {{ findingsStatus?: string, findingsError?: string }} details
+ * @returns {void}
+ */
+function reportFindingsWarning(kind, details) {
+  const line = findingsWarningLine(kind, details);
+  if (line) process.stderr.write(`${line}\n`);
+}
+
+/**
+ * Print agy's measured token usage to stderr in the plugin's one stable
+ * shape (docs/COMPATIBILITY.md, "Usage trailer"), when `usage.total_tokens`
+ * is a number. A no-op otherwise — the plugin never estimates missing usage
+ * and never emits the line when a measured total is absent. The one helper
+ * for `finishForeground`'s foreground tail (all four verbs) and the shared
+ * background-wait tail (`waitAndReport` below); `result.mjs` and
+ * `vision.mjs` each hand-wrote a copy of this exact line before plan 103 T2
+ * ("Senate R11", 2026-09).
+ *
+ * @param {import('./types.mjs').AgyUsage | null | undefined} usage
+ * @returns {void}
+ */
+export function printMeasuredUsageTrailer(usage) {
+  if (!usage || typeof usage.total_tokens !== "number") return;
+  process.stderr.write(
+    `usage: total=${usage.total_tokens} in=${usage.input_tokens ?? "?"} ` +
+      `out=${usage.output_tokens ?? "?"}\n`,
+  );
 }
 
 /**
@@ -757,49 +1422,193 @@ export function buildStoredResult(result) {
  * one; `extraFields` covers additional stable top-level envelope fields
  * (only `vision`'s `imagePaths`/`model`, docs/COMPATIBILITY.md); a
  * `beforeAnswer` callback runs right after `reportWarnings` and before the
- * envelope is built, for `vision`'s measured-usage trailer print, which no
- * other verb has.
+ * envelope is built, for a caller-specific stderr line with no shared home.
+ * The measured-usage trailer itself (plan 103 T2, "Senate R11", 2026-09) is
+ * no longer one of those callbacks: {@link printMeasuredUsageTrailer} runs
+ * here for every kind whenever `result.usage.total_tokens` is a number —
+ * `vision.mjs` used to pass its own copy of that line as `beforeAnswer`.
+ * `resultDetails` (Senate R7, 2026-09) derives more `details` keys from the
+ * completed `result` itself (`review --findings-json`'s findings fields);
+ * they sit next to `extraDetails`, and a non-valid `findingsStatus` among
+ * them prints one warning line on stderr.
+ *
+ * `extraStderrLines`/`renderedSuffix` (Task 14, "Senate R8", 2026-09) are
+ * the same optional-line pattern for a caller whose extra line depends on
+ * `ownDetails` (the merged `extraDetails`/`resultDetails` — `review
+ * --check-locations`'s summary line needs the `locationCheck` counts
+ * `resultDetails` just computed) rather than on `result` alone:
+ * `extraStderrLines` prints to stderr, `renderedSuffix` appends to the
+ * printed markdown ({@link appendRenderedLines}) — `answer` in the `--json`
+ * envelope is never touched by either. Absent for every caller that has
+ * none, so `finishForeground`'s existing callers are unchanged.
  *
  * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
  * @param {{ id: string }} job
  * @param {import('./types.mjs').RuntimeResult} result
- * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void }} [options]
+ * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void,
+ *   resultDetails?: (result: import('./types.mjs').RuntimeResult) => object,
+ *   extraStderrLines?: (result: import('./types.mjs').RuntimeResult, ownDetails: object) => string[],
+ *   renderedSuffix?: (result: import('./types.mjs').RuntimeResult, ownDetails: object) => string[] }} [options]
  * @returns {number} the verb's exit code
  */
-export function finishForeground(kind, job, result, { json, extraDetails = {}, extraFields = {}, beforeAnswer } = {}) {
-  if (result.status === "auth_required") {
-    process.stderr.write(
-      `\nantigravity:${kind} — Antigravity is not authenticated.\n` +
-        `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
-    );
-    if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
-    return 1;
-  }
-  if (result.status !== "completed") {
-    process.stderr.write(`\n${foregroundFailureLine(kind, result)}\n`);
-    // redactBypassFlag runs after stripBypassAdvice: stripBypassAdvice drops
-    // agy's own "Alternatively, ..." suggestion; redactBypassFlag then
-    // catches the flag string wherever else it appears on this echo, such
-    // as inside a plugin-authored denial label naming a model-chosen
-    // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
-    // `result.stderr` itself, so the stored record keeps the complete text.
-    const echoed = result.stderr ? redactBypassFlag(stripBypassAdvice(result.stderr)) : "";
-    if (echoed) process.stderr.write(echoed);
-    const resumeLine = resumeHintLine(kind, result);
-    // agy's own stderr does not always end in a newline, so without this the
-    // resume line lands glued to the end of the denial line and a caller
-    // reading stderr line by line sees one line where there are two.
-    if (resumeLine) {
-      const separator = echoed && !echoed.endsWith("\n") ? "\n" : "";
-      process.stderr.write(`${separator}${resumeLine}\n`);
-    }
-    return result.status === "cancelled" ? 2 : 1;
-  }
+/**
+ * The `error.code` for a non-completed `finishForeground` result (Task 3,
+ * "Senate R1", 2026-09): `cancelled`/`auth_required`/`timeout` mirror
+ * `result.status` verbatim (there is only one reason for each); a `failed`
+ * result is split into the three distinct reasons `foregroundFailureLine`
+ * already distinguishes in its own text — a headless auto-denial that
+ * starved the answer, a process that never spawned, or anything else.
+ *
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {string}
+ */
+function foregroundErrorCode(result) {
+  if (result.status !== "failed") return result.status;
+  if (result.denial) return "agy_denied";
+  if (result.spawnError) return "spawn_failed";
+  return "run_failed";
+}
 
+/**
+ * The `error.message` for a non-completed `finishForeground` result: the
+ * plugin's own one-line reason, never agy's raw stderr. For every status but
+ * `auth_required` this is exactly {@link foregroundFailureLine}'s text with
+ * the `antigravity:<kind> — ` prefix stripped, so the two can never drift
+ * apart into two different wordings for the same event.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {string}
+ */
+function foregroundErrorMessage(kind, result) {
+  if (result.status === "auth_required") return "Antigravity is not authenticated.";
+  const prefix = `antigravity:${kind} — `;
+  const line = foregroundFailureLine(kind, result);
+  return line.startsWith(prefix) ? line.slice(prefix.length) : line;
+}
+
+/**
+ * `details` for a non-completed `finishForeground` envelope: the same
+ * `deniedActions` (with remedy) a completed envelope carries, plus
+ * `agyConversationId` and `resumeCommand` when the run is a resumable denial
+ * — the same three facts {@link resumeHintLine} already gates on, so this
+ * never shows a resume command `resumeHintLine` itself would not print.
+ *
+ * @param {string} kind
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @returns {object}
+ */
+function foregroundErrorDetails(kind, result) {
+  const resumeLine = resumeHintLine(kind, result);
+  return {
+    ...deniedActionsDetails(result, kind),
+    ...(result.agyConversationId ? { agyConversationId: result.agyConversationId } : {}),
+    ...(resumeLine ? { resumeCommand: resumeLine } : {}),
+  };
+}
+
+/**
+ * Emit the one `--json` error envelope for a non-completed `finishForeground`
+ * result (Task 3, "Senate R1", 2026-09), or nothing when `json` is false —
+ * `outputCommandResult` already no-ops on an empty `rendered` string, so this
+ * never prints to stdout on the markdown path, matching the pre-Task-3
+ * contract for every status it now covers.
+ *
+ * @param {string} kind
+ * @param {{ id: string }} job
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} [json]
+ * @returns {void}
+ */
+function emitForegroundErrorEnvelope(kind, job, result, json) {
+  outputCommandResult(
+    createErrorEnvelope(kind, {
+      status: result.status,
+      jobId: job.id,
+      error: {
+        code: foregroundErrorCode(result),
+        phase: "run",
+        message: foregroundErrorMessage(kind, result),
+      },
+      details: foregroundErrorDetails(kind, result),
+    }),
+    "",
+    Boolean(json),
+  );
+}
+
+/**
+ * `finishForeground`'s `auth_required` branch, split out to keep that
+ * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
+ * stderr output is byte-for-byte unchanged; the only addition is the
+ * `--json` error envelope.
+ *
+ * @param {string} kind
+ * @param {{ id: string }} job
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} [json]
+ * @returns {1}
+ */
+function finishForegroundAuthRequired(kind, job, result, json) {
+  process.stderr.write(
+    `\nantigravity:${kind} — Antigravity is not authenticated.\n` +
+      `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
+  );
+  if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
+  emitForegroundErrorEnvelope(kind, job, result, json);
+  return 1;
+}
+
+/**
+ * `finishForeground`'s non-completed, non-`auth_required` branch (`failed`
+ * including denial-starved, `cancelled`, `timeout`), split out to keep that
+ * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
+ * stderr output is byte-for-byte unchanged; the only addition is the
+ * `--json` error envelope.
+ *
+ * @param {string} kind
+ * @param {{ id: string }} job
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} [json]
+ * @returns {1 | 2}
+ */
+function finishForegroundFailure(kind, job, result, json) {
+  process.stderr.write(`\n${foregroundFailureLine(kind, result)}\n`);
+  // redactBypassFlag runs after stripBypassAdvice: stripBypassAdvice drops
+  // agy's own "Alternatively, ..." suggestion; redactBypassFlag then
+  // catches the flag string wherever else it appears on this echo, such
+  // as inside a plugin-authored denial label naming a model-chosen
+  // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
+  // `result.stderr` itself, so the stored record keeps the complete text.
+  const echoed = result.stderr ? redactBypassFlag(stripBypassAdvice(result.stderr)) : "";
+  if (echoed) process.stderr.write(echoed);
+  const resumeLine = resumeHintLine(kind, result);
+  // agy's own stderr does not always end in a newline, so without this the
+  // resume line lands glued to the end of the denial line and a caller
+  // reading stderr line by line sees one line where there are two.
+  if (resumeLine) {
+    const separator = echoed && !echoed.endsWith("\n") ? "\n" : "";
+    process.stderr.write(`${separator}${resumeLine}\n`);
+  }
+  emitForegroundErrorEnvelope(kind, job, result, json);
+  return result.status === "cancelled" ? 2 : 1;
+}
+
+export function finishForeground(kind, job, result, {
+  json, extraDetails = {}, extraFields = {}, beforeAnswer, resultDetails, extraStderrLines, renderedSuffix,
+} = {}) {
+  if (result.status === "auth_required") return finishForegroundAuthRequired(kind, job, result, json);
+  if (result.status !== "completed") return finishForegroundFailure(kind, job, result, json);
+
+  const ownDetails = { ...extraDetails, ...resultDetails?.(result) };
   reportWarnings(kind, result);
   reportDeniedActionHints(kind, result);
   reportPrintTimeoutHint(kind, result);
+  reportFindingsWarning(kind, ownDetails);
+  for (const line of extraStderrLines?.(result, ownDetails) ?? []) process.stderr.write(`${line}\n`);
   beforeAnswer?.();
+  printMeasuredUsageTrailer(result.usage);
+  const rendered = appendRenderedLines(result.stdout, renderedSuffix?.(result, ownDetails) ?? []);
   outputCommandResult(
     createJsonEnvelope(kind, {
       status: "completed",
@@ -807,13 +1616,13 @@ export function finishForeground(kind, job, result, { json, extraDetails = {}, e
       answer: result.stdout,
       ...extraFields,
       details: {
-        ...extraDetails,
+        ...ownDetails,
         ...deniedActionsDetails(result, kind),
         ...agyPrintTimeoutDetails(result),
         ...warningDetails(result),
       },
     }),
-    result.stdout,
+    rendered,
     Boolean(json),
   );
   return 0;
@@ -911,7 +1720,8 @@ function isRetryEligible(result) {
  * @param {(retryConversationId?: string) => Promise<{ job: object, result: import('./types.mjs').RuntimeResult }>} runOnce
  *   runs one `runForegroundJob` call; called with no argument for the first
  *   attempt, and with agy's own conversation id for the retry
- * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void }} finishOptions
+ * @param {{ json: boolean, extraDetails?: object, extraFields?: object, beforeAnswer?: () => void,
+ *   resultDetails?: (result: import('./types.mjs').RuntimeResult) => object }} finishOptions
  *   forwarded to `finishForeground` for both the first report and the retry's
  * @param {{ canPrompt?: typeof canPromptOnDenial, ask?: typeof askRetryOrStop }} [deps]
  * @returns {Promise<number>}
@@ -997,8 +1807,59 @@ export function resolveWorkerPath() {
 }
 
 /**
+ * The `request` object `startBackgroundJob` persists on the job (and a
+ * background worker later replays): the caller's own fields plus its
+ * `request` fragment layered on top, plus the execution timeout budget.
+ * Split out so `startBackgroundJob` itself stays under the complexity
+ * ceiling.
+ *
+ * @param {{ prompt: string, mode: string, conversationId: string | null,
+ *   addDirs: string[], extraArgs: string[], cwd: string | undefined,
+ *   workspaceRoot: string, request: object | null, env: NodeJS.ProcessEnv }} args
+ * @returns {import('./types.mjs').JobRequest}
+ */
+function buildBackgroundRequest({ prompt, mode, conversationId, addDirs, extraArgs, cwd, workspaceRoot, request, env }) {
+  return {
+    prompt,
+    mode,
+    conversationId,
+    addDirs,
+    extraArgs,
+    cwd: cwd ?? workspaceRoot,
+    ...(request ?? {}),
+    timeoutMs: agyTimeoutMs(env),
+  };
+}
+
+/**
+ * Create the background job, claiming `requestId` first when one is given
+ * (Senate R12, 2026-09). Without an id this is exactly
+ * {@link createTrackedJob}. With one, the stored request gains
+ * `requestId` and `requestFingerprint`, and the claim plus the job creation
+ * run in one locked critical section (`state.mjs#claimRequestId`).
+ *
+ * @param {TrackedJobOptions & { request: import('./types.mjs').JobRequest }} jobOptions
+ * @param {string | null} requestId
+ * @returns {Promise<{ outcome: "created" | "deduplicated" | "conflict", jobId?: string,
+ *   job: import('./types.mjs').JobIndexEntry }>}
+ */
+async function createBackgroundJob(jobOptions, requestId) {
+  if (!requestId) return { outcome: "created", job: await createTrackedJob(jobOptions) };
+  const { workspaceRoot, kind } = jobOptions;
+  const fingerprint = requestFingerprint({ ...jobOptions.request, kind, cwd: workspaceRoot });
+  const request = { ...jobOptions.request, requestId, requestFingerprint: fingerprint };
+  return claimRequestId(workspaceRoot, requestId, fingerprint, () => createTrackedJobUnlocked({ ...jobOptions, request }));
+}
+
+/**
  * Fire-and-forget a background worker that will run the prompt with the
  * given mode. Returns the queued job index entry.
+ *
+ * With `requestId` (`--request-id`, Senate R12, 2026-09) an id this
+ * workspace already claimed spawns nothing and returns `{ job: null, pid:
+ * null, requestClaim }`, where `requestClaim` is `claimRequestId`'s
+ * `deduplicated` or `conflict` outcome. No automatic retry happens on any
+ * path.
  *
  * The worker script lives at scripts/commands/_worker.mjs and is invoked as
  * `node <worker.mjs> <jobId> <workspaceRoot>`.
@@ -1006,9 +1867,12 @@ export function resolveWorkerPath() {
  * @param {import('./types.mjs').ProcessRequest & { workspaceRoot: string,
  *   kind: import('./types.mjs').JobKind, title?: string | null,
  *   request?: object | null, env?: NodeJS.ProcessEnv,
- *   spawnWorker?: typeof spawn, persistWorkerPid?: typeof patchJob,
- *   terminateTree?: typeof terminateProcessTree }} options
- * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
+ *   agyVersion?: string | null, spawnWorker?: typeof spawn,
+ *   persistWorkerPid?: typeof patchJob,
+ *   terminateTree?: typeof terminateProcessTree, requestId?: string | null }} options
+ * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry | null, pid: number | null,
+ *   requestClaim?: { outcome: "deduplicated" | "conflict", jobId: string,
+ *   job: import('./types.mjs').JobIndexEntry } }>}
  */
 export async function startBackgroundJob({
   workspaceRoot,
@@ -1022,28 +1886,38 @@ export async function startBackgroundJob({
   cwd,
   request = null,
   env = process.env,
+  agyVersion = null,
   spawnWorker = spawn,
   persistWorkerPid = patchJob,
   terminateTree = terminateProcessTree,
+  requestId = null,
 }) {
-  const job = await createTrackedJob({
+  const claim = await createBackgroundJob({
     workspaceRoot,
     kind,
     title,
-    request: {
-      prompt,
-      mode,
-      conversationId,
-      addDirs,
-      extraArgs,
-      cwd: cwd ?? workspaceRoot,
-      ...(request ?? {}),
-      timeoutMs: agyTimeoutMs(env),
-    },
+    request: buildBackgroundRequest({ prompt, mode, conversationId, addDirs, extraArgs, cwd, workspaceRoot, request, env }),
     conversationId,
     env,
-  });
+    agyVersion,
+  }, requestId);
+  if (claim.outcome !== "created") return { job: null, pid: null, requestClaim: claim };
+  return launchWorker(workspaceRoot, claim.job, { env, spawnWorker, persistWorkerPid, terminateTree });
+}
 
+/**
+ * Spawn the detached worker for a freshly created job and record its PID;
+ * on a launch failure, mark the job `failed` instead. Split out of
+ * {@link startBackgroundJob} so that function stays under the complexity
+ * ceiling.
+ *
+ * @param {string} workspaceRoot
+ * @param {import('./types.mjs').JobIndexEntry} job
+ * @param {{ env: NodeJS.ProcessEnv, spawnWorker: typeof spawn,
+ *   persistWorkerPid: typeof patchJob, terminateTree: typeof terminateProcessTree }} deps
+ * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
+ */
+async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorkerPid, terminateTree }) {
   const workerPath = resolveWorkerPath();
   let child;
   let spawned = false;
