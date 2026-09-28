@@ -207,3 +207,30 @@ describe('pack-for-agy: missing tar', () => {
     assert.match(message, /package/);
   });
 });
+
+describe('pack-for-agy: --pack-destination with a space in the path', () => {
+  it('packToTarball() writes the tarball into a destination directory whose path contains a space', async (t) => {
+    // `packToTarball`'s own doc comment names the exact bug class this
+    // guards: "a destination containing a space, quoted by hand into a
+    // single command string, came back mangled." The prefix itself carries
+    // the space, so the directory `mkdtempSync` returns has one no matter
+    // what random suffix it appends.
+    let spacedDir;
+    try {
+      spacedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack for agy '));
+    } catch (err) {
+      t.skip(`os.tmpdir() cannot host a directory with a space in its name: ${err.message}`);
+      return;
+    }
+    tempDirsToClean.push(spacedDir);
+    assert.ok(spacedDir.includes(' '), `fixture directory has no space: ${spacedDir}`);
+
+    const { packToTarball } = await import('../scripts/pack-for-agy.mjs');
+    const packed = packToTarball(ROOT, spacedDir);
+
+    assert.equal(path.dirname(packed.path), spacedDir);
+    assert.ok(fs.existsSync(packed.path), `expected a tarball at ${packed.path}`);
+    assert.ok(packed.filename.length > 0);
+    assert.ok(packed.shasum.length > 0);
+  });
+});

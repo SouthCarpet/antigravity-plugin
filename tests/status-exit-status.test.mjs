@@ -344,4 +344,38 @@ describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2
     assert.equal(capFlag.err.join(''), `antigravity:status — wait timed out; job ${id} is still queued.\n`);
     assert.equal(capPlain.err.join(''), '');
   });
+
+  it('vanished job record (finding: exitStatusOutcome unguarded on undefined job): exit 3, one stderr line, no TypeError anywhere', async () => {
+    const id = 'exitstatus-vanished';
+    // A pre-wait read that finds the job (so validation and the initial
+    // snapshot succeed), then every later call — inside the wait loop and
+    // the post-deadline re-read — reports the record as gone. Matches the
+    // documented case `withDenialRemedies`'s own doc comment names: "a
+    // `--wait` timeout on a vanished record". No `workspaceRoot` key on the
+    // stub snapshot, matching the shape `buildSingleJobSnapshot` itself
+    // would produce if it ever returned a missing job instead of throwing.
+    let calls = 0;
+    const buildSingleJobSnapshot = () => {
+      calls += 1;
+      if (calls === 1) return { job: { id, status: 'running' } };
+      return { job: undefined };
+    };
+    const { run } = await import('../scripts/commands/status.mjs');
+
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await run([id, '--wait', '--exit-status', '--timeout-ms', '1'], {
+        cwd: tempDir,
+        buildSingleJobSnapshot,
+      });
+    } finally {
+      cap.restore();
+    }
+
+    assert.equal(exit, 3);
+    assert.equal(cap.err.join(''), 'antigravity:status — job record vanished while waiting.\n');
+    assert.ok(!cap.err.join('').includes('TypeError'));
+    assert.ok(!cap.out.join('').includes('TypeError'));
+  });
 });

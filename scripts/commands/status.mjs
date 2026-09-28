@@ -29,6 +29,7 @@ import {
   deniedActionsWithRemedy,
   exitCodeForJobStatus,
   reportArgsValidationError,
+  waitOutcomeLine,
 } from "../lib/job-helpers.mjs";
 import { getConfig } from "../lib/state.mjs";
 import { classifyAgyVersion, LAST_MEASURED_AGY_VERSION } from "../lib/compat.mjs";
@@ -148,10 +149,21 @@ function withDenialRemedies(snapshot) {
  * deadline passed prints one stderr line and exits 3. The snapshot's own
  * output (already written by the caller) is unaffected either way.
  *
- * @param {import('../lib/types.mjs').JobRecord} job
+ * A vanished job record (`job` is `undefined`: the index entry disappeared
+ * while `--wait` was polling it) has no status to report either, so it
+ * takes the same "wait timed out" exit code (3) as a job still
+ * `queued`/`running` when the deadline passed, with the one shared line
+ * {@link waitOutcomeLine} already prints for this exact case elsewhere
+ * (`buildShowResultEnvelope`'s `--show-result` counterpart).
+ *
+ * @param {import('../lib/types.mjs').JobRecord | undefined} job
  * @returns {number}
  */
 function exitStatusOutcome(job) {
+  if (!job) {
+    process.stderr.write(`${waitOutcomeLine("status", job)}\n`);
+    return 3;
+  }
   const status = job.status;
   if (status === "completed" || status === "failed" || status === "cancelled") {
     return exitCodeForJobStatus(status);
