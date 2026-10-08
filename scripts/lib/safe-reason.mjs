@@ -5,6 +5,7 @@ export const MAX_SAFE_REASON_LENGTH = 300;
 
 const REDACTED = "[redacted]";
 const REDACTED_URL = "[redacted-url]";
+const FORMAT_SENTINEL = "\uE000";
 const KEYWORDS = new Set([
   "bearer", "basic", "digest", "negotiate", "token", "authorization",
   "proxy-authorization", "cookie", "set-cookie", "password", "passwd",
@@ -19,11 +20,21 @@ const KEYWORDS = new Set([
  */
 function normalize(text) {
   return text
-    .replace(/\u001b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\u001b\][\s\S]*?(?:\u0007|\u001b\\)|\u001b[\s\S]/g, "")
+    .replace(/\u001b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, "")
+    .replace(/\u001b[\s\S]/g, "=")
     .normalize("NFKC")
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Zs}\p{Default_Ignorable_Code_Point}]/gu, " ")
+    .replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, FORMAT_SENTINEL)
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Zs}]/gu, " ")
     .replace(/ +/g, " ")
     .trim();
+}
+
+/**
+ * @param {string} token
+ * @returns {string}
+ */
+function keywordName(token) {
+  return token.toLowerCase().replace(/^["'()\[\],;:]+|["'()\[\],;:]+$/g, "");
 }
 
 /**
@@ -31,7 +42,34 @@ function normalize(text) {
  * @returns {boolean}
  */
 function isKeyword(token) {
-  return KEYWORDS.has(token.toLowerCase().replace(/^["'()\[\],;:]+|["'()\[\],;:]+$/g, ""));
+  return KEYWORDS.has(keywordName(token));
+}
+
+/**
+ * @param {string} token
+ * @param {boolean} [stripPunctuation]
+ * @returns {boolean}
+ */
+function hasGluedKeyword(token, stripPunctuation = false) {
+  const candidate = stripPunctuation ? keywordName(token) : token;
+  const colon = candidate.indexOf(":");
+  return colon > 0 && colon < candidate.length - 1
+    && (stripPunctuation
+      ? isKeyword(candidate.slice(0, colon))
+      : KEYWORDS.has(candidate.slice(0, colon).toLowerCase()));
+}
+
+/**
+ * @param {string} token
+ * @returns {boolean}
+ */
+function hasAllowedRuns(token) {
+  return (token.match(/[A-Za-z0-9]+/g) ?? []).every((run) => {
+    const hasLetter = /[A-Za-z]/.test(run);
+    const hasDigit = /[0-9]/.test(run);
+    if (hasLetter && hasDigit) return run.length < 12;
+    return run.length <= (hasLetter ? 20 : 12);
+  });
 }
 
 /** Preserve numeric status diagnostics such as the required `(code 503):`.
@@ -50,7 +88,8 @@ function isStatusCode(token, next) {
 function hasAllowedShape(token) {
   return token.length <= 32
     && /^[A-Za-z0-9.,:;!()\[\]'"_\-/]+$/.test(token)
-    && !/[A-Za-z0-9]{21}/.test(token)
+    && !/[A-Za-z]:[A-Za-z0-9]/.test(token)
+    && hasAllowedRuns(token)
     && !token.includes("//");
 }
 
@@ -69,11 +108,19 @@ function replacement(token) {
 function redact(tokens) {
   const output = [];
   let remaining = 0;
-  for (const [index, token] of tokens.entries()) {
+  for (const [index, rawToken] of tokens.entries()) {
+    const hasSentinel = rawToken.includes(FORMAT_SENTINEL);
+    const token = rawToken.replaceAll(FORMAT_SENTINEL, "");
+    const gluedKeyword = hasGluedKeyword(token, hasSentinel);
     let safeToken;
     if (remaining > 0) {
       safeToken = replacement(token);
       remaining -= 1;
+    } else if (hasSentinel && !isKeyword(token) && !gluedKeyword) {
+      safeToken = replacement(token);
+    } else if (gluedKeyword) {
+      safeToken = replacement(token);
+      remaining = 1;
     } else if (isKeyword(token) && !isStatusCode(token, tokens[index + 1])) {
       safeToken = token;
       remaining = 2;
@@ -107,7 +154,7 @@ export function safeFailureReason(value) {
   if (typeof value !== "string") return null;
   const text = normalize(value);
   if (!text) return null;
-  const reason = redact(text.split(" ")).join(" ");
+  const reason = truncate(redact(text.split(" ")).join(" "));
   if (!/[A-Za-z]{3}/.test(reason.replace(/\[redacted(?:-url)?\]/g, ""))) return null;
-  return truncate(reason);
+  return reason;
 }

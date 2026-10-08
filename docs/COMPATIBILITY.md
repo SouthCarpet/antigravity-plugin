@@ -521,15 +521,32 @@ failure reason. It reaches three places:
 - `healthMessage` on the stored job record, which `result <id> --json` reads
   as `details.error.message` of a `job_failed` envelope.
 
-The filter first removes ANSI and terminal escapes, then applies Unicode
-NFKC normalization. Control, format, separator and default-ignorable
-characters become spaces. It combines repeated spaces and removes spaces
-at the start and end. The filter then checks each space-separated token.
+The filter first removes ANSI CSI and OSC sequences. It replaces each
+other ESC and next-character pair with `=`, which the token rules reject.
+It then applies Unicode NFKC normalization. It replaces format characters
+(Cf) and default-ignorable code points, such as zero-width characters,
+soft hyphens, BOM and bidi controls, with a private U+E000 marker.
+For each token with this marker, the filter removes all such markers.
+If the joined token is a keyword, or the text before its first `:` is a
+keyword, the keyword rule applies. This check ignores letter case and
+removes the surrounding punctuation listed below. Otherwise, the filter
+replaces the whole token. Thus, `Bearer` joined to `shortSecret` by a
+zero-width character becomes `[redacted]`, while `Be` joined to `arer`
+becomes the keyword `Bearer`. A U+E000 character in the source gets the
+same treatment. No private marker reaches the output.
+Control characters (Cc) and separators
+(Zs, Zl and Zp) become spaces. It combines repeated spaces and removes
+spaces at the start and end. It then checks each space-separated token.
 
 The filter keeps a token only if it has at most 32 characters, contains
-only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`, has no run of
-more than 20 letters and digits, and does not contain `//`. It replaces
-every other token. A replaced token that contains `://` becomes
+only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`, and does not
+contain `//`. Each complete run of ASCII letters and digits has these
+limits: a run with both a letter and a digit has fewer than 12 characters;
+a digits-only run has at most 12; a letters-only run has at most 20.
+The filter also replaces a token with an ASCII letter directly before `:`
+and an ASCII letter or digit directly after it. Thus, `src/index.mjs:12`
+is replaced, but `503):` and `1):` pass this rule. It replaces every other
+token that fails the shape rules. A replaced token that contains `://` becomes
 `[redacted-url]`. Other replaced tokens become `[redacted]`.
 
 The keyword rule takes precedence over the shape check. The filter ignores
@@ -542,14 +559,25 @@ keywords: `bearer`, `basic`, `digest`, `negotiate`, `token`, `authorization`,
 keyword token and replaces the next two tokens, or all remaining tokens
 if fewer than two remain. A keyword in those replaced tokens does not
 start another pair of replacements.
+If a keyword has a value attached with `:`, such as `Authorization:Basic`
+or `password:hunter2`, the filter replaces that token and the next token.
+It identifies this keyword from the text before the first `:`, without
+regard to letter case. A final `:` with no attached value uses the usual
+keyword rule.
 The filter keeps numeric status diagnostics such as `(code 503):`.
 This exception applies only to `(code` followed by 1 to 20 digits and `):`.
+The digit run must also pass the shape rules. The word after
+`(code <digits>):` is an ordinary token.
 
 Adjacent replacement markers of the same type become one marker. The
 reason is one line of at most 300 characters, cut at the last complete
-token that fits. These rules filter token shapes. A secret that fits the
-allowed shape can remain in the text. If no run of at least three ASCII
-letters remains outside the markers, the plugin keeps its generic text
+token that fits. The source is agy's own error text. These rules filter
+token shapes. A secret split by a line break or a space-class character
+into pieces that each fit the grammar can remain. A short secret after a
+word that is not in the keyword list can remain. A secret that fits the
+allowed shape can remain. After the cut, if the result is empty or has no
+run of at least three ASCII letters outside the markers, the filter
+returns `null`. The plugin then keeps its generic text
 (`failed (failed).` for a foreground run, `job <id> failed.` for `result`).
 A reason from the `error:` or `AGY_ERROR:` stderr marker follows the same
 rules. Precedence is unchanged: a plugin-authored timeout, output-limit or

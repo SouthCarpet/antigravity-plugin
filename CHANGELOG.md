@@ -63,18 +63,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `details.error.message` in a foreground `run_failed` envelope and in
   `result <id> --json` for a `job_failed` job. Before, both said only
   `failed (failed).` or `job <id> failed.`. The reason is one line of at most
-  300 characters, cut at a complete token. The filter removes terminal
-  escapes, applies Unicode NFKC, and turns control, format, separator and
-  default-ignorable characters into spaces. It keeps tokens with at most
+  300 characters, cut at a complete token. The filter removes ANSI CSI and
+  OSC sequences and replaces each other ESC and next-character pair with
+  the disallowed character `=`. It applies Unicode NFKC and replaces format
+  characters and default-ignorable code points with a private U+E000 marker.
+  For a token with this marker, it removes all markers and checks the joined
+  token, or its text before the first `:`, for a keyword. This check ignores
+  letter case and removes the keyword rule's surrounding punctuation.
+  A joined keyword uses the keyword rule; any other token is replaced.
+  Thus, a zero-width character between `Bearer` and `shortSecret` causes
+  replacement of the whole token. Raw U+E000 characters get the same
+  treatment. No private marker reaches the output. The filter turns control and
+  separator characters into spaces. It keeps tokens with at most
   32 characters, only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`,
-  no run of more than 20 letters and digits, and no `//`. It replaces
+  no `//`, and these limits for each complete run of ASCII letters and
+  digits: fewer than 12 characters for a mixed run, at most 12 for digits
+  only, and at most 20 for letters only. It replaces a token with an ASCII
+  letter directly before `:` and an ASCII letter or digit directly after
+  it, including `src/index.mjs:12`. It replaces
   anything else with `[redacted]`, or `[redacted-url]` if the token contains
   `://`. Credential keywords take precedence: the keyword stays and the
-  next two tokens are replaced. The complete keyword list is in
+  next two tokens are replaced. For a keyword with a value attached by
+  `:`, such as `password:hunter2`, that token and the next token are
+  replaced. A final `:` with no attached value uses the usual keyword rule.
+  The complete keyword list is in
   `docs/COMPATIBILITY.md#failure-reason`. Numeric `(code N):` diagnostics
-  with 1 to 20 digits stay. Adjacent markers of the same type
-  become one marker. A secret that fits the allowed shape can remain.
-  When no run of three ASCII letters remains outside the markers, the old
+  with 1 to 20 digits keep the keyword exception; the digit run must also
+  pass the shape rules. The word after `(code <digits>):` is an ordinary
+  token. Adjacent markers of the same type become one marker. The source
+  is agy's own error text. A secret split by a line break or a space-class
+  character into pieces that each fit the grammar can remain. A short
+  secret after a word that is not in the keyword list can remain. A secret
+  that fits the allowed shape can remain. After the cut, an empty result
+  or a result with no run of three ASCII letters outside the markers
+  returns `null`, and the old
   generic text stays. Error codes, statuses, `answer`, exit codes and the stderr line do
   not change. A timeout, output-limit or cancellation reason still wins. The
   `error:` and `AGY_ERROR:` stderr markers get the same redaction. See
