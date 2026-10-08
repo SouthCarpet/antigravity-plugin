@@ -9,7 +9,7 @@ changes](#deprecation-and-compatibility-changes)). A behavior is public only
 when this document or the [commands reference](./COMMANDS.md) says it is
 promised.
 
-Plugin 2.1.0 is this package's version number. agy 1.1.15 to 1.3.1 is the
+Plugin 3.0.0 is this package's version number. agy 1.1.15 to 1.3.1 is the
 tested range of Google's Antigravity CLI, with 1.3.1 as the newest measured
 version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.

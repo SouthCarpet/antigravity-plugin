@@ -62,7 +62,7 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 ## Status
 
-> **v2.1.0.** From 3.0.0 forward, while the first number of this version
+> **v3.0.0.** From 3.0.0 forward, while the first number of this version
 > stays 3, an update does not break a command or an output that already
 > works. If a command, flag, exit code, `--json` envelope, state location,
 > or supported host is removed, release notes and documentation first mark
@@ -74,11 +74,11 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 > `--model gemini-3.6-flash-high` to keep the old model. See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 2.1.0 is this package's version number. agy is Google's Antigravity
+Plugin 3.0.0 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.1.0 is tested with agy 1.1.15 to 1.3.1; newest measured 1.3.1. See
+Plugin 3.0.0 is tested with agy 1.1.15 to 1.3.1; newest measured 1.3.1. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
