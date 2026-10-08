@@ -211,6 +211,33 @@ or replace one of these paths under the OS temp directory before this
 plugin runs. Windows and macOS are unaffected: `%TEMP%`/`$TMPDIR` are
 already per-user there.
 
+The same check runs when the plugin reads, not only when it writes:
+
+- `status`, `result` and `cancel` do not read `state.json` or a job file
+  from a state root, workspace directory or `jobs` directory that fails the
+  check. They stop with the same message a write gives (exit 1, a
+  `state_error` envelope under `--json`), and they do not repair or rename
+  anything in that directory.
+- An older workspace directory under the temp root that fails the check is
+  skipped. The next candidate is used, else the current location.
+- An update-check cache in a directory that fails the check counts as no
+  cache. `status` prints no update notice from it, and `update` asks the
+  registry instead.
+- A `state.json` entry that is not a valid job record (an id that is not 12
+  hex characters, an unknown status, or a process id that is not a positive
+  integer) is ignored.
+- `status` reads a job log only from the plugin's own log path for that job,
+  never from another path a job record names.
+- `cancel` signals a process only when the process started no later than
+  the job record's last update (`updatedAt`), with 2 seconds of tolerance.
+  A process id that the OS gave to a new process after the job's process
+  ended fails this test. When the start time is later, or cannot be read,
+  `cancel` does not signal that process: it reports it as `unconfirmed` and
+  exits 1.
+
+On Windows the owner and mode check is a no-op, for reads and writes, so
+only the last three rules apply there.
+
 ### The `node -e` host bootstrap snippet
 
 Every `commands/*.md` wrapper's `node -e "..."` line (or, for `rescue`, the

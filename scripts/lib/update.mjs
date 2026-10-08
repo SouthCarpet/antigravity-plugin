@@ -121,11 +121,17 @@ export function resolveUpdateCacheFile() {
 }
 
 /**
+ * A cache whose directory fails the trust check (another local user could
+ * have planted it) is a cache miss, the same as a missing file. On win32
+ * the check is a no-op, as it is for the write.
+ *
  * @param {string} file
+ * @param {(dir: string) => void} [assertPrivateDirImpl] test seam
  * @returns {{ latest: string, checkedAt: string } | null}
  */
-export function readUpdateCache(file) {
+export function readUpdateCache(file, assertPrivateDirImpl = defaultAssertPrivateDir) {
   try {
+    assertPrivateDirImpl(path.dirname(file));
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!isSemver(parsed?.latest) || typeof parsed?.checkedAt !== "string") return null;
     return { latest: parsed.latest, checkedAt: parsed.checkedAt };
@@ -407,7 +413,7 @@ export async function resolveLatest({
       message: `update check disabled (${DISABLE_ENV}=${env[DISABLE_ENV]})`,
     };
   }
-  const cached = forceRefresh ? null : readUpdateCache(cacheFile);
+  const cached = forceRefresh ? null : readUpdateCache(cacheFile, assertPrivateDir);
   if (cached && isCacheFresh(cached, now)) {
     return { latest: cached.latest, source: "cache", checkedAt: cached.checkedAt, message: null };
   }
@@ -901,11 +907,16 @@ function updateEnvelope(report, applied, ok) {
  * One line for `status` when the cache already knows a newer version. Reads
  * the cache only; `status` must never touch the network.
  *
- * @param {{ cacheFile?: string, running?: string | null }} [options]
+ * @param {{ cacheFile?: string, running?: string | null,
+ *   assertPrivateDir?: (dir: string) => void }} [options] `assertPrivateDir` is a test seam
  * @returns {string | null}
  */
-export function readUpdateNotice({ cacheFile = resolveUpdateCacheFile(), running = readRunningVersion() } = {}) {
-  const cached = readUpdateCache(cacheFile);
+export function readUpdateNotice({
+  cacheFile = resolveUpdateCacheFile(),
+  running = readRunningVersion(),
+  assertPrivateDir = defaultAssertPrivateDir,
+} = {}) {
+  const cached = readUpdateCache(cacheFile, assertPrivateDir);
   if (!cached || !running || compareVersions(cached.latest, running) <= 0) return null;
   return `antigravity-plugin ${cached.latest} is available; run: ${UPDATE_COMMAND}`;
 }

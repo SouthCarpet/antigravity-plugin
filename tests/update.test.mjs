@@ -201,6 +201,28 @@ describe('update: registry cache', () => {
     );
   });
 
+  it('a planted cache (its directory fails the trust check) is a cache miss', async () => {
+    // Platform seam, as in the two cases above: the real check is a no-op on win32.
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify({ latest: '9.9.9', checkedAt: new Date(NOW - HOUR).toISOString() }));
+    const checked = [];
+    const refuse = (dir) => {
+      checked.push(dir);
+      throw new UnsafeStateDirError(`${dir} is not a private directory owned by this user`);
+    };
+    assert.equal(readUpdateCache(cacheFile, refuse), null);
+    assert.deepEqual(checked, [path.dirname(cacheFile)]);
+    assert.equal(readUpdateCache(cacheFile, () => {})?.latest, '9.9.9', 'control: the same file is read when trusted');
+    assert.equal(readUpdateNotice({ cacheFile, running: '1.0.1', assertPrivateDir: refuse }), null);
+
+    const fetch = fakeFetch({ latest: '1.2.0' });
+    await assert.rejects(
+      resolveLatest({ env: {}, now: NOW, fetchImpl: fetch, cacheFile, assertPrivateDir: refuse }),
+      UnsafeStateDirError,
+    );
+    assert.equal(fetch.calls.length, 1, 'the planted answer was not used; the registry was asked');
+  });
+
   it('an HTTP error or a malformed answer is unreachable too', async () => {
     const http = await resolveLatest({
       env: {}, now: NOW, fetchImpl: fakeFetch({}, { ok: false, status: 503 }), cacheFile,

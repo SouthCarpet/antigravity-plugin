@@ -180,7 +180,7 @@ describe('--exit-status flag validation (Task 8, "Senate R10", 2026-09)', () => 
 
 describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2026-09)', () => {
   it('completed: exit 0 with the flag, exit 0 without, markdown output unchanged', async () => {
-    const id = 'exitstatus-completed';
+    const id = 'e00000000001';
     await makeJob(tempDir, id, 'completed', { result: { rawOutput: 'hi' } });
     const { run } = await import('../scripts/commands/status.mjs');
 
@@ -207,7 +207,7 @@ describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2
   });
 
   it('completed --json: exit 0 with the flag, exit 0 without, envelope unchanged', async () => {
-    const id = 'exitstatus-completed-json';
+    const id = 'e00000000002';
     await makeJob(tempDir, id, 'completed', { result: { rawOutput: 'hi' } });
     const { run } = await import('../scripts/commands/status.mjs');
 
@@ -235,7 +235,7 @@ describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2
   });
 
   it('failed: exit 1 with the flag, exit 0 without, output unchanged', async () => {
-    const id = 'exitstatus-failed';
+    const id = 'e00000000003';
     await makeJob(tempDir, id, 'failed', { errorMessage: 'boom' });
     const { run } = await import('../scripts/commands/status.mjs');
 
@@ -262,7 +262,7 @@ describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2
   });
 
   it('cancelled: exit 2 with the flag, exit 0 without, output unchanged', async () => {
-    const id = 'exitstatus-cancelled';
+    const id = 'e00000000004';
     await makeJob(tempDir, id, 'cancelled');
     const { run } = await import('../scripts/commands/status.mjs');
 
@@ -289,7 +289,7 @@ describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2
   });
 
   it('wait timeout (still running): exit 3 and one stderr line with the flag; exit 0 and silent without it', async () => {
-    const id = 'exitstatus-timeout-running';
+    const id = 'e00000000005';
     await makeJob(tempDir, id, 'running');
     const { run } = await import('../scripts/commands/status.mjs');
 
@@ -316,7 +316,7 @@ describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2
   });
 
   it('wait timeout --json (still queued): exit 3 with the flag; envelope unchanged; stderr differs only by the new line', async () => {
-    const id = 'exitstatus-timeout-queued';
+    const id = 'e00000000006';
     await makeJob(tempDir, id, 'queued');
     const { run } = await import('../scripts/commands/status.mjs');
 

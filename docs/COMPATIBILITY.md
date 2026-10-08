@@ -894,7 +894,8 @@ order:
 
 For Codex and agy, if the preferred workspace leaf does not exist but the
 legacy `${os.tmpdir()}/antigravity/<workspace-leaf>` does, the implementation
-continues using that legacy leaf. This prevents an upgrade from making
+continues using that legacy leaf, when it passes the shared temp directory
+check (a leaf that fails it is skipped). This prevents an upgrade from making
 existing jobs disappear. New workspaces use the host-owned root. Transient
 workspace lock directories live under
 `${os.tmpdir()}/antigravity-state-locks`.
@@ -1297,6 +1298,28 @@ meaning:
   heuristic, not a truth check: a citation the diff never touched is not by
   itself a model error. Reviewers legitimately cite context lines and
   related files outside the diff.
+- **Trust checks on state reads** (2026-10): `status`, `result` and
+  `cancel` refuse to read job state from a state root, workspace directory
+  or `jobs` directory that is not a private directory owned by the user (the
+  check that writes already ran). The refusal uses the existing `state_error`
+  path: one stderr line naming the directory, `error.code` `job_not_found`,
+  exit 1. A legacy temp workspace directory that fails the check is skipped
+  (see [Job state and configuration locations](#job-state-and-configuration-locations)).
+  An update-check cache in a directory that fails the check counts as no
+  cache. On Windows the owner and mode check is a no-op. See
+  [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix).
+- `state.json` entries (additive, 2026-10): an entry that fails the job record
+  validator (an id that is not 12 hex characters, an unknown status, or a
+  `pid`/`workerPid`/`agyPid` that is not a positive integer) is ignored on
+  read. The plugin never writes such an entry.
+- `recentProgress` on `status <id>` (additive, 2026-10): read only when the job's
+  `logFile` is the plugin's own log path for that job; otherwise absent.
+- `unconfirmed` (additive, 2026-10): a new `outcome` value in a `cancel --json`
+  `details.termination[]` entry. `cancel` does not signal a running process
+  that started later than the job record's last `updatedAt` (plus 2 seconds)
+  or whose start time cannot be read. The envelope status is the existing
+  `cancel_failed`, and the exit code is the existing 1. See
+  [`cancel`](./COMMANDS.md#cancel).
 
 ### Structured output flag
 

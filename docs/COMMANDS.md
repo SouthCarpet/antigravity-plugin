@@ -1034,6 +1034,19 @@ confirmed killed or already absent. A job with no recorded process id, a
 termination failure, or a state persistence failure remains an error and can
 be retried.
 
+Before it signals a recorded process, cancel checks that the process still
+belongs to the job: the process must have started no later than the job
+record's last update (`updatedAt`), with 2 seconds of tolerance. A process id
+that the OS gave to a new process after the job's process ended fails this
+check. When the start time is later, or cannot be read, cancel does not
+signal that process. It reports the target with the outcome `unconfirmed`,
+records `cancel_failed`, and exits 1. Stop the process yourself if you know
+it is the job's process. A recorded process that is no longer running is
+`not_found` and is not signalled.
+
+Cancel reads job state only from directories that pass the shared temp
+directory check (see [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix)).
+
 Exit status is 0 only when cancellation is established and persisted, and 1
 for resolution, termination, state-lock, or persistence failure.
 

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Reads of shared temp state are checked like writes.** On a shared POSIX
+  host, another local user could plant job state or an update-check cache
+  under the OS temp directory. `status`, `result` and `cancel` now refuse a
+  state root, workspace directory or `jobs` directory that fails the owner,
+  mode and symlink check, a legacy temp workspace directory that fails it is
+  skipped, and a cache that fails it counts as no cache. The state index
+  ignores entries that are not valid job records, `status` reads a job log
+  only from the plugin's own path for that job, and `cancel` signals a
+  process only when it started no later than the job record's last update
+  (else the new outcome `unconfirmed`, exit 1). State locations do not
+  change. On Windows the owner and mode check stays a no-op.
+
 ## [3.0.0] — 2026-10-08
 
 ### Breaking

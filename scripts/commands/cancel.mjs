@@ -11,7 +11,7 @@ import { appendJobLog, recoverStateLock } from "../lib/state.mjs";
 import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderCancelReport } from "../lib/render.mjs";
 import { classifyStateError, patchJob } from "../lib/job-helpers.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
-import { terminateProcessTree } from "../lib/process.mjs";
+import { isProcessAlive, processStartedAt, terminateProcessTree } from "../lib/process.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -37,21 +37,63 @@ function isStoppedOutcome(result) {
 }
 
 /**
+ * Slack for comparing a process start time with a job timestamp: `ps`
+ * reports whole seconds, and the two clocks can differ slightly.
+ */
+export const PID_START_TOLERANCE_MS = 2_000;
+
+/**
+ * Signal `pid` only when it still belongs to the job. The job record is
+ * written after each of its processes started, so a process of this job
+ * started no later than the record's last `updatedAt`. A PID that the OS
+ * gave to a new process after the job's process ended started later, and
+ * is not signalled. When the start time cannot be read, or the record has
+ * no `updatedAt`, the PID is not signalled either: the outcome is
+ * `unconfirmed`, and cancel reports it as a failure.
+ *
+ * @param {import('../lib/types.mjs').JobIndexEntry} job
+ * @param {string} role
+ * @param {number} pid
+ * @param {{ terminate: typeof terminateProcessTree, isProcessAlive: typeof isProcessAlive,
+ *   processStartedAt: typeof processStartedAt }} deps
+ * @returns {Promise<object>}
+ */
+async function terminateIfOwned(job, role, pid, deps) {
+  const result = (outcome, message) => ({ outcome, killed: false, pid, status: null, attempts: [], message });
+  const notFound = () => result("not_found", `Process ${pid} is not running.`);
+  if (!deps.isProcessAlive(pid)) return notFound();
+  const startedAt = deps.processStartedAt(pid);
+  // The start-time query also fails for a process that ends while it runs.
+  if (startedAt === null && !deps.isProcessAlive(pid)) return notFound();
+  const recordedAt = Date.parse(job.updatedAt ?? "");
+  if (startedAt === null || !Number.isFinite(recordedAt) || startedAt > recordedAt + PID_START_TOLERANCE_MS) {
+    return result(
+      "unconfirmed",
+      `Process ${pid} could not be confirmed as this job's ${role} process ` +
+        "(its start time is unknown or later than the job record); it was not signalled.",
+    );
+  }
+  return deps.terminate(pid);
+}
+
+/**
  * Terminate every cancel target once (deduped by pid), logging each outcome.
  *
  * @param {string} workspaceRoot
- * @param {string} jobId
+ * @param {import('../lib/types.mjs').JobIndexEntry} job
  * @param {[string, number][]} targets
- * @param {typeof terminateProcessTree} terminate
+ * @param {{ terminate: typeof terminateProcessTree, isProcessAlive: typeof isProcessAlive,
+ *   processStartedAt: typeof processStartedAt }} deps
  * @returns {Promise<object[]>}
  */
-async function terminateCancelTargets(workspaceRoot, jobId, targets, terminate) {
+async function terminateCancelTargets(workspaceRoot, job, targets, deps) {
+  const jobId = job.id;
   const seen = new Set();
   const termination = [];
   for (const [role, pid] of targets) {
     if (seen.has(pid)) continue;
     seen.add(pid);
-    const result = await terminate(pid);
+    const result = await terminateIfOwned(job, role, pid, deps);
     termination.push({ role, ...result });
     appendJobLog(
       workspaceRoot,
@@ -173,6 +215,7 @@ async function reportCancelSuccess(workspaceRoot, job, termination, persist, out
 /**
  * @param {string[]} [argv] CLI arguments after the verb (a job reference and flags)
  * @param {{ cwd?: string, terminateProcessTree?: typeof terminateProcessTree,
+ *   isProcessAlive?: typeof isProcessAlive, processStartedAt?: typeof processStartedAt,
  *   patchJob?: typeof patchJob, outputCommandResult?: typeof outputCommandResult }} [ctx]
  *   dependency overrides for tests, plus `cwd`
  * @returns {Promise<number>} process exit code
@@ -197,11 +240,15 @@ export async function run(argv = [], ctx = {}) {
     return reportCancelResolutionError(err, json);
   }
 
-  const terminate = ctx.terminateProcessTree ?? terminateProcessTree;
+  const deps = {
+    terminate: ctx.terminateProcessTree ?? terminateProcessTree,
+    isProcessAlive: ctx.isProcessAlive ?? isProcessAlive,
+    processStartedAt: ctx.processStartedAt ?? processStartedAt,
+  };
   const persist = ctx.patchJob ?? patchJob;
   const output = ctx.outputCommandResult ?? outputCommandResult;
 
-  const termination = await terminateCancelTargets(workspaceRoot, job.id, resolveCancelTargets(job), terminate);
+  const termination = await terminateCancelTargets(workspaceRoot, job, resolveCancelTargets(job), deps);
 
   const lockFailureExitCode = recoverAfterTermination(workspaceRoot, job, termination, json, output);
   if (lockFailureExitCode !== null) return lockFailureExitCode;
