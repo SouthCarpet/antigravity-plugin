@@ -894,7 +894,8 @@ order:
 
 For Codex and agy, if the preferred workspace leaf does not exist but the
 legacy `${os.tmpdir()}/antigravity/<workspace-leaf>` does, the implementation
-continues using that legacy leaf. This prevents an upgrade from making
+continues using that legacy leaf, when it passes the shared temp directory
+check (a leaf that fails it is skipped). This prevents an upgrade from making
 existing jobs disappear. New workspaces use the host-owned root. Transient
 workspace lock directories live under
 `${os.tmpdir()}/antigravity-state-locks`.
@@ -1297,6 +1298,47 @@ meaning:
   heuristic, not a truth check: a citation the diff never touched is not by
   itself a model error. Reviewers legitimately cite context lines and
   related files outside the diff.
+- **Trust checks on state reads** (2026-10): `status`, `result` and
+  `cancel` refuse to read job state from a state root, workspace directory
+  or `jobs` directory that is not a private directory owned by the user (the
+  check that writes already ran). The refusal uses the existing `state_error`
+  path: one stderr line naming the directory, `error.code` `job_not_found`,
+  exit 1. A legacy temp workspace directory that fails the check is skipped
+  (see [Job state and configuration locations](#job-state-and-configuration-locations)).
+  An update-check cache in a directory that fails the check counts as no
+  cache. On Windows the owner and mode check is a no-op. See
+  [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix).
+- `state.json` entries (additive, 2026-10): an entry that fails the job record
+  validator (an id that is not 12 hex characters, an unknown status, or a
+  `pid`/`workerPid`/`agyPid` that is not a positive integer) is ignored on
+  read. The plugin never writes such an entry.
+- `recentProgress` on `status <id>` (additive, 2026-10): read only when the job's
+  `logFile` is the plugin's own log path for that job; otherwise absent.
+- **`update --apply` verifies the agy tarball** (2026-10): before
+  `agy plugin uninstall`, the plugin reads the version's `dist.integrity`
+  from the npm registry record, runs `npm pack` from its temporary directory
+  with the npmjs.org registry and scope registry on the command line, and
+  checks the tarball integrity and the extracted name and version. New
+  messages, each on the `update --apply` output stream, with the existing
+  apply-failure exit code 1 (`apply_failed` under `--json`):
+  `agy: could not read the npm registry record for <version>: <reason>;
+  nothing was installed, skipping this host.`;
+  `agy: the @southcarpet/antigravity-plugin@<version> tarball does not match
+  the npm registry record (registry <sri or none>, npm pack <sri or none>,
+  computed <sri>); stopped, nothing after this step was run.`;
+  `agy: the extracted package is <name>@<version>, not
+  @southcarpet/antigravity-plugin@<version>; stopped, nothing after this step
+  was run.` With the registry unreachable, agy is now skipped with the
+  existing `no known "latest" version to pack` line; it used to pack the
+  `latest` tag. The `npm pack` argv gains `--registry=https://registry.npmjs.org/`
+  and `--@southcarpet:registry=https://registry.npmjs.org/`. See
+  [`update`](./COMMANDS.md#update).
+- `unconfirmed` (additive, 2026-10): a new `outcome` value in a `cancel --json`
+  `details.termination[]` entry. `cancel` does not signal a running process
+  that started later than the job record's last `updatedAt` (plus 2 seconds)
+  or whose start time cannot be read. The envelope status is the existing
+  `cancel_failed`, and the exit code is the existing 1. See
+  [`cancel`](./COMMANDS.md#cancel).
 
 ### Structured output flag
 

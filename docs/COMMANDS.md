@@ -1034,6 +1034,19 @@ confirmed killed or already absent. A job with no recorded process id, a
 termination failure, or a state persistence failure remains an error and can
 be retried.
 
+Before it signals a recorded process, cancel checks that the process still
+belongs to the job: the process must have started no later than the job
+record's last update (`updatedAt`), with 2 seconds of tolerance. A process id
+that the OS gave to a new process after the job's process ended fails this
+check. When the start time is later, or cannot be read, cancel does not
+signal that process. It reports the target with the outcome `unconfirmed`,
+records `cancel_failed`, and exits 1. Stop the process yourself if you know
+it is the job's process. A recorded process that is no longer running is
+`not_found` and is not signalled.
+
+Cancel reads job state only from directories that pass the shared temp
+directory check (see [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix)).
+
 Exit status is 0 only when cancellation is established and persisted, and 1
 for resolution, termination, state-lock, or persistence failure.
 
@@ -1088,9 +1101,21 @@ Per host, `--apply` does this:
   plugin root that `plugin add` prints, prints `installed <version>`, and adds
   one line when that version is not the latest. It never pulls or changes your
   clone.
-- agy: `npm pack` of the latest version, `tar -x`, `plugin uninstall`, then
-  `plugin install` of the extracted directory. With the registry check
-  disabled there is no known latest version, so this host is skipped.
+- agy: first it reads the npm registry record of the latest version
+  (`https://registry.npmjs.org/@southcarpet%2Fantigravity-plugin/<version>`)
+  for its `dist.integrity`. Then `npm pack` of that version, run from the
+  update's own temporary directory with
+  `--registry=https://registry.npmjs.org/` and
+  `--@southcarpet:registry=https://registry.npmjs.org/`, so an `.npmrc` in
+  your current directory cannot choose where the tarball comes from. The
+  integrity that `npm pack` reports and the sha512 of the tarball file must
+  both equal the registry's value. Then `tar -x`, and the extracted
+  `package/package.json` must name `@southcarpet/antigravity-plugin` and that
+  version. Only then `plugin uninstall`, then `plugin install` of the
+  extracted directory. If the record cannot be read or a check fails, the
+  command prints the reason, runs no later step, so the installed copy stays
+  as it was, and exits 1. With the registry check disabled or unreachable
+  there is no known latest version, so this host is skipped.
 - npx: nothing. An unversioned `npx` resolves the latest version on every run.
 
 Before it runs a step, `--apply` compares the real path of the current
@@ -1100,7 +1125,8 @@ lies inside it, `--apply` prints one line, changes this process to its own
 temporary directory, and runs every step from there, because agy cannot
 remove a directory that a running process uses as its working directory. If
 it cannot change the directory, it runs no step and exits 1. Any other
-current directory is passed to the steps unchanged. A sibling directory whose
+current directory is passed to the steps unchanged, except `npm pack`, which
+always runs from the update's temporary directory. A sibling directory whose
 name only starts like the root's name does not count as inside it.
 
 `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.

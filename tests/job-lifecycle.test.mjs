@@ -87,6 +87,9 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       const { run } = await import('../scripts/commands/cancel.mjs');
       const exitCode = await run([active.id, '--json'], {
         cwd: workspaceRoot,
+        // PID 1234 is a fixture: say it is alive and started before the job record.
+        isProcessAlive: () => true,
+        processStartedAt: () => Date.parse('1999-12-31T00:00:00.000Z'),
         terminateProcessTree: async (pid) => {
           assert.equal(pid, 1234);
           return { outcome: 'killed', killed: true, pid, status: 0, attempts: [] };
@@ -237,7 +240,12 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         },
       );
 
-      assert.ok(Date.now() - startedCancelAt < 5000, "cancellation should stay bounded");
+      // Cancel now reads the start time of each live target before it
+      // signals it (two queries here; on Windows each starts PowerShell and
+      // is capped at 5 s). The whole case took about 2.2 s alone, but the
+      // cancel took more than 5 s once under the full suite. 15 s stays well
+      // under the 30 s state-lock timeout this bound guards against.
+      assert.ok(Date.now() - startedCancelAt < 15_000, "cancellation should stay bounded");
       assert.equal(exitCode, 0);
       assert.equal(readJobFile(workspaceRoot, job.id)?.status, "cancelled");
 
@@ -312,6 +320,8 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       const { run } = await import("../scripts/commands/cancel.mjs");
       const exitCode = await run([job.id, "--json"], {
         cwd: workspaceRoot,
+        isProcessAlive: () => true,
+        processStartedAt: () => Date.now() - 60_000,
         terminateProcessTree: async (pid) => ({
           outcome: "denied",
           killed: false,

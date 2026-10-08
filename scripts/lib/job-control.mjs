@@ -8,7 +8,7 @@
  * no writer ever sets it, so `status <id>` could never render it).
  */
 
-import { getConfig, listJobs, readJobFile, readLogTail } from "./state.mjs";
+import { getConfig, listJobs, readJobFile, readLogTail, resolveJobLogFile } from "./state.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 import { isProcessAlive } from "./process.mjs";
 
@@ -332,12 +332,26 @@ function enrichJob(workspaceRoot, job, options = {}) {
     lastDiagnosticAt: source.lastDiagnosticAt ?? null,
   };
 
-  if (source?.logFile) {
-    const tail = readLogTail(source.logFile, { lines: maxProgressLines });
-    enriched.recentProgress = tail ? tail.split("\n") : [];
-  }
+  const recentProgress = readOwnLogTail(workspaceRoot, job.id, source.logFile, maxProgressLines);
+  if (recentProgress) enriched.recentProgress = recentProgress;
 
   return enriched;
+}
+
+/**
+ * The last lines of a job's log, read only when `logFile` is the plugin's
+ * own log path for that job, never a path the record names elsewhere.
+ *
+ * @param {string} workspaceRoot
+ * @param {string} jobId
+ * @param {string | undefined} logFile
+ * @param {number} lines
+ * @returns {string[] | null} null when there is no log to read
+ */
+function readOwnLogTail(workspaceRoot, jobId, logFile, lines) {
+  if (!logFile || logFile !== resolveJobLogFile(workspaceRoot, jobId)) return null;
+  const tail = readLogTail(logFile, { lines });
+  return tail ? tail.split("\n") : [];
 }
 
 function computeElapsed(job, now = new Date().toISOString()) {

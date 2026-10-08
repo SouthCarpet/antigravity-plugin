@@ -12,7 +12,8 @@ import path from 'node:path';
 
 import { assertPrivateDir, UnsafeStateDirError } from '../scripts/lib/fs.mjs';
 import { withFileLockSync } from '../scripts/lib/file-lock.mjs';
-import { ensureStateDir } from '../scripts/lib/state.mjs';
+import { ensureStateDir, listJobs, readJobFile, resolveStateDir } from '../scripts/lib/state.mjs';
+import { readUpdateCache } from '../scripts/lib/update.mjs';
 
 const SKIP_REASON =
   'POSIX-only: assertPrivateDir no-ops on win32 (no uid/mode model to check); ' +
@@ -97,5 +98,89 @@ describe('ensureStateDir wiring (F2/F7)', () => {
       if (saved === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
       else process.env.CLAUDE_PLUGIN_DATA = saved;
     }
+  });
+});
+
+describe('read paths refuse what writes refuse (POSIX, real owner and mode)', () => {
+  const HOST_VARS = ['CLAUDE_PLUGIN_DATA', 'CODEX_PLUGIN_DATA', 'AGY_PLUGIN_DATA'];
+  const JOB = { id: 'abcdefabcdef', kind: 'task', status: 'running', workerPid: 4242, updatedAt: '2026-10-08T12:00:00.000Z' };
+  let saved;
+  let cwd;
+  let dataDir;
+
+  function withEnv(name, value) {
+    saved = Object.fromEntries(HOST_VARS.map((key) => [key, process.env[key]]));
+    for (const key of HOST_VARS) delete process.env[key];
+    process.env[name] = value;
+  }
+
+  function restoreEnv() {
+    for (const [key, value] of Object.entries(saved ?? {})) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  /** Plant `<leaf>/state.json` and its job file; the leaf gets `mode`. */
+  function plant(leaf, mode) {
+    fs.mkdirSync(path.join(leaf, 'jobs'), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(leaf, 'state.json'), JSON.stringify({ version: 1, config: {}, jobs: [JOB] }));
+    fs.writeFileSync(path.join(leaf, 'jobs', `${JOB.id}.json`), JSON.stringify(JOB));
+    fs.chmodSync(leaf, mode);
+  }
+
+  function setup(hostVar) {
+    cwd = fs.realpathSync.native(tmpDir('antigravity-trust-read-cwd-'));
+    dataDir = tmpDir('antigravity-trust-read-data-');
+    fs.mkdirSync(path.join(dataDir, 'state'), { mode: 0o700 });
+    withEnv(hostVar, dataDir);
+    return path.join(dataDir, 'state', path.basename(resolveStateDir(cwd)));
+  }
+
+  for (const [name, mode] of [['world-writable', 0o777], ['group-writable', 0o770]]) {
+    it(`a ${name} workspace leaf is not read`, { skip: SKIP }, () => {
+      const leaf = setup('CLAUDE_PLUGIN_DATA');
+      try {
+        plant(leaf, mode);
+        assert.throws(() => listJobs(cwd), UnsafeStateDirError);
+        assert.throws(() => readJobFile(cwd, JOB.id), UnsafeStateDirError);
+      } finally {
+        restoreEnv();
+      }
+    });
+  }
+
+  it('a symlinked workspace leaf is not read', { skip: SKIP }, () => {
+    const leaf = setup('CLAUDE_PLUGIN_DATA');
+    try {
+      const real = tmpDir('antigravity-trust-read-real-');
+      plant(real, 0o700);
+      fs.symlinkSync(real, leaf);
+      assert.throws(() => listJobs(cwd), UnsafeStateDirError);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('a world-writable legacy temp leaf is skipped', { skip: SKIP }, () => {
+    const preferred = setup('AGY_PLUGIN_DATA');
+    const legacy = path.join(os.tmpdir(), 'antigravity', path.basename(preferred));
+    try {
+      fs.mkdirSync(path.dirname(legacy), { recursive: true, mode: 0o700 });
+      plant(legacy, 0o777);
+      assert.equal(resolveStateDir(cwd), preferred);
+    } finally {
+      restoreEnv();
+      fs.rmSync(legacy, { recursive: true, force: true });
+    }
+  });
+
+  it('an update cache in a world-writable directory is a cache miss', { skip: SKIP }, () => {
+    const dir = tmpDir('antigravity-trust-read-cache-');
+    const file = path.join(dir, 'update-check.json');
+    fs.writeFileSync(file, JSON.stringify({ latest: '9.9.9', checkedAt: new Date().toISOString() }));
+    assert.equal(readUpdateCache(file)?.latest, '9.9.9');
+    fs.chmodSync(dir, 0o777);
+    assert.equal(readUpdateCache(file), null);
   });
 });

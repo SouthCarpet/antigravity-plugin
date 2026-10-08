@@ -15,6 +15,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,8 +28,12 @@ import { createJsonEnvelope } from "./render.mjs";
 import { resolveStateRoot } from "./state.mjs";
 
 export const PACKAGE_NAME = "@southcarpet/antigravity-plugin";
+/** The only registry `update --apply` fetches from or packs from. */
+export const NPM_REGISTRY = "https://registry.npmjs.org/";
 export const DIST_TAGS_URL =
-  `https://registry.npmjs.org/-/package/${PACKAGE_NAME.replaceAll("/", "%2F")}/dist-tags`;
+  `${NPM_REGISTRY}-/package/${PACKAGE_NAME.replaceAll("/", "%2F")}/dist-tags`;
+const PACKAGE_SCOPE = PACKAGE_NAME.split("/")[0];
+const SHA512_INTEGRITY_RE = /^sha512-[A-Za-z0-9+/]{86}==$/;
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const DISABLE_ENV = "ANTIGRAVITY_NO_UPDATE_CHECK";
 export const UPDATE_COMMAND = "antigravity-plugin update";
@@ -121,11 +126,17 @@ export function resolveUpdateCacheFile() {
 }
 
 /**
+ * A cache whose directory fails the trust check (another local user could
+ * have planted it) is a cache miss, the same as a missing file. On win32
+ * the check is a no-op, as it is for the write.
+ *
  * @param {string} file
+ * @param {(dir: string) => void} [assertPrivateDirImpl] test seam
  * @returns {{ latest: string, checkedAt: string } | null}
  */
-export function readUpdateCache(file) {
+export function readUpdateCache(file, assertPrivateDirImpl = defaultAssertPrivateDir) {
   try {
+    assertPrivateDirImpl(path.dirname(file));
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!isSemver(parsed?.latest) || typeof parsed?.checkedAt !== "string") return null;
     return { latest: parsed.latest, checkedAt: parsed.checkedAt };
@@ -274,12 +285,13 @@ export function attemptTimeoutMs(timeoutMs, remainingMs) {
  * Never throws.
  *
  * @param {typeof fetch} fetchImpl
+ * @param {string} url
  * @param {number} timeoutMs
  * @returns {Promise<{ response: object, networkError: null } | { response: null, networkError: Error }>}
  */
-async function fetchOnce(fetchImpl, timeoutMs) {
+async function fetchOnce(fetchImpl, url, timeoutMs) {
   try {
-    const response = await fetchImpl(DIST_TAGS_URL, {
+    const response = await fetchImpl(url, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -316,7 +328,7 @@ function classifyAttempt({ response, networkError }, attempt, maxRetries) {
 }
 
 /**
- * One GET to the npm registry's dist-tags endpoint, with a 10s per-request
+ * One GET of a JSON document from the npm registry, with a 10s per-request
  * timeout. Retries at most {@link UPDATE_CHECK_MAX_RETRIES} times on a
  * network error, HTTP 429, or 5xx, honouring a numeric `Retry-After` header
  * (up to 30s, though under the 25s total budget the effective cap is
@@ -327,19 +339,20 @@ function classifyAttempt({ response, networkError }, attempt, maxRetries) {
  * per-request timeout is capped at whatever of the budget remains when it
  * starts ({@link attemptTimeoutMs}), so an in-flight request cannot itself
  * carry the call meaningfully past the budget. Never retries on another
- * 4xx, malformed JSON, or the semver check below — `update --apply` steps
- * (`applyPlan`/`defaultRunner`) never retry either.
+ * 4xx or malformed JSON — `update --apply` steps (`applyPlan`/
+ * `defaultRunner`) never retry either.
  *
  * `sleep`, `now`, and `random` are injectable so tests never wait on a real
  * timer or depend on wall-clock time.
  *
- * @param {typeof fetch} [fetchImpl]
+ * @param {string} url
+ * @param {typeof fetch} fetchImpl
  * @param {{ now?: () => number, sleep?: (ms: number) => Promise<void>,
  *   random?: () => number, maxRetries?: number, totalBudgetMs?: number,
- *   timeoutMs?: number }} [options]
- * @returns {Promise<string>} the latest published semver
+ *   timeoutMs?: number }} options
+ * @returns {Promise<unknown>} the parsed body
  */
-export async function fetchLatestVersion(fetchImpl = globalThis.fetch, options = {}) {
+async function fetchRegistryJson(url, fetchImpl, options) {
   const {
     now = () => Date.now(),
     sleep = defaultSleep,
@@ -354,7 +367,7 @@ export async function fetchLatestVersion(fetchImpl = globalThis.fetch, options =
   const deadline = now() + totalBudgetMs;
   let attempt = 0;
   for (;;) {
-    const outcome = await fetchOnce(fetchImpl, attemptTimeoutMs(timeoutMs, deadline - now()));
+    const outcome = await fetchOnce(fetchImpl, url, attemptTimeoutMs(timeoutMs, deadline - now()));
     const classified = classifyAttempt(outcome, attempt, maxRetries);
     if (classified.error) {
       const retried = classified.retryable &&
@@ -363,12 +376,57 @@ export async function fetchLatestVersion(fetchImpl = globalThis.fetch, options =
       attempt += 1;
       continue;
     }
-    const body = await outcome.response.json();
-    if (!isSemver(body?.latest)) {
-      throw new Error(`registry answer has no semver dist-tags.latest (${JSON.stringify(body?.latest)})`);
-    }
-    return body.latest;
+    return outcome.response.json();
   }
+}
+
+/**
+ * The latest published version, from the registry's dist-tags endpoint
+ * ({@link fetchRegistryJson} has the retry and budget rules). A
+ * non-semver answer never retries.
+ *
+ * @param {typeof fetch} [fetchImpl]
+ * @param {{ now?: () => number, sleep?: (ms: number) => Promise<void>,
+ *   random?: () => number, maxRetries?: number, totalBudgetMs?: number,
+ *   timeoutMs?: number }} [options]
+ * @returns {Promise<string>} the latest published semver
+ */
+export async function fetchLatestVersion(fetchImpl = globalThis.fetch, options = {}) {
+  const body = await fetchRegistryJson(DIST_TAGS_URL, fetchImpl, options);
+  if (!isSemver(body?.latest)) {
+    throw new Error(`registry answer has no semver dist-tags.latest (${JSON.stringify(body?.latest)})`);
+  }
+  return body.latest;
+}
+
+/**
+ * @param {string} version
+ * @returns {string} the npm registry record of one published version
+ */
+export function versionRecordUrl(version) {
+  return `${NPM_REGISTRY}${PACKAGE_NAME.replaceAll("/", "%2F")}/${version}`;
+}
+
+/**
+ * The `dist.integrity` (sha512 SRI) the npm registry publishes for
+ * `version`, read over the same fetch as the version check. `update
+ * --apply` compares the agy tarball with it before anything is extracted.
+ *
+ * @param {string} version
+ * @param {typeof fetch} [fetchImpl]
+ * @param {object} [options] the {@link fetchRegistryJson} retry seam
+ * @returns {Promise<string>}
+ */
+export async function fetchPublishedIntegrity(version, fetchImpl = globalThis.fetch, options = {}) {
+  const body = await fetchRegistryJson(versionRecordUrl(version), fetchImpl, options);
+  if (body?.name !== PACKAGE_NAME || body?.version !== version) {
+    throw new Error(`the registry record names ${body?.name}@${body?.version}, not ${PACKAGE_NAME}@${version}`);
+  }
+  const integrity = body?.dist?.integrity;
+  if (typeof integrity !== "string" || !SHA512_INTEGRITY_RE.test(integrity)) {
+    throw new Error(`the registry record for ${version} has no sha512 dist.integrity`);
+  }
+  return integrity;
 }
 
 /**
@@ -407,7 +465,7 @@ export async function resolveLatest({
       message: `update check disabled (${DISABLE_ENV}=${env[DISABLE_ENV]})`,
     };
   }
-  const cached = forceRefresh ? null : readUpdateCache(cacheFile);
+  const cached = forceRefresh ? null : readUpdateCache(cacheFile, assertPrivateDir);
   if (cached && isCacheFresh(cached, now)) {
     return { latest: cached.latest, source: "cache", checkedAt: cached.checkedAt, message: null };
   }
@@ -472,11 +530,20 @@ export function detectHosts({ env = process.env, platform = process.platform } =
 /**
  * The commands `--apply` runs for one present host, in order.
  *
+ * The agy plan needs the verified `latest` and the registry's `integrity`
+ * for it. `npm pack` runs in the update's own temporary directory with the
+ * registry named on the command line, so no `.npmrc` in the user's current
+ * directory can choose where the tarball comes from. The pack step checks
+ * the tarball against `integrity`, and the tar step checks the extracted
+ * name and version, before `plugin uninstall` can run.
+ *
  * @param {{ id: string, binary: string }} host
- * @param {{ latest?: string | null, tmpDir: string, tools?: { npm?: string, tar?: string } }} options
- * @returns {{ command: string, args: string[], capture?: string, echo?: boolean }[]}
+ * @param {{ latest?: string | null, integrity?: string, tmpDir: string,
+ *   tools?: { npm?: string, tar?: string } }} options
+ * @returns {{ command: string, args: string[], capture?: string, verify?: string, cwd?: string,
+ *   echo?: boolean }[]}
  */
-export function buildHostPlan(host, { latest, tmpDir, tools = {} }) {
+export function buildHostPlan(host, { latest, integrity, tmpDir, tools = {} }) {
   const step = (command, args, extra = {}) => ({ command, args, ...extra });
   switch (host.id) {
     case "claude-code":
@@ -508,10 +575,13 @@ export function buildHostPlan(host, { latest, tmpDir, tools = {} }) {
       return [
         step(
           tools.npm ?? "npm",
-          ["pack", `${PACKAGE_NAME}@${latest ?? "latest"}`, "--pack-destination", tmpDir, "--json"],
-          { capture: "pack" },
+          [
+            "pack", `${PACKAGE_NAME}@${latest}`, "--pack-destination", tmpDir, "--json",
+            `--registry=${NPM_REGISTRY}`, `--${PACKAGE_SCOPE}:registry=${NPM_REGISTRY}`,
+          ],
+          { capture: "pack", cwd: tmpDir, integrity, version: latest },
         ),
-        step(tools.tar ?? "tar", ["-xzf", TARBALL_PLACEHOLDER, "-C", tmpDir]),
+        step(tools.tar ?? "tar", ["-xzf", TARBALL_PLACEHOLDER, "-C", tmpDir], { verify: "extracted", version: latest }),
         step(host.binary, ["plugin", "uninstall", "antigravity"]),
         step(host.binary, ["plugin", "install", path.join(tmpDir, "package")]),
       ];
@@ -627,17 +697,79 @@ function captureInstall(step, result, write) {
 function capturePack(step, result) {
   try {
     const destination = step.args[step.args.indexOf("--pack-destination") + 1];
-    return { tarball: tarballFromPackOutput(result.stdout, destination) };
+    const tarball = tarballFromPackOutput(result.stdout, destination);
+    verifyTarballIntegrity({
+      tarball,
+      reported: integrityFromPackOutput(result.stdout),
+      expected: step.integrity,
+      version: step.version,
+    });
+    return { tarball };
   } catch (err) {
     return { error: err.message };
   }
 }
 
-/** What to do with the stdout of a step that captured it, by `capture` kind. */
-const CAPTURE_HANDLERS = {
+/** @param {string} file @returns {string} the sha512 SRI string of a file */
+export function fileIntegrity(file) {
+  return `sha512-${createHash("sha512").update(fs.readFileSync(file)).digest("base64")}`;
+}
+
+/**
+ * `npm pack --json` prints `[{ integrity }]`.
+ *
+ * @param {string} stdout
+ * @returns {string | null}
+ */
+export function integrityFromPackOutput(stdout) {
+  try {
+    const parsed = JSON.parse(stdout);
+    const first = Array.isArray(parsed) ? parsed[0] : parsed;
+    return typeof first?.integrity === "string" ? first.integrity : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Throw unless the registry's integrity, the one `npm pack` reported, and
+ * the one computed here from the tarball bytes are all the same.
+ *
+ * @param {{ tarball: string, reported: string | null, expected: string | undefined, version: string }} args
+ * @returns {void}
+ */
+export function verifyTarballIntegrity({ tarball, reported, expected, version }) {
+  const computed = fileIntegrity(tarball);
+  if (!expected || reported !== expected || computed !== expected) {
+    throw new Error(
+      `agy: the ${PACKAGE_NAME}@${version} tarball does not match the npm registry record ` +
+        `(registry ${expected ?? "none"}, npm pack ${reported ?? "none"}, computed ${computed})`,
+    );
+  }
+}
+
+/** After `tar -x`: the extracted `package/package.json` must name this package and version. */
+function verifyExtracted(step) {
+  const dir = path.join(step.args[step.args.indexOf("-C") + 1], "package");
+  let manifest = null;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  } catch {
+    // unreadable is a mismatch
+  }
+  if (manifest?.name === PACKAGE_NAME && manifest?.version === step.version) return {};
+  return {
+    error: `agy: the extracted package is ${manifest?.name ?? "unknown"}@${manifest?.version ?? "unknown"}, ` +
+      `not ${PACKAGE_NAME}@${step.version}`,
+  };
+}
+
+/** What to do after a step: by `capture` kind (reads its stdout) or `verify` kind. */
+const STEP_HANDLERS = {
   pack: capturePack,
   marketplace: captureMarketplace,
   install: captureInstall,
+  extracted: verifyExtracted,
 };
 
 /**
@@ -685,7 +817,7 @@ export function applyPlan(steps, { runner, write, cwd }) {
       args: planned.args.map((arg) => (arg === TARBALL_PLACEHOLDER ? tarball ?? arg : arg)),
     };
     write(`$ ${formatStep(step)}\n`);
-    const result = runner({ command: step.command, args: step.args, cwd, capture: Boolean(step.capture) });
+    const result = runner({ command: step.command, args: step.args, cwd: step.cwd ?? cwd, capture: Boolean(step.capture) });
     const status = result?.status ?? null;
     done.push({ command: step.command, args: step.args, status });
     if (result?.error || status !== 0) {
@@ -696,7 +828,7 @@ export function applyPlan(steps, { runner, write, cwd }) {
     if (step.echo && result?.stdout) {
       write(result.stdout.endsWith("\n") ? result.stdout : `${result.stdout}\n`);
     }
-    const handler = CAPTURE_HANDLERS[step.capture];
+    const handler = STEP_HANDLERS[step.capture ?? step.verify];
     if (!handler) continue;
     const outcome = handler(step, result, write);
     if (outcome.error) {
@@ -794,7 +926,30 @@ function chooseStepCwd({ deps, tmpDir, write }) {
   return { ok: true, cwd: tmpDir, moved: true };
 }
 
-function applyToHosts(report, { deps, env, write, json }) {
+/**
+ * The steps for one host, or why it is skipped. The agy plan first reads
+ * the registry's integrity for the verified latest version; without a
+ * verified version or that integrity, agy is skipped and nothing runs.
+ *
+ * @returns {Promise<{ steps: object[] } | { skip: string }>}
+ */
+async function planForHost(host, report, { tmpDir, tools, deps }) {
+  if (host.id !== "agy") return { steps: buildHostPlan(host, { latest: report.latest, tmpDir, tools }) };
+  if (!report.latest) {
+    return { skip: `agy: ${report.message}; no known "latest" version to pack, skipping this host.` };
+  }
+  try {
+    const integrity = await fetchPublishedIntegrity(report.latest, deps.fetch, deps.retry);
+    return { steps: buildHostPlan(host, { latest: report.latest, integrity, tmpDir, tools }) };
+  } catch (err) {
+    return {
+      skip: `agy: could not read the npm registry record for ${report.latest}: ${err.message}; ` +
+        "nothing was installed, skipping this host.",
+    };
+  }
+}
+
+async function applyToHosts(report, { deps, env, write, json }) {
   const present = report.hosts.filter((host) => host.present && host.binary);
   if (present.length === 0) {
     write("update --apply: no host with an update command was found on PATH; nothing to run.\n");
@@ -812,16 +967,17 @@ function applyToHosts(report, { deps, env, write, json }) {
   let ok = true;
   for (const host of present) {
     write(`\n${host.name}:\n`);
-    // agy is the only step that needs a version number to pack; with the
-    // check disabled there is no known "latest" to trust, and the previous
-    // cache answer was already rejected by the forced refresh above.
-    if (host.id === "agy" && report.source === "disabled") {
+    // With the check disabled or unreachable there is no known "latest" to
+    // trust, and the previous cache answer was already rejected by the
+    // forced refresh above.
+    const plan = await planForHost(host, report, { tmpDir, tools, deps });
+    if (plan.skip) {
       host.steps = [];
       ok = false;
-      write(`agy: ${report.message}; no known "latest" version to pack, skipping this host.\n`);
+      write(`${plan.skip}\n`);
       continue;
     }
-    const outcome = applyPlan(buildHostPlan(host, { latest: report.latest, tmpDir, tools }), {
+    const outcome = applyPlan(plan.steps, {
       runner,
       write,
       cwd: stepCwd.cwd,
@@ -901,11 +1057,16 @@ function updateEnvelope(report, applied, ok) {
  * One line for `status` when the cache already knows a newer version. Reads
  * the cache only; `status` must never touch the network.
  *
- * @param {{ cacheFile?: string, running?: string | null }} [options]
+ * @param {{ cacheFile?: string, running?: string | null,
+ *   assertPrivateDir?: (dir: string) => void }} [options] `assertPrivateDir` is a test seam
  * @returns {string | null}
  */
-export function readUpdateNotice({ cacheFile = resolveUpdateCacheFile(), running = readRunningVersion() } = {}) {
-  const cached = readUpdateCache(cacheFile);
+export function readUpdateNotice({
+  cacheFile = resolveUpdateCacheFile(),
+  running = readRunningVersion(),
+  assertPrivateDir = defaultAssertPrivateDir,
+} = {}) {
+  const cached = readUpdateCache(cacheFile, assertPrivateDir);
   if (!cached || !running || compareVersions(cached.latest, running) <= 0) return null;
   return `antigravity-plugin ${cached.latest} is available; run: ${UPDATE_COMMAND}`;
 }
@@ -952,7 +1113,7 @@ export async function runUpdate(argv = [], deps = {}) {
   // In JSON mode stdout is reserved for the one envelope; the apply log goes to stderr.
   const write = json ? (text) => process.stderr.write(text) : (text) => process.stdout.write(text);
   if (!json) process.stdout.write(renderUpdateReport(report));
-  const ok = apply ? applyToHosts(report, { deps, env, write, json }) : true;
+  const ok = apply ? await applyToHosts(report, { deps, env, write, json }) : true;
   if (json) process.stdout.write(`${JSON.stringify(updateEnvelope(report, apply, ok), null, 2)}\n`);
   return ok ? 0 : 1;
 }

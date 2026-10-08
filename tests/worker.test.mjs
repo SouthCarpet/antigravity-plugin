@@ -74,7 +74,7 @@ describe('_worker.mjs background job completion', () => {
     it('accepts stored ' + JSON.stringify(extraArgs) + ' and persists completion metadata', async () => {
       const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-'));
       const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-data-'));
-      const jobId = 'job' + randomBytes(3).toString('hex');
+      const jobId = randomBytes(6).toString('hex');
 
       const origCwd = process.cwd();
       const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
@@ -152,7 +152,7 @@ describe('_worker.mjs forwards a stored request.model to runAgyPrint (076-T7 R3)
   it('passes request.model through to runAgyPrint', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
 
     const origCwd = process.cwd();
     const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
@@ -202,7 +202,7 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
   it('passes request.effort through to runAgyPrint', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
 
     const origCwd = process.cwd();
     const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
@@ -247,7 +247,7 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
   it('a stored request with no effort forwards undefined, exactly as before this field existed', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-noeffort-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-noeffort-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
 
     const origCwd = process.cwd();
     const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
@@ -299,7 +299,7 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
   it('a stored request.effort of agy-default forwards undefined and is not rejected', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-agydefault-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-agydefault-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
 
     const origCwd = process.cwd();
     const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
@@ -353,7 +353,7 @@ describe('_worker.mjs persists deniedActions and deniedActionsCount', () => {
   it('a completed run with structured denials persists both fields', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-denied-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-denied-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
     const savedNext = { ...runtime.next };
 
     const origCwd = process.cwd();
@@ -414,7 +414,7 @@ describe('_worker.mjs persists agyPrintTimeout', () => {
   it('a completed run with the print-timeout marker persists it on the job and the stored result', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-timeout-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-timeout-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
     const savedNext = { ...runtime.next };
 
     const origCwd = process.cwd();
@@ -471,7 +471,7 @@ describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () =>
   it('stores filtered agy stderr as errorMessage and status <id> renders a ## Error section', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
 
     const origCwd = process.cwd();
     const hadPluginDataEnv = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_PLUGIN_DATA');
@@ -574,7 +574,7 @@ describe('_worker.mjs uses the parent-supplied workspace root spelling (085-T4 F
     }
 
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-data-'));
-    const jobId = 'job' + randomBytes(3).toString('hex');
+    const jobId = randomBytes(6).toString('hex');
     const physicalRoot = fs.realpathSync.native(linkTarget);
     const logicalLeafDir = path.join(dataDir, 'state', leafFor(linkPath));
     const realpathLeafDir = path.join(dataDir, 'state', leafFor(physicalRoot));

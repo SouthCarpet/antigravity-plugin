@@ -12,7 +12,7 @@ import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 
@@ -76,8 +76,13 @@ afterEach(() => {
   removeTestDir(dataDir);
 });
 
+/** A valid 12-hex job id derived from a readable fixture name. */
+function ID(name) {
+  return createHash('sha256').update(name).digest('hex').slice(0, 12);
+}
+
 async function seedJob(overrides = {}) {
-  const id = overrides.id ?? randomBytes(4).toString('hex');
+  const id = overrides.id ?? randomBytes(6).toString('hex');
   const sessionId = overrides.sessionId ?? process.env[SESSION_ID_ENV];
   const job = {
     id,
@@ -98,25 +103,25 @@ async function seedJob(overrides = {}) {
 
 describe('buildStatusSnapshot', () => {
   it('partitions session jobs into running/recent and respects maxJobs', async () => {
-    await seedJob({ id: 'a', status: 'running' });
-    await seedJob({ id: 'b', status: 'queued' });
-    await seedJob({ id: 'c', status: 'completed', completedAt: new Date().toISOString() });
-    await seedJob({ id: 'd', status: 'failed' });
+    await seedJob({ id: ID('a'), status: 'running' });
+    await seedJob({ id: ID('b'), status: 'queued' });
+    await seedJob({ id: ID('c'), status: 'completed', completedAt: new Date().toISOString() });
+    await seedJob({ id: ID('d'), status: 'failed' });
 
     const snap = buildStatusSnapshot(workCwd, { env: process.env, maxJobs: 2 });
     assert.equal(snap.running.length, 2);
     assert.equal(snap.recent.length, 2);
-    assert.ok(snap.running.some((j) => j.id === 'a'));
-    assert.ok(snap.recent.some((j) => j.id === 'c'));
+    assert.ok(snap.running.some((j) => j.id === ID('a')));
+    assert.ok(snap.recent.some((j) => j.id === ID('c')));
     assert.equal(snap.needsReview, false);
     assert.ok(snap.workspaceRoot.length > 0);
   });
 
   it('falls back to all jobs when no session id is set', async () => {
-    await seedJob({ id: 'q', status: 'running', sessionId: 'other-session' });
+    await seedJob({ id: ID('q'), status: 'running', sessionId: 'other-session' });
     delete process.env[SESSION_ID_ENV];
     const snap = buildStatusSnapshot(workCwd, { env: { /* no session */ } });
-    assert.ok(snap.running.some((j) => j.id === 'q'));
+    assert.ok(snap.running.some((j) => j.id === ID('q')));
   });
 
   // 076-T6 R4: state.mjs no longer re-resolves an already-resolved workspace
@@ -137,9 +142,9 @@ describe('buildStatusSnapshot', () => {
   // counter as well closes that gap; `gitCalls` stays as a secondary,
   // independent measurement of the same win.
   it('resolves the workspace root at most once for a status snapshot over three stored jobs', async () => {
-    await seedJob({ id: 'g1', status: 'completed' });
-    await seedJob({ id: 'g2', status: 'completed' });
-    await seedJob({ id: 'g3', status: 'completed' });
+    await seedJob({ id: ID('g1'), status: 'completed' });
+    await seedJob({ id: ID('g2'), status: 'completed' });
+    await seedJob({ id: ID('g3'), status: 'completed' });
 
     resetWorkspaceRootCache();
     gitCalls = 0;
@@ -151,15 +156,15 @@ describe('buildStatusSnapshot', () => {
 
 describe('buildSingleJobSnapshot', () => {
   it('resolves by exact id, partial id, and 1-based positional index', async () => {
-    await seedJob({ id: 'abcd1234', status: 'running' });
-    const exact = buildSingleJobSnapshot(workCwd, 'abcd1234');
-    assert.equal(exact.job.id, 'abcd1234');
+    await seedJob({ id: ID('abcd1234'), status: 'running' });
+    const exact = buildSingleJobSnapshot(workCwd, ID('abcd1234'));
+    assert.equal(exact.job.id, ID('abcd1234'));
 
-    const partial = buildSingleJobSnapshot(workCwd, 'abcd');
-    assert.equal(partial.job.id, 'abcd1234');
+    const partial = buildSingleJobSnapshot(workCwd, ID('abcd1234').slice(0, 4));
+    assert.equal(partial.job.id, ID('abcd1234'));
 
     const byIdx = buildSingleJobSnapshot(workCwd, '1');
-    assert.equal(byIdx.job.id, 'abcd1234');
+    assert.equal(byIdx.job.id, ID('abcd1234'));
   });
 
   it('throws a helpful error when no job matches', () => {
@@ -167,7 +172,7 @@ describe('buildSingleJobSnapshot', () => {
   });
 
   it('keeps a summary containing a pipe and an embedded newline raw (F5) — escaping is a render-time concern, not the enriched/--json field', async () => {
-    const job = await seedJob({ id: 'summary-escape', status: 'completed', summary: 'a | b\nc' });
+    const job = await seedJob({ id: ID('summary-escape'), status: 'completed', summary: 'a | b\nc' });
     const snap = buildSingleJobSnapshot(workCwd, job.id);
     assert.equal(snap.job.summary, 'a | b\nc');
   });
@@ -175,7 +180,7 @@ describe('buildSingleJobSnapshot', () => {
   it('enriches a running job with computed elapsed and reads tail of the log file', async () => {
     const created = new Date(Date.now() - 3000).toISOString();
     const job = await seedJob({
-      id: 'enrich1',
+      id: ID('enrich1'),
       status: 'running',
       startedAt: created,
       lastProgressAt: new Date().toISOString(),
@@ -197,7 +202,7 @@ describe('buildSingleJobSnapshot', () => {
   it('carries deniedActions and deniedActionsCount through enrichment despite dropping result (except reportedModel)', async () => {
     const denied = [{ action: 'read_url', displayName: 'ReadUrlContent', source: 'json' }];
     const job = await seedJob({
-      id: 'denied1',
+      id: ID('denied1'),
       status: 'completed',
       completedAt: new Date().toISOString(),
       deniedActions: denied,
@@ -210,7 +215,7 @@ describe('buildSingleJobSnapshot', () => {
   });
 
   it('a legacy job without deniedActions enriches to null/0', async () => {
-    const job = await seedJob({ id: 'legacy1', status: 'completed', completedAt: new Date().toISOString() });
+    const job = await seedJob({ id: ID('legacy1'), status: 'completed', completedAt: new Date().toISOString() });
     const snap = buildSingleJobSnapshot(workCwd, job.id);
     assert.equal(snap.job.deniedActions, null);
     assert.equal(snap.job.deniedActionsCount, 0);
@@ -222,7 +227,7 @@ describe('buildSingleJobSnapshot', () => {
   // `deniedActions`/`deniedActionsCount` above already use.
   it('carries agyConversationId through enrichment, distinct from the caller-passed conversationId', async () => {
     const job = await seedJob({
-      id: 'convid1',
+      id: ID('convid1'),
       status: 'failed',
       completedAt: new Date().toISOString(),
       conversationId: 'caller-passed-id',
@@ -234,7 +239,7 @@ describe('buildSingleJobSnapshot', () => {
   });
 
   it('a legacy job without agyConversationId enriches to null, not undefined', async () => {
-    const job = await seedJob({ id: 'legacy-convid', status: 'completed', completedAt: new Date().toISOString() });
+    const job = await seedJob({ id: ID('legacy-convid'), status: 'completed', completedAt: new Date().toISOString() });
     const snap = buildSingleJobSnapshot(workCwd, job.id);
     assert.equal(snap.job.agyConversationId, null);
   });
@@ -253,7 +258,7 @@ describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => 
 
   it('active when lastProgressAt is recent', async () => {
     const job = await seedJob({
-      id: 'h-active',
+      id: ID('h-active'),
       status: 'running',
       startedAt: new Date().toISOString(),
       lastProgressAt: new Date().toISOString(),
@@ -265,7 +270,7 @@ describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => 
   it('quiet when recent heartbeat but stale progress', async () => {
     const now = Date.now();
     const job = await seedJob({
-      id: 'h-quiet',
+      id: ID('h-quiet'),
       status: 'running',
       startedAt: new Date(now - QUIET_AFTER_MS * 2).toISOString(),
       lastHeartbeatAt: new Date(now).toISOString(),
@@ -278,7 +283,7 @@ describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => 
   it('possibly_stalled when neither progress nor heartbeat are recent', async () => {
     const now = Date.now();
     const job = await seedJob({
-      id: 'h-stall',
+      id: ID('h-stall'),
       status: 'running',
       startedAt: new Date(now - POSSIBLY_STALLED_AFTER_MS * 3).toISOString(),
       lastHeartbeatAt: new Date(now - POSSIBLY_STALLED_AFTER_MS * 2).toISOString(),
@@ -289,14 +294,14 @@ describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => 
   });
 
   it('worker_missing when pid is dead (via injected isProcessAlive)', async () => {
-    const job = await seedJob({ id: 'h-dead', status: 'running', pid: 12345 });
+    const job = await seedJob({ id: ID('h-dead'), status: 'running', pid: 12345 });
     const snap = buildSingleJobSnapshot(workCwd, job.id, { isProcessAlive: () => false });
     assert.equal(snap.job.healthStatus, 'worker_missing');
   });
 
   it('persisted auth_required survives reclassification', async () => {
     const job = await seedJob({
-      id: 'h-auth',
+      id: ID('h-auth'),
       status: 'running',
       healthStatus: 'auth_required',
       healthMessage: 'auth pending',
@@ -306,7 +311,7 @@ describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => 
   });
 
   it('terminal jobs get no classifier output', async () => {
-    const job = await seedJob({ id: 'h-done', status: 'completed' });
+    const job = await seedJob({ id: ID('h-done'), status: 'completed' });
     const snap = buildSingleJobSnapshot(workCwd, job.id);
     assert.equal(snap.job.healthStatus, null);
   });
@@ -314,19 +319,19 @@ describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => 
 
 describe('resolveResultJob', () => {
   it('returns the most recent terminal job when no reference is given', async () => {
-    await seedJob({ id: 'r-done', status: 'completed', updatedAt: '2024-01-02T00:00:00Z' });
-    await seedJob({ id: 'r-run', status: 'running', updatedAt: '2024-01-03T00:00:00Z' });
+    await seedJob({ id: ID('r-done'), status: 'completed', updatedAt: '2024-01-02T00:00:00Z' });
+    await seedJob({ id: ID('r-run'), status: 'running', updatedAt: '2024-01-03T00:00:00Z' });
     const { job } = resolveResultJob(workCwd, null, process.env);
-    assert.equal(job.id, 'r-done');
+    assert.equal(job.id, ID('r-done'));
   });
 
   it('throws when the matched job is still running, suggesting --wait', async () => {
-    await seedJob({ id: 'r-run-only', status: 'running' });
-    assert.throws(() => resolveResultJob(workCwd, 'r-run-only', process.env), /still running/);
+    await seedJob({ id: ID('r-run-only'), status: 'running' });
+    assert.throws(() => resolveResultJob(workCwd, ID('r-run-only'), process.env), /still running/);
   });
 
   it('throws when nothing matches a reference', async () => {
-    await seedJob({ id: 'x', status: 'completed' });
+    await seedJob({ id: ID('x'), status: 'completed' });
     assert.throws(() => resolveResultJob(workCwd, 'nothing', process.env), /No job found/);
   });
 
@@ -337,10 +342,10 @@ describe('resolveResultJob', () => {
 
 describe('resolveCancelableJob', () => {
   it('returns the matching active job', async () => {
-    await seedJob({ id: 'c1', status: 'running' });
-    await seedJob({ id: 'c2', status: 'queued' });
-    const { job } = resolveCancelableJob(workCwd, 'c1');
-    assert.equal(job.id, 'c1');
+    await seedJob({ id: ID('c1'), status: 'running' });
+    await seedJob({ id: ID('c2'), status: 'queued' });
+    const { job } = resolveCancelableJob(workCwd, ID('c1'));
+    assert.equal(job.id, ID('c1'));
   });
 
   it('errors when there are no active jobs', () => {
@@ -348,7 +353,7 @@ describe('resolveCancelableJob', () => {
   });
 
   it('errors when reference does not match any active job', async () => {
-    await seedJob({ id: 'c3', status: 'running' });
+    await seedJob({ id: ID('c3'), status: 'running' });
     assert.throws(() => resolveCancelableJob(workCwd, 'unknown'), /No active job matched/);
   });
 });

@@ -215,7 +215,7 @@ describe('/antigravity:status', () => {
   });
 
   it('renders a single job snapshot when given a job id', async () => {
-    const id = 'jobx' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,
@@ -313,7 +313,7 @@ describe('/antigravity:status', () => {
   // Plan 085 T2: a single-job status view attaches the remedy for --json
   // and markdown, and the all-jobs list carries a lightweight count.
   it('single job --json carries details.job.deniedActions with a computed remedy', async () => {
-    const id = 'jobd' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'rescue', status: 'completed',
@@ -338,7 +338,7 @@ describe('/antigravity:status', () => {
   });
 
   it('single job markdown view renders a "## Denied Actions" section', async () => {
-    const id = 'jobd' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'completed',
@@ -362,7 +362,7 @@ describe('/antigravity:status', () => {
   });
 
   it('the all-jobs list shows a per-job deniedActionsCount, not the full remedy array', async () => {
-    const id = 'jobl' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'completed',
@@ -388,7 +388,7 @@ describe('/antigravity:status', () => {
   // and the all-jobs list carries the same field per job (a `Partial`
   // table marker in markdown).
   it('single job --json carries details.job.agyPrintTimeout', async () => {
-    const id = 'jobp' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'completed',
@@ -414,7 +414,7 @@ describe('/antigravity:status', () => {
   // disk — the exact gap the controller found live. Distinct from
   // `conversationId` (the id the *caller* passed in via `--conversation`).
   it('single job --json carries details.job.agyConversationId on a denied job, distinct from conversationId', async () => {
-    const id = 'jobc' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'failed',
@@ -438,7 +438,7 @@ describe('/antigravity:status', () => {
   });
 
   it('a legacy job with no agyConversationId carries it as null, not absent or undefined', async () => {
-    const id = 'jobc' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'completed',
@@ -459,7 +459,7 @@ describe('/antigravity:status', () => {
   });
 
   it('the all-jobs list carries agyConversationId per job', async () => {
-    const id = 'jobc' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'failed',
@@ -480,7 +480,7 @@ describe('/antigravity:status', () => {
   });
 
   it('single job markdown view renders a "Note:" line naming the print timeout', async () => {
-    const id = 'jobp' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'completed',
@@ -502,7 +502,7 @@ describe('/antigravity:status', () => {
   });
 
   it('the all-jobs list shows a per-job agyPrintTimeout, and the markdown table gets a Partial marker', async () => {
-    const id = 'jobq' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'completed',
@@ -572,7 +572,7 @@ describe('/antigravity:status — agy version warning (Senate R2)', () => {
 
   it('never warns on a single-job status <id> call, even with a beyond_measured version cached', async () => {
     await setConfig(tempDir, { agyVersionSeen: { version: '1.3.2', observedAt: '2026-09-20T00:00:00.000Z' } });
-    const id = 'jobw' + randomBytes(2).toString('hex');
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'completed',
@@ -866,7 +866,7 @@ describe('/antigravity:result', () => {
   // Task 3: a reference that matches an active (not-yet-terminal) job
   // classifies as job_not_ready, not job_not_found.
   it('an active job reference: one state_error/job_not_ready envelope under --json', async () => {
-    const id = 'active000001';
+    const id = 'ac0000000001';
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id, kind: 'task', status: 'running',
@@ -1295,7 +1295,7 @@ describe('/antigravity:cancel', () => {
   });
 
   it('marks a running job cancelled when killed (with a fake pid)', async () => {
-    const id = 'runningjob';
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     // Use a PID that is guaranteed not to exist; "not found" truthfully means
     // no work remains and is therefore a successful idempotent cancellation.
@@ -1332,7 +1332,7 @@ describe('/antigravity:cancel', () => {
   });
 
   it('--json wraps a successful cancellation', async () => {
-    const id = 'runningjsonjob';
+    const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
       id,

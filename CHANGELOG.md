@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`update --apply` checks the agy tarball before it installs it.** The
+  tarball came from `npm pack` in your current directory with no explicit
+  registry, so a project `.npmrc` there could choose where it was downloaded
+  from, and nothing compared it with the npm registry record. Now `npm pack`
+  runs from the update's temporary directory with the npmjs.org registry and
+  scope registry on its command line. The integrity that `npm pack` reports
+  and the sha512 of the tarball must equal the `dist.integrity` of the
+  registry record, read over HTTPS from registry.npmjs.org, and the
+  extracted `package.json` must name this package and version. A missing
+  value or a mismatch stops the update before `agy plugin uninstall`, with
+  exit 1. With the registry unreachable, agy is now skipped.
+- **Reads of shared temp state are checked like writes.** On a shared POSIX
+  host, another local user could plant job state or an update-check cache
+  under the OS temp directory. `status`, `result` and `cancel` now refuse a
+  state root, workspace directory or `jobs` directory that fails the owner,
+  mode and symlink check, a legacy temp workspace directory that fails it is
+  skipped, and a cache that fails it counts as no cache. The state index
+  ignores entries that are not valid job records, `status` reads a job log
+  only from the plugin's own path for that job, and `cancel` signals a
+  process only when it started no later than the job record's last update
+  (else the new outcome `unconfirmed`, exit 1). State locations do not
+  change. On Windows the owner and mode check stays a no-op.
+
 ## [3.0.0] — 2026-10-08
 
 ### Breaking
