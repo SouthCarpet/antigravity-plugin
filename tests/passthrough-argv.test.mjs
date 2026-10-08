@@ -489,6 +489,32 @@ describe('vision --add-dir is rejected before any spawn', () => {
   });
 });
 
+describe('vision default model', () => {
+  const VISION_ARGV_TAIL = [
+    '--print-timeout', '1860s',
+    '--disable-slash-commands',
+    '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
+  ];
+
+  it('vision without --model sends gemini-3.8-flash-high and no --effort', () => {
+    const { work, data } = freshDirs();
+    const img = path.join(work, 'shot.png');
+    fs.writeFileSync(img, 'not-a-real-png');
+    const res = runVerb(['vision', img], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--model', 'gemini-3.8-flash-high', ...VISION_ARGV_TAIL]);
+  });
+
+  it('vision --model gemini-3.6-flash-high keeps the 2.x default reachable', () => {
+    const { work, data } = freshDirs();
+    const img = path.join(work, 'shot.png');
+    fs.writeFileSync(img, 'not-a-real-png');
+    const res = runVerb(['vision', img, '--model', 'gemini-3.6-flash-high'], makeEnv(data), work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.deepEqual(argvOf(res.stderr), ['--model', 'gemini-3.6-flash-high', ...VISION_ARGV_TAIL]);
+  });
+});
+
 describe('standalone argv boundaries', () => {
   it('persists a quoted prompt containing --mode without granting that mode', () => {
     const { work, data } = freshDirs();

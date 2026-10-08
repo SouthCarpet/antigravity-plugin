@@ -62,46 +62,38 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 ## Status
 
-> **v2.1.0.** From 2.0.0 forward, while the first number of this version
-> stays 2, an update does not break a command or an output that already
+> **v3.0.0.** From 3.0.0 forward, while the first number of this version
+> stays 3, an update does not break a command or an output that already
 > works. If a command, flag, exit code, `--json` envelope, state location,
 > or supported host is removed, release notes and documentation first mark
 > it deprecated. It then stays for at least one more release that still
-> starts with 2. It is removed only in version 3.0.0. That contract is in
-> [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). See
+> starts with 3. It is removed only in version 4.0.0. That contract is in
+> [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). Version 3.0.0 is a
+> major release because one default changed: `vision` now uses
+> `gemini-3.8-flash-high`, not `gemini-3.6-flash-high`. Pass
+> `--model gemini-3.6-flash-high` to keep the old model. See
 > [`CHANGELOG.md`](./CHANGELOG.md).
 
-Plugin 2.1.0 is this package's version number. agy is Google's Antigravity
+Plugin 3.0.0 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.1.0 is tested with agy 1.1.15 to 1.2.12; newest measured 1.2.12 (smoke-only: `setup`, `task`, `status`, `result`). See
+Plugin 3.0.0 is tested with agy 1.1.15 to 1.3.1; newest measured 1.3.1. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
 ## Why this plugin
 
-- **Detect denied headless tools, with a remedy.** Since agy 1.1.20, a denied tool can return `SUCCESS` with an empty answer, so the runtime changes this result to a failure that names the tool. Since agy 1.1.27, the plugin also reports agy's structured `denied_actions` list in `--json`, `status`, and `result`. Each denied action gets one remedy: `--add-dir`, `--mode accept-edits`, or a plain statement that headless mode cannot grant it. A live 1.1.27 denial of `read_url` printed `Headless runs cannot grant "read_url"; the host must run this step itself.`
-- **Forward `--effort <low|medium|high|agy-default>` on `task`, `rescue`, and `review`.** The plugin forwards an explicit `low`, `medium`, or `high` to agy as `--effort <value>`. On `task`/`rescue`, a job with neither `--effort` nor `--model` sends `medium`, unchanged since 2.0.0; with `--model` and no `--effort`, the plugin sends no `--effort` flag. agy applies the level carried by a variant id such as `gemini-3.1-pro-high`, and rejects a base id that needs one (`raw-base-gemini-3.1-pro-no-effort.txt`). This applies since 2.0.2 because agy 1.2.11 validates the model and effort pair (`raw-model-gemini-3.1-pro-high-effort-medium.txt`, `raw-model-claude-sonnet-4-6-effort-medium.txt`). `agy-default` still sends no `--effort` flag, so the user's own agy configuration decides. `review` has no plugin default: with neither `--effort` nor `--model`, no `--effort` flag is sent at all, and `agy-default` sends none either. `review` also accepts `--model <id>` and an optional `--focus <text>` (narrows the review's attention; trimmed, capped at 500 characters, never derived from the diff). `vision` does not support `--effort`.
-- **Keep print-mode runs on the plugin budget.** Every print-mode `agy` call forwards `--print-timeout` as the job budget plus 60 seconds (`1860s` for the 30-minute default), or `24h` for a `0` budget. The plugin still enforces its own budget (`ANTIGRAVITY_AGY_TIMEOUT_MS`, the `timeoutMs` deadline with 60 seconds of headroom); the forwarded `--print-timeout` is the agy-side backstop.
-- **Account for agy print-timeout history.** Before 1.2.6, agy's default was `5m0s` and a literal `0` meant an immediate timeout. Since 1.2.6 the default is unlimited; agy 1.2.7 help lists `0s`, where `0` waits until the turn completes (`agy-help-1.2.7.txt`).
-- **Disable slash expansion in print mode.** Every print-mode `agy` call forwards `--disable-slash-commands`. Prompt text that starts with `/` reaches the model as text.
-- **Send real image input.** A local MCP server delivers pixels, including the offloaded-copy path used by agy 1.1.24. An ancestor directory symlink is accepted when the resolved path is an authorized entry. A requested file that is itself a symlink is refused.
-- **Check a vision answer's transcription for expected text.** `vision --expect <text>` (repeatable) checks each trimmed value against the answer's `## Transcription` section after a completed run. This is a substring check on what agy already transcribed, never a truth check of the image. `--json` adds `details.expectations`/`details.expectationSummary`; markdown appends an `Expectations:` block. The exit code is unaffected.
-- **Record safe job provenance.** Every job carries a `provenance` record (plugin version, agy version, model, effort, mode, and the count, never the paths, of `--add-dir` values), so a later reader can reproduce the run's settings without the prompt, workspace path, image paths, or tool list ever being stored. `status <id>` and `result <id>` show it as a "## Provenance" section. `review`, `rescue`, `task`, and `vision` also print the measured usage trailer on a successful run now, not just `vision` and `result`.
-- **Preview what a review would send, or refuse an incomplete one.** `review --preview` shows the included files, the skipped files with their reasons, whether the diff was cut, the counts, and the hash of the exact prompt, without calling agy or changing anything. `review --require-complete` refuses to send an input that skipped a file or cut the diff, instead of sending it with a warning. Every review job stores the input hash and file/byte counts, shown as "Input hash: sha256:..." in `status`/`result`.
-- **Get review findings as checked data.** `review --findings-json` passes agy a JSON schema that the plugin ships. The plugin then checks agy's structured output against that schema itself. `--json` returns the result in `details.findings`, with `details.findingsStatus` set to `valid`, `invalid`, or `missing`. If the status is not `valid`, `details.findingsError` gives the reason and stderr gets one warning line. The answer text is agy's raw response, and in this mode agy returns JSON text there, not the Markdown review. Read `details.findings`, not the answer. The exit code does not change. `result <job-id>` reports the same fields for a background review.
-- **Heuristically check where a review's citations land.** `review --check-locations` finds each `path:line` citation the answer names and checks it against the diff this run actually sent, classifying it `in_diff`, `outside_diff`, or `unknown_path`. Local only: no extra agy call, no argv change, `answer` and the exit code are unchanged. `details.locationCheck` carries the citations and counts; a matching stderr line, also appended to the markdown output, summarizes them. This is a heuristic, not a truth check: a citation outside the diff is not by itself a model error. `result <job-id> --check-locations` runs the same check later, even on a job reviewed without the flag, since every review job stores the diff's hunks.
-- **One JSON error envelope for expected failures.** Once `--json` is accepted, a run that fails on a known path (bad input, no `agy`, a run that did not complete, an unresolved job) still writes exactly one envelope to stdout, with `answer: null` and `details.error` naming the reason, instead of nothing. A parser error still writes nothing to stdout, unchanged.
-- **Use one command set.** The same nine verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
-- **Check your setup with one read-only command.** `doctor` reports Node, the agy binary and version, which forwarded flags `agy --help` lists, the vision configuration, and the job-state root, with no OAuth, no model call, no write, and no network. `setup` and `status` also warn when the agy version in use falls outside this plugin's measured range.
-- **Control background jobs.** Use `status`, `result`, and `cancel` to inspect, retrieve, or stop jobs.
-- **Print a background job's own result in one call.** `review --background`, `rescue --background`, and background-default `task`, each combined with `--wait`, accept an opt-in `--show-result`: the dispatch prints nothing (the queued notice moves to stderr), and after the wait the finished job's own answer, error, or timeout is reported instead, in the same shape `result <job-id>` already returns.
-- **Dispatch a background job once, even if you send it twice.** `task` (background) and `rescue --background` accept an opt-in `--request-id <id>`. A repeat of the same request with the same id reports the existing job (`deduplicated: true`) and starts nothing; the same id with a different request is refused with `request_id_conflict`. Two concurrent calls with one id create one job. The plugin never retries by itself.
-- **Send a long or scripted prompt as a file.** `task --prompt-file <path>` reads the prompt from a file (UTF-8, 512 KiB max) instead of typing it, and cannot combine with a positional prompt. `--prompt-file -` reads stdin to EOF instead, only from the standalone CLI. `rescue` does not gain this flag.
-- **Grant bounded reads.** `--add-dir` gives `rescue` and `task` a per-run read grant for the named directory.
-- **Verify releases.** npm provenance and signed tags connect a package to its source commit.
-- **Keep the runtime small.** The package has zero runtime dependencies. The test suite runs on Linux, Windows, and macOS, with Node 22.3.x and Node 24, on every change.
+- **One command set on every host.** The same nine verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
+- **Clear failures instead of empty answers.** When agy denies a tool in headless mode, the plugin fails the run, names the tool, and gives one remedy.
+- **Real image input.** `vision` sends pixels to agy through a local MCP server, and `--expect` checks the transcription for text you name.
+- **Reviews you can check.** `review` can preview its input, refuse an incomplete input, return schema-checked findings, and check where its citations land in the diff.
+- **Background jobs under control.** `status`, `result`, and `cancel` manage jobs, `--wait --show-result` returns the finished answer in one call, and `--request-id` stops a double dispatch.
+- **Predictable runs.** `task` and `rescue` have a default effort, agy gets a time budget that it also enforces, slash text in a prompt stays text, and every job records its provenance.
+- **Output for scripts.** `--json` writes one envelope, also for expected failures, and a usage line goes to stderr.
+- **Small and verifiable.** The package has zero runtime dependencies, `doctor` is read-only, CI runs on three systems, and releases carry npm provenance and signed tags.
+
+Flags, defaults, and exit codes are in the [Commands reference](./docs/COMMANDS.md). Measured limits and promises are in [Compatibility](./docs/COMPATIBILITY.md). What leaves your machine is in [Permissions and privacy](#permissions-and-privacy).
 
 ## How it works
 
@@ -161,7 +153,7 @@ The requested answer has `Transcription`, `Observations`, and `Answer` sections.
 npx @southcarpet/antigravity-plugin vision ./screenshot.png --prompt "Which text is visible?"
 ```
 
-See [Commands reference](./docs/COMMANDS.md#vision) for formats, limits, flags, and the measured model guidance.
+The default model is `gemini-3.8-flash-high`. Before 3.0.0 it was `gemini-3.6-flash-high`. See [Commands reference](./docs/COMMANDS.md#vision) for formats, limits, flags, and the measured model guidance.
 
 ## Updating
 
@@ -171,12 +163,12 @@ For Claude Code, run `claude plugin marketplace update antigravity` first, then 
 
 For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <dir>` again on a fresh packed copy: `node scripts/pack-for-agy.mjs` from a checkout (or `npm pack @southcarpet/antigravity-plugin` plus a manual extract), then `agy plugin install` on the directory it prints. This ships exactly what `npm publish` ships; `agy plugin install` on a plain clone also copies `.git`, `.github`, and `tests/`, since it does not read `package.json` `files`. Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28, `agy plugin install` replaces the managed directory exactly (`agy-changelog-1.2.7.txt`). Uninstall-then-install remains the safe path on every version. See [Installation](./docs/INSTALL.md#agy-itself) for the full recipe.
 
-`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check. Run `update --apply` from a directory outside the agy install root: a cwd inside it can leave the uninstall step half-done.
+`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check. For agy it reads the integrity of the latest version from registry.npmjs.org, packs that version from its own temporary directory with that registry named on the command line, and checks the tarball and the extracted name and version before it uninstalls the old copy; a failed check stops it with exit 1. Run `update --apply` from a directory outside the agy install root. If you run it from inside that root, it moves to its own temporary directory and tells you, because a cwd inside the root can leave the uninstall step half-done.
 
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15 to 1.2.12 on `PATH`; newest measured 1.2.12 (smoke-only: `setup`, `task`, `status`, `result`). See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+- agy 1.1.15 to 1.3.1 on `PATH`; newest measured 1.3.1. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy
@@ -237,7 +229,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 - [Installation](./docs/INSTALL.md): per-host setup recipes.
 - [Troubleshooting](./docs/INSTALL.md#troubleshooting): command failures and corrective actions.
-- [2.x compatibility contract](./docs/COMPATIBILITY.md): supported matrix, outputs, state, and versioning promises.
+- [3.x compatibility contract](./docs/COMPATIBILITY.md): supported matrix, outputs, state, and versioning promises.
 - [Commands reference](./docs/COMMANDS.md): all nine verbs, flags, defaults, and exit behavior.
 - [Security](./SECURITY.md): reporting channel, scope, and what leaves the machine.
 - [Release smoke checklist](./docs/SMOKE.md): four-host pre-release pass.
@@ -246,7 +238,7 @@ GitHub Packages mirrors the same tarball with `--provenance=false`. It exists fo
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 2.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu, Windows, and macOS with Node 22.3.x and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 3.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu, Windows, and macOS with Node 22.3.x and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
 
 The package has no runtime dependencies. `devDependencies` holds one entry, `eslint@^10.10.0`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
 

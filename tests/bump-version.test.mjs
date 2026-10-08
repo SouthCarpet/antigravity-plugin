@@ -492,17 +492,17 @@ describe('bump-version README Status token', () => {
 // meaning-bearing tokens directly, on the real repo README (not a bump
 // fixture), without pinning the sentence's exact wording.
 describe('README compatibility-promise sentence (F7: prose-tolerant, not a full-paragraph pin)', () => {
-  it('the Status section still states: no break within 1.x, breaking changes need 2.0.0, docs/COMPATIBILITY.md is the contract', () => {
+  it('the Status section still states: no break within 3.x, breaking changes need 4.0.0, docs/COMPATIBILITY.md is the contract', () => {
     const readmeText = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
     const section = readmeText.match(/## Status\n\n([\s\S]*?)\n\n##/);
     assert.ok(section, 'README.md "## Status" section not found');
     const promise = section[1];
     // Meaning-bearing tokens, not the sentence: any rewording that keeps
     // these facts passes; a rewording (or removal) that drops one of them
-    // — the no-break claim, the 2.0.0 escape hatch, or the contract's
+    // — the no-break claim, the 4.0.0 escape hatch, or the contract's
     // location — fails.
-    assert.match(promise, /does not break/, 'no-break-within-1.x claim is missing');
-    assert.match(promise, /2\.0\.0/, '2.0.0 as the only breaking-change release is missing');
+    assert.match(promise, /does not break/, 'no-break-within-3.x claim is missing');
+    assert.match(promise, /4\.0\.0/, '4.0.0 as the only breaking-change release is missing');
     assert.match(promise, /docs\/COMPATIBILITY\.md/, 'the compatibility contract file is not named');
   });
 });

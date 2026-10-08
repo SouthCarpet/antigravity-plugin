@@ -482,23 +482,23 @@ describe('state — persistence + reconciliation', () => {
   });
 
   it('upsertJob inserts then updates by id', async () => {
-    await upsertJob(workCwd, { id: 'j1', kind: 'task', status: 'queued' });
+    await upsertJob(workCwd, { id: 'a00000000001', kind: 'task', status: 'queued' });
     let jobs = listJobs(workCwd);
-    assert.equal(jobs.find((j) => j.id === 'j1').status, 'queued');
+    assert.equal(jobs.find((j) => j.id === 'a00000000001').status, 'queued');
 
-    await upsertJob(workCwd, { id: 'j1', status: 'running' });
+    await upsertJob(workCwd, { id: 'a00000000001', status: 'running' });
     jobs = listJobs(workCwd);
-    assert.equal(jobs.find((j) => j.id === 'j1').status, 'running');
+    assert.equal(jobs.find((j) => j.id === 'a00000000001').status, 'running');
   });
 
   it('writeJobFile + readJobFile + log append/read round-trip', async () => {
-    await writeJobFile(workCwd, 'j1', { id: 'j1', payload: 'p' });
-    const read = readJobFile(workCwd, 'j1');
+    await writeJobFile(workCwd, 'a00000000001', { id: 'a00000000001', payload: 'p' });
+    const read = readJobFile(workCwd, 'a00000000001');
     assert.equal(read.payload, 'p');
 
-    appendJobLog(workCwd, 'j1', 'line one');
-    appendJobLog(workCwd, 'j1', 'line two');
-    const log = readLogTail(resolveJobLogFile(workCwd, 'j1'));
+    appendJobLog(workCwd, 'a00000000001', 'line one');
+    appendJobLog(workCwd, 'a00000000001', 'line two');
+    const log = readLogTail(resolveJobLogFile(workCwd, 'a00000000001'));
     assert.match(log, /line one/);
     assert.match(log, /line two/);
 
@@ -601,7 +601,7 @@ describe('state — persistence + reconciliation', () => {
     // Build 52 jobs in a single saveState call.
     const now = new Date();
     const many = Array.from({ length: 52 }, (_, i) => ({
-      id: `b${String(i).padStart(3, '0')}`,
+      id: `b${String(i).padStart(11, '0')}`,
       kind: 'task',
       status: 'completed',
       updatedAt: new Date(now.getTime() + i * 1000).toISOString(),
@@ -614,9 +614,9 @@ describe('state — persistence + reconciliation', () => {
     await saveState(workCwd, { version: 1, config: {}, jobs: many });
     const after = listJobs(workCwd);
     assert.equal(after.filter((job) => job.status === 'completed').length, 50);
-    assert.equal(after.find((job) => job.id === 'j1').status, 'running');
+    assert.equal(after.find((job) => job.id === 'a00000000001').status, 'running');
     // Oldest jobs should be pruned out of the on-disk index.
-    assert.equal(after.find((j) => j.id === 'b000'), undefined);
+    assert.equal(after.find((j) => j.id === 'b00000000000'), undefined);
   });
 
   it('saveState removes per-job files for jobs dropped by the MAX_JOBS cap', async () => {
@@ -628,7 +628,7 @@ describe('state — persistence + reconciliation', () => {
     try {
       // Seed the index with 50 old jobs (each with a corresponding on-disk file).
       const oldJobs = Array.from({ length: 50 }, (_, i) => ({
-        id: `old${String(i).padStart(2, '0')}`,
+        id: `d${String(i).padStart(11, '0')}`,
         status: 'completed',
         updatedAt: new Date(2024, 0, 1, 0, 0, i).toISOString(),
       }));
@@ -638,18 +638,18 @@ describe('state — persistence + reconciliation', () => {
         fs.writeFileSync(resolveJobFile(isoCwd, j.id), JSON.stringify(j));
       }
       // Save a snapshot that adds a 51st newer job. Reconciliation will keep
-      // all 51, then the MAX_JOBS=50 cap drops the oldest ("old00").
-      const newer = { id: 'newest', status: 'completed', updatedAt: new Date(2025, 0, 1).toISOString() };
+      // all 51, then the MAX_JOBS=50 cap drops the oldest ("d00000000000").
+      const newer = { id: 'eeeeeeeeeeee', status: 'completed', updatedAt: new Date(2025, 0, 1).toISOString() };
       await saveState(isoCwd, { version: 1, config: {}, jobs: [...oldJobs, newer] });
 
       const after = listJobs(isoCwd);
       assert.equal(after.length, 50);
       // Oldest dropped from the index.
-      assert.equal(after.find((j) => j.id === 'old00'), undefined);
+      assert.equal(after.find((j) => j.id === 'd00000000000'), undefined);
       // Per-job file for the dropped job removed.
-      assert.equal(fs.existsSync(resolveJobFile(isoCwd, 'old00')), false);
+      assert.equal(fs.existsSync(resolveJobFile(isoCwd, 'd00000000000')), false);
       // Newest retained.
-      assert.ok(after.find((j) => j.id === 'newest'));
+      assert.ok(after.find((j) => j.id === 'eeeeeeeeeeee'));
     } finally {
       if (saved === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
       else process.env.CLAUDE_PLUGIN_DATA = saved;

@@ -14,7 +14,7 @@
  *
  * Flags:
  *   --prompt <text>   question to ask about the image(s); default: generic description
- *   --model <id>      agy model id (default gemini-3.6-flash-high)
+ *   --model <id>      agy model id (default gemini-3.8-flash-high)
  *   --json            output JSON instead of markdown
  *   --cwd <dir>       override working directory
  *   --expect <text>   repeatable; after a completed answer, check this text
@@ -44,7 +44,7 @@ import {
 } from "../lib/vision-capability.mjs";
 import { checkVisionExpectations, formatExpectationsMarkdown, validateExpectOption } from "../lib/vision-expect.mjs";
 
-const DEFAULT_MODEL = "gemini-3.6-flash-high";
+const DEFAULT_MODEL = "gemini-3.8-flash-high";
 const DEFAULT_PROMPT =
   "Describe this image in concrete, specific detail: layout, elements, colors, text, and anything unusual.";
 
@@ -189,19 +189,20 @@ export async function run(argv = [], ctx = {}) {
   const model = options.model ? String(options.model) : DEFAULT_MODEL;
   const prompt = buildVisionPrompt({ imagePaths, userPrompt });
   const title = `vision: ${imagePaths.map((p) => basename(p)).join(", ")}`;
-  // Record the allowlist in its resolved (realpath) form: an ancestor
-  // directory symlink (macOS's os.tmpdir() resolves through /var ->
-  // /private/var) would otherwise make the MCP server's own realpath check
-  // on the request disagree with the exact string authorized here.
-  // `imageProblem` above already confirmed each path exists; the fallback
-  // keeps the original path if it somehow vanishes before this runs.
-  const allowlistPaths = imagePaths.map((imagePath) => {
+  // Record each image twice: in the lexical absolute form the prompt names
+  // (the MCP server authorizes a request by that form before it touches the
+  // filesystem) and in its resolved (realpath) form (the server's realpath
+  // check must find the file's real location there; macOS's os.tmpdir()
+  // resolves through /var -> /private/var). `imageProblem` above already
+  // confirmed each path exists; if one vanishes before this runs, only its
+  // lexical form is recorded.
+  const allowlistPaths = [...new Set(imagePaths.flatMap((imagePath) => {
     try {
-      return realpathSync(imagePath);
+      return [imagePath, realpathSync(imagePath)];
     } catch {
-      return imagePath;
+      return [imagePath];
     }
-  });
+  }))];
   const env = {
     ...process.env,
     [VISION_ALLOWLIST_ENV]: encodeVisionAllowlist(allowlistPaths),

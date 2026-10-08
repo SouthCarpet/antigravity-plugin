@@ -14,7 +14,7 @@ treat an older number in a leftover note as the target.
 ## Prerequisites (do once)
 
 - [ ] `node --version` → ≥ 22.3.0
-- [ ] `agy --version` -> 1.1.15 to 1.2.12; newest measured 1.2.12. See
+- [ ] `agy --version` -> 1.1.15 to 1.3.1; newest measured 1.3.1. See
       [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table; other
       versions are not promised.
 - [ ] Logged into a Google account that can use `agy` (run `agy --print 'hi'`
@@ -73,8 +73,12 @@ node /path/to/antigravity-plugin/bin/antigravity.mjs setup
 node /path/to/antigravity-plugin/bin/antigravity.mjs review
 #   expect: markdown review on stdout, exit 0 (or the no-changes line)
 
-node /path/to/antigravity-plugin/bin/antigravity.mjs rescue "summarize this repository in one sentence"
-#   expect: a completed answer, exit 0
+node /path/to/antigravity-plugin/bin/antigravity.mjs rescue "Reply with exactly RESCUE"
+#   expect: a completed answer RESCUE, exit 0
+#   A prompt that needs a shell command (for example "summarize this
+#   repository") can fail on agy 1.3.1 because headless agy denies the
+#   `command` tool. The plugin then names the tool and says the host must run
+#   the step. That is not a plugin fault; use the prompt above for the smoke.
 
 node /path/to/antigravity-plugin/bin/antigravity.mjs task --foreground "say the word OK"
 #   expect: completed foreground task
@@ -175,7 +179,7 @@ agy plugin list
 #   expect: antigravity appears (agents, commands)
 
 agy plugin validate /path/to/antigravity-plugin
-#   expect: commands: 8 processed (converted to skills)
+#   expect: commands: 9 processed (converted to skills)
 
 npx @southcarpet/antigravity-plugin status
 npx @southcarpet/antigravity-plugin review

@@ -15,8 +15,9 @@
  * Access is capability-scoped, not prompt-scoped. The parent vision command
  * passes the exact user-named absolute paths in a per-process environment
  * value. This server denies all access when that value is absent or invalid,
- * rejects every path not in it, and rejects symlink/junction resolution so a
- * permitted-looking name cannot resolve to a different file.
+ * rejects every path not in it before any filesystem call, and rejects
+ * symlink/junction resolution so a permitted-looking name cannot resolve to a
+ * different file.
  *
  * Protocol handling below mirrors the probe script that proved this out; do
  * not change the JSON-RPC shapes without re-verifying against a live agy run.
@@ -69,6 +70,39 @@ function errorContent(message) {
 }
 
 /**
+ * Lexical identity of a path: resolved against `cwd`, normalized, and
+ * case-folded on Windows. String work only, never a filesystem call.
+ *
+ * @param {string} input
+ * @param {string} cwd
+ * @param {string} platform
+ * @returns {string}
+ */
+function lexicalKey(input, cwd, platform) {
+  const pathApi = pathModuleFor(platform);
+  const key = pathApi.normalize(pathApi.resolve(cwd, input));
+  return platform === "win32" ? key.toLowerCase() : key;
+}
+
+/**
+ * Whether the request is an allowlist entry by lexical identity alone. No
+ * filesystem call happens here. Exact membership also covers UNC
+ * (`\\host\share\`), device (`\\.\`) and extended-length (`\\?\`) roots: a
+ * request on such a root passes only when an entry has the same root and
+ * the same path.
+ *
+ * @param {string} requestPath absolute request path
+ * @param {string} cwd
+ * @param {string[]} allowedPaths
+ * @param {string} platform
+ * @returns {boolean}
+ */
+function isLexicallyAuthorized(requestPath, cwd, allowedPaths, platform) {
+  const request = lexicalKey(requestPath, cwd, platform);
+  return allowedPaths.some((allowedPath) => lexicalKey(allowedPath, cwd, platform) === request);
+}
+
+/**
  * Load an image file and build the MCP tool result payload.
  *
  * The `seam` argument (`platform`, `fs`) defaults to the real host and is
@@ -93,6 +127,13 @@ export function loadImageResult(
     return errorContent("ERROR: path must be a non-empty string");
   }
   const p = pathApi.resolve(cwd, rawPath);
+  // Authorize before any filesystem call. On Windows even a realpath or
+  // lstat of a UNC path opens an SMB or WebDAV session and sends the user's
+  // NTLM credentials, so an unauthorized request must not reach `fsImpl`.
+  if (!isLexicallyAuthorized(p, cwd, allowedPaths, platform)) {
+    return errorContent("ERROR: path is not authorized for this vision invocation");
+  }
+
   // Canonicalise 8.3 short names and `\\?\` prefixes on both sides without
   // following junctions. path.resolve("C:\\Users\\RUNNER~1\\…") and
   // realpathSync.native of the same file otherwise compare unequal and a
@@ -101,29 +142,13 @@ export function loadImageResult(
     allowedPaths.map((allowedPath) => canonicalComparePath(pathApi.resolve(cwd, allowedPath), seam)),
   );
 
-  let realPath = null;
+  let realPath;
   try {
     realPath = fsImpl.realpathSync.native(p);
   } catch {
-    // Leave realPath null. A request that never matches the allowlist below
-    // (lexically or via its realpath) is refused as unauthorized without
-    // depending on this failure; one that does match is a real missing file.
-  }
-  const canonicalRealPath = realPath === null ? null : canonicalComparePath(realPath, seam);
-  // An ancestor directory symlink (macOS's os.tmpdir() resolves through
-  // /var -> /private/var) makes the request's own lexical form differ from
-  // an allowlist entry that scripts/commands/vision.mjs already recorded in
-  // its resolved form. Accept that divergence only when the request's own
-  // realpath is itself an authorized entry — never merely because the path
-  // resolves to *something*.
-  const authorized =
-    allowed.has(canonicalComparePath(p, seam)) || (canonicalRealPath !== null && allowed.has(canonicalRealPath));
-  if (!authorized) {
-    return errorContent("ERROR: path is not authorized for this vision invocation");
-  }
-  if (realPath === null) {
     return errorContent("ERROR: file not found");
   }
+  const canonicalRealPath = canonicalComparePath(realPath, seam);
 
   // The final path component itself must never be a symlink: an authorized
   // NAME must always read the file that name itself is, not whatever it
@@ -148,7 +173,10 @@ export function loadImageResult(
   }
   // A symlinked ancestor whose resolved target is NOT itself an authorized
   // entry (a permitted-looking name that actually escapes elsewhere) is
-  // refused here even though the lexical/ancestor check above let it through.
+  // refused here even though the lexical check above let it through. An
+  // ancestor symlink whose target IS authorized (macOS's os.tmpdir()
+  // resolves through /var -> /private/var) is accepted: vision.mjs records
+  // both the lexical and the realpath form of each image.
   if (finalIsSymlink || !allowed.has(canonicalRealPath)) {
     return errorContent("ERROR: authorized path resolves through a symlink or junction; refusing access");
   }

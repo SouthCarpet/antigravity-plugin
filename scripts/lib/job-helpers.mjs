@@ -14,6 +14,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
+import { createOAuthUrlFilter, removeOAuthUrlsDeep, safeFailureReason } from "./safe-reason.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
@@ -27,7 +28,13 @@ import {
 } from "./state.mjs";
 import { requestFingerprint } from "./request-id.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
-import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
+import {
+  checkProcessIdentity,
+  isProcessAlive as processIsAlive,
+  readProcessStartTime,
+  recordProcessStartTime,
+  terminateProcessTree,
+} from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
 import { readRunningVersion } from "./update.mjs";
 import { isFileLockTimeoutError } from "./file-lock.mjs";
@@ -84,7 +91,11 @@ export const AGY_MODES = ["plan", "accept-edits"];
  * `--effort`. `task` and `rescue` forward it with a plugin-side default
  * ({@link resolveRequestEffort}); `review` forwards it too, through
  * {@link EFFORT_CHOICES} and {@link resolveReviewEffort}, but with no
- * plugin-side default of its own. */
+ * plugin-side default of its own.
+ *
+ * agy 1.3.1 `--help` lists `xhigh`, but every model refused `xhigh` and
+ * `max` when probed on 2026-10-08 (plan 118 probes D1 to D6), so `xhigh`
+ * stays out of this list. */
 export const AGY_EFFORTS = ["low", "medium", "high"];
 
 /**
@@ -837,7 +848,9 @@ function reportShowResultOutcome(kind, jobId, final, json) {
  * @returns {Promise<number>}
  */
 export async function waitAndReport(kind, workspaceRoot, jobId, wait, { json = false, showResult = false } = {}) {
-  const final = await wait(workspaceRoot, jobId);
+  // The stored record can come from an older plugin version, so its text is
+  // printed without a Google OAuth URL on stdout and stderr alike.
+  const final = removeOAuthUrlsDeep(await wait(workspaceRoot, jobId));
   if (showResult) return reportShowResultOutcome(kind, jobId, final, json);
   if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
   const line = waitOutcomeLine(kind, final);
@@ -1025,7 +1038,7 @@ export function deriveJobStatus(result, kind) {
         status: "failed",
         healthStatus: "auth_required",
         healthMessage:
-          "Antigravity is not authenticated. Complete the OAuth flow shown above, then re-run.",
+          "Antigravity is not authenticated. Run /antigravity:setup, complete the OAuth flow there, then re-run.",
         recommendedAction: "Run /antigravity:setup to complete the OAuth flow.",
       };
     case "timeout":
@@ -1049,6 +1062,9 @@ export function deriveJobStatus(result, kind) {
       return {
         status: "failed",
         healthStatus: "failed",
+        // The runtime's own safe reason (redacted, one line), when it has
+        // one: `result --json` names it as `details.error.message`.
+        ...(result.errorMessage ? { healthMessage: result.errorMessage } : {}),
       };
   }
 }
@@ -1231,11 +1247,14 @@ export async function runForegroundJob({
     startedAt,
     pid: process.pid,
     workerPid: process.pid,
+    workerProcessStartedAt: recordProcessStartTime(process.pid),
   });
   appendJobLog(workspaceRoot, job.id, `[job] running (foreground) pid=${process.pid}`);
 
   let result;
   const activity = createJobActivityRecorder(workspaceRoot, job.id);
+  // Progress text reaches the user without a Google OAuth URL.
+  const progress = onText ? createOAuthUrlFilter(onText) : null;
   try {
     result = await runAgyPrint({
       prompt,
@@ -1254,10 +1273,10 @@ export async function runForegroundJob({
       onStderr,
       onText: (delta) => {
         activity.onText();
-        onText?.(delta);
+        progress?.write(delta);
       },
       onSpawn: async ({ pid }) => {
-        await patchJob(workspaceRoot, job.id, { agyPid: pid ?? null });
+        await patchJob(workspaceRoot, job.id, { agyPid: pid ?? null, agyProcessStartedAt: recordProcessStartTime(pid) });
       },
     });
     await activity.finish();
@@ -1274,6 +1293,7 @@ export async function runForegroundJob({
     });
     throw err;
   } finally {
+    progress?.flush();
     await activity.finish();
   }
 
@@ -1313,7 +1333,7 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
     exitCode: result.exitCode,
     summary: deriveSummary(result),
     oauthUrl: result.oauthUrl ?? null,
-    errorMessage: result.errorMessage ?? (result.status === "failed" ? trim(result.stderr) : null),
+    errorMessage: storedErrorMessage(result, result.status === "failed"),
     healthStatus: derived.healthStatus ?? null,
     healthMessage: derived.healthMessage ?? null,
     recommendedAction: derived.recommendedAction ?? null,
@@ -1471,10 +1491,14 @@ function foregroundErrorCode(result) {
 
 /**
  * The `error.message` for a non-completed `finishForeground` result: the
- * plugin's own one-line reason, never agy's raw stderr. For every status but
- * `auth_required` this is exactly {@link foregroundFailureLine}'s text with
- * the `antigravity:<kind> — ` prefix stripped, so the two can never drift
- * apart into two different wordings for the same event.
+ * plugin's own one-line reason, never agy's raw stderr. A `run_failed` result
+ * that carries the runtime's safe reason (`result.errorMessage`: redacted,
+ * one line, bounded by `safe-reason.mjs`) uses it, for example `API error
+ * (attempt 1): UNAVAILABLE (code 503): No capacity available ...`. For every
+ * other result but `auth_required` this is {@link foregroundFailureLine}'s
+ * text with the `antigravity:<kind> — ` prefix stripped. The stderr line
+ * itself stays `failed (<status>).`, because stderr already carries the full
+ * upstream text after it.
  *
  * @param {string} kind
  * @param {import('./types.mjs').RuntimeResult} result
@@ -1482,6 +1506,7 @@ function foregroundErrorCode(result) {
  */
 function foregroundErrorMessage(kind, result) {
   if (result.status === "auth_required") return "Antigravity is not authenticated.";
+  if (foregroundErrorCode(result) === "run_failed" && result.errorMessage) return result.errorMessage;
   const prefix = `antigravity:${kind} — `;
   const line = foregroundFailureLine(kind, result);
   return line.startsWith(prefix) ? line.slice(prefix.length) : line;
@@ -1540,8 +1565,8 @@ function emitForegroundErrorEnvelope(kind, job, result, json) {
 /**
  * `finishForeground`'s `auth_required` branch, split out to keep that
  * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
- * stderr output is byte-for-byte unchanged; the only addition is the
- * `--json` error envelope.
+ * stderr output names the setup remedy and never an OAuth URL; it also
+ * emits the `--json` error envelope.
  *
  * @param {string} kind
  * @param {{ id: string }} job
@@ -1554,7 +1579,6 @@ function finishForegroundAuthRequired(kind, job, result, json) {
     `\nantigravity:${kind} — Antigravity is not authenticated.\n` +
       `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
   );
-  if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
   emitForegroundErrorEnvelope(kind, job, result, json);
   return 1;
 }
@@ -1868,8 +1892,8 @@ async function createBackgroundJob(jobOptions, requestId) {
  *   kind: import('./types.mjs').JobKind, title?: string | null,
  *   request?: object | null, env?: NodeJS.ProcessEnv,
  *   agyVersion?: string | null, spawnWorker?: typeof spawn,
- *   persistWorkerPid?: typeof patchJob,
- *   terminateTree?: typeof terminateProcessTree, requestId?: string | null }} options
+ *   persistWorkerPid?: typeof patchJob, terminateTree?: typeof terminateProcessTree,
+ *   readStartTime?: typeof readProcessStartTime, requestId?: string | null }} options
  * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry | null, pid: number | null,
  *   requestClaim?: { outcome: "deduplicated" | "conflict", jobId: string,
  *   job: import('./types.mjs').JobIndexEntry } }>}
@@ -1890,6 +1914,7 @@ export async function startBackgroundJob({
   spawnWorker = spawn,
   persistWorkerPid = patchJob,
   terminateTree = terminateProcessTree,
+  readStartTime = readProcessStartTime,
   requestId = null,
 }) {
   const claim = await createBackgroundJob({
@@ -1902,22 +1927,23 @@ export async function startBackgroundJob({
     agyVersion,
   }, requestId);
   if (claim.outcome !== "created") return { job: null, pid: null, requestClaim: claim };
-  return launchWorker(workspaceRoot, claim.job, { env, spawnWorker, persistWorkerPid, terminateTree });
+  return launchWorker(workspaceRoot, claim.job, { env, spawnWorker, persistWorkerPid, terminateTree, readStartTime });
 }
 
 /**
- * Spawn the detached worker for a freshly created job and record its PID;
- * on a launch failure, mark the job `failed` instead. Split out of
+ * Spawn the detached worker for a freshly created job and record its PID
+ * with its start time; on a launch failure, mark the job `failed` instead. Split out of
  * {@link startBackgroundJob} so that function stays under the complexity
  * ceiling.
  *
  * @param {string} workspaceRoot
  * @param {import('./types.mjs').JobIndexEntry} job
  * @param {{ env: NodeJS.ProcessEnv, spawnWorker: typeof spawn,
- *   persistWorkerPid: typeof patchJob, terminateTree: typeof terminateProcessTree }} deps
+ *   persistWorkerPid: typeof patchJob, terminateTree: typeof terminateProcessTree,
+ *   readStartTime: typeof readProcessStartTime }} deps
  * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
  */
-async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorkerPid, terminateTree }) {
+async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorkerPid, terminateTree, readStartTime }) {
   const workerPath = resolveWorkerPath();
   let child;
   let spawned = false;
@@ -1937,6 +1963,7 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
     await persistWorkerPid(workspaceRoot, job.id, {
       pid: child.pid ?? null,
       workerPid: child.pid ?? null,
+      workerProcessStartedAt: recordProcessStartTime(child.pid, readStartTime),
     });
     child.unref();
   } catch (error) {
@@ -1965,7 +1992,8 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
  * @param {string} workspaceRoot the resolved workspace root
  * @param {string} jobId
  * @param {{ pollMs?: number, timeoutMs?: number, isProcessAlive?: typeof processIsAlive,
- *   now?: () => number, sleep?: (ms: number) => Promise<void> }} [options]
+ *   now?: () => number, sleep?: (ms: number) => Promise<void>,
+ *   terminateTree?: typeof terminateProcessTree, readStartTime?: typeof readProcessStartTime }} [options]
  * @returns {Promise<import('./types.mjs').JobRecord | null>}
  */
 /**
@@ -1992,20 +2020,31 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
  * `running`/`queued` jobs — once this function's own `patchJob` call below
  * lands, a later `/antigravity:cancel` can no longer find the job at all, so
  * a live `agyPid` would be orphaned with no reachable way to stop it (plan
- * 086 T5e F4). Termination failures are swallowed (`.catch(() => {})`): a
- * pid that cannot be killed here is no worse than the pre-fix behaviour, and
- * must never block persisting the terminal state.
+ * 086 T5e F4). The PID is signalled only when `checkProcessIdentity` says it
+ * is still the agy process this job started; any other answer (a PID the OS
+ * gave to another process, an unreadable start time, a job record with no
+ * start time) only logs that it was not signalled. Termination failures are
+ * swallowed (`.catch(() => {})`): a pid that cannot be killed here is no
+ * worse than the pre-fix behaviour, and must never block persisting the
+ * terminal state.
  *
  * @param {string} workspaceRoot
  * @param {string} jobId
  * @param {number} workerPid
- * @param {number | null | undefined} agyPid
- * @param {typeof terminateProcessTree} terminateTree
+ * @param {import('./types.mjs').JobRecord} job
+ * @param {{ terminateTree: typeof terminateProcessTree, isProcessAlive: typeof processIsAlive,
+ *   readStartTime: typeof readProcessStartTime }} deps
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
-async function markWorkerVanished(workspaceRoot, jobId, workerPid, agyPid, terminateTree) {
+async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime }) {
+  const agyPid = Number(job.agyPid);
   if (Number.isInteger(agyPid) && agyPid > 0) {
-    await terminateTree(agyPid).catch(() => {});
+    const identity = checkProcessIdentity(agyPid, job.agyProcessStartedAt, { isProcessAlive, readStartTime });
+    if (identity === "match") {
+      await terminateTree(agyPid).catch(() => {});
+    } else if (identity !== "gone") {
+      appendJobLog(workspaceRoot, jobId, `[wait] agy pid=${agyPid} not signalled: not confirmed as this job's process`);
+    }
   }
   const failed = await patchJob(workspaceRoot, jobId, {
     status: "failed",
@@ -2030,6 +2069,7 @@ export async function waitForJob(
     now = () => Date.now(),
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
     terminateTree = terminateProcessTree,
+    readStartTime = readProcessStartTime,
   } = {},
 ) {
   const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
@@ -2039,7 +2079,7 @@ export async function waitForJob(
     if (!job || TERMINAL.has(job.status)) return job;
     const workerPid = Number(job?.workerPid ?? job?.pid);
     if (isWorkerVanished(job, workerPid, isProcessAlive)) {
-      return markWorkerVanished(workspaceRoot, jobId, workerPid, Number(job?.agyPid), terminateTree);
+      return markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
     }
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);
@@ -2083,17 +2123,20 @@ export function deriveSummary(result) {
 }
 
 /**
- * The one trimming helper used by both the foreground path and the
- * background worker to turn a possibly-blank stderr into an
- * `errorMessage` (item 16).
+ * The `errorMessage` a terminal job record stores (foreground and worker
+ * share it). The runtime's own reason wins; for a failed job without one the
+ * fallback is agy's stderr put through {@link safeFailureReason}, never the
+ * raw text, because the `--show-result` envelope, `status` and `result`
+ * render this field as it is. `null` when no safe reason can be made, so
+ * readers fall back to `healthMessage` or their generic text. The unredacted
+ * stderr stays on `result.stderr` only.
  *
- * @param {unknown} value
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} failed whether the job ended as `failed`
  * @returns {string | null}
  */
-export function trim(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
+export function storedErrorMessage(result, failed) {
+  return result.errorMessage ?? (failed ? safeFailureReason(result.stderr) : null);
 }
 
 /** Re-export so command modules can pull everything from one place. */

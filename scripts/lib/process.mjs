@@ -122,7 +122,28 @@ export function processStartedAt(pid, {
     return cached.startedAt;
   }
 
-  let startedAt = null;
+  // Query failures remain inconclusive and are cached briefly like nulls.
+  const startedAt = readProcessStartTime(pid, { platform, spawnSyncImpl, queryTimeoutMs });
+  processStartCache.set(pid, { checkedAt, startedAt });
+  return startedAt;
+}
+
+/**
+ * The OS start time of `pid` in milliseconds, read now: no cache, and no
+ * shortcut for this process's own PID. Windows: `Get-Process` StartTime.
+ * POSIX: `ps -o lstart=`, in whole seconds. Null when the process does not
+ * exist or the query fails.
+ *
+ * @param {number} pid
+ * @param {{ platform?: string, spawnSyncImpl?: typeof spawnSync, queryTimeoutMs?: number }} [options]
+ * @returns {number | null}
+ */
+export function readProcessStartTime(pid, {
+  platform = process.platform,
+  spawnSyncImpl = spawnSync,
+  queryTimeoutMs = PROCESS_START_QUERY_TIMEOUT_MS,
+} = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
   try {
     const result = platform === "win32"
       ? spawnSyncImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
@@ -130,16 +151,60 @@ export function processStartedAt(pid, {
         { encoding: "utf8", windowsHide: true, timeout: queryTimeoutMs, stdio: ["ignore", "pipe", "pipe"] })
       : spawnSyncImpl("ps", ["-p", String(pid), "-o", "lstart="],
         { encoding: "utf8", timeout: queryTimeoutMs, env: { ...process.env, LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe"] });
-    if (result.status === 0 && !result.error) {
-      const parsed = Date.parse(String(result.stdout).trim());
-      if (Number.isFinite(parsed)) startedAt = parsed;
-    }
+    if (result.status !== 0 || result.error) return null;
+    const parsed = Date.parse(String(result.stdout).trim());
+    return Number.isFinite(parsed) ? parsed : null;
   } catch {
-    // Query failures remain inconclusive and are cached briefly like nulls.
+    return null;
   }
+}
 
-  processStartCache.set(pid, { checkedAt, startedAt });
-  return startedAt;
+/**
+ * The start time to store with a PID the plugin has just spawned, as an
+ * ISO string, or null when it cannot be read. A job record writes it once,
+ * next to the PID, and never updates it.
+ *
+ * @param {number | null | undefined} pid
+ * @param {typeof readProcessStartTime} [readStartTime]
+ * @returns {string | null}
+ */
+export function recordProcessStartTime(pid, readStartTime = readProcessStartTime) {
+  const startedAt = Number.isInteger(pid) && pid > 0 ? readStartTime(pid) : null;
+  return startedAt === null ? null : new Date(startedAt).toISOString();
+}
+
+/**
+ * The largest difference allowed between two reads of one process's start
+ * time: the rounding of the read itself (`ps` reports whole seconds).
+ */
+export const PROCESS_IDENTITY_TOLERANCE_MS = 1_000;
+
+/**
+ * The one check before the plugin signals a PID it read from a job record.
+ * `"match"` is the only answer that allows a signal: the process is alive,
+ * its start time can be read now, and it is within
+ * {@link PROCESS_IDENTITY_TOLERANCE_MS} of the start time recorded at
+ * launch. `"gone"`: the process is not running. `"no_identity"`: the record
+ * has no start time (a job started by an older plugin version).
+ * `"unconfirmed"`: the start time cannot be read or is different, so the
+ * OS has probably given the PID to another process.
+ *
+ * @param {number} pid
+ * @param {unknown} recordedStartTime the ISO start time stored with the PID
+ * @param {{ isProcessAlive?: (pid: number) => boolean, readStartTime?: typeof readProcessStartTime }} [deps]
+ * @returns {"match" | "gone" | "no_identity" | "unconfirmed"}
+ */
+export function checkProcessIdentity(pid, recordedStartTime, {
+  isProcessAlive: alive = isProcessAlive,
+  readStartTime = readProcessStartTime,
+} = {}) {
+  if (!alive(pid)) return "gone";
+  const recorded = typeof recordedStartTime === "string" ? Date.parse(recordedStartTime) : Number.NaN;
+  if (!Number.isFinite(recorded)) return "no_identity";
+  const current = readStartTime(pid);
+  // The start-time query also fails for a process that ends while it runs.
+  if (current === null) return alive(pid) ? "unconfirmed" : "gone";
+  return Math.abs(current - recorded) <= PROCESS_IDENTITY_TOLERANCE_MS ? "match" : "unconfirmed";
 }
 
 function wait(ms) {

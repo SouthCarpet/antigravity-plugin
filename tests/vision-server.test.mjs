@@ -51,6 +51,21 @@ function aliasedFs(aliasDir, longDir) {
   };
 }
 
+/**
+ * An fs seam that records every property read and fails it. A request that
+ * must be refused before any filesystem call leaves `touched` empty.
+ */
+function recordingFs() {
+  const touched = [];
+  return new Proxy({ touched }, {
+    get(target, name) {
+      if (name === 'touched') return target.touched;
+      touched.push(String(name));
+      throw new Error(`unexpected fs.${String(name)} access`);
+    },
+  });
+}
+
 let tmpDir;
 let pngPath;
 const tmpDirs = [];
@@ -72,6 +87,61 @@ after(() => {
   for (const dir of tmpDirs) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   }
+});
+
+// ─────────────────────── authorization before any filesystem call ───────────────────────
+
+// On Windows a realpath or lstat of a UNC path opens an SMB or WebDAV session
+// and sends the user's NTLM credentials. The win32 path rules run on every
+// host through the `platform` seam; `recordingFs` proves no fs property was
+// even read.
+describe('vision-server.loadImageResult authorizes before any filesystem call', () => {
+  const AUTHORIZED = 'C:\\images\\ok.png';
+  const refusedRequests = [
+    ['an unauthorized local path', 'C:\\Users\\victim\\secret.png'],
+    ['a UNC path', '\\\\attacker.example\\share\\x.png'],
+    ['a WebDAV-style UNC path', '\\\\attacker.example@80\\x.png'],
+    ['a named-pipe device path', '\\\\.\\pipe\\x'],
+    ['an extended-length path', '\\\\?\\C:\\images\\ok.png'],
+    ['a forward-slash UNC path', '//attacker.example/share/x.png'],
+  ];
+  for (const [label, request] of refusedRequests) {
+    it(`refuses ${label} with no fs call`, () => {
+      const seam = { platform: 'win32', fs: recordingFs() };
+      const out = loadImageResult(request, 'C:\\work', [AUTHORIZED], seam);
+      assert.equal(out.isError, true);
+      assert.equal(out.content[0].text, 'ERROR: path is not authorized for this vision invocation');
+      assert.deepEqual(seam.fs.touched, []);
+    });
+  }
+
+  it('refuses an unlisted file on an allowed UNC root with no fs call', () => {
+    const seam = { platform: 'win32', fs: recordingFs() };
+    const out = loadImageResult('\\\\nas\\share\\other.png', 'C:\\work', ['\\\\nas\\share\\ok.png'], seam);
+    assert.match(out.content[0].text, /not authorized/);
+    assert.deepEqual(seam.fs.touched, []);
+  });
+
+  it('refuses an unauthorized POSIX path with no fs call', () => {
+    const seam = { platform: 'linux', fs: recordingFs() };
+    const out = loadImageResult('/home/victim/secret.png', '/work', ['/images/ok.png'], seam);
+    assert.match(out.content[0].text, /not authorized/);
+    assert.deepEqual(seam.fs.touched, []);
+  });
+
+  it('refuses every request with no fs call when no allowlist is present', () => {
+    const seam = { platform: 'win32', fs: recordingFs() };
+    const out = loadImageResult(AUTHORIZED, 'C:\\work', [], seam);
+    assert.match(out.content[0].text, /not authorized/);
+    assert.deepEqual(seam.fs.touched, []);
+  });
+
+  it('reaches the filesystem for an authorized UNC entry', () => {
+    const seam = { platform: 'win32', fs: recordingFs() };
+    const out = loadImageResult('\\\\nas\\share\\ok.png', 'C:\\work', ['\\\\nas\\share\\ok.png'], seam);
+    assert.equal(out.content[0].text, 'ERROR: file not found');
+    assert.deepEqual(seam.fs.touched, ['realpathSync']);
+  });
 });
 
 // ───────────────────────────── loadImageResult (pure) ─────────────────────────────
@@ -118,15 +188,19 @@ describe('vision-server.loadImageResult', () => {
   });
 
   it('blocks a Windows UNC path before filesystem access', () => {
-    const out = loadImageResult('\\\\server\\share\\secret.png', tmpDir, [pngPath]);
+    const seam = { fs: recordingFs() };
+    const out = loadImageResult('\\\\server\\share\\secret.png', tmpDir, [pngPath], seam);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /not authorized/);
+    assert.deepEqual(seam.fs.touched, []);
   });
 
   it('blocks a Windows extended-length path before filesystem access', () => {
-    const out = loadImageResult('\\\\?\\C:\\secret.png', tmpDir, [pngPath]);
+    const seam = { fs: recordingFs() };
+    const out = loadImageResult('\\\\?\\C:\\secret.png', tmpDir, [pngPath], seam);
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /not authorized/);
+    assert.deepEqual(seam.fs.touched, []);
   });
 
   it('blocks a permitted-looking path that resolves through a symlink or junction', () => {
@@ -155,15 +229,32 @@ describe('vision-server.loadImageResult', () => {
     const linkDir = path.join(tmpDir, 'ancestor-link');
     fs.symlinkSync(realDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
     const viaLink = path.join(linkDir, 'via-link.png');
-    // Mirrors scripts/commands/vision.mjs: the allowlist holds the realpath,
-    // not the symlinked spelling the request below still uses.
+    // Mirrors scripts/commands/vision.mjs: the allowlist holds the lexical
+    // spelling the request uses and the realpath the server checks.
     const canonical = fs.realpathSync.native(viaLink);
 
-    const out = loadImageResult(viaLink, tmpDir, [canonical]);
+    const out = loadImageResult(viaLink, tmpDir, [viaLink, canonical]);
     assert.equal(out.isError, undefined, out.content?.[0]?.text);
     const imagePart = out.content.find((c) => c.type === 'image');
     assert.ok(imagePart, 'expected an image content block');
     assert.equal(imagePart.data, TINY_PNG_BASE64);
+  });
+
+  // The lexical gate runs first: a request whose own spelling is not listed
+  // is refused even when its realpath is, because deciding that needs a
+  // filesystem call on an unauthorized path.
+  it('refuses a request whose spelling is not listed even when its realpath is', () => {
+    const realDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-spelling-real-'));
+    tmpDirs.push(realDir);
+    const realImg = path.join(realDir, 'via-link.png');
+    fs.writeFileSync(realImg, Buffer.from(TINY_PNG_BASE64, 'base64'));
+    const linkDir = path.join(tmpDir, 'spelling-link');
+    fs.symlinkSync(realDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir');
+    const viaLink = path.join(linkDir, 'via-link.png');
+
+    const out = loadImageResult(viaLink, tmpDir, [fs.realpathSync.native(viaLink)]);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /not authorized/);
   });
 
   // 084-T4 F3, pinned 085-T4 F2: the final component itself must stay refused
@@ -235,16 +326,38 @@ describe('vision-server.loadImageResult', () => {
     const shortPng = `${SHORT_DIR}\\probe.png`;
     const longPng = `${LONG_DIR}\\probe.png`;
 
-    // Allowlist in short form, and allowlist in long form with a short cwd:
-    // both spellings of one file must be accepted, and the realpath check
-    // must not mistake the alias for a junction escape.
-    for (const allowed of [[shortPng], [longPng]]) {
+    // A short-form request against a short-form allowlist, and against the
+    // allowlist vision.mjs writes for a short-form argument (that spelling
+    // plus its long realpath): the realpath check must not mistake the alias
+    // for a junction escape.
+    for (const allowed of [[shortPng], [shortPng, longPng]]) {
       const out = loadImageResult('probe.png', SHORT_DIR, allowed, seam);
       assert.equal(out.isError, undefined, out.content[0].text);
       const imagePart = out.content.find((c) => c.type === 'image');
       assert.ok(imagePart, 'expected an image content block');
       assert.equal(imagePart.data, TINY_PNG_BASE64);
     }
+  });
+
+  it('allows the long spelling and a different letter case of an authorized 8.3 image (fixture volume)', () => {
+    const allowed = [`${SHORT_DIR}\\probe.png`, `${LONG_DIR}\\probe.png`];
+    for (const request of [`${LONG_DIR}\\probe.png`, `${SHORT_DIR.toLowerCase()}\\PROBE.PNG`]) {
+      const seam = { platform: 'win32', fs: fakeVolume() };
+      const out = loadImageResult(request, LONG_DIR, allowed, seam);
+      assert.equal(out.isError, undefined, `${request}: ${out.content[0].text}`);
+      assert.equal(out.content.find((c) => c.type === 'image')?.data, TINY_PNG_BASE64);
+    }
+  });
+
+  // Known limit: telling that RUNNER~1 and runneradmin name one directory
+  // needs a directory read, and no filesystem call may run before the
+  // request is authorized. A spelling that is not listed is refused.
+  it('refuses an 8.3 spelling that is not listed, with no filesystem call (fixture volume)', () => {
+    const seam = { platform: 'win32', fs: recordingFs() };
+    const out = loadImageResult(`${SHORT_DIR}\\probe.png`, LONG_DIR, [`${LONG_DIR}\\probe.png`], seam);
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /not authorized/);
+    assert.deepEqual(seam.fs.touched, []);
   });
 
   it('refuses a junction reached via a Windows 8.3 short path (fixture volume)', () => {

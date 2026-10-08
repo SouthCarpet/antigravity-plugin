@@ -3,6 +3,7 @@
  */
 
 import { sanitizeDisplayPath } from "./fs.mjs";
+import { removeOAuthUrls, removeOAuthUrlsDeep } from "./safe-reason.mjs";
 
 export const JSON_ENVELOPE_VERSION = 1;
 
@@ -784,7 +785,9 @@ export function appendRenderedLines(text, lines) {
 }
 
 /**
- * Output either JSON or rendered markdown based on the --json flag.
+ * Output either JSON or rendered markdown based on the --json flag. Every
+ * Google OAuth URL is removed first, so stored text from any plugin version
+ * (an answer, `rawOutput`, a job's messages) is printed without one.
  *
  * @param {import('./types.mjs').JsonEnvelopeV1} payload - The structured data.
  * @param {string} rendered - The markdown rendering.
@@ -793,9 +796,9 @@ export function appendRenderedLines(text, lines) {
  */
 export function outputCommandResult(payload, rendered, json) {
   if (json) {
-    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(removeOAuthUrlsDeep(payload), null, 2)}\n`);
   } else {
-    process.stdout.write(rendered);
+    process.stdout.write(removeOAuthUrls(rendered));
   }
 }
 

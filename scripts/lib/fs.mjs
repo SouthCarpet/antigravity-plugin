@@ -55,13 +55,20 @@ export class UnsafeStateDirError extends Error {}
  * root is caught instead of followed) and refuse when the entry is a
  * symlink, owned by a different uid, or group/other-writable.
  *
+ * Read paths run this check too, not only writes. `platform`, `lstat` and
+ * `uid` are test seams: a test can fake an owner or a mode on any OS.
+ *
  * @param {string} dir
+ * @param {{ platform?: string, lstat?: (dir: string) => fs.Stats, uid?: number }} [options]
  * @returns {void}
  */
-export function assertPrivateDir(dir) {
-  if (process.platform === "win32") return;
-  const st = fs.lstatSync(dir);
-  const uid = process.getuid?.();
+export function assertPrivateDir(dir, {
+  platform = process.platform,
+  lstat = fs.lstatSync,
+  uid = process.getuid?.(),
+} = {}) {
+  if (platform === "win32") return;
+  const st = lstat(dir);
   if (st.isSymbolicLink() || (uid !== undefined && st.uid !== uid) || (st.mode & 0o022) !== 0) {
     throw new UnsafeStateDirError(
       `${dir} is not a private directory owned by this user; set CLAUDE_PLUGIN_DATA, ` +

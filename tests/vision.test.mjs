@@ -276,17 +276,22 @@ describe('/antigravity:vision', () => {
     assert.equal(exit, 0);
     assert.match(cap.out.join(''), /red square/);
     assert.equal(runtime.calls.length, 1);
-    assert.equal(runtime.calls[0].model, 'gemini-3.6-flash-high');
+    assert.equal(runtime.calls[0].model, 'gemini-3.8-flash-high');
     // vision has no --effort flag (plan 086 T2 D1 item 3), so it must never
     // pick up task/rescue's default effort.
     assert.equal(runtime.calls[0].effort, undefined);
     assert.match(runtime.calls[0].prompt, /view_image/);
     assert.match(runtime.calls[0].prompt, /what shape is this\?/);
     assert.match(runtime.calls[0].prompt, /VISION-UNAVAILABLE/);
-    // The allowlist carries the resolved (realpath) form of each image so the
-    // MCP server's own realpath check agrees with it through an ancestor
-    // directory symlink (macOS `/var` -> `/private/var`).
-    assert.deepEqual(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]), [fs.realpathSync(imagePath)]);
+    // The allowlist carries the lexical form the prompt names (the MCP server
+    // authorizes a request by it before any filesystem call) and the resolved
+    // (realpath) form its realpath check needs (macOS `/var` ->
+    // `/private/var`, a Windows 8.3 temp directory). One entry when equal.
+    assert.deepEqual(
+      new Set(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV])),
+      new Set([imagePath, fs.realpathSync(imagePath)]),
+    );
+    assert.equal(runtime.calls[0].prompt.includes(imagePath), true, 'the prompt names the lexical form');
   });
 
   it('mirrors progress via onText (readable deltas), not raw NDJSON onStdout chunks', async () => {
@@ -296,7 +301,9 @@ describe('/antigravity:vision', () => {
     try {
       await run([imagePath, '--prompt', 'x'], { cwd: tmpDir });
       assert.equal(typeof runtime.calls[0].onText, 'function');
-      runtime.calls[0].onText('a piece of readable text');
+      // Progress is written up to its last whitespace (a URL can arrive
+      // split across deltas), so this delta ends with a newline.
+      runtime.calls[0].onText('a piece of readable text\n');
     } finally {
       cap.restore();
     }
@@ -344,7 +351,8 @@ describe('/antigravity:vision', () => {
     }
     assert.equal(exit, 1);
     assert.match(cap.err.join(''), /not authenticated/);
-    assert.match(cap.err.join(''), /https:\/\/example\/oauth/);
+    assert.match(cap.err.join(''), /\/antigravity:setup/);
+    assert.doesNotMatch(cap.err.join(''), /https:\/\/example\/oauth/);
   });
 
   it('--json emits the stable envelope with imagePaths/model and an opaque answer', async () => {
@@ -363,7 +371,7 @@ describe('/antigravity:vision', () => {
     assert.equal(payload.status, 'completed');
     assert.equal(typeof payload.jobId, 'string');
     assert.equal(payload.answer, 'described.');
-    assert.equal(payload.model, 'gemini-3.6-flash-high');
+    assert.equal(payload.model, 'gemini-3.8-flash-high');
     assert.deepEqual(payload.imagePaths, [imagePath]);
     assert.equal(typeof payload.details, 'object');
   });
@@ -396,8 +404,8 @@ describe('/antigravity:vision', () => {
     assert.equal(exit, 0);
     assert.match(runtime.calls[0].prompt, /2 image/);
     assert.deepEqual(
-      JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV]),
-      [fs.realpathSync(imagePath), fs.realpathSync(second)],
+      new Set(JSON.parse(runtime.calls[0].env[VISION_ALLOWLIST_ENV])),
+      new Set([imagePath, fs.realpathSync(imagePath), second, fs.realpathSync(second)]),
     );
   });
 });

@@ -9,6 +9,7 @@
  */
 import { spawn } from './process-adapter.mjs';
 import { terminateProcessTree } from './process.mjs';
+import { removeOAuthUrlsDeep, safeFailureReason } from './safe-reason.mjs';
 import { existsSync } from 'node:fs';
 import { join, delimiter, extname } from 'node:path';
 
@@ -22,10 +23,8 @@ export const STDIO_DRAIN_TIMEOUT_MS = 5_000;
 
 /**
  * Sentinel lines surfaced by `agy --print` when the user needs to (re-)auth.
- * None of these may carry the `/g` flag: {@link recordRawAuthSignal} does
- * `AUTH_LINE_PATTERNS.find(p => p.test(chunk))` followed by
- * `chunk.match(pattern)`, and a global-flagged pattern's stateful
- * `lastIndex` can desynchronize those two calls on the same chunk.
+ * None of these may carry the `/g` flag: a global-flagged pattern's stateful
+ * `lastIndex` makes `.test()` answer differently for the same line.
  *
  * Exported as a test-only seam (the `resetWorkspaceRootCache` precedent, see
  * `scripts/lib/workspace.mjs`): only `tests/agent-runtime-stream.test.mjs`
@@ -35,12 +34,8 @@ export const STDIO_DRAIN_TIMEOUT_MS = 5_000;
 export const AUTH_LINE_PATTERNS = [
   /^Authentication required\.?\s*Please visit the URL to log in/i,
   /^Waiting for authentication/i,
+  /https?:\/\/accounts\.google\.com\/o\/oauth2\/auth/i,
 ];
-// Excludes `"` and `\` (not just whitespace) so a URL embedded in a
-// stream-json string field — e.g. inside `result.response` — doesn't swallow
-// the JSON that follows its closing quote; plain --print text never had
-// those chars adjacent to begin with, so this is non-breaking there too.
-const AUTH_URL_PATTERN = /(https?:\/\/accounts\.google\.com\/o\/oauth2\/auth[^\s"\\]+)/;
 
 /** Candidate executable names to try in each PATH/home dir, by platform. */
 function candidateNames(platform) {
@@ -926,39 +921,49 @@ function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs,
 }
 
 /**
- * Scan one raw stdout chunk for a raw (non-JSON) auth signal — the OAuth
- * URL itself, or one of agy's short sentinel lines — and record it on
- * `session`. Only the first signal wins (`session.oauthUrl` gates it); the
- * exact matched text (never the whole chunk) is kept in
- * `session.rawAuthEvidence` so the SUCCESS-response reclassification below
- * can tell a genuine raw signal apart from a raw match that only fired
- * because the same bytes are also inside the JSON `result.response` field.
+ * Mark the run `auth_required` when one raw stdout line is agy's own auth
+ * prompt: a sentinel line or the Google OAuth URL.
  *
- * Guards the sentinel match's `[0]` index: `AUTH_LINE_PATTERNS.find` already
- * proved one pattern matches via `.test()`, but a global-flagged pattern's
- * stateful `lastIndex` can desynchronize `.test()` from a later `.match()`
- * on the same chunk, so `.match()` returning `null` here is treated as "no
- * evidence this chunk", not indexed into.
+ * @param {{ status?: string }} session
+ * @param {string} line
+ * @returns {void}
+ */
+function noteAuthLine(session, line) {
+  const text = line.trim();
+  if (text && AUTH_LINE_PATTERNS.some((pattern) => pattern.test(text))) {
+    session.status ??= 'auth_required';
+  }
+}
+
+/**
+ * Scan raw stdout for agy's own auth prompt. agy prints that prompt as plain
+ * text lines before its first stream-json event, so only those lines count.
+ * Scanning stops at the first line that starts with `{`: everything after it
+ * (`step_update` text, tool arguments, `result.response`) can carry model
+ * text, and a model that quotes an OAuth URL must not look like agy asking
+ * the user to sign in.
  *
- * @param {{ oauthUrl?: string, status?: string, rawAuthEvidence: string | null }} session
+ * The plugin never keeps or shows the URL. A URL is safe to show only when
+ * its `client_id` and `redirect_uri` are agy's own, and no live agy fixture
+ * in this repository records those values. The caller tells the user to run
+ * `setup`, which shows agy's own prompt directly.
+ *
+ * @param {{ status?: string, authScanDone: boolean, authPartialLine: string }} session
  * @param {string} chunk
  * @returns {void}
  */
 function recordRawAuthSignal(session, chunk) {
-  if (session.oauthUrl) return;
-  const m = chunk.match(AUTH_URL_PATTERN);
-  if (m) {
-    session.oauthUrl = m[1];
-    session.status ??= 'auth_required';
-    session.rawAuthEvidence ??= m[1];
-    return;
+  if (session.authScanDone) return;
+  const lines = (session.authPartialLine + chunk).split('\n');
+  session.authPartialLine = lines.pop();
+  for (const line of [...lines, session.authPartialLine]) {
+    if (line.trimStart().startsWith('{')) {
+      session.authScanDone = true;
+      session.authPartialLine = '';
+      return;
+    }
+    noteAuthLine(session, line);
   }
-  const sentinelPattern = AUTH_LINE_PATTERNS.find((p) => p.test(chunk));
-  if (!sentinelPattern) return;
-  session.status ??= 'auth_required';
-  if (session.rawAuthEvidence !== null) return;
-  const match = chunk.match(sentinelPattern);
-  if (match) session.rawAuthEvidence = match[0].trim();
 }
 
 /**
@@ -1001,9 +1006,9 @@ function createRunSession(child, { stdioDrainTimeoutMs, terminateTree, terminati
   const session = {
     stdout: '',
     stderr: '',
-    oauthUrl: undefined,
     status: undefined,
-    rawAuthEvidence: null,
+    authScanDone: false,
+    authPartialLine: '',
     spawnError: null,
     timer: null,
     drainTimer: null,
@@ -1162,74 +1167,6 @@ async function writePromptAndAwaitExit({ child, session, prompt, onSpawn }) {
     child.stdin.end();
   }
   return session.exitCodePromise;
-}
-
-/**
- * Whether the parsed result is trustworthy as an auth signal at all (item
- * 14): never for a legitimate long SUCCESS answer that merely contains the
- * URL text, only when it looks like agy's own short sentinel line (under
- * 512 chars, first line matching `AUTH_LINE_PATTERNS`) or the run did not
- * succeed — agy's own failure text has no length promise.
- *
- * @param {ReturnType<typeof parseAgyStream>} parsed
- * @returns {{ responseText: string, looksLikeAuthSentinel: boolean, eligible: boolean }}
- */
-// The live auth output shape on agy 1.1.24 was not re-probed for this change.
-// Classification is pinned by the sentinel, URL, and split-chunk cases in tests/agent-runtime-stream.test.mjs.
-function computeAuthEligibility(parsed) {
-  const responseText = typeof parsed.response === 'string' ? parsed.response : '';
-  const responseFirstLine = responseText.split('\n', 1)[0];
-  const looksLikeAuthSentinel = AUTH_LINE_PATTERNS.some((p) => p.test(responseFirstLine));
-  const eligible = parsed.resultStatus !== 'SUCCESS' ||
-    (responseText.length < 512 && looksLikeAuthSentinel);
-  return { responseText, looksLikeAuthSentinel, eligible };
-}
-
-/**
- * Undo a speculative raw-stdout `auth_required` call once the full result is
- * parsed and it turns out not to be `eligible` (see
- * {@link computeAuthEligibility}) — but ONLY when the raw evidence that
- * triggered it is itself inside the parsed response text: that is what marks
- * it as the same speculative JSON-embedded match
- * ({@link recordRawAuthSignal}'s per-chunk scan runs before parsing can know
- * whether the text will turn out to be a SUCCESS result's response field),
- * not a genuine raw auth prompt/sentinel printed outside the response field
- * (F3 — a real raw signal followed by an unrelated SUCCESS result must stay
- * `auth_required`).
- *
- * Known limit (not a regression): this substring check cannot tell a
- * speculative JSON-embedded match apart from a genuine raw auth prompt whose
- * own URL, or whose sentinel line, happens to also appear verbatim inside an
- * unrelated long SUCCESS answer (A9 for the URL, B11 for the sentinel); it
- * needs a SUCCESS result with a 512+ character answer in the same run as an
- * unauthenticated prompt, which the auth path does not produce.
- *
- * @param {{ status?: string, oauthUrl?: string, rawAuthEvidence: string | null,
- *   parsed: ReturnType<typeof parseAgyStream>, eligible: boolean, responseText: string }} args
- * @returns {{ status?: string, oauthUrl?: string }}
- */
-function undoSpeculativeAuthMatch({ status, oauthUrl, rawAuthEvidence, parsed, eligible, responseText }) {
-  const rawEvidenceIsSpeculative = rawAuthEvidence !== null && responseText.includes(rawAuthEvidence);
-  if (status === 'auth_required' && parsed.sawResult && !eligible && rawEvidenceIsSpeculative) {
-    return { status: undefined, oauthUrl: undefined };
-  }
-  return { status, oauthUrl };
-}
-
-/**
- * Auth prompts may also arrive folded into the result event's response
- * field without ever matching at the raw-chunk level (e.g. reassembled only
- * after a chunk boundary split the URL) — check for that here.
- *
- * @param {{ status?: string, oauthUrl?: string, eligible: boolean,
- *   responseText: string, looksLikeAuthSentinel: boolean }} args
- * @returns {{ status?: string, oauthUrl?: string }}
- */
-function detectResponseAuthSignal({ status, oauthUrl, eligible, responseText, looksLikeAuthSentinel }) {
-  if (status || !eligible) return { status, oauthUrl };
-  const m = responseText.match(AUTH_URL_PATTERN);
-  if (!m && !looksLikeAuthSentinel) return { status, oauthUrl };
-  return { status: 'auth_required', oauthUrl: oauthUrl ?? m?.[1] };
 }
 
 /**
@@ -1429,9 +1366,9 @@ function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings, trunc
 }
 
 /**
- * Result classification: parse the accumulated stdout, resolve the final
- * auth status ({@link undoSpeculativeAuthMatch}, {@link detectResponseAuthSignal}),
- * classify the terminal status ({@link classifyFinalStatus}), and assemble
+ * Result classification: parse the accumulated stdout, take the auth status
+ * from agy's raw prompt lines ({@link recordRawAuthSignal}), classify the
+ * terminal status ({@link classifyFinalStatus}), and assemble
  * the `RuntimeResult` `runAgyPrint` returns.
  *
  * @param {{ session: object, exitCode: number }} args
@@ -1439,27 +1376,9 @@ function classifyFinalStatus({ status, exitCode, parsed, stderr, warnings, trunc
  */
 function classifyRunResult({ session, exitCode }) {
   const parsed = parseAgyStream(session.stdout);
-  const authContext = computeAuthEligibility(parsed);
-
-  const undone = undoSpeculativeAuthMatch({
-    status: session.status,
-    oauthUrl: session.oauthUrl,
-    rawAuthEvidence: session.rawAuthEvidence,
-    parsed,
-    eligible: authContext.eligible,
-    responseText: authContext.responseText,
-  });
-  const detected = detectResponseAuthSignal({
-    status: undone.status,
-    oauthUrl: undone.oauthUrl,
-    eligible: authContext.eligible,
-    responseText: authContext.responseText,
-    looksLikeAuthSentinel: authContext.looksLikeAuthSentinel,
-  });
-
   const truncation = detectPrintTimeoutTruncation(session.stderr);
   const finalized = classifyFinalStatus({
-    status: detected.status,
+    status: session.status,
     exitCode,
     parsed,
     stderr: session.stderr,
@@ -1472,16 +1391,23 @@ function classifyRunResult({ session, exitCode }) {
   // output-limit, cancellation) is already the more specific, plugin-
   // authored reason and must not be replaced by whatever agy happened to
   // print before it was killed.
-  const fatalErrorLine = !session.errorMessage && finalized.status === 'failed'
-    ? extractFatalErrorMarker(session.stderr)
+  // The same fallback covers agy's `result.error` (a 503 with no `error:`
+  // marker on stderr). Both pass through safeFailureReason: one redacted,
+  // bounded line, or null so the caller keeps its generic text.
+  const agyReason = !session.errorMessage && finalized.status === 'failed'
+    ? safeFailureReason(extractFatalErrorMarker(session.stderr)) ?? safeFailureReason(parsed.resultError)
     : null;
 
-  return {
+  // Every text field leaves without a Google OAuth URL: the answer and
+  // stdout that are printed and stored, and stderr, which carries agy's own
+  // stderr and its `result.error` line. Auth is already classified above.
+  return removeOAuthUrlsDeep({
     status: finalized.status,
     stderr: session.errorMessage ? `${finalized.stderr}\n${session.errorMessage}` : finalized.stderr,
-    errorMessage: session.errorMessage ?? fatalErrorLine,
+    errorMessage: session.errorMessage ?? agyReason,
     exitCode,
-    oauthUrl: detected.oauthUrl,
+    // Never shown (see recordRawAuthSignal); kept for the result shape.
+    oauthUrl: null,
     stdout: session.terminationReason === 'output_limit' ? session.stdout
       : parsed.sawResult && typeof parsed.response === 'string' ? parsed.response : session.stdout,
     rawStdout: session.stdout,
@@ -1494,7 +1420,7 @@ function classifyRunResult({ session, exitCode }) {
     agyPrintTimeout: truncation,
     structured: parsed.structured ?? null,
     spawnError: session.spawnError,
-  };
+  });
 }
 
 /**
@@ -1579,8 +1505,9 @@ function classifyRunResult({ session, exitCode }) {
  * reason is folded in as its own `agent-runtime: agy reported error:` line,
  * on the non-zero-exit path too: a `--print-timeout` exits 1 with empty
  * stderr, so the result event is the only place the word "timeout" appears.
- * Auth prompts are detected both in the raw stdout text (as before) and in
- * `result.response` — they can arrive either way.
+ * Auth prompts are detected only in the raw text lines agy prints before its
+ * first stream-json event, never in model text (`step_update`, tool
+ * arguments, `result.response`). `oauthUrl` is always null.
  *
  * Headless auto-denials (agy >= 1.1.20, see `detectAutoDenial`), agy's
  * structured `denied_actions` JSON list (agy >= 1.1.27, see
@@ -1625,7 +1552,12 @@ function classifyRunResult({ session, exitCode }) {
  * `errorMessage` also picks up agy's stable `error:` fatal marker
  * ({@link extractFatalErrorMarker}, additive, T1/plan 086) when the run
  * failed for a reason agy itself reported and no plugin-authored termination
- * reason (timeout, output-limit, cancellation) already explains it.
+ * reason (timeout, output-limit, cancellation) already explains it. When
+ * agy sent no such marker, the run's `result.error` (for example `UNAVAILABLE
+ * (code 503): No capacity available ...`) fills the same field. Both go
+ * through {@link safeFailureReason}: one line, bounded, with tokens and
+ * query-string URLs replaced; when nothing safe is left, `errorMessage`
+ * stays `null`.
  *
  * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
  * @returns {Promise<import('./types.mjs').RuntimeResult>}

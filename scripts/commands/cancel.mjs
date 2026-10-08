@@ -11,20 +11,21 @@ import { appendJobLog, recoverStateLock } from "../lib/state.mjs";
 import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderCancelReport } from "../lib/render.mjs";
 import { classifyStateError, patchJob } from "../lib/job-helpers.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
-import { terminateProcessTree } from "../lib/process.mjs";
+import { checkProcessIdentity, isProcessAlive, readProcessStartTime, terminateProcessTree } from "../lib/process.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
  * The worker/agy PIDs a cancel actually needs to terminate: numeric,
- * positive, and named by role.
+ * positive, and named by role, each with the start time recorded at launch
+ * (`undefined` on a job record from an older plugin version).
  *
  * @param {import('../lib/types.mjs').JobIndexEntry} job
- * @returns {[string, number][]}
+ * @returns {[string, number, unknown][]}
  */
 function resolveCancelTargets(job) {
   return [
-    ["worker", Number(job.workerPid ?? job.pid)],
-    ["agy", Number(job.agyPid)],
+    ["worker", Number(job.workerPid ?? job.pid), job.workerProcessStartedAt],
+    ["agy", Number(job.agyPid), job.agyProcessStartedAt],
   ].filter(([, pid]) => Number.isInteger(pid) && pid > 0);
 }
 
@@ -37,21 +38,60 @@ function isStoppedOutcome(result) {
 }
 
 /**
+ * Signal `pid` only when `checkProcessIdentity` confirms it is still the
+ * process the job started: the start time the job record holds for it must
+ * match its current start time. Nothing else is evidence, so a PID that the
+ * OS gave to another process, a start time that cannot be read, and a job
+ * record with no start time (an older plugin version) all give the outcome
+ * `unconfirmed`, without a signal, and cancel reports a failure.
+ *
+ * @param {string} role
+ * @param {number} pid
+ * @param {unknown} recordedStartTime
+ * @param {{ terminate: typeof terminateProcessTree, isProcessAlive: typeof isProcessAlive,
+ *   readStartTime: typeof readProcessStartTime }} deps
+ * @returns {Promise<object>}
+ */
+async function terminateIfOwned(role, pid, recordedStartTime, deps) {
+  const result = (outcome, message) => ({ outcome, killed: false, pid, status: null, attempts: [], message });
+  const identity = checkProcessIdentity(pid, recordedStartTime, deps);
+  if (identity === "gone") return result("not_found", `Process ${pid} is not running.`);
+  if (identity === "no_identity") {
+    return result(
+      "unconfirmed",
+      `Process ${pid} could not be confirmed as this job's ${role} process: the job record has ` +
+        "no start time for it (an older plugin version started the job), so it was not signalled. " +
+        "Stop the process yourself if you know it is the job's process.",
+    );
+  }
+  if (identity !== "match") {
+    return result(
+      "unconfirmed",
+      `Process ${pid} could not be confirmed as this job's ${role} process ` +
+        "(its start time is unknown or not the one recorded at launch); it was not signalled.",
+    );
+  }
+  return deps.terminate(pid);
+}
+
+/**
  * Terminate every cancel target once (deduped by pid), logging each outcome.
  *
  * @param {string} workspaceRoot
- * @param {string} jobId
- * @param {[string, number][]} targets
- * @param {typeof terminateProcessTree} terminate
+ * @param {import('../lib/types.mjs').JobIndexEntry} job
+ * @param {[string, number, unknown][]} targets
+ * @param {{ terminate: typeof terminateProcessTree, isProcessAlive: typeof isProcessAlive,
+ *   readStartTime: typeof readProcessStartTime }} deps
  * @returns {Promise<object[]>}
  */
-async function terminateCancelTargets(workspaceRoot, jobId, targets, terminate) {
+async function terminateCancelTargets(workspaceRoot, job, targets, deps) {
+  const jobId = job.id;
   const seen = new Set();
   const termination = [];
-  for (const [role, pid] of targets) {
+  for (const [role, pid, recordedStartTime] of targets) {
     if (seen.has(pid)) continue;
     seen.add(pid);
-    const result = await terminate(pid);
+    const result = await terminateIfOwned(role, pid, recordedStartTime, deps);
     termination.push({ role, ...result });
     appendJobLog(
       workspaceRoot,
@@ -173,6 +213,7 @@ async function reportCancelSuccess(workspaceRoot, job, termination, persist, out
 /**
  * @param {string[]} [argv] CLI arguments after the verb (a job reference and flags)
  * @param {{ cwd?: string, terminateProcessTree?: typeof terminateProcessTree,
+ *   isProcessAlive?: typeof isProcessAlive, readProcessStartTime?: typeof readProcessStartTime,
  *   patchJob?: typeof patchJob, outputCommandResult?: typeof outputCommandResult }} [ctx]
  *   dependency overrides for tests, plus `cwd`
  * @returns {Promise<number>} process exit code
@@ -197,11 +238,15 @@ export async function run(argv = [], ctx = {}) {
     return reportCancelResolutionError(err, json);
   }
 
-  const terminate = ctx.terminateProcessTree ?? terminateProcessTree;
+  const deps = {
+    terminate: ctx.terminateProcessTree ?? terminateProcessTree,
+    isProcessAlive: ctx.isProcessAlive ?? isProcessAlive,
+    readStartTime: ctx.readProcessStartTime ?? readProcessStartTime,
+  };
   const persist = ctx.patchJob ?? patchJob;
   const output = ctx.outputCommandResult ?? outputCommandResult;
 
-  const termination = await terminateCancelTargets(workspaceRoot, job.id, resolveCancelTargets(job), terminate);
+  const termination = await terminateCancelTargets(workspaceRoot, job, resolveCancelTargets(job), deps);
 
   const lockFailureExitCode = recoverAfterTermination(workspaceRoot, job, termination, json, output);
   if (lockFailureExitCode !== null) return lockFailureExitCode;

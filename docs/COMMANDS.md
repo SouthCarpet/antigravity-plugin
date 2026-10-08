@@ -1,9 +1,9 @@
 # Commands reference
 
-This is the argument and execution reference for the nine public 2.x verbs,
+This is the argument and execution reference for the nine public 3.x verbs,
 and for the standalone `update` convenience at the end. The broader
 versioning, output, environment, and state promises are in the
-[2.x compatibility contract](./COMPATIBILITY.md).
+[3.x compatibility contract](./COMPATIBILITY.md).
 
 ## Invocation forms
 
@@ -25,7 +25,7 @@ Repeating a scalar value flag uses its last value; repeating `--add-dir`
 preserves all values. Unknown flags return exit 1 with
 `antigravity:<verb> — unknown flag --<name>; put prompt text after --`.
 Put prompt words that begin with `--` after the `--` terminator. Undocumented
-extra positionals may be ignored and may become errors in 2.x.
+extra positionals may be ignored and may become errors in 3.x.
 
 `--cwd <path>` changes the working directory used to resolve the workspace on
 every verb except `setup`. A Git repository root is used when one can be
@@ -323,7 +323,8 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
     one line: `antigravity:review — warning: structured findings <status>:
     <reason>`.
 
-  `answer` (and the text-mode stdout) stays agy's raw response text. Under
+  `answer` (and the text-mode stdout) stays agy's response text, except that
+  Google OAuth URLs are replaced by `[oauth-url-removed]`. Under
   this flag, that text is JSON text, not the Markdown review: agy 1.2.12 was
   measured to return JSON there, with keys the schema does not allow. Use
   `details.findings`, never a parse of `answer`. A findings problem does not
@@ -397,8 +398,10 @@ rescue <prompt...>
 All positional tokens are joined with spaces to form the prompt. A prompt is
 required unless `--resume`, `--continue`, or `--conversation` is supplied.
 
-The `rescue` wrapper's host model composes the shell call and must quote the
-task text as one argument to preserve its boundaries.
+The Claude Code `rescue` wrapper passes the arguments to the runtime through
+a fixed bang line, as the other wrappers do. The arguments pass through a
+shell, so quote task text that holds quote characters, `$`, or other shell
+characters.
 
 - Fresh conversation is the default. `--fresh` makes it explicit.
 - `--resume` and `--continue` are equivalent and resume the most recent
@@ -414,6 +417,13 @@ task text as one argument to preserve its boundaries.
   that run only (evidence in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access)).
   A run that needed a file it was not granted fails with the denied tool
   named and this flag as the remedy.
+  `--add-dir` does not give agy a shell: a prompt that needs a shell command
+  (for example "summarize this repository in one sentence") can still fail,
+  because headless agy denies the `command` tool. Measured on agy 1.3.1 (see
+  [COMPATIBILITY.md](./COMPATIBILITY.md#supported-matrix)). The plugin names
+  the tool and reports that the host must run the step itself. Run the
+  command yourself, or let the host run it, and give the output to the model
+  in the prompt. The same holds for `task`.
 - `--mode <plan|accept-edits>` is forwarded to agy as its execution mode
   for this run (`plan`: propose without editing; `accept-edits`: apply file
   edits without a prompt). Any other value is an argument error (exit 1)
@@ -593,14 +603,13 @@ alike; and after the wait, one of four outcomes is reported:
 `--show-result` takes no `--head`/`--tail`; the printed or returned answer is
 always the complete stored text.
 
-The Claude Code `rescue` host wrapper (`commands/rescue.md`) strips
-`--background` and `--wait` before it calls the runtime, because Claude Code
-runs the background fork itself. `--show-result` and `--request-id` do not
-apply through that wrapper as a result: the runtime never sees the
-`--background`/`--wait` flags either one needs, so it refuses them with its
-usual validation error. Both flags work in the standalone CLI and on `task`,
-whose wrapper forwards `--background`/`--wait` unchanged and defaults to
-background.
+The Claude Code `rescue` host wrapper (`commands/rescue.md`) forwards
+`--background` and `--wait` to the runtime unchanged, after 3.0.0. Before,
+it stripped both flags and Claude Code ran the wrapper as a background fork,
+so `--show-result` and `--request-id` were refused through it. Now
+`--background` queues a plugin job (poll it with `status`), and
+`--show-result` and `--request-id` work through the wrapper as in the
+standalone CLI.
 
 ### `--request-id` (task and rescue)
 
@@ -671,7 +680,9 @@ current directory and must name existing regular files.
 
 - `--prompt` defaults to: “Describe this image in concrete, specific detail:
   layout, elements, colors, text, and anything unusual.”
-- `--model` defaults to `gemini-3.6-flash-high` and is forwarded to agy.
+- `--model` defaults to `gemini-3.8-flash-high` and is forwarded to agy.
+  Before 3.0.0 the default was `gemini-3.6-flash-high`; pass
+  `--model gemini-3.6-flash-high` to keep it.
 - Vision is foreground-only. `--background` and `--wait` are not public flags.
 - The MCP server accepts `.png`, `.jpg`, `.jpeg`, `.webp`, and `.gif`, with a
   10 MiB maximum per source file. A directory symlink among the ancestors is
@@ -686,8 +697,15 @@ Measured on 2026-09-02 with agy 1.1.24, `gemini-3.6-flash-high` transcribed
 `ZETA-4471`, `Bežné účty`, and `1 435,50 €` exactly in three of four runs;
 one run wrote `Běžné`. The `gemini-3.7-flash-high` model transcribed all
 three strings exactly in one run and used about twice the input tokens,
-65k compared with 33k, so the default stays; pass
-`--model gemini-3.7-flash-high` when exact diacritics matter.
+65k compared with 33k. On 2026-10-08 with agy 1.3.1, the default
+`gemini-3.6-flash-high` failed with a 503 capacity error
+(`No capacity available for model gemini-3.6-flash-high`) in 2 of 5 runs, and
+`gemini-3.8-flash-high` completed 5 of 5 runs. The new model used more
+tokens per run (57,637 to 72,416 against 39,418 to 52,066) and finished
+faster (27 to 51 seconds against 45 to 64 seconds). This is why the default
+changed in 3.0.0. The numbers and the files are in
+[COMPATIBILITY.md](./COMPATIBILITY.md#deprecation-and-compatibility-changes).
+Pass `--model gemini-3.7-flash-high` when exact diacritics matter.
 
 Run `setup` first to register the MCP server and permission. Failure to obtain
 actual image content is reported through the stable
@@ -926,7 +944,11 @@ produce a result payload before its nonzero exit.
 
 A stored `failed` job keeps its normal envelope (`status: "failed"`, `answer`
 as stored) and adds `details.error.code: "job_failed"` under `--json`, naming
-why without repeating the raw upstream stderr. A reference that resolves to
+why without repeating the raw upstream stderr. When agy gave a reason (for
+example `API error (attempt 1): UNAVAILABLE (code 503): No capacity available
+for model ...`), `details.error.message` is that reason as one redacted line
+(see [Failure reason](./COMPATIBILITY.md#failure-reason)). Without a safe
+reason it stays `job <id> failed.` A reference that resolves to
 no job, one that is still active, or lock contention on the job state emits
 one `state_error` error envelope instead (see
 [COMPATIBILITY.md](./COMPATIBILITY.md#--json)); the stderr line is unchanged
@@ -1014,6 +1036,25 @@ confirmed killed or already absent. A job with no recorded process id, a
 termination failure, or a state persistence failure remains an error and can
 be retried.
 
+Before it signals a recorded process, cancel checks its start time. At launch
+the plugin stores the OS start time of each worker and agy process in the
+job record (`workerProcessStartedAt`,
+`agyProcessStartedAt`). Cancel reads the start time again, and the two must
+agree to within 1 second. A replacement process with a start time within
+1 second of the recorded time passes this check and is not caught. A start
+time outside that window fails the check, also on a second cancel.
+When the start time differs by more than 1 second, cannot be read, or is not
+in the job record (a job that an older version started), cancel does not
+signal that process. It reports the target with the outcome `unconfirmed`,
+records `cancel_failed`,
+and exits 1. Stop the process yourself if you know it is the job's process. A
+recorded process that is no longer running is `not_found` and is not
+signalled. The time between the check and the signal is a separate limit:
+the process can end and the OS can give its id to another process then.
+
+Cancel reads job state only from directories that pass the shared temp
+directory check (see [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix)).
+
 Exit status is 0 only when cancellation is established and persisted, and 1
 for resolution, termination, state-lock, or persistence failure.
 
@@ -1031,7 +1072,7 @@ update [--apply] [--json]
 ```
 
 `update` is a standalone dispatcher convenience, not one of the nine verbs.
-No host wrapper reaches it, and its `--json` output is unstable in 2.x. It
+No host wrapper reaches it, and its `--json` output is unstable in 3.x. It
 reads the running version, asks the npm registry for the latest version
 (cached 24 hours), and prints the update command of every host it finds on
 `PATH`. Without `--apply` it changes nothing.
@@ -1068,9 +1109,32 @@ Per host, `--apply` does this:
   plugin root that `plugin add` prints, prints `installed <version>`, and adds
   one line when that version is not the latest. It never pulls or changes your
   clone.
-- agy: `npm pack` of the latest version, `tar -x`, `plugin uninstall`, then
-  `plugin install` of the extracted directory. With the registry check
-  disabled there is no known latest version, so this host is skipped.
+- agy: first it reads the npm registry record of the latest version
+  (`https://registry.npmjs.org/@southcarpet%2Fantigravity-plugin/<version>`)
+  for its `dist.integrity`. Then `npm pack` of that version, run from the
+  update's own temporary directory with
+  `--registry=https://registry.npmjs.org/` and
+  `--@southcarpet:registry=https://registry.npmjs.org/`, so an `.npmrc` in
+  your current directory cannot choose where the tarball comes from. The
+  integrity that `npm pack` reports and the sha512 of the tarball file must
+  both equal the registry's value. Then `tar -x`, and the extracted
+  `package/package.json` must name `@southcarpet/antigravity-plugin` and that
+  version. Only then `plugin uninstall`, then `plugin install` of the
+  extracted directory. If the record cannot be read or a check fails, the
+  command prints the reason, runs no later step, so the installed copy stays
+  as it was, and exits 1. With the registry check disabled or unreachable
+  there is no known latest version, so this host is skipped.
 - npx: nothing. An unversioned `npx` resolves the latest version on every run.
+
+Before it runs a step, `--apply` compares the real path of the current
+directory with the agy install root (`~/.gemini/config/plugins/antigravity`),
+junctions and symlinks included. When the current directory is that root or
+lies inside it, `--apply` prints one line, changes this process to its own
+temporary directory, and runs every step from there, because agy cannot
+remove a directory that a running process uses as its working directory. If
+it cannot change the directory, it runs no step and exits 1. Any other
+current directory is passed to the steps unchanged, except `npm pack`, which
+always runs from the update's temporary directory. A sibling directory whose
+name only starts like the root's name does not count as inside it.
 
 `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.

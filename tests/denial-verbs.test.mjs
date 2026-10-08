@@ -414,3 +414,63 @@ describe('denied-action target end to end, and bypass-advice filtering (plan 086
     }
   });
 });
+
+// agy 1.3.1 (2026-10-08, probe-rescue): `rescue` asked for the `command`
+// tool, headless mode denied it, and the plugin reported the denial with a
+// remedy. Same stream shape as the 1.1.27 `command` fixture (a `step_update`
+// naming the target, a `denied_actions` member, the stderr sentinel).
+describe('denied command tool, end to end (agy 1.3.1)', () => {
+  const COMMAND_STEP_LINE = JSON.stringify({
+    event: 'step_update',
+    step_update: {
+      conversation_id: 'c-e2e',
+      step_index: 2,
+      state: 'ERROR',
+      step_type: 'tool',
+      tool_name: 'run_command',
+      tool_info: {
+        name: 'run_command',
+        parameters: { CommandLine: 'Get-ChildItem -Force' },
+        error: {
+          type: 'TOOL_ERROR',
+          message: 'permission check failed for command "Get-ChildItem -Force": user denied permission to run command:\nGet-ChildItem -Force',
+        },
+      },
+    },
+  });
+  const COMMAND_DENIAL_LINE =
+    'jetski: no output produced - a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied.';
+  const COMMAND_REMEDY = 'Headless runs cannot grant "command"; the host must run this step itself.';
+  let commandAgy;
+
+  before(() => {
+    commandAgy = writeFakeAgy(stubDir, 'agy-denied-command', {
+      stdout: [COMMAND_STEP_LINE, resultLine('', { denied_actions: [{ action: 'command', display_name: 'RunCommand' }] })].join('\n') + '\n',
+      stderr: COMMAND_DENIAL_LINE + '\n',
+    });
+  });
+
+  it('rescue: exit 1, the label line names the command and carries the exact remedy', () => {
+    const res = runVerb(commandAgy, ['rescue', 'summarize this repository in one sentence']);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, /antigravity:rescue — failed \(failed\)\./);
+    assert.ok(
+      res.stderr.split(/\r?\n/).includes(`agent-runtime: command (RunCommand) for "Get-ChildItem -Force": ${COMMAND_REMEDY}`),
+      res.stderr,
+    );
+    assert.match(res.stderr, /antigravity:rescue — resume with: \/antigravity:rescue --conversation c-e2e/);
+    assert.equal(res.stdout, '');
+  });
+
+  it('rescue --json: agy_denied, the remedy sits in details.deniedActions, answer is null', () => {
+    const res = runVerb(commandAgy, ['rescue', 'summarize this repository in one sentence', '--json']);
+    assert.equal(res.status, 1, res.stderr);
+    const payload = JSON.parse(res.stdout);
+    assert.equal(payload.status, 'failed');
+    assert.equal(payload.answer, null);
+    assert.equal(payload.details.error.code, 'agy_denied');
+    assert.deepEqual(payload.details.deniedActions, [
+      { action: 'command', displayName: 'RunCommand', target: 'Get-ChildItem -Force', remedy: COMMAND_REMEDY },
+    ]);
+  });
+});

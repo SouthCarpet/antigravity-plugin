@@ -10,6 +10,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +29,7 @@ import {
   defaultRunner,
   fetchLatestVersion,
   findOnPath,
+  installRootContaining,
   parseInstalledRoot,
   parseMarketplaceSource,
   readInstalledPluginVersion,
@@ -36,6 +38,7 @@ import {
   resolveLatest,
   runUpdate,
   tarballFromPackOutput,
+  versionRecordUrl,
 } from '../scripts/lib/update.mjs';
 import { UnsafeStateDirError } from '../scripts/lib/fs.mjs';
 
@@ -93,6 +96,66 @@ function captureStdio() {
 function stubPath(dir, names) {
   for (const name of names) fs.writeFileSync(path.join(dir, name), '');
   return { PATH: dir };
+}
+
+/** The sha512 SRI string npm and the registry use. */
+function sri(bytes) {
+  return `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+}
+
+/** The bytes the fake `npm pack` writes for `version`. */
+function tarballBytes(version) {
+  return Buffer.from(`published tarball of ${PACKAGE_NAME}@${version}`);
+}
+
+/**
+ * A fake registry: the dist-tags endpoint names `latest`, and the version
+ * record carries the integrity of the bytes the fake `npm pack` writes,
+ * unless `record` overrides its fields.
+ */
+function registryFetch(latest, record = {}) {
+  const calls = [];
+  const impl = async (url) => {
+    calls.push({ url });
+    const body = url === DIST_TAGS_URL
+      ? { latest }
+      : { name: PACKAGE_NAME, version: latest, dist: { integrity: sri(tarballBytes(latest)) }, ...record };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  impl.calls = calls;
+  return impl;
+}
+
+/**
+ * What a fake runner does for the agy steps: `npm pack` writes a tarball
+ * and prints its `--json` line, `tar` writes the extracted package.json.
+ * Returns the step's stdout, or null for any other command.
+ */
+function fakeAgyStep(command, args, { bytes = tarballBytes, packIntegrity, extracted = {} } = {}) {
+  if (command === 'npm') {
+    const version = args[1].split('@').pop();
+    const filename = `southcarpet-antigravity-plugin-${version}.tgz`;
+    const content = bytes(version);
+    fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], filename), content);
+    const integrity = packIntegrity === undefined ? sri(content) : packIntegrity;
+    return JSON.stringify([{ filename, name: PACKAGE_NAME, version, ...(integrity === null ? {} : { integrity }) }]);
+  }
+  if (command === 'tar') {
+    const version = /-(\d+\.\d+\.\d+)\.tgz$/.exec(args[1])[1];
+    const dir = path.join(args[args.indexOf('-C') + 1], 'package');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version, ...extracted }));
+    return '';
+  }
+  return null;
+}
+
+/** The exact `npm pack` argv for one version and pack destination. */
+function packArgs(version, dir) {
+  return [
+    'pack', `${PACKAGE_NAME}@${version}`, '--pack-destination', dir, '--json',
+    '--registry=https://registry.npmjs.org/', '--@southcarpet:registry=https://registry.npmjs.org/',
+  ];
 }
 
 let tmp;
@@ -198,6 +261,28 @@ describe('update: registry cache', () => {
       }),
       UnsafeStateDirError,
     );
+  });
+
+  it('a planted cache (its directory fails the trust check) is a cache miss', async () => {
+    // Platform seam, as in the two cases above: the real check is a no-op on win32.
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify({ latest: '9.9.9', checkedAt: new Date(NOW - HOUR).toISOString() }));
+    const checked = [];
+    const refuse = (dir) => {
+      checked.push(dir);
+      throw new UnsafeStateDirError(`${dir} is not a private directory owned by this user`);
+    };
+    assert.equal(readUpdateCache(cacheFile, refuse), null);
+    assert.deepEqual(checked, [path.dirname(cacheFile)]);
+    assert.equal(readUpdateCache(cacheFile, () => {})?.latest, '9.9.9', 'control: the same file is read when trusted');
+    assert.equal(readUpdateNotice({ cacheFile, running: '1.0.1', assertPrivateDir: refuse }), null);
+
+    const fetch = fakeFetch({ latest: '1.2.0' });
+    await assert.rejects(
+      resolveLatest({ env: {}, now: NOW, fetchImpl: fetch, cacheFile, assertPrivateDir: refuse }),
+      UnsafeStateDirError,
+    );
+    assert.equal(fetch.calls.length, 1, 'the planted answer was not used; the registry was asked');
   });
 
   it('an HTTP error or a malformed answer is unreachable too', async () => {
@@ -491,23 +576,23 @@ describe('update --apply: command plans', () => {
    * `plugin add` each print a different thing.
    */
   function outputFor(args, outputs) {
-    if (args[0] === 'pack') return outputs.pack;
     if (args[1] === 'marketplace') return outputs.marketplace;
     if (args[1] === 'add') return outputs.install;
     return '';
   }
 
   function recordingRunner({
-    packOutput = PACK_JSON,
     marketplaceOutput = GITHUB_MARKETPLACE,
     installOutput = '',
     failOn = null,
   } = {}) {
-    const outputs = { pack: packOutput, marketplace: marketplaceOutput, install: installOutput };
+    const outputs = { marketplace: marketplaceOutput, install: installOutput };
     const calls = [];
     const runner = ({ command, args, capture }) => {
       calls.push({ command: path.basename(command), args, capture });
       if (failOn && path.basename(command) === failOn) return { status: 1, stdout: '', error: null };
+      const agyStdout = fakeAgyStep(path.basename(command), args);
+      if (agyStdout !== null) return { status: 0, stdout: agyStdout, error: null };
       return { status: 0, stdout: capture ? outputFor(args, outputs) : '', error: null };
     };
     runner.calls = calls;
@@ -523,7 +608,7 @@ describe('update --apply: command plans', () => {
     let exit;
     try {
       exit = await runUpdate(['--apply'], {
-        env, now: NOW, fetch: fakeFetch({ latest: '1.5.0' }), cacheFile, running: '1.0.1', runner, tmpDir: work,
+        env, now: NOW, fetch: registryFetch('1.5.0'), cacheFile, running: '1.0.1', runner, tmpDir: work,
       });
     } finally {
       cap.restore();
@@ -533,7 +618,7 @@ describe('update --apply: command plans', () => {
     assert.deepEqual(runner.calls, [
       { command: 'claude', args: ['plugin', 'marketplace', 'update', 'antigravity'], capture: false },
       { command: 'claude', args: ['plugin', 'update', 'antigravity@antigravity'], capture: false },
-      { command: 'npm', args: ['pack', `${PACKAGE_NAME}@1.5.0`, '--pack-destination', work, '--json'], capture: true },
+      { command: 'npm', args: packArgs('1.5.0', work), capture: true },
       { command: 'tar', args: ['-xzf', tarball, '-C', work], capture: false },
       { command: 'agy', args: ['plugin', 'uninstall', 'antigravity'], capture: false },
       { command: 'agy', args: ['plugin', 'install', path.join(work, 'package')], capture: false },
@@ -581,10 +666,16 @@ describe('update --apply: command plans', () => {
     }
   });
 
-  it('agy plan falls back to the latest tag when the version is unknown', () => {
+  it('agy plan packs the verified version from npmjs.org in the tmp dir, then checks before uninstall', () => {
     const [host] = detectHosts({ env: stubPath(tmp, ['agy']) }).filter((h) => h.id === 'agy');
-    const plan = buildHostPlan(host, { latest: null, tmpDir: tmp });
-    assert.equal(plan[0].args[1], `${PACKAGE_NAME}@latest`);
+    const integrity = sri(tarballBytes('1.5.0'));
+    const plan = buildHostPlan(host, { latest: '1.5.0', integrity, tmpDir: tmp });
+    assert.deepEqual(plan, [
+      { command: 'npm', args: packArgs('1.5.0', tmp), capture: 'pack', cwd: tmp, integrity, version: '1.5.0' },
+      { command: 'tar', args: ['-xzf', '<tarball>', '-C', tmp], verify: 'extracted', version: '1.5.0' },
+      { command: host.binary, args: ['plugin', 'uninstall', 'antigravity'] },
+      { command: host.binary, args: ['plugin', 'install', path.join(tmp, 'package')] },
+    ]);
   });
 
   it('tarball path comes from npm pack --json, or from the last plain line', () => {
@@ -606,7 +697,7 @@ describe('update --apply: command plans', () => {
     let exit;
     try {
       exit = await runUpdate(['--apply', '--json'], {
-        env, now: NOW, fetch: fakeFetch({ latest: '1.5.0' }), cacheFile, running: '1.0.1', runner, tmpDir: tmp,
+        env, now: NOW, fetch: registryFetch('1.5.0'), cacheFile, running: '1.0.1', runner, tmpDir: tmp,
       });
     } finally {
       cap.restore();
@@ -624,12 +715,13 @@ describe('update --apply: command plans', () => {
 
   it('applyPlan substitutes the tarball placeholder only after npm pack ran', () => {
     const lines = [];
+    const integrity = sri(tarballBytes('1.5.0'));
     const outcome = applyPlan(
       [
-        { command: 'npm', args: ['pack', '--pack-destination', tmp, '--json'], capture: 'pack' },
+        { command: 'npm', args: packArgs('1.5.0', tmp), capture: 'pack', integrity, version: '1.5.0' },
         { command: 'tar', args: ['-xzf', '<tarball>', '-C', tmp] },
       ],
-      { runner: ({ capture }) => ({ status: 0, stdout: capture ? PACK_JSON : '' }), write: (t) => lines.push(t) },
+      { runner: ({ command, args }) => ({ status: 0, stdout: fakeAgyStep(command, args) }), write: (t) => lines.push(t) },
     );
     assert.equal(outcome.ok, true);
     assert.equal(outcome.steps[1].args[1], path.join(tmp, 'southcarpet-antigravity-plugin-1.5.0.tgz'));
@@ -640,10 +732,8 @@ describe('update --apply: command plans', () => {
     fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
     fs.writeFileSync(cacheFile, JSON.stringify({ latest: '1.0.1', checkedAt: new Date(NOW - HOUR).toISOString() }));
     const env = stubPath(tmp, ['agy']);
-    const fetch = fakeFetch({ latest: '1.1.0' });
-    const runner = recordingRunner({
-      packOutput: JSON.stringify([{ filename: 'southcarpet-antigravity-plugin-1.1.0.tgz', name: PACKAGE_NAME }]),
-    });
+    const fetch = registryFetch('1.1.0');
+    const runner = recordingRunner();
     const work = path.join(tmp, 'work-fresh');
     fs.mkdirSync(work);
     const cap = captureStdio();
@@ -654,11 +744,8 @@ describe('update --apply: command plans', () => {
       cap.restore();
     }
     assert.equal(exit, 0, cap.err.join(''));
-    assert.equal(fetch.calls.length, 1);
-    assert.deepEqual(
-      runner.calls.find((c) => c.command === 'npm').args,
-      ['pack', `${PACKAGE_NAME}@1.1.0`, '--pack-destination', work, '--json'],
-    );
+    assert.deepEqual(fetch.calls.map((c) => c.url), [DIST_TAGS_URL, versionRecordUrl('1.1.0')]);
+    assert.deepEqual(runner.calls.find((c) => c.command === 'npm').args, packArgs('1.1.0', work));
     assert.equal(JSON.parse(fs.readFileSync(cacheFile, 'utf8')).latest, '1.1.0');
   });
 
@@ -970,4 +1057,263 @@ describe('update rejects untrusted shell operands', () => {
       assert.equal(result.error.message, 'refusing to pass ' + JSON.stringify(operand) + ' through cmd.exe');
     });
   }
+});
+
+describe('update --apply: the working directory and the agy install root', () => {
+  let installRoot;
+  let work;
+  let binDir;
+
+  beforeEach(() => {
+    installRoot = path.join(tmp, 'plugins', 'antigravity');
+    fs.mkdirSync(path.join(installRoot, 'scripts', 'lib'), { recursive: true });
+    work = path.join(tmp, 'work');
+    fs.mkdirSync(work);
+    binDir = path.join(tmp, 'bin');
+    fs.mkdirSync(binDir);
+  });
+
+  /** Run `update --apply` from `cwd` against the fake install root; return what the steps saw. */
+  async function applyFrom(cwd, { chdir } = {}) {
+    const calls = [];
+    const chdirs = [];
+    const runner = ({ command, args, cwd: stepCwd }) => {
+      calls.push({ command: path.basename(command), cwd: stepCwd });
+      return { status: 0, stdout: fakeAgyStep(path.basename(command), args) ?? '', error: null };
+    };
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply'], {
+        env: stubPath(binDir, ['claude', 'agy']),
+        now: NOW,
+        fetch: registryFetch('1.5.0'),
+        cacheFile,
+        running: '1.0.1',
+        runner,
+        tmpDir: work,
+        cwd,
+        installRoots: [installRoot],
+        chdir: chdir ?? ((dir) => chdirs.push(dir)),
+      });
+    } finally {
+      cap.restore();
+    }
+    return { exit, calls, chdirs, out: cap.out.join(''), err: cap.err.join('') };
+  }
+
+  const STEP_COMMANDS = ['claude', 'claude', 'npm', 'tar', 'agy', 'agy'];
+
+  function assertMovedToNeutral(run) {
+    assert.equal(run.exit, 0, run.err);
+    assert.deepEqual(run.calls, STEP_COMMANDS.map((command) => ({ command, cwd: work })));
+    assert.deepEqual(run.chdirs, [work, os.tmpdir()]);
+    assert.match(run.out, /the current directory is inside the agy install root/);
+  }
+
+  it('cwd equal to the install root: every step runs from the update tmp dir', async () => {
+    assertMovedToNeutral(await applyFrom(installRoot));
+  });
+
+  it('cwd in a child directory of the install root: every step runs from the update tmp dir', async () => {
+    assertMovedToNeutral(await applyFrom(path.join(installRoot, 'scripts', 'lib')));
+  });
+
+  it('cwd reached through a junction to the install root: every step runs from the update tmp dir', async (t) => {
+    const link = path.join(tmp, 'link-to-root');
+    try {
+      fs.symlinkSync(installRoot, link, 'junction');
+    } catch (err) {
+      t.skip(`cannot create a junction or symlink here: ${err.code}`);
+      return;
+    }
+    assertMovedToNeutral(await applyFrom(path.join(link, 'scripts')));
+  });
+
+  it('a sibling whose name shares a prefix with the root is not inside it', async () => {
+    const sibling = `${installRoot}-extra`;
+    fs.mkdirSync(sibling);
+    const run = await applyFrom(sibling);
+    assert.equal(run.exit, 0, run.err);
+    // npm pack always runs in the update's tmp dir.
+    assert.deepEqual(run.calls, STEP_COMMANDS.map((command) => ({ command, cwd: command === 'npm' ? work : sibling })));
+    assert.deepEqual(run.chdirs, []);
+    assert.doesNotMatch(run.out, /install root/);
+  });
+
+  it('a cwd outside the root is passed to every step unchanged', async () => {
+    const run = await applyFrom(work);
+    assert.deepEqual(run.calls, STEP_COMMANDS.map((command) => ({ command, cwd: work })));
+    assert.deepEqual(run.chdirs, []);
+  });
+
+  it('refuses with a clear message, and runs no step, when it cannot leave the install root', async () => {
+    const run = await applyFrom(installRoot, { chdir: () => { throw new Error('EBUSY'); } });
+    assert.equal(run.exit, 1);
+    assert.deepEqual(run.calls, []);
+    assert.match(run.out, /could not be left: EBUSY\. Run it from another directory\./);
+  });
+
+  it('--json keeps stdout one envelope and sends the cwd notice to stderr', async () => {
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply', '--json'], {
+        env: stubPath(binDir, ['agy']), now: NOW, fetch: registryFetch('1.5.0'), cacheFile,
+        running: '1.0.1',
+        runner: ({ command, args }) => ({ status: 0, stdout: fakeAgyStep(path.basename(command), args) ?? '', error: null }),
+        tmpDir: work, cwd: installRoot, installRoots: [installRoot], chdir: () => {},
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0, cap.err.join(''));
+    assert.equal(JSON.parse(cap.out.join('')).command, 'update');
+    assert.match(cap.err.join(''), /the current directory is inside the agy install root/);
+  });
+});
+
+describe('update --apply: agy installs only the verified tarball', () => {
+  let work;
+  let userCwd;
+  let binDir;
+
+  beforeEach(() => {
+    work = path.join(tmp, 'work');
+    userCwd = path.join(tmp, 'project');
+    binDir = path.join(tmp, 'bin');
+    for (const dir of [work, userCwd, binDir]) fs.mkdirSync(dir);
+    // A package.json makes this directory npm's project root, so npm reads its .npmrc.
+    fs.writeFileSync(path.join(userCwd, 'package.json'), '{}');
+  });
+
+  async function applyAgy({ fetch = registryFetch('1.5.0'), step = {} } = {}) {
+    const calls = [];
+    const runner = ({ command, args, cwd, capture }) => {
+      calls.push({ command: path.basename(command), args, cwd, capture });
+      return { status: 0, stdout: fakeAgyStep(path.basename(command), args, step) ?? '', error: null };
+    };
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply'], {
+        env: stubPath(binDir, ['agy']), now: NOW, fetch, cacheFile, running: '1.0.1', runner, tmpDir: work,
+        cwd: userCwd, installRoots: [path.join(tmp, 'agy-install-root')], retry: { maxRetries: 0 },
+        chdir: () => { throw new Error('the cwd is outside the install root; no chdir'); },
+      });
+    } finally {
+      cap.restore();
+    }
+    return { exit, calls, fetch, out: cap.out.join('') };
+  }
+
+  it('a matching tarball is installed: exact argv and cwd of every step, and both registry reads', async () => {
+    const run = await applyAgy();
+    assert.equal(run.exit, 0, run.out);
+    assert.deepEqual(run.calls, [
+      { command: 'npm', args: packArgs('1.5.0', work), cwd: work, capture: true },
+      {
+        command: 'tar',
+        args: ['-xzf', path.join(work, 'southcarpet-antigravity-plugin-1.5.0.tgz'), '-C', work],
+        cwd: userCwd,
+        capture: false,
+      },
+      { command: 'agy', args: ['plugin', 'uninstall', 'antigravity'], cwd: userCwd, capture: false },
+      { command: 'agy', args: ['plugin', 'install', path.join(work, 'package')], cwd: userCwd, capture: false },
+    ]);
+    assert.deepEqual(run.fetch.calls.map((c) => c.url), [
+      'https://registry.npmjs.org/-/package/@southcarpet%2Fantigravity-plugin/dist-tags',
+      'https://registry.npmjs.org/@southcarpet%2Fantigravity-plugin/1.5.0',
+    ]);
+  });
+
+  const other = sri(Buffer.from('another tarball'));
+  for (const [name, options, spawned, message] of [
+    ['the registry record has another integrity', { fetch: () => registryFetch('1.5.0', { dist: { integrity: other } }) },
+      ['npm'], /tarball does not match the npm registry record \(registry sha512-/],
+    ['npm pack reports another integrity', { step: { packIntegrity: other } },
+      ['npm'], /tarball does not match the npm registry record/],
+    ['npm pack reports no integrity', { step: { packIntegrity: null } },
+      ['npm'], /npm pack none, computed sha512-/],
+    ['the tarball bytes differ from the integrity npm pack reported',
+      { step: { bytes: () => Buffer.from('tampered'), packIntegrity: sri(tarballBytes('1.5.0')) } },
+      ['npm'], /tarball does not match the npm registry record/],
+    ['the registry record has no integrity', { fetch: () => registryFetch('1.5.0', { dist: {} }) },
+      [], /could not read the npm registry record for 1\.5\.0: the registry record for 1\.5\.0 has no sha512 dist\.integrity/],
+    ['the registry record names another version', { fetch: () => registryFetch('1.5.0', { version: '1.4.0' }) },
+      [], /names @southcarpet\/antigravity-plugin@1\.4\.0, not @southcarpet\/antigravity-plugin@1\.5\.0/],
+    ['the extracted package has another name', { step: { extracted: { name: 'evil-plugin' } } },
+      ['npm', 'tar'], /the extracted package is evil-plugin@1\.5\.0, not @southcarpet\/antigravity-plugin@1\.5\.0/],
+    ['the extracted package has another version', { step: { extracted: { version: '1.4.0' } } },
+      ['npm', 'tar'], /the extracted package is @southcarpet\/antigravity-plugin@1\.4\.0, not/],
+  ]) {
+    it(`stops before uninstall when ${name}`, async () => {
+      const run = await applyAgy({ fetch: options.fetch?.(), step: options.step });
+      assert.equal(run.exit, 1);
+      assert.deepEqual(run.calls.map((c) => c.command), spawned);
+      assert.ok(!run.calls.some((c) => c.args.includes('uninstall')), 'no uninstall step ran');
+      assert.match(run.out, message);
+    });
+  }
+
+  it('spawns nothing for agy when the registry cannot be reached', async () => {
+    const run = await applyAgy({ fetch: fakeFetch(null, { fail: new Error('getaddrinfo ENOTFOUND registry.npmjs.org') }) });
+    assert.equal(run.exit, 1);
+    assert.deepEqual(run.calls, []);
+    assert.match(run.out, /agy: could not reach the npm registry: getaddrinfo ENOTFOUND registry\.npmjs\.org; no known "latest" version to pack, skipping this host\./);
+  });
+
+  it('a hostile .npmrc in the current directory does not reach npm pack', async () => {
+    fs.writeFileSync(path.join(userCwd, '.npmrc'), 'registry=https://attacker.example/\n@southcarpet:registry=https://attacker.example/\n');
+    const run = await applyAgy();
+    assert.equal(run.exit, 0, run.out);
+    const pack = run.calls.find((c) => c.command === 'npm');
+    assert.equal(pack.cwd, work);
+    assert.deepEqual(pack.args, packArgs('1.5.0', work));
+  });
+
+  it('real npm: the registry flags win over a hostile project .npmrc', (t) => {
+    const npmConfigGet = (cwd, args) => {
+      const result = process.platform === 'win32'
+        ? spawnSync(`npm config get ${args.join(' ')}`, { cwd, encoding: 'utf8', shell: true })
+        : spawnSync('npm', ['config', 'get', ...args], { cwd, encoding: 'utf8' });
+      return result.status === 0 ? result.stdout.trim() : null;
+    };
+    fs.writeFileSync(path.join(userCwd, '.npmrc'), '@southcarpet:registry=https://attacker.example/\n');
+    const hostile = npmConfigGet(userCwd, ['@southcarpet:registry']);
+    if (hostile === null) {
+      t.skip('npm is not on PATH');
+      return;
+    }
+    assert.equal(hostile, 'https://attacker.example/', 'control: npm reads the hostile .npmrc in this directory');
+    assert.equal(
+      npmConfigGet(userCwd, ['@southcarpet:registry', '--@southcarpet:registry=https://registry.npmjs.org/']),
+      'https://registry.npmjs.org/',
+    );
+    assert.notEqual(npmConfigGet(work, ['@southcarpet:registry']), 'https://attacker.example/');
+  });
+});
+
+describe('installRootContaining', () => {
+  it('matches the root itself, a trailing separator and a child whose name starts with dots', () => {
+    const root = path.join(tmp, 'root');
+    fs.mkdirSync(path.join(root, '..hidden'), { recursive: true });
+    assert.equal(installRootContaining(root, [root]), root);
+    assert.equal(installRootContaining(`${root}${path.sep}`, [root]), root);
+    assert.equal(installRootContaining(path.join(root, '..hidden'), [root]), root);
+  });
+
+  it('does not match the parent, a sibling with a shared prefix, or an empty list', () => {
+    const root = path.join(tmp, 'root');
+    fs.mkdirSync(`${root}-2`, { recursive: true });
+    assert.equal(installRootContaining(tmp, [root]), null);
+    assert.equal(installRootContaining(`${root}-2`, [root]), null);
+    assert.equal(installRootContaining(root, []), null);
+  });
+
+  it('works when the root does not exist yet', () => {
+    const root = path.join(tmp, 'absent', 'root');
+    assert.equal(installRootContaining(path.join(root, 'x'), [root]), root);
+    assert.equal(installRootContaining(path.join(tmp, 'absent'), [root]), null);
+  });
 });

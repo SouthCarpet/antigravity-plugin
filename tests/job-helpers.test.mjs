@@ -382,12 +382,15 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy' });
     await patchJob(workspaceRoot, job.id, {
       status: 'running', workerPid: 909091, pid: 909091, agyPid: 424242,
+      agyProcessStartedAt: '2026-10-08T12:00:00.000Z',
     });
     const terminated = [];
     const finalJob = await waitForJob(workspaceRoot, job.id, {
       pollMs: 5,
       timeoutMs: 2000,
-      isProcessAlive: () => false,
+      // The worker is gone; agy is alive and still the process the job started.
+      isProcessAlive: (pid) => pid === 424242,
+      readStartTime: () => Date.parse('2026-10-08T12:00:00.000Z'),
       terminateTree: async (pid) => { terminated.push(pid); return { outcome: 'killed', pid }; },
     });
     assert.equal(finalJob.status, 'failed');
@@ -415,11 +418,13 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy-unkillable' });
     await patchJob(workspaceRoot, job.id, {
       status: 'running', workerPid: 909093, pid: 909093, agyPid: 434343,
+      agyProcessStartedAt: '2026-10-08T12:00:00.000Z',
     });
     const finalJob = await waitForJob(workspaceRoot, job.id, {
       pollMs: 5,
       timeoutMs: 2000,
-      isProcessAlive: () => false,
+      isProcessAlive: (pid) => pid === 434343,
+      readStartTime: () => Date.parse('2026-10-08T12:00:00.000Z'),
       terminateTree: async () => { throw new Error('denied'); },
     });
     assert.equal(finalJob.status, 'failed');
@@ -1427,7 +1432,7 @@ describe('finishForeground — one error envelope per non-completed status (Task
     assert.equal(payload.details.error.code, 'timeout');
   });
 
-  it('auth_required: status and error.code are both "auth_required", message never carries the OAuth URL', () => {
+  it('auth_required: status and error.code are both "auth_required", no output carries the OAuth URL', () => {
     const { result: exit, out, err } = captureStdio(() =>
       finishForeground('task', { id: 'j-auth' },
         { status: 'auth_required', exitCode: 1, stdout: '', stderr: '', oauthUrl: 'https://accounts.google.com/o/oauth2/auth?x=1' },
@@ -1438,8 +1443,9 @@ describe('finishForeground — one error envelope per non-completed status (Task
     assert.equal(payload.details.error.code, 'auth_required');
     assert.equal(payload.details.error.message, 'Antigravity is not authenticated.');
     assert.doesNotMatch(payload.details.error.message, /accounts\.google\.com/);
-    // the OAuth URL still reaches stderr, unchanged — only the envelope excludes it.
-    assert.match(err.join(''), /accounts\.google\.com/);
+    // Even a result that carries a URL never prints it: stderr names setup.
+    assert.doesNotMatch(err.join(''), /accounts\.google\.com/);
+    assert.match(err.join(''), /Run \/antigravity:setup to complete the OAuth flow, then retry\./);
   });
 
   it('auth_required: without --json, stdout stays empty', () => {

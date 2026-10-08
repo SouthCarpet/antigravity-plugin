@@ -284,8 +284,8 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
  * "Senate R1", 2026-09): the stored job already carries its own answer and
  * `status: "failed"` unchanged — this only names why, using the job's own
  * curated `healthMessage` (set by `job-helpers.mjs#deriveJobStatus`) when
- * present, since `job.errorMessage` can be the raw upstream stderr and
- * `details.error.message` must never carry that.
+ * present. `job.errorMessage` is redacted too (plan 118 T1b), but this path
+ * keeps its own contract and reads `healthMessage` only.
  *
  * @param {import('../lib/types.mjs').JobRecord} job
  * @returns {{ error?: { code: string, phase: string, message: string } }}

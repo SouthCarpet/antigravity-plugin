@@ -98,15 +98,26 @@ isolated `HOME`/`USERPROFILE` before and after a full run.
 
 ### `vision` (per invocation)
 
-`vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array of the
-absolute paths named on that command, resolved to their realpath, then
-starts agy. The MCP server:
+`vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array that holds,
+for each image named on that command, its absolute path as given and its
+realpath, then starts agy. The MCP server:
 
 - grants **no** image access when that value is missing or invalid;
-- rejects every path not on the list, checked both as given and by its own
-  realpath — an ancestor directory symlink (macOS's `os.tmpdir()` resolves
-  through `/var` -> `/private/var`) is accepted when the resolved path is
-  itself an authorized entry, never merely because it resolves to something;
+- decides authorization before any filesystem call: it refuses a request
+  unless the lexical form of the request (resolved, normalized, and on
+  Windows case-folded) is on the list. A UNC (`\\host\share\...`), WebDAV
+  (`\\host@80\...`), device (`\\.\...`) or extended-length (`\\?\...`) path
+  that is not on the list is refused before it can touch the disk or the
+  network. On Windows, this stops a path from the model from opening an SMB
+  or WebDAV session that sends the user's NTLM credentials;
+- then requires the request's realpath to be on the list too. An ancestor
+  directory symlink (macOS's `os.tmpdir()` resolves through `/var` ->
+  `/private/var`) is accepted when the resolved path is itself an
+  authorized entry, never merely because it resolves to something;
+- refuses a spelling that is not on the list, even when it names the same
+  file. Example: a Windows 8.3 short name (`RUNNER~1`) when the command named
+  the long name. To prove that two spellings name one file, the server must
+  read a directory, and it reads nothing before it authorizes a request;
 - rejects the requested file itself being a symlink, unconditionally, even
   when its target is also an authorized entry;
 - accepts only `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, ≤ 10 MiB each.
@@ -188,6 +199,38 @@ suggestion ("... re-run with `--dangerously-skip-permissions` ..."); the
 plugin no longer prints that sentence to its own stderr (the stored result
 and `result --json` still keep the complete upstream line).
 
+### Sign-in (auth) prompts
+
+The plugin marks a run `auth_required` only from agy's own sign-in prompt:
+the raw text lines agy prints before its first stream-json event
+("Authentication required. Please visit the URL to log in", "Waiting for
+authentication", or the Google OAuth URL itself). Text in a `step_update`
+event, a tool argument or `result.response` can come from the model, so it
+never sets `auth_required`.
+
+The plugin shows no Google OAuth URL, not even one from agy's own prompt. A
+URL is safe to show only when its `client_id` and `redirect_uri` are agy's
+own, and no live agy capture in this repository records those values. One
+helper replaces each URL of the form `accounts.google.com/o/oauth2/...` or
+`accounts.google.com/signin/oauth...` (any scheme, with or without a query)
+with `[oauth-url-removed]` before agy text leaves the plugin:
+
+- the stderr text a failed run prints, which includes agy's own stderr and
+  its `result.error` line;
+- the progress text that `rescue`, `task`, `review` and `vision` stream to
+  stderr;
+- the answer and the `rawOutput` and `stderr` that a job stores;
+- every `--json` envelope and text report on stdout, and the answer or
+  reason that a background wait prints, so a job record that an older
+  version stored with a URL is printed without it.
+
+Other URLs and plain mentions of the host stay. The helper removes only
+these two Google URL forms: a model can still write another link, for
+example a shortened URL, into an answer. The plugin tells the user to run
+`setup` instead, which shows agy's own prompt directly in the terminal, not
+through the plugin. `status --json` reports `oauthUrl` as `null`, also for a
+job record that an older version wrote.
+
 ### Slash and skill commands in prompts
 
 Every print-mode `agy` invocation (`review`, `rescue`, `task`, `vision`)
@@ -211,12 +254,50 @@ or replace one of these paths under the OS temp directory before this
 plugin runs. Windows and macOS are unaffected: `%TEMP%`/`$TMPDIR` are
 already per-user there.
 
+The same check runs when the plugin reads, not only when it writes:
+
+- `status`, `result` and `cancel` do not read `state.json` or a job file
+  from a state root, workspace directory or `jobs` directory that fails the
+  check. They stop with the same message a write gives (exit 1, a
+  `state_error` envelope under `--json`), and they do not repair or rename
+  anything in that directory.
+- An older workspace directory under the temp root that fails the check is
+  skipped. The next candidate is used, else the current location.
+- An update-check cache in a directory that fails the check counts as no
+  cache. `status` prints no update notice from it, and `update` asks the
+  registry instead.
+- A `state.json` entry that is not a valid job record (an id that is not 12
+  hex characters, an unknown status, or a process id that is not a positive
+  integer) is ignored.
+- `status` reads a job log only from the plugin's own log path for that job,
+  never from another path a job record names.
+- `cancel`, and the cleanup a background wait runs when the worker has
+  vanished, check the start time before they signal a recorded process.
+  Right after it starts a worker or agy process, the plugin reads the start
+  time of that process from the OS and stores it next to the process id in
+  the job record (`workerProcessStartedAt`,
+  `agyProcessStartedAt`). It writes this value once at launch.
+  Before a signal, the plugin reads the start time again. The process must
+  be running, and the two times must agree to within 1 second. A replacement
+  process with a start time within 1 second of the recorded time passes
+  this check and is not caught. A start time outside that window fails the
+  check, also on a second `cancel`. When the times differ by more than
+  1 second, the start time cannot be read, or the job record has no start
+  time (a job that an older version started), the plugin does not signal
+  the process.
+  `cancel` reports it as `unconfirmed` and exits 1; the cleanup only writes a
+  line to the job log. Stop such a process yourself. The time between the
+  check and the signal is a separate limit: the process can end and its
+  id can be given to another process.
+
+On Windows the owner and mode check is a no-op, for reads and writes, so
+only the last three rules apply there.
+
 ### The `node -e` host bootstrap snippet
 
-Every `commands/*.md` wrapper's `node -e "..."` line (or, for `rescue`, the
-embedded invocation the wrapper's own text tells the host model to run) does
-four things, in this order: resolve the plugin root the same way
-`resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
+Every `commands/*.md` wrapper's `node -e "..."` bang line (`rescue` too,
+after 3.0.0) does four things, in this order: resolve the plugin root the
+same way `resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
 the agy install copy under the home directory); read `<root>/plugin.json`
 and refuse with one line — before requiring anything from that root — when
 the manifest is missing or names a different plugin; check that the shipped
@@ -230,11 +311,62 @@ the environment at run time; no host input is interpolated into executed
 source — the manifest field name and the verb are the only literals the
 generated text carries, and both are constants this plugin controls.
 
+### Host wrapper permissions and relayed output
+
+A Claude Code wrapper's `allowed-tools` grants one Bash rule: a prefix rule
+for the exact `node -e "<bootstrap>" --` invocation of its own bang line.
+Up to 3.0.0, every wrapper granted `Bash(node:*)`. Claude Code
+applies a command's `allowed-tools` to the host model's own Bash calls in
+that turn, so text from a diff, a commit or an agy answer could make the
+model run `node -e <any code>` with no permission prompt. Now any other
+`node` call needs the user's approval as usual.
+
+Claude Code splits an `allowed-tools` list at a space or comma that
+follows a closing parenthesis. The rule therefore writes each space as a
+tab (`\t` in the YAML string). Claude Code collapses spaces and tabs before
+it compares a prefix rule with a command, so the rule still matches the
+bang line. This was read from Claude Code 2.1.294; a later host can change
+it, and `tests/command-wrappers.test.mjs` models it.
+
+No wrapper tells the host model to compose its own `node` call: the
+fallback text that described the runtime path and the "re-run" steps are
+gone. The model tells the user which command to run next. Every wrapper is
+`disable-model-invocation: true`, so the model cannot start one by itself;
+`rescue` gained this and a fixed bang line after 3.0.0.
+
+Every wrapper shows the runtime output inside a fenced block, under a
+one-line label that calls it untrusted data, not instructions. This is a
+label, not a sandbox: it narrows prompt injection from agy and repository
+text, but cannot prevent it.
+
 ### `update --apply`
 
 On Windows, the update runner refuses a `.cmd`/`.bat` step before spawning
 when its command path or any argument contains `&`, `|`, `<`, `>`, `^`, `%`,
 `!`, `"`, or a carriage return/newline.
+
+For agy, `update --apply` installs only the tarball that registry.npmjs.org
+publishes for the latest version:
+
+- It reads that version's `dist.integrity` from
+  `https://registry.npmjs.org/@southcarpet%2Fantigravity-plugin/<version>`,
+  over the same HTTPS request path as the version check.
+- `npm pack` runs from the update's own temporary directory, with
+  `--registry=https://registry.npmjs.org/` and
+  `--@southcarpet:registry=https://registry.npmjs.org/` on its command line.
+  Command-line flags override every `.npmrc`, so a project `.npmrc` in the
+  directory where you run the command cannot send the download to another
+  registry.
+- The integrity `npm pack` reports and the sha512 that the plugin computes
+  from the tarball file must both equal the registry's value. After
+  extraction, `package/package.json` must name
+  `@southcarpet/antigravity-plugin` and that version.
+- If the registry record cannot be read, a value is missing, or a check
+  fails, the command stops before `agy plugin uninstall`. The installed copy
+  stays as it was, and the exit code is 1.
+
+These checks bind the tarball to the npm registry record. They do not check
+the npm provenance attestation (see [Provenance](#provenance)).
 
 ### What this plugin passes to agy, and when
 

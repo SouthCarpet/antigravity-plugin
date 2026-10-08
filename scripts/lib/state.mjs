@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { recoverWorkspaceMutex, withWorkspaceMutex, withWorkspaceMutexSync, writeJsonAtomic } from "./atomic-state.mjs";
-import { assertPrivateDir } from "./fs.mjs";
+import { assertPrivateDir, UnsafeStateDirError } from "./fs.mjs";
 
 const STATE_VERSION = 1;
 const PLUGIN_DATA_ENVS = ["CLAUDE_PLUGIN_DATA", "CODEX_PLUGIN_DATA", "AGY_PLUGIN_DATA"];
@@ -45,9 +45,57 @@ function leafFor(root) {
   return `${slugify(path.basename(root))}-${hashPath(root)}`;
 }
 
-/** @param {(string | undefined)[]} candidates @returns {string | undefined} */
+/**
+ * Run the write-side trust check ({@link assertPrivateDir}) on a directory a
+ * read goes through. A directory that does not exist holds nothing to read,
+ * so it passes; the read itself then finds nothing. No-op on win32, the
+ * same as the write check.
+ *
+ * @param {string} dir
+ * @returns {void}
+ */
+function assertPrivateDirIfPresent(dir) {
+  try {
+    assertPrivateDir(dir);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+/**
+ * The levels a read of `<root>/<leaf>` goes through: the state root, the
+ * workspace leaf and its `jobs` directory. Throws `UnsafeStateDirError`
+ * for the first level another local user could have planted.
+ *
+ * @param {string} stateDir
+ * @returns {void}
+ */
+function assertReadableStateDir(stateDir) {
+  for (const dir of [path.dirname(stateDir), stateDir, path.join(stateDir, JOBS_DIR_NAME)]) {
+    assertPrivateDirIfPresent(dir);
+  }
+}
+
+/** @param {string} leaf @returns {boolean} */
+function isTrustedLeaf(leaf) {
+  try {
+    assertReadableStateDir(leaf);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The first legacy leaf that exists and passes the trust check. A leaf that
+ * fails it is skipped, never read, so a planted legacy directory cannot
+ * stand in for this workspace's state.
+ *
+ * @param {(string | undefined)[]} candidates
+ * @returns {string | undefined}
+ */
 function firstExistingLeaf(candidates) {
-  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate) && isTrustedLeaf(candidate));
 }
 
 function defaultState() {
@@ -223,8 +271,12 @@ export function validateJobRecord(record) {
       (Number.isInteger(record[field]) && record[field] > 0));
 }
 
+// An entry that fails `validateJobRecord` is dropped: its id builds job
+// file paths, and its PIDs reach `cancel`.
 function readStateIndex(cwd) {
-  const parsed = JSON.parse(fs.readFileSync(resolveStateFile(cwd), "utf8"));
+  const stateDir = resolveStateDir(cwd);
+  assertReadableStateDir(stateDir);
+  const parsed = JSON.parse(fs.readFileSync(path.join(stateDir, STATE_FILE_NAME), "utf8"));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.jobs)) {
     throw new SyntaxError("Invalid state index shape");
   }
@@ -232,6 +284,7 @@ function readStateIndex(cwd) {
     ...defaultState(),
     ...parsed,
     config: { ...defaultState().config, ...(parsed.config ?? {}) },
+    jobs: parsed.jobs.filter(validateJobRecord),
   };
 }
 
@@ -314,6 +367,8 @@ function loadStateUnlocked(cwd) {
   try {
     return readStateIndex(cwd);
   } catch (error) {
+    // Never quarantine or rebuild inside a directory that failed the trust check.
+    if (error instanceof UnsafeStateDirError) throw error;
     failure = error;
   }
 
@@ -348,7 +403,8 @@ function loadStateUnlocked(cwd) {
 export function loadState(cwd) {
   try {
     return readStateIndex(cwd);
-  } catch {
+  } catch (error) {
+    if (error instanceof UnsafeStateDirError) throw error;
     return withWorkspaceMutexSync(resolveStateDir(cwd), () => loadStateUnlocked(cwd));
   }
 }
@@ -490,9 +546,11 @@ function upsertJobUnlocked(cwd, job) {
 /**
  * @param {string} cwd the resolved workspace root
  * @param {string} jobId
- * @returns {import('./types.mjs').JobRecord | null}
+ * @returns {import('./types.mjs').JobRecord | null} null when the file is missing or unreadable
+ * @throws {UnsafeStateDirError} when a directory on the way fails the trust check
  */
 export function readJobFile(cwd, jobId) {
+  assertReadableStateDir(resolveStateDir(cwd));
   const filePath = resolveJobFile(cwd, jobId);
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));

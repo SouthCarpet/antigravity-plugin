@@ -880,7 +880,7 @@ describe('runAgyPrint — fatal error marker reaches errorMessage', () => {
     assert.notEqual(res.errorMessage, FATAL_ERROR_LINE);
   });
 
-  it('exit 3 with only an AGY_ERROR: line and no result event -> failed, errorMessage is that one line, exitCode 3', async () => {
+  it('exit 3 with only an AGY_ERROR: line keeps failed status and filters the JSON token', async () => {
     spawnCalls.length = 0;
     nextStdout = [];
     nextStderr = ['CLI settings initialized\n' + AGY_ERROR_LINE + '\n'];
@@ -888,17 +888,18 @@ describe('runAgyPrint — fatal error marker reaches errorMessage', () => {
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'failed');
     assert.equal(res.exitCode, 3);
-    assert.equal(res.errorMessage, AGY_ERROR_LINE);
+    // The allow-list rejects the whole JSON token, but keeps the marker.
+    assert.equal(res.errorMessage, 'AGY_ERROR: [redacted]');
   });
 
-  it('exit 3 with an ERROR result event plus an AGY_ERROR: line -> failed, errorMessage is the marker line', async () => {
+  it('exit 3 with an ERROR result event uses the filtered AGY_ERROR: marker first', async () => {
     spawnCalls.length = 0;
     nextStdout = [resultLine({ status: 'ERROR', response: '', error: 'agent failure' }) + '\n'];
     nextStderr = [AGY_ERROR_LINE + '\n'];
     nextExitCode = 3;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'failed');
-    assert.equal(res.errorMessage, AGY_ERROR_LINE);
+    assert.equal(res.errorMessage, 'AGY_ERROR: [redacted]');
   });
 
   it('a successful run with a stray AGY_ERROR: line in stderr still gets no errorMessage', async () => {
@@ -917,6 +918,82 @@ describe('runAgyPrint — fatal error marker reaches errorMessage', () => {
     assert.equal(res.status, 'failed');
     assert.match(res.errorMessage, /agy output exceeded 1 bytes/);
     assert.notEqual(res.errorMessage, AGY_ERROR_LINE);
+  });
+});
+
+// agy 1.3.1 (2026-10-08): a model capacity failure ends the run with
+// `result.status: ERROR` and a one-line `result.error`, with no `error:`
+// marker on stderr. That line is the reason `errorMessage` carries, after
+// redaction (`scripts/lib/safe-reason.mjs`).
+describe('runAgyPrint — result.error reaches errorMessage', () => {
+  const CAPACITY_ERROR =
+    'API error (attempt 1): UNAVAILABLE (code 503): No capacity available for model gemini-3.6-flash-high on the server';
+
+  it('a 503 result error with no stderr marker becomes the errorMessage', async () => {
+    arm({ status: 'ERROR', error: CAPACITY_ERROR, exitCode: 1 });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.errorMessage, CAPACITY_ERROR);
+  });
+
+  it('the same error with exit 0 gives the same errorMessage', async () => {
+    arm({ status: 'ERROR', error: CAPACITY_ERROR });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.errorMessage, CAPACITY_ERROR);
+  });
+
+  it('the stderr error: marker wins over result.error', async () => {
+    arm({ status: 'ERROR', error: CAPACITY_ERROR, exitCode: 1, stderr: FATAL_ERROR_LINE });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.errorMessage, FATAL_ERROR_LINE);
+  });
+
+  it('a plugin-authored output-limit reason wins over result.error', async () => {
+    arm({ status: 'ERROR', error: CAPACITY_ERROR, exitCode: 1, stderr: 'x'.repeat(64) });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy', maxStderrBytes: 1 });
+    assert.match(res.errorMessage, /agy output exceeded 1 bytes/);
+  });
+
+  it('an ERROR result without an error field leaves errorMessage null', async () => {
+    arm({ status: 'ERROR', exitCode: 1 });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.errorMessage, null);
+  });
+
+  it('a completed run never takes errorMessage from result.error', async () => {
+    arm({ response: 'fine', error: CAPACITY_ERROR });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.errorMessage, null);
+  });
+
+  it('a bearer masks its value and the next token, and a URL gets its own marker', async () => {
+    arm({
+      status: 'ERROR',
+      exitCode: 1,
+      error: 'denied\nBearer ya29.SYNTHETIC-token-0123456789 at https://oauth2.googleapis.com/token?grant_type=refresh_token&code=SECRET&state=s',
+    });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    // Keyword masking covers both the bearer value and `at`.
+    assert.equal(res.errorMessage, 'denied Bearer [redacted] [redacted-url]');
+  });
+
+  it('a token-shaped reason that fits the allow-list stays in errorMessage', async () => {
+    arm({ status: 'ERROR', exitCode: 1, error: 'ya29.SYNTHETIC-token-0123456789' });
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.errorMessage, 'ya29.SYNTHETIC-token-0123456789');
+  });
+
+  it('the AGY_ERROR: marker is redacted like any other reason', async () => {
+    spawnCalls.length = 0;
+    nextStdout = [];
+    nextStderr = ['AGY_ERROR: {"detail":"refresh failed","refresh_token":"1//SYNTHETIC0123456789abcdefghij"}\n'];
+    nextExitCode = 3;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    // Both space-separated JSON pieces have excluded characters and collapse.
+    assert.equal(res.errorMessage, 'AGY_ERROR: [redacted]');
   });
 });
 

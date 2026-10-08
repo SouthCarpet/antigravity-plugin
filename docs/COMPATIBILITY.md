@@ -1,24 +1,27 @@
-# Antigravity plugin 2.x compatibility contract
+# Antigravity plugin 3.x compatibility contract
 
-This document defines the public contract for `antigravity-plugin` 2.0.0 and
-later 2.x releases. The implementation at 0.2.4 is the baseline from which
-the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
-is public only when this document or the
-[commands reference](./COMMANDS.md) says it is promised.
+This document defines the public contract for `antigravity-plugin` 3.0.0 and
+later 3.x releases. The implementation at 0.2.4 is the baseline from which
+the original contract was frozen. 2.0.0 was the baseline for 2.x. 3.0.0 is
+the baseline for 3.x. It keeps the 2.x surface and changes one default: the
+model that `vision` uses (see [Deprecation and compatibility
+changes](#deprecation-and-compatibility-changes)). A behavior is public only
+when this document or the [commands reference](./COMMANDS.md) says it is
+promised.
 
-Plugin 2.1.0 is this package's version number. agy 1.1.15 to 1.2.12 is the
-tested range of Google's Antigravity CLI, with 1.2.12 as the newest measured
+Plugin 3.0.0 is this package's version number. agy 1.1.15 to 1.3.1 is the
+tested range of Google's Antigravity CLI, with 1.3.1 as the newest measured
 version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.
 
 ## Supported matrix
 
-| Surface | Supported in 2.x |
+| Surface | Supported in 3.x |
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.2.12; newest measured 1.2.12. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.3.1; newest measured 1.3.1. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -48,6 +51,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.2.7 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-19 |
 | 1.2.11 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-25 |
 | 1.2.12 | `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and smoke-only measurement. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12. See the [structured output flag](#structured-output-flag) probe. | 2026-09-27 |
+| 1.3.1 | Measured pass: `doctor`; `task` foreground, and background with `--wait`; `status` list and by job id; `result`; `cancel` of a running job; `review`, plain and with `--findings-json`; `setup --skip-vision`; `rescue` with a trivial prompt; `--add-dir`; `vision` with `gemini-3.8-flash-high` (5 of 5 runs, one with a path that holds a space, `#`, and `%`); `vision` with `gemini-3.6-flash-high` (3 of 5 runs); `agy plugin install`, `list`, `validate`, and `uninstall` in an isolated profile. Measured failure: `vision` with `gemini-3.6-flash-high` failed 2 of 5 runs with a 503 capacity error; `rescue` with a prompt that needs a shell command failed because agy headless mode denied the `command` tool (the plugin named the tool and gave the remedy); `cancel` of a job that had already finished returned `job_not_found`, exit 1; `setup --json` is not supported. Not measured: `setup` without `--skip-vision`, `setup --remove-vision`, `review --background`, `--show-result`, `--request-id`, `--prompt-file`, `--preview`, `--check-locations`, `--mode`, and resuming a conversation with `--continue` or `--conversation`. 1.2.13 to 1.3.0 were not run live. See the [agy 1.3.1 probes](#agy-131-probes) for the raw files. | 2026-10-08 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -58,8 +62,10 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.2.12, on 2026-09-27, from commit
-`9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
+The newest version measured live is agy 1.3.1, on 2026-10-08. The 1.3.1 row
+says, per verb, what passed, what failed, and what was not run. The agy
+changelogs for 1.2.13 to 1.3.0 were read, not measured. The previous smoke-only measurement is agy 1.2.12, on
+2026-09-27, from commit `9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
 `probe-background-lifecycle.txt`, `probe-status-list.txt`). The 1.2.12 row covers smoke-only measurement: `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and the structured output flag probe. The table also retains the saved
 transcripts for earlier versions. The 1.2.11 rows cover `task`,
 `rescue`, `review`, `vision`, `status`, `result`, and `cancel`
@@ -122,15 +128,42 @@ transcripts for 1.1.27 and 1.2.1. `setup` has no transcript for these versions e
 | `review` | `--json`, one staged line in a scratch repository | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, verdict `APPROVE` | `probe-review-json.txt` |
 | `task`, `status`, `result`, `cancel` | background lifecycle, JSON status and result, then cancellation of a second job | 1.2.11 | 2026-09-25 | exit 0 throughout. The first job moved from `queued` to `completed` and `result --json` returned answer `BG`; the second job was cancelled and `status --json` reported `cancelled`. | `probe-background-lifecycle.txt` |
 | `vision` | `<png> --json` | 1.2.11 | 2026-09-25 | exit 0, `status: "completed"`, model `gemini-3.6-flash-high`. stderr carried a usage trailer. | `probe-vision-json.txt` |
+| `doctor` | (none) | 1.3.1 | 2026-10-08 | exit 0, `doctor: 14 ok, 2 warnings, 0 problems`. agy 1.3.1 was classed `beyond_measured` because the plugin then knew 1.2.12 as the newest. | `probe-doctor.txt` |
+| `task` | `--foreground --json` | 1.3.1 | 2026-10-08 | exit 0, `status: "completed"`, answer `OK`. stderr `usage: total=12514 in=12492 out=22` | `probe-task-foreground-json.txt` |
+| `task`, `status` | `--background --wait`, then `status` list | 1.3.1 | 2026-10-08 | exit 0. The job completed with answer `BG`. The list also printed the advisory line that agy 1.3.1 was newer than the last measured version. | `probe-background-wait.txt`, `probe-status-list.txt` |
+| `task`, `result` | `--background --wait --json`, then `result <id> --json` | 1.3.1 | 2026-10-08 | exit 0 and 0. The dispatch envelope said `queued`. `result` gave `status: "completed"`, answer `BG3`, and a usage block. stderr `usage: total=12474 in=12472 out=2` | `probe-A2-task-bg-wait.txt`, `probe-A2-result.txt` |
+| `task`, `cancel`, `status` | background job, `cancel` after the job had finished (11 s), then `status` | 1.3.1 | 2026-10-08 | `cancel` exit 1, `job_not_found`, `No active antigravity jobs to cancel.` `status` gave `completed` with summary `BG2`. A cancel of a finished job is a failure by design. | `probe-A1-task-bg.txt`, `probe-A1-cancel.txt`, `probe-A1-status.txt` |
+| `task`, `cancel`, `status` | background job with a long prompt, `cancel` at once, then `status` | 1.3.1 | 2026-10-08 | `cancel` exit 0, `status: "cancelled"`, `killed: true`. The soft `taskkill` failed (status 128) and the forced kill worked. `status` gave `cancelled`, `exitCode` null, no `errorMessage`. The agy process was gone 15 seconds later. | `probe-A1b-task-bg-long.txt`, `probe-A1b-cancel.txt`, `probe-A1b-status.txt`, `probe-A1b-status-after15s.txt` |
+| `review` | `--json`, one staged line in a scratch repository | 1.3.1 | 2026-10-08 | exit 0, `status: "completed"`, verdict `CHANGES REQUESTED` with a critical finding at `calc.py:2`. No `details.findings` without the flag. stderr `usage: total=14054` | `probe-A3-review-json.txt` |
+| `review` | `--json --findings-json`, one staged line | 1.3.1 | 2026-10-08 | exit 0, `status: "completed"`, `details.findingsStatus: "valid"` | `probe-review-findings-json.txt` |
+| `setup` | `--skip-vision` | 1.3.1 | 2026-10-08 | exit 0. The output said it left the vision configuration untouched. A hash of the real `~/.gemini` tree showed no change in `config/`, `settings.json`, `mcp_config*`, or `plugins/`. | `probe-A4b-setup-skip-vision.txt`, `gemini-hash-diff.txt` |
+| `setup` | `--skip-vision --json` | 1.3.1 | 2026-10-08 | exit 1, `unknown flag --json`. `setup` has no `--json` mode. | `probe-A4-setup-skip-vision-json.txt` |
+| `task` | `--foreground --json --add-dir <dir under the OS temp tree>`, prompt to read a file in it | 1.3.1 | 2026-10-08 | exit 0, correct answer, `usage: total=25556`. The control without `--add-dir` also read the file, so a file under the OS temp tree needs no grant. | `probe-A5-task-add-dir.txt`, `probe-A5b-task-no-add-dir-control.txt` |
+| `task` | `--foreground --json`, prompt to read a file on another drive, no `--add-dir` | 1.3.1 | 2026-10-08 | exit 1, `agy_denied`, `read_file` denied. The remedy named `--add-dir <dir>`. | `probe-A5c-read-outside-drive-no-add-dir.txt` |
+| `task` | the same prompt with `--add-dir <dir on that drive>` | 1.3.1 | 2026-10-08 | exit 0, correct answer, `usage: total=22817` | `probe-A5d-read-outside-drive-with-add-dir.txt` |
+| `rescue` | `--json`, prompt `Reply with exactly RESCUE` | 1.3.1 | 2026-10-08 | exit 0, `status: "completed"`, answer `RESCUE`, `usage: total=12516` | `probe-B1-rescue-trivial.txt` |
+| `rescue` | `--json --add-dir .`, prompt `summarize this repository in one sentence` | 1.3.1 | 2026-10-08 | exit 1, `agy_denied`. agy tried the `command` tool (`Get-ChildItem -Path .`) and headless mode denied it. The remedy line was `Headless runs cannot grant "command"; the host must run this step itself.` The resume line was printed. Two earlier smoke runs, whose prompts needed `Get-ChildItem -Force` and `dir`, ended the same way. | `probe-B2-rescue-adddir-summary.txt`, `probe-rescue.txt`, `probe-rescue-2.txt` |
+| `task` | `--foreground --json`, prompt to start a 2-second background shell command and report its output | 1.3.1 | 2026-10-08 | exit 1, `agy_denied` for the `command` tool. Raw agy gave exit 0, `status: "SUCCESS"`, an empty `response`, and `denied_actions` with `command`. An agy-internal background command cannot be measured in headless mode. | `probe-H1-internal-background-command.txt`, `raw-H2-internal-background-command.txt` |
+| `status`, `result` | a failed `vision` job from the first 1.3.1 smoke run (plugin 2.1.0) | 1.3.1 | 2026-10-08 | `status <id> --json`: `failed`, `errorMessage` held the 503 text, no `details.error`. `result <id> --json`: exit 1, `job_failed` with the generic message `job 8e37ea061fe8 failed.`, the transcript in `answer`, the 503 text only in `result.stderr`. See [Failure reason](#failure-reason) for 3.0.0. | `probe-C1-status-8e37.txt`, `probe-C2-result-8e37.txt` |
+| `vision` | `<png> --expect "AGY 131 OK" --json`, default model `gemini-3.6-flash-high` | 1.3.1 | 2026-10-08 | exit 1. The transcript appeared on stderr, then `failed (failed).` and a 503 `No capacity available for model gemini-3.6-flash-high`. `answer: null`, `error.code: "run_failed"`, no usage trailer. | `probe-vision-expect.txt` |
+| `vision` | the same with `--model gemini-3.8-flash-high` | 1.3.1 | 2026-10-08 | exit 0, `status: "completed"`, `all_found`, `usage: total=61493 in=58871 out=2622` | `probe-vision-38-stdout.txt`, `probe-vision-38-stderr.txt` |
+| `vision` | `<png> --expect "PLAN 118 OK" --json`, default model, three runs | 1.3.1 | 2026-10-08 | Two runs exit 0, `all_found`, 39,418 and 52,066 total tokens, 63 and 64 seconds. One run exit 1, the same 503 shape (84 seconds). | `probe-E-1-default.txt`, `probe-E-3-default.txt`, `probe-E-5-default.txt` |
+| `vision` | the same with `--model gemini-3.8-flash-high`, three runs | 1.3.1 | 2026-10-08 | Three runs exit 0, `all_found`, 60,765, 60,640 and 72,416 total tokens, 51, 37 and 34 seconds. | `probe-E-2-38.txt`, `probe-E-4-38.txt`, `probe-E-6-38.txt` |
+| `vision` | an image in a directory named `agy118 sp#ace%20 dir`, both models | 1.3.1 | 2026-10-08 | Both exit 0, `all_found`. Default model: 40,110 total tokens, 45 seconds. `gemini-3.8-flash-high`: 57,637 total tokens, 27 seconds. | `probe-G2-vision-special-path-default.txt`, `probe-G2-vision-special-path-38.txt` |
+| `task` | `--effort xhigh` | 1.3.1 | 2026-10-08 | exit 1. The plugin refused the value: `invalid value for --effort: "xhigh" (expected low\|medium\|high\|agy-default)`. | `probe-effort-xhigh.txt` |
 
 Raw agy 1.2.11 probes retained the denied-step shape, `denied_actions`, and
 stderr sentinel (`raw-denied-read-url-step.txt`). A headless `ask_question`
 still appears as `step_type: "unknown"` (`raw-ask-question.txt`). A 4-second
 print timeout emits the print-timeout marker, while `--print-timeout 0` waits
 without a limit (`raw-print-timeout-short.txt`, `raw-print-timeout-zero.txt`).
-A bad model or effort still emits an `error:` marker, and the bad-effort
-message now lists `valid: low, medium, high, max` (`raw-fatal-bad-model.txt`,
-`raw-fatal-bad-effort.txt`).
+A bad model or effort still emits an `error:` marker, and on agy 1.2.11 the
+bad-effort message listed `valid: low, medium, high, max`
+(`raw-fatal-bad-model.txt`, `raw-fatal-bad-effort.txt`). On agy 1.3.1 it reads
+`invalid --effort "bogus" (valid: low, medium, high, xhigh, max)`
+(`probe-D5-effort-bogus.txt`). The list now names `xhigh`, but no model
+accepts it. The plugin keeps `low|medium|high|agy-default` for this reason
+(see [Effort levels on agy 1.3.1](#effort-levels-on-agy-131)).
 
 The denied member from agy 1.1.27 was `read_url` (`displayName`
 `ReadUrlContent`). The printed remedy line was `Headless runs cannot grant
@@ -166,6 +199,15 @@ installers and host-owned invocation wrappers can evolve independently. The
 promise is that the four surfaces above reach the same nine runtime verbs and
 accept the documented arguments when the host can load this plugin.
 
+Changed after 3.0.0, in the Claude Code wrappers (`commands/*.md`) only:
+each wrapper's `allowed-tools` grants one Bash prefix rule for its own exact
+bootstrap invocation instead of `Bash(node:*)`; every wrapper, `rescue`
+included, is `disable-model-invocation: true` and runs a fixed bang line;
+the runtime output appears in a labelled fenced block; and `rescue` forwards
+`--background` and `--wait` to the runtime instead of running as a
+background fork. The verbs, flags, exit codes and `--json` envelopes do not
+change.
+
 `agy plugin install <path>` copies the directory it is pointed at; it does not
 read `package.json` `files`. `scripts/pack-for-agy.mjs` packs this checkout
 the same way `npm publish` would, extracts that tarball into a temporary
@@ -178,6 +220,90 @@ confirmed on 2026-09-27 that `agy plugin install`, `plugin list`,
 touched the real `~/.gemini` store on agy 1.2.12: verified, transcript
 `probe-plugin-install-pack.txt`.
 
+### agy 1.3.1 probes
+
+The 1.3.1 probes ran from plugin 2.1.0 code, in scratch repositories and
+scratch directories. The transcript table above lists the raw files. A hash of
+the real `~/.gemini` tree before and after the whole set showed no change in
+`config/`, `settings.json`, `mcp_config*`, or `plugins/`. Only agy's own
+runtime data changed (`gemini-hash-diff.txt`).
+
+**Plugin install in an isolated profile.** The profile had fresh `HOME`,
+`USERPROFILE`, `APPDATA`, and `LOCALAPPDATA` values. In it, `agy plugin
+install` of the packed copy, `plugin list`, `plugin validate`, and `plugin
+uninstall` all exited 0 (`probe-F1-plugin-list-before.txt` to
+`probe-F12-plugin-list-after-uninstall.txt`). A digest of the real `config/`
+tree was the same before and after. The install skipped `mcpServers`, because
+the packed copy has no server entry and `setup` registers the vision server.
+An isolated `agy --print` ran without a new sign-in
+(`probe-F8-isolated-agy-print-oauth.txt`), so the sign-in is not tied to the
+profile directories.
+
+**Reinstall and uninstall while the vision server runs.** The agy 1.3.1
+changelog says that a plugin install on Windows stops and restarts a running
+MCP server. In the probe, an isolated agy session started `vision-server.mjs`.
+`agy plugin install` over the installed copy exited 0 in 0.7 seconds. `agy
+plugin uninstall` then exited 0 and removed the plugin directory while the
+server still ran. The server process id was the same before the reinstall,
+after it, and after the uninstall (`probe-F9-reinstall-while-server-runs.txt`,
+`probe-F10-reinstall-while-server-runs-pid-sampling.txt`,
+`probe-F11-uninstall-while-server-runs.txt`). The restart that the changelog
+describes was not observed. The probe did not run the install from inside the
+same session, so it does not rule the restart out.
+
+**Project rules and context files.** Rules in a parent directory can change an
+answer. A rule file in `.agents/rules/` loads only when it carries the line
+`trigger: always_on` in its frontmatter (this is from agy's built-in rules
+documentation, not from a probe). The first probes used rule files without
+that line, and no rule showed in the answers (`probe-G1-nested-agents-rules.txt`
+to `probe-G1c-nested-rules-sayword.txt`). With the line, a rule in a parent
+`.agents/rules/` directory and a parent `AGENTS.md` reached a run whose
+working directory was a child directory. The prompt `Reply with exactly CTX`
+then returned `CTX` plus the rule words, and a prompt to list the rules in
+context listed both parent rules (`probe-G1d-nested-rules-frontmatter-hello.txt`,
+`probe-G1e-nested-rules-frontmatter-ctx.txt`,
+`probe-G1f-nested-rules-introspect.txt`). A run from the parent directory
+loaded the same two (`probe-G1g-outer-cwd-hello.txt`). A rule in the child's
+own `.agents/rules/` directory did not load, and the cause is not known. The
+plugin does not read, write, or filter these files. A run of `rescue`, `task`,
+or `review` can answer differently in a tree that has them.
+
+**Conversation pruning.** After 27 new conversations, agy 1.3.1 had removed
+the files of the 27 oldest ones, and the count of conversation databases was
+501 before and after (`gemini-hash-diff.txt`). This looks like a cap near 500
+conversations. The cap is not proven. Observed effect: an old `--conversation
+<id>` can fail to resume, and the plugin is not at fault.
+
+**Failed `vision` job.** The first 1.3.1 smoke run produced a failed job whose
+503 reason did not reach `status --json` or `result --json` in plugin 2.1.0
+(`probe-C1-status-8e37.txt`, `probe-C2-result-8e37.txt`). Version 3.0.0 reports
+it; see [Failure reason](#failure-reason).
+
+### Effort levels on agy 1.3.1
+
+`agy --help` on 1.3.1 lists `xhigh` as an `--effort` value, and the error for a
+bad value reads `invalid --effort "bogus" (valid: low, medium, high, xhigh,
+max)` (`probe-D5-effort-bogus.txt`). Every model refused `xhigh` and `max`.
+The error names the levels the model has:
+
+- No `--model` (agy then used `gemini-3.8-flash`): `gemini-3.8-flash has no
+  "xhigh" effort (available: low, medium, high)` (`probe-D1-xhigh-default-model.txt`).
+- `--model gemini-3.8-flash` (`probe-D2-xhigh-gemini-base.txt`) and `--model
+  claude-opus-5-5` (`probe-D3-xhigh-claude-base.txt`) gave the same kind of
+  error.
+- `--model gemini-3.8-flash-high --effort xhigh` gave a different error: `--model
+  gemini-3.8-flash-high conflicts with --effort=xhigh`
+  (`probe-D4-xhigh-conflict-high-variant.txt`). A variant id carries its own
+  level, so this is a conflict and not proof about support.
+- A run over seven base model ids with `xhigh` and `max` gave an error for
+  each (`probe-D6-effort-matrix-extra.txt`). `gemini-3.1-pro` has only `low`
+  and `high`. `gpt-oss-120b` has only `medium`.
+
+The plugin therefore keeps `low|medium|high|agy-default`. It would add a level
+that every model refuses. The plugin itself refuses `--effort xhigh` before it
+starts agy (`probe-effort-xhigh.txt`). If a later agy version accepts `xhigh`
+for a model, the plugin can add it after a probe shows it.
+
 ## Public command surface
 
 The public verbs are exactly:
@@ -188,7 +314,7 @@ and `doctor`.
 Their positional arguments, flags, defaults, conflicts, and foreground versus
 background behavior are defined in [COMMANDS.md](./COMMANDS.md). Verb names,
 documented flag names, documented positional meanings, and documented defaults
-are stable through 2.x subject to the deprecation and emergency rules below.
+are stable through 3.x subject to the deprecation and emergency rules below.
 
 The standalone dispatcher's `help`, `-h`/`--help`, and `-v`/`--version` entry
 points are also public. They are dispatcher conveniences, not tenth and
@@ -199,7 +325,7 @@ same carve-out: it is reachable only through the standalone dispatcher
 `node bin/antigravity.mjs update`), no host wrapper exposes it, it changes an
 installed copy only with `--apply`, and its `--json` output uses the envelope
 shape but is a convenience whose fields and `command` value are unstable in
-2.x. `status` may print one advisory line on stderr when a cached `update`
+3.x. `status` may print one advisory line on stderr when a cached `update`
 check knows a newer version; `status` itself never calls the network.
 
 The following are not promised command surface:
@@ -276,14 +402,14 @@ reaches a normal output path with `--json`, its entire stdout stream is exactly
 one pretty-printed JSON object followed by a newline. The object has these
 fields in envelope version 1:
 
-| Field | 2.x contract |
+| Field | 3.x contract |
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
 | `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
 | `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
-| `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 2.x; consumers must tolerate additions, removals, and changes within it. |
+| `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 3.x; consumers must tolerate additions, removals, and changes within it. |
 
 Consumers must tolerate additive top-level fields. `vision` additionally
 promises top-level `model` (string) and `imagePaths` (an array of absolute path
@@ -324,9 +450,9 @@ Once `--json` is accepted, an expected failure on a known path (a validation
 error, a missing `agy` binary, a run that did not complete, a job reference
 or a stored job record that cannot be resolved) also emits exactly one
 version-1 envelope: `answer` is `null`, and `details.error` carries `{ code,
-phase, message }`. `message` is the plugin's own one-line reason; it never
-carries a token, an OAuth URL, or the full upstream stderr. The human-
-readable line stays on stderr, unchanged, on every one of these paths.
+phase, message }`. `message` is a plugin-authored one-line reason or an
+upstream reason processed by the filter in the "Failure reason" section.
+The human-readable line stays on stderr, unchanged, on these paths.
 Therefore the precise stream promise is: if `--json` writes any stdout, that
 stdout is exactly one version-1 envelope and contains no text before or after
 it, on success or on failure. A script that used to treat any stdout as
@@ -337,7 +463,11 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `failed`: the run did not complete, including a headless auto-denial that
   starved the answer
 - `cancelled`: the run was cancelled
-- `auth_required`: Antigravity needs the OAuth flow repeated
+- `auth_required`: Antigravity needs the OAuth flow repeated. After 3.0.0
+  the plugin sets it only from the raw sign-in lines agy prints before its
+  first stream-json event, never from model text, and prints every Google
+  OAuth URL as `[oauth-url-removed]`; `oauthUrl` in `status --json` is
+  always `null`
 - `timeout`: the run did not finish before its execution budget
 - `no_agy`: the `agy` binary could not be found or spawned
 - `invalid_input`: the caller's own input failed validation
@@ -388,6 +518,92 @@ success must now read `status` (and, on a failure, `details.error.code`).
 Quota exhaustion is not yet classified into its own `status`/`error.code`
 pair. A run that fails on a provider quota limit still reports as the
 generic `failed` path above.
+
+### Failure reason
+
+When agy ends a run with `result.status: ERROR` and a one-line
+`result.error` (agy 1.3.1 sent `API error (attempt 1): UNAVAILABLE (code
+503): No capacity available for model gemini-3.6-flash-high on the server`
+with no `error:` line on stderr), the plugin keeps that line as the run's
+failure reason. It reaches three places:
+
+- `errorMessage` on the runtime result and on the stored job record.
+- `details.error.message` of a foreground `run_failed` envelope. The stderr
+  line stays `failed (failed).` after its usual prefix, and the full
+  upstream text still follows it on stderr.
+- `healthMessage` on the stored job record, which `result <id> --json` reads
+  as `details.error.message` of a `job_failed` envelope.
+
+The filter first removes ANSI CSI and OSC sequences. It replaces each
+other ESC and next-character pair with `=`, which the token rules reject.
+It then applies Unicode NFKC normalization. It replaces format characters
+(Cf) and default-ignorable code points, such as zero-width characters,
+soft hyphens, BOM and bidi controls, with a private U+E000 marker.
+For each token with this marker, the filter removes all such markers.
+If the joined token is a keyword, or the text before its first `:` is a
+keyword, the keyword rule applies. This check ignores letter case and
+removes the surrounding punctuation listed below. Otherwise, the filter
+replaces the whole token. Thus, `Bearer` joined to `shortSecret` by a
+zero-width character becomes `[redacted]`, while `Be` joined to `arer`
+becomes the keyword `Bearer`. A U+E000 character in the source gets the
+same treatment. No private marker reaches the output.
+Control characters (Cc) and separators
+(Zs, Zl and Zp) become spaces. It combines repeated spaces and removes
+spaces at the start and end. It then checks each space-separated token.
+
+The filter keeps a token only if it has at most 32 characters, contains
+only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`, and does not
+contain `//`. Each complete run of ASCII letters and digits has these
+limits: a run with both a letter and a digit has fewer than 12 characters;
+a digits-only run has at most 12; a letters-only run has at most 20.
+The filter also replaces a token with an ASCII letter directly before `:`
+and an ASCII letter or digit directly after it. Thus, `src/index.mjs:12`
+is replaced, but `503):` and `1):` pass this rule. It replaces every other
+token that fails the shape rules. A replaced token that contains `://` becomes
+`[redacted-url]`. Other replaced tokens become `[redacted]`.
+
+The keyword rule takes precedence over the shape check. The filter ignores
+letter case and removes surrounding `" ' ( ) [ ] , ; :` to identify these
+keywords: `bearer`, `basic`, `digest`, `negotiate`, `token`, `authorization`,
+`proxy-authorization`, `cookie`, `set-cookie`, `password`, `passwd`, `pwd`,
+`secret`, `apikey`, `api-key`, `api_key`, `x-api-key`, `key`, `credential`,
+`credentials`, `session`, `sid`, `jwt`, `auth`, `access_token`,
+`refresh_token`, `id_token`, `client_secret` and `code`. It keeps the
+keyword token and replaces the next two tokens, or all remaining tokens
+if fewer than two remain. A keyword in those replaced tokens does not
+start another pair of replacements.
+If a keyword has a value attached with `:`, such as `Authorization:Basic`
+or `password:hunter2`, the filter replaces that token and the next token.
+It identifies this keyword from the text before the first `:`, without
+regard to letter case. A final `:` with no attached value uses the usual
+keyword rule.
+The filter keeps numeric status diagnostics such as `(code 503):`.
+This exception applies only to `(code` followed by 1 to 20 digits and `):`.
+The digit run must also pass the shape rules. The word after
+`(code <digits>):` is an ordinary token.
+
+Adjacent replacement markers of the same type become one marker. The
+reason is one line of at most 300 characters, cut at the last complete
+token that fits. The source is agy's own error text. These rules filter
+token shapes. A secret split by a line break or a space-class character
+into pieces that each fit the grammar can remain. A short secret after a
+word that is not in the keyword list can remain. A secret that fits the
+allowed shape can remain. After the cut, if the result is empty or has no
+run of at least three ASCII letters outside the markers, the filter
+returns `null`. The plugin then keeps its generic text
+(`failed (failed).` for a foreground run, `job <id> failed.` for `result`).
+A reason from the `error:` or `AGY_ERROR:` stderr marker follows the same
+rules. Precedence is unchanged: a plugin-authored timeout, output-limit or
+cancellation reason wins over any agy reason, then the stderr marker, then
+`result.error`. Status words, error codes, `answer`, and exit codes do not
+change. A `timeout` or `cancelled` envelope keeps its own message. When agy
+gives no reason of its own, a failed job's stored `errorMessage` is its
+stderr put through the same rules, or empty when nothing readable is left.
+These outputs use the filtered stored reason:
+the `--show-result` envelope and its text-mode line (`review`, `rescue`,
+`task`), the `## Error` section of `status <id>`, and the `result <id>`
+fallback text. The stored `result.stderr` contains the unredacted upstream
+text and is outside the filter's scope.
 
 ### Usage trailer
 
@@ -507,7 +723,13 @@ that run only; nothing is persisted in the user's settings. `setup` has no
 flag for this on purpose: a persistent rule is either too narrow to work or a
 wildcard. `--add-dir` is forwarded verbatim and in order on `rescue` and
 `task`, foreground and background. `vision` does not take it; its images
-travel through the MCP tool with a per-run allowlist.
+travel through the MCP tool with a per-run allowlist. Measured on agy 1.3.1
+(`probe-A5-task-add-dir.txt`, `probe-A5b-task-no-add-dir-control.txt`,
+`probe-A5c-read-outside-drive-no-add-dir.txt`,
+`probe-A5d-read-outside-drive-with-add-dir.txt`): a file under the OS temp
+tree could be read without `--add-dir`, and a file on another drive was denied
+without it and read with it. A test of `--add-dir` must use a path outside the
+OS temp tree to prove anything.
 
 ## Print timeout and fatal-error reporting
 
@@ -621,7 +843,7 @@ These variables have direct semantics in the shipped code:
 | `CODEX_PLUGIN_DATA` | Second-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |
 | `AGY_PLUGIN_DATA` | Third-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |
 | `ANTIGRAVITY_PLUGIN_SESSION_ID` | Associates new jobs with a host session and filters no-argument status/result selection to that session. If absent, jobs are not session-filtered. |
-| `ANTIGRAVITY_VISION_ALLOWED_PATHS` | Internal per-process JSON array of absolute image paths. `vision` sets it for the MCP server. Missing or invalid data grants no image access. Users should not set it globally. |
+| `ANTIGRAVITY_VISION_ALLOWED_PATHS` | Internal per-process JSON array of absolute image paths. `vision` sets it for the MCP server. After 3.0.0 it holds each image twice: the absolute path as given and its realpath (one entry when they are equal). The server refuses a request whose lexical form is not on the list before any filesystem call. Missing or invalid data grants no image access. Users should not set it globally. |
 
 `CLAUDE_ENV_FILE`, `CODEX_HOME`, `CODEX_SESSION_ID`, `AGY_HOME`, and
 `AGY_SESSION_ID` are not used for state-root selection and do not override
@@ -631,7 +853,7 @@ the priority above.
 command-module directory. That directory must contain this plugin's manifest
 (`plugin.json` with `"name": "antigravity"`); otherwise the dispatcher exits 1
 with one line before it imports anything. It exists for tests and is
-explicitly not a public 2.x integration point.
+explicitly not a public 3.x integration point.
 
 All other inherited environment variables are passed to child processes in
 the normal Node fashion but have no plugin-specific compatibility promise.
@@ -685,14 +907,15 @@ order:
 
 For Codex and agy, if the preferred workspace leaf does not exist but the
 legacy `${os.tmpdir()}/antigravity/<workspace-leaf>` does, the implementation
-continues using that legacy leaf. This prevents an upgrade from making
+continues using that legacy leaf, when it passes the shared temp directory
+check (a leaf that fails it is skipped). This prevents an upgrade from making
 existing jobs disappear. New workspaces use the host-owned root. Transient
 workspace lock directories live under
 `${os.tmpdir()}/antigravity-state-locks`.
 
-If a 2.x release moves or changes persistent state, it must preserve access to
-existing jobs, including jobs written by 1.x, through automatic migration or a
-compatibility read path.
+If a 3.x release moves or changes persistent state, it must preserve access to
+existing jobs, including jobs written by 1.x and 2.x, through automatic
+migration or a compatibility read path.
 The `requestIds` map follows this rule: an index without it reads as an
 empty map, and a rebuilt index recreates it from the job files.
 It must not silently orphan existing state. A manual migration may be required
@@ -1045,6 +1268,21 @@ meaning:
   present only when the status is not `valid`. A status other than `valid`
   also prints one stderr warning line. All three are absent without the
   flag. The exit code does not change.
+- **Failure reason** (3.0.0): a `result.error` line from agy now fills
+  `errorMessage` when no `error:` marker is present, and the reason is
+  redacted and bounded. See [Failure reason](#failure-reason).
+- `details.error.message` (3.0.0): a foreground `run_failed` envelope and a
+  `result <id> --json` `job_failed` envelope carry the failure reason instead
+  of `failed (failed).` or `job <id> failed.` when a safe reason exists.
+- `healthMessage` (3.0.0): set on a stored `failed` job when the run has a
+  failure reason and no denial. It was absent for a plain `failed` job before.
+- **`update --apply` working directory** (3.0.0): when the current directory
+  is the agy install root or lies inside it (checked by real path), the
+  steps run from the update's temporary directory, and the plugin prints one
+  line saying so. If the directory cannot be changed, no step runs and the
+  exit code is 1. See [`update`](./COMMANDS.md#update).
+- **`vision` default model** (3.0.0, breaking): `gemini-3.8-flash-high`. It
+  was `gemini-3.6-flash-high`. `--model gemini-3.6-flash-high` restores it.
 - `request.findingsJson` (additive, 2026-09): `true` on a job record started
   with `review --findings-json`, absent otherwise. The background worker
   fails the job before starting agy when the stored value is not a boolean.
@@ -1073,6 +1311,73 @@ meaning:
   heuristic, not a truth check: a citation the diff never touched is not by
   itself a model error. Reviewers legitimately cite context lines and
   related files outside the diff.
+- **Trust checks on state reads** (2026-10): `status`, `result` and
+  `cancel` refuse to read job state from a state root, workspace directory
+  or `jobs` directory that is not a private directory owned by the user (the
+  check that writes already ran). The refusal uses the existing `state_error`
+  path: one stderr line naming the directory, `error.code` `job_not_found`,
+  exit 1. A legacy temp workspace directory that fails the check is skipped
+  (see [Job state and configuration locations](#job-state-and-configuration-locations)).
+  An update-check cache in a directory that fails the check counts as no
+  cache. On Windows the owner and mode check is a no-op. See
+  [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix).
+- `state.json` entries (additive, 2026-10): an entry that fails the job record
+  validator (an id that is not 12 hex characters, an unknown status, or a
+  `pid`/`workerPid`/`agyPid` that is not a positive integer) is ignored on
+  read. The plugin never writes such an entry.
+- `recentProgress` on `status <id>` (additive, 2026-10): read only when the job's
+  `logFile` is the plugin's own log path for that job; otherwise absent.
+- **`update --apply` verifies the agy tarball** (2026-10): before
+  `agy plugin uninstall`, the plugin reads the version's `dist.integrity`
+  from the npm registry record, runs `npm pack` from its temporary directory
+  with the npmjs.org registry and scope registry on the command line, and
+  checks the tarball integrity and the extracted name and version. New
+  messages, each on the `update --apply` output stream, with the existing
+  apply-failure exit code 1 (`apply_failed` under `--json`):
+  `agy: could not read the npm registry record for <version>: <reason>;
+  nothing was installed, skipping this host.`;
+  `agy: the @southcarpet/antigravity-plugin@<version> tarball does not match
+  the npm registry record (registry <sri or none>, npm pack <sri or none>,
+  computed <sri>); stopped, nothing after this step was run.`;
+  `agy: the extracted package is <name>@<version>, not
+  @southcarpet/antigravity-plugin@<version>; stopped, nothing after this step
+  was run.` With the registry unreachable, agy is now skipped with the
+  existing `no known "latest" version to pack` line; it used to pack the
+  `latest` tag. The `npm pack` argv gains `--registry=https://registry.npmjs.org/`
+  and `--@southcarpet:registry=https://registry.npmjs.org/`. See
+  [`update`](./COMMANDS.md#update).
+- `unconfirmed` (additive, 2026-10): a new `outcome` value in a `cancel --json`
+  `details.termination[]` entry. `cancel` does not signal a running process
+  whose OS start time differs by more than 1 second from the one the job
+  record holds for it, whose start time cannot be read, or that has no
+  recorded start time (a job record from an older version). For the last
+  case the message tells the user to stop the process manually. The
+  envelope status is the existing `cancel_failed`, and the exit code is the
+  existing 1. See [`cancel`](./COMMANDS.md#cancel).
+- `workerProcessStartedAt` (additive, 2026-10): on the job record and its
+  `state.json` entry, the OS start time (ISO) of `workerPid`, read right
+  after the plugin started that process and never updated. `null` when the
+  read failed, absent on a job record from an older version. The job record
+  validator accepts records with and without it.
+- `agyProcessStartedAt` (additive, 2026-10): the same for `agyPid`, read
+  right after agy started.
+- **Vanished-worker cleanup checks process identity** (2026-10): when a
+  background wait finds that the worker is gone, it signals the recorded
+  `agyPid` only when `agyProcessStartedAt` matches the current start time
+  of that process (within 1 second). Otherwise it writes
+  `[wait] agy pid=<pid> not signalled: not confirmed as this job's process`
+  to the job log and still records `worker_missing`, as before.
+- **Google OAuth URLs are removed from output** (2026-10): each URL of the
+  form `accounts.google.com/o/oauth2/...` or
+  `accounts.google.com/signin/oauth...` becomes `[oauth-url-removed]` in
+  stderr, streamed progress text, the stored and printed answer, the stored
+  `result.rawOutput` and `result.stderr`, every `--json` envelope (for
+  example `answer` and `details.result.rawOutput` of `result --json`), text
+  reports, and output from job records an older version stored. Other URLs
+  stay. Streamed progress text is now written up to its last whitespace
+  character, because a URL can arrive split across two deltas; the rest is
+  written when the run ends. See
+  [SECURITY.md](../SECURITY.md#sign-in-auth-prompts).
 
 ### Structured output flag
 
@@ -1126,22 +1431,51 @@ flag.
 neither `--model` nor `--effort` is unchanged. This is the compatibility
 boundary.
 
-A documented public 2.x surface will be marked deprecated in release notes
-and documentation and retained through at least one subsequent 2.x minor
+**3.0.0 changed the default model of `vision`.** With no `--model`, `vision`
+now uses `gemini-3.8-flash-high`. Through 2.1.0 it used
+`gemini-3.6-flash-high`. This is the only breaking change in 3.0.0. Every
+verb, flag, exit code, `--json` field, and state location of 2.x keeps its
+meaning.
+
+Why. On agy 1.3.1, on 2026-10-08, the old default completed 3 of 5 `vision`
+runs. The other 2 failed with `UNAVAILABLE (code 503): No capacity available
+for model gemini-3.6-flash-high on the server` (`probe-vision-expect.txt`,
+`probe-E-5-default.txt`). The new default completed 5 of 5 runs
+(`probe-vision-38-stdout.txt`, `probe-E-2-38.txt`, `probe-E-4-38.txt`,
+`probe-E-6-38.txt`, `probe-G2-vision-special-path-38.txt`). Per run, as agy
+reported it, the new default used more tokens, 57,637 to 72,416 against
+39,418 to 52,066 for the completed runs of the old default. It was also
+faster, 27 to 51 seconds against 45 to 64 seconds (wall time of the plugin
+command). The old default's completed runs are `probe-E-1-default.txt`,
+`probe-E-3-default.txt`, and `probe-G2-vision-special-path-default.txt`. Five
+runs per model are a small sample. The 503 is a capacity error on agy's side,
+so it can come and go.
+
+No 2.x release announced this change first. The contract above allows a
+breaking change in a major release, so 3.0.0 makes it without a deprecation
+period.
+
+What you may notice: the `model` field of a `vision` `--json` envelope, and
+`provenance.model` on the job, name the new model. Each run costs more
+tokens. To keep the old behavior, pass `--model gemini-3.6-flash-high`. That
+model can fail with the 503 capacity error again.
+
+A documented public 3.x surface will be marked deprecated in release notes
+and documentation and retained through at least one subsequent 3.x minor
 release. Ordinary removal or another backward-incompatible change then waits
-for 3.0.0. Additive commands, flags, fields, and behavior may ship in a 2.x
+for 4.0.0. Additive commands, flags, fields, and behavior may ship in a 3.x
 minor release.
 
 There are two exceptions:
 
 - An urgent security or privacy fix may disable or remove unsafe behavior in a
-  2.x patch without the normal deprecation period. The release notes must name
+  3.x patch without the normal deprecation period. The release notes must name
   the affected surface, risk, and replacement or mitigation.
 - An upstream agy change that breaks agy's own interface may force an
   immediate transport, flag, output-parsing, or supported-version change.
-  The plugin may make that smallest necessary change in a 2.x patch and must
+  The plugin may make that smallest necessary change in a 3.x patch and must
   document the upstream break and resulting compatibility boundary.
 
 Neither exception authorizes unrelated breaking changes. Explicitly unstable
-surfaces may change in 2.x without deprecation, but the change must still be
+surfaces may change in 3.x without deprecation, but the change must still be
 called out when it affects observable output.
