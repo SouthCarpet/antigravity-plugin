@@ -349,7 +349,8 @@ describe('/antigravity:vision', () => {
     }
     assert.equal(exit, 1);
     assert.match(cap.err.join(''), /not authenticated/);
-    assert.match(cap.err.join(''), /https:\/\/example\/oauth/);
+    assert.match(cap.err.join(''), /\/antigravity:setup/);
+    assert.doesNotMatch(cap.err.join(''), /https:\/\/example\/oauth/);
   });
 
   it('--json emits the stable envelope with imagePaths/model and an opaque answer', async () => {

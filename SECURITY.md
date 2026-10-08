@@ -199,6 +199,22 @@ suggestion ("... re-run with `--dangerously-skip-permissions` ..."); the
 plugin no longer prints that sentence to its own stderr (the stored result
 and `result --json` still keep the complete upstream line).
 
+### Sign-in (auth) prompts
+
+The plugin marks a run `auth_required` only from agy's own sign-in prompt:
+the raw text lines agy prints before its first stream-json event
+("Authentication required. Please visit the URL to log in", "Waiting for
+authentication", or the Google OAuth URL itself). Text in a `step_update`
+event, a tool argument or `result.response` can come from the model, so it
+never sets `auth_required`.
+
+The plugin prints no OAuth URL, not even one from agy's own prompt. A URL is
+safe to show only when its `client_id` and `redirect_uri` are agy's own, and
+no live agy capture in this repository records those values. The plugin
+tells the user to run `setup` instead, which shows agy's own prompt
+directly in the terminal. `status --json` reports `oauthUrl` as `null`, also
+for a job record from 3.0.0 or earlier.
+
 ### Slash and skill commands in prompts
 
 Every print-mode `agy` invocation (`review`, `rescue`, `task`, `vision`)

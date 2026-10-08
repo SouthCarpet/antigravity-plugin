@@ -1030,7 +1030,7 @@ export function deriveJobStatus(result, kind) {
         status: "failed",
         healthStatus: "auth_required",
         healthMessage:
-          "Antigravity is not authenticated. Complete the OAuth flow shown above, then re-run.",
+          "Antigravity is not authenticated. Run /antigravity:setup, complete the OAuth flow there, then re-run.",
         recommendedAction: "Run /antigravity:setup to complete the OAuth flow.",
       };
     case "timeout":
@@ -1553,8 +1553,8 @@ function emitForegroundErrorEnvelope(kind, job, result, json) {
 /**
  * `finishForeground`'s `auth_required` branch, split out to keep that
  * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
- * stderr output is byte-for-byte unchanged; the only addition is the
- * `--json` error envelope.
+ * stderr output names the setup remedy and never an OAuth URL; it also
+ * emits the `--json` error envelope.
  *
  * @param {string} kind
  * @param {{ id: string }} job
@@ -1567,7 +1567,6 @@ function finishForegroundAuthRequired(kind, job, result, json) {
     `\nantigravity:${kind} — Antigravity is not authenticated.\n` +
       `Run /antigravity:setup to complete the OAuth flow, then retry.\n`,
   );
-  if (result.oauthUrl) process.stderr.write(`OAuth URL: ${result.oauthUrl}\n`);
   emitForegroundErrorEnvelope(kind, job, result, json);
   return 1;
 }

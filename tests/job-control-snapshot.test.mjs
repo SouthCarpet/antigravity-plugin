@@ -238,6 +238,21 @@ describe('buildSingleJobSnapshot', () => {
     const snap = buildSingleJobSnapshot(workCwd, job.id);
     assert.equal(snap.job.agyConversationId, null);
   });
+
+  // 3.0.0 and earlier stored an OAuth URL that could come from model text.
+  // A snapshot never passes a stored URL on.
+  it('reports oauthUrl null for a legacy job that stored an OAuth URL', async () => {
+    const job = await seedJob({
+      id: 'legacy-oauth',
+      status: 'failed',
+      healthStatus: 'auth_required',
+      completedAt: new Date().toISOString(),
+      oauthUrl: 'https://accounts.google.com/o/oauth2/auth?client_id=attacker',
+    });
+    const snap = buildSingleJobSnapshot(workCwd, job.id);
+    assert.equal(snap.job.oauthUrl, null);
+    assert.equal(JSON.stringify(snap).includes('client_id=attacker'), false);
+  });
 });
 
 describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => {

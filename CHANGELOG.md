@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vision` now records each image twice: the absolute path as given and its
   realpath. A spelling that is not on the list is refused, for example an
   8.3 short name when the command named the long name.
+- **Only agy's own sign-in prompt sets `auth_required`, and no OAuth URL is
+  printed.** Before, the plugin took the first Google OAuth URL from any agy
+  output, including model text, and printed it as "OAuth required. Open:
+  ...". A prompt injection could thus show an attacker's OAuth client as the
+  plugin's own login step. Now only the raw lines agy prints before its first
+  stream-json event count. The plugin prints no URL, because no live agy
+  capture records agy's `client_id` and `redirect_uri` to check a URL
+  against. It tells the user to run `setup`, which shows agy's own prompt.
+  `status --json` reports `oauthUrl` as `null`, also for older job records.
 
 ## [3.0.0] — 2026-10-08
 

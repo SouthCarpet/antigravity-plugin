@@ -1427,7 +1427,7 @@ describe('finishForeground — one error envelope per non-completed status (Task
     assert.equal(payload.details.error.code, 'timeout');
   });
 
-  it('auth_required: status and error.code are both "auth_required", message never carries the OAuth URL', () => {
+  it('auth_required: status and error.code are both "auth_required", no output carries the OAuth URL', () => {
     const { result: exit, out, err } = captureStdio(() =>
       finishForeground('task', { id: 'j-auth' },
         { status: 'auth_required', exitCode: 1, stdout: '', stderr: '', oauthUrl: 'https://accounts.google.com/o/oauth2/auth?x=1' },
@@ -1438,8 +1438,9 @@ describe('finishForeground — one error envelope per non-completed status (Task
     assert.equal(payload.details.error.code, 'auth_required');
     assert.equal(payload.details.error.message, 'Antigravity is not authenticated.');
     assert.doesNotMatch(payload.details.error.message, /accounts\.google\.com/);
-    // the OAuth URL still reaches stderr, unchanged — only the envelope excludes it.
-    assert.match(err.join(''), /accounts\.google\.com/);
+    // Even a result that carries a URL never prints it: stderr names setup.
+    assert.doesNotMatch(err.join(''), /accounts\.google\.com/);
+    assert.match(err.join(''), /Run \/antigravity:setup to complete the OAuth flow, then retry\./);
   });
 
   it('auth_required: without --json, stdout stays empty', () => {

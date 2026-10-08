@@ -253,7 +253,7 @@
  * @property {string} stderr
  * @property {string | null} errorMessage
  * @property {number | null} exitCode
- * @property {string} [oauthUrl]
+ * @property {string | null} [oauthUrl] always null: no OAuth URL is shown
  * @property {string} stdout
  * @property {string} [rawStdout]
  * @property {AgyUsage | null} usage

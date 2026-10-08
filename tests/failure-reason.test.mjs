@@ -164,15 +164,20 @@ describe('the safe failure reason reaches every JSON writer', () => {
     assert.match(res.stderr, /agent-runtime: agy reported error: API error \(attempt 1\)/);
   });
 
-  it('a sign-in URL in result.error is an auth_required envelope with no URL in its message', () => {
+  // Only agy's raw prompt lines before the first stream-json event are an
+  // auth signal, so a sign-in URL inside the result event is a plain failure.
+  // stderr still quotes agy's own error line, as for every result.error, but
+  // never offers the URL as a sign-in step.
+  it('a sign-in URL in result.error is a run_failed envelope with no URL in the JSON', () => {
     const { work, data } = freshDirs();
     const url = 'https://accounts.google.com/o/oauth2/auth?client_id=abc&state=s';
     const agy = resultErrorAgy('agy-signin', `sign in at ${url}`);
     const res = runVerb(['task', 'go', '--foreground', '--json'], agy, data, work);
     assert.equal(res.status, 1, res.stderr);
     const payload = JSON.parse(res.stdout);
-    assert.equal(payload.details.error.code, 'auth_required');
-    assert.equal(payload.details.error.message, 'Antigravity is not authenticated.');
+    assert.equal(payload.details.error.code, 'run_failed');
+    assert.equal(res.stdout.includes('accounts.google.com'), false, res.stdout);
+    assert.doesNotMatch(res.stderr, /OAuth URL:|OAuth required/);
   });
 
   it('a timeout keeps its own code and message, whatever result.error said', () => {
@@ -189,5 +194,29 @@ describe('the safe failure reason reaches every JSON writer', () => {
     const stored = readStoredJob(data, payload.jobId);
     assert.equal(stored.errorMessage, 'agy did not finish within 1500 ms');
     assert.equal(stored.healthMessage, 'agy did not finish within 1500 ms');
+  });
+});
+
+// agy's own auth prompt, in the shape recorded in docs/SPIKE-findings.md
+// ("Auth"): raw text lines before any stream-json event. The command names
+// the setup remedy and never prints the URL, because agy's client_id and
+// redirect_uri are not recorded anywhere to check a URL against.
+describe('agy raw auth prompt through the real CLI', () => {
+  it('task --foreground reports not authenticated, names setup, and prints no URL', () => {
+    const { work, data } = freshDirs();
+    const url = 'https://accounts.google.com/o/oauth2/auth?client_id=probe&redirect_uri=probe';
+    const prompt = [
+      'Authentication required. Please visit the URL to log in:',
+      `  ${url}`,
+      'Waiting for authentication (timeout 30s)...',
+      '',
+    ].join('\n');
+    const agy = writeFakeAgy(stubDir, 'agy-raw-auth', { stdout: prompt, exitCode: 1, versionOk: true });
+    const res = runVerb(['task', 'probe', '--foreground'], agy, data, work);
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, /^antigravity:task — Antigravity is not authenticated\.$/m);
+    assert.match(res.stderr, /^Run \/antigravity:setup to complete the OAuth flow, then retry\.$/m);
+    assert.equal(res.stderr.includes('accounts.google.com'), false, res.stderr);
+    assert.equal(res.stdout.includes('accounts.google.com'), false, res.stdout);
   });
 });

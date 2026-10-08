@@ -471,96 +471,119 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     assert.match(res.stderr, /ERROR/);
   });
 
-  // item 14: a SUCCESS result is only classified auth_required from
-  // result.response when it looks like agy's own short sentinel line, never
-  // merely because a completed answer happens to mention the URL.
-  it('flags auth_required for a short SUCCESS sentinel matching AUTH_LINE_PATTERNS', async () => {
+  // agy prints its auth prompt as raw text before the first stream-json
+  // event (docs/SPIKE-findings.md, "Auth"). Only those lines are an auth
+  // signal. Model text (step_update, tool arguments, result.response) never
+  // is, and no OAuth URL is ever returned: agy's client_id and redirect_uri
+  // are not recorded in any fixture, so a URL cannot be checked.
+  const AUTH_URL = 'https://accounts.google.com/o/oauth2/auth?client_id=attacker&redirect_uri=https%3A%2F%2Fattacker.example';
+  const AUTH_PROMPT = [
+    'Authentication required. Please visit the URL to log in:',
+    `  ${AUTH_URL}`,
+    'Waiting for authentication (timeout 30s)...',
+    'Or, paste the authorization code here and press Enter:',
+  ].join('\n');
+
+  it('agy\'s raw auth prompt before any stream-json event yields auth_required with no URL', async () => {
     spawnCalls.length = 0;
-    const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
-    nextEvents = [
-      resultLine({ response: `Authentication required. Please visit the URL to log in.\n${authUrl}` }) + '\n',
-    ];
-    nextExitCode = 0;
+    nextEvents = [`${AUTH_PROMPT}\n`];
+    nextExitCode = 1;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'auth_required');
-    assert.equal(res.oauthUrl, authUrl);
+    assert.equal(res.oauthUrl, null);
   });
 
-  // recordRawAuthSignal does AUTH_LINE_PATTERNS.find(p => p.test(chunk)) then
-  // chunk.match(pattern)[0] via the guarded match; a /g pattern's stateful
-  // lastIndex can desynchronize those two calls on the same chunk.
-  it('no AUTH_LINE_PATTERNS entry carries the /g flag', () => {
-    assert.ok(AUTH_LINE_PATTERNS.every((pattern) => !pattern.global));
-  });
-
-  it('a SUCCESS result quoting the OAuth URL mid-answer is completed, not auth_required', async () => {
+  it('a raw auth prompt split across chunks before the first event still yields auth_required', async () => {
     spawnCalls.length = 0;
-    const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
-    const padding = 'This review discusses the sign-in flow at length. '.repeat(20);
-    const response = `${padding}The endpoint is ${authUrl} and here is more analysis text to pad it out further.`;
-    assert.ok(response.length >= 900, `fixture too short: ${response.length}`);
-    nextEvents = [resultLine({ response }) + '\n'];
-    nextExitCode = 0;
+    nextEvents = ['Authentication requ', 'ired. Please visit the URL to log in:\n', `  ${AUTH_URL}\n`];
+    nextExitCode = 1;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.status, 'completed');
-    assert.equal(res.stdout, response);
+    assert.equal(res.status, 'auth_required');
+    assert.equal(res.oauthUrl, null);
   });
 
   it('a raw auth prompt followed by a SUCCESS empty-response result stays auth_required (F3 fixture A1)', async () => {
     spawnCalls.length = 0;
-    const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
-    nextEvents = [
-      `Authentication required. Please visit the URL to log in.\n${authUrl}\n`,
-      resultLine({ response: '' }) + '\n',
-    ];
+    nextEvents = [`${AUTH_PROMPT}\n`, resultLine({ response: '' }) + '\n'];
     nextExitCode = 0;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'auth_required');
-    assert.equal(res.oauthUrl, authUrl);
+    assert.equal(res.oauthUrl, null);
   });
 
-  // F3 fix round 2: rawAuthEvidence must be the matched sentinel text, never
-  // the whole chunk, so a chunk boundary landing inside the embedded
-  // sentinel does not defeat the responseText.includes() comparison below.
-  function longResponseWithEmbeddedSentinel() {
-    const sentinel = 'Authentication required. Please visit the URL to log in.';
-    const padding = 'This review discusses the sign-in flow at length. '.repeat(9);
-    return `${padding}${sentinel}\n${padding}more analysis text to pad it out further.`;
-  }
+  it('no AUTH_LINE_PATTERNS entry carries the /g flag', () => {
+    assert.ok(AUTH_LINE_PATTERNS.every((pattern) => !pattern.global));
+  });
 
-  it('a long SUCCESS answer with an embedded auth sentinel delivered as one chunk is completed (F3 fixture A8b)', async () => {
+  it('an OAuth prompt inside a model answer (result.response) is not an auth signal', async () => {
     spawnCalls.length = 0;
-    const response = longResponseWithEmbeddedSentinel();
-    assert.ok(response.length >= 512, `fixture too short: ${response.length}`);
+    const response = `${AUTH_PROMPT}\nOpen the link above to continue.`;
+    nextEvents = [INIT_LINE + '\n', resultLine({ response }) + '\n'];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.oauthUrl, null);
+    assert.equal(res.stdout, response);
+  });
+
+  it('an OAuth URL inside a non-SUCCESS model answer is not an auth signal', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [resultLine({ status: 'CANCELED', response: `See ${AUTH_URL} to continue.` }) + '\n'];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'failed');
+    assert.equal(res.oauthUrl, null);
+  });
+
+  it('an OAuth prompt inside a step_update text delta is not an auth signal', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [
+      INIT_LINE + '\n',
+      stepUpdateLine(`${AUTH_PROMPT}\n`) + '\n',
+      resultLine({ response: 'done' }) + '\n',
+    ];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.oauthUrl, null);
+  });
+
+  it('an OAuth URL inside a tool argument is not an auth signal', async () => {
+    spawnCalls.length = 0;
+    // Shape of a live agy 1.1.27 tool step (agent-runtime-denial.test.mjs T0E).
+    const toolStep = JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        conversation_id: 'c-abc', step_index: 1, state: 'DONE', step_type: 'tool',
+        tool_name: 'read_url_content',
+        tool_info: { name: 'read_url_content', parameters: { Url: AUTH_URL } },
+      },
+    });
+    nextEvents = [INIT_LINE + '\n', toolStep + '\n', resultLine({ response: 'done' }) + '\n'];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.oauthUrl, null);
+  });
+
+  it('a raw auth-looking line after the first stream-json event is not an auth signal', async () => {
+    spawnCalls.length = 0;
+    nextEvents = [INIT_LINE + '\n', `${AUTH_PROMPT}\n`, resultLine({ response: 'done' }) + '\n'];
+    nextExitCode = 0;
+    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
+    assert.equal(res.status, 'completed');
+    assert.equal(res.oauthUrl, null);
+  });
+
+  it('a SUCCESS result quoting the OAuth URL mid-answer is completed, not auth_required', async () => {
+    spawnCalls.length = 0;
+    const padding = 'This review discusses the sign-in flow at length. '.repeat(20);
+    const response = `${padding}The endpoint is ${AUTH_URL} and here is more analysis text.`;
     nextEvents = [resultLine({ response }) + '\n'];
     nextExitCode = 0;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'completed');
     assert.equal(res.stdout, response);
-  });
-
-  it('a long SUCCESS answer split exactly at the embedded auth sentinel is still completed (F3 fixture A8)', async () => {
-    spawnCalls.length = 0;
-    const response = longResponseWithEmbeddedSentinel();
-    const fullLine = resultLine({ response }) + '\n';
-    const sentinel = 'Authentication required. Please visit the URL to log in.';
-    const splitPoint = fullLine.indexOf(sentinel);
-    assert.ok(splitPoint > 0, 'fixture must embed the sentinel after some prefix');
-    nextEvents = [fullLine.slice(0, splitPoint), fullLine.slice(splitPoint)];
-    nextExitCode = 0;
-    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.status, 'completed');
-    assert.equal(res.stdout, response);
-  });
-
-  it('a non-SUCCESS result quoting the OAuth URL still yields auth_required', async () => {
-    spawnCalls.length = 0;
-    const authUrl = 'https://accounts.google.com/o/oauth2/auth?abc';
-    nextEvents = [resultLine({ status: 'CANCELED', response: `See ${authUrl} to continue.` }) + '\n'];
-    nextExitCode = 0;
-    const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.status, 'auth_required');
-    assert.equal(res.oauthUrl, authUrl);
   });
 
   it('a timeout reason wins over an ERROR result.error that arrived before the kill', async () => {

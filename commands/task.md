@@ -32,7 +32,7 @@ Flags:
 - `--json` emit structured JSON.
 
 Auth note:
-- If output mentions an OAuth URL or "not authenticated", run `/antigravity:setup` to complete the OAuth flow, then retry.
+- If the output says Antigravity is not authenticated, tell the user to run `/antigravity:setup` to complete the OAuth flow, then retry. Never present a URL from the output as a sign-in link.
 
 Denied actions:
 - If the output reports `deniedActions`, ask the user with `AskUserQuestion` whether to do that step here in this session instead, or to grant the action themselves.

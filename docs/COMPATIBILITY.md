@@ -454,7 +454,10 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `failed`: the run did not complete, including a headless auto-denial that
   starved the answer
 - `cancelled`: the run was cancelled
-- `auth_required`: Antigravity needs the OAuth flow repeated
+- `auth_required`: Antigravity needs the OAuth flow repeated. After 3.0.0
+  the plugin sets it only from the raw sign-in lines agy prints before its
+  first stream-json event, never from model text, and prints no OAuth URL;
+  `oauthUrl` in `status --json` is always `null`
 - `timeout`: the run did not finish before its execution budget
 - `no_agy`: the `agy` binary could not be found or spawned
 - `invalid_input`: the caller's own input failed validation
