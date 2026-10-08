@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **`update --apply` checks the agy tarball before it installs it.** The
+  tarball came from `npm pack` in your current directory with no explicit
+  registry, so a project `.npmrc` there could choose where it was downloaded
+  from, and nothing compared it with the npm registry record. Now `npm pack`
+  runs from the update's temporary directory with the npmjs.org registry and
+  scope registry on its command line. The integrity that `npm pack` reports
+  and the sha512 of the tarball must equal the `dist.integrity` of the
+  registry record, read over HTTPS from registry.npmjs.org, and the
+  extracted `package.json` must name this package and version. A missing
+  value or a mismatch stops the update before `agy plugin uninstall`, with
+  exit 1. With the registry unreachable, agy is now skipped.
 - **Reads of shared temp state are checked like writes.** On a shared POSIX
   host, another local user could plant job state or an update-check cache
   under the OS temp directory. `status`, `result` and `cancel` now refuse a

@@ -263,6 +263,29 @@ On Windows, the update runner refuses a `.cmd`/`.bat` step before spawning
 when its command path or any argument contains `&`, `|`, `<`, `>`, `^`, `%`,
 `!`, `"`, or a carriage return/newline.
 
+For agy, `update --apply` installs only the tarball that registry.npmjs.org
+publishes for the latest version:
+
+- It reads that version's `dist.integrity` from
+  `https://registry.npmjs.org/@southcarpet%2Fantigravity-plugin/<version>`,
+  over the same HTTPS request path as the version check.
+- `npm pack` runs from the update's own temporary directory, with
+  `--registry=https://registry.npmjs.org/` and
+  `--@southcarpet:registry=https://registry.npmjs.org/` on its command line.
+  Command-line flags override every `.npmrc`, so a project `.npmrc` in the
+  directory where you run the command cannot send the download to another
+  registry.
+- The integrity `npm pack` reports and the sha512 that the plugin computes
+  from the tarball file must both equal the registry's value. After
+  extraction, `package/package.json` must name
+  `@southcarpet/antigravity-plugin` and that version.
+- If the registry record cannot be read, a value is missing, or a check
+  fails, the command stops before `agy plugin uninstall`. The installed copy
+  stays as it was, and the exit code is 1.
+
+These checks bind the tarball to the npm registry record. They do not check
+the npm provenance attestation (see [Provenance](#provenance)).
+
 ### What this plugin passes to agy, and when
 
 This plugin does not talk to Google itself. Delegated verbs spawn `agy` and

@@ -1314,6 +1314,25 @@ meaning:
   read. The plugin never writes such an entry.
 - `recentProgress` on `status <id>` (additive, 2026-10): read only when the job's
   `logFile` is the plugin's own log path for that job; otherwise absent.
+- **`update --apply` verifies the agy tarball** (2026-10): before
+  `agy plugin uninstall`, the plugin reads the version's `dist.integrity`
+  from the npm registry record, runs `npm pack` from its temporary directory
+  with the npmjs.org registry and scope registry on the command line, and
+  checks the tarball integrity and the extracted name and version. New
+  messages, each on the `update --apply` output stream, with the existing
+  apply-failure exit code 1 (`apply_failed` under `--json`):
+  `agy: could not read the npm registry record for <version>: <reason>;
+  nothing was installed, skipping this host.`;
+  `agy: the @southcarpet/antigravity-plugin@<version> tarball does not match
+  the npm registry record (registry <sri or none>, npm pack <sri or none>,
+  computed <sri>); stopped, nothing after this step was run.`;
+  `agy: the extracted package is <name>@<version>, not
+  @southcarpet/antigravity-plugin@<version>; stopped, nothing after this step
+  was run.` With the registry unreachable, agy is now skipped with the
+  existing `no known "latest" version to pack` line; it used to pack the
+  `latest` tag. The `npm pack` argv gains `--registry=https://registry.npmjs.org/`
+  and `--@southcarpet:registry=https://registry.npmjs.org/`. See
+  [`update`](./COMMANDS.md#update).
 - `unconfirmed` (additive, 2026-10): a new `outcome` value in a `cancel --json`
   `details.termination[]` entry. `cancel` does not signal a running process
   that started later than the job record's last `updatedAt` (plus 2 seconds)
