@@ -1,72 +1,113 @@
-/**
- * A failure reason that is safe to show in `details.error.message`.
- *
- * agy puts a one-line reason on a failed run (`result.error`, or an
- * `error:` line on stderr). That text comes from outside the plugin, so it
- * can carry a bearer token, an OAuth callback URL or a multi-line dump. This
- * module turns it into one bounded line with the sensitive parts replaced, or
- * into `null` when nothing useful is left. A caller then keeps its own
- * generic text.
- */
+/** Allow-list filter for upstream text used in public failure messages. */
 
 /** Longest reason, in characters, after redaction. */
 export const MAX_SAFE_REASON_LENGTH = 300;
 
 const REDACTED = "[redacted]";
 const REDACTED_URL = "[redacted-url]";
-
-const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>)\]]*/gi;
-const URL_USERINFO_RE = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i;
-
-/** A URL is kept only when it has no query, no fragment and no credentials. */
-function redactUrl(url) {
-  return url.includes("?") || url.includes("#") || URL_USERINFO_RE.test(url) ? REDACTED_URL : url;
-}
-
-/** Each rule maps a pattern to its replacement. Order matters: URLs first. */
-const VALUE_RULES = [
-  [/\bBearer\s+[^\s"',;]+/gi, `Bearer ${REDACTED}`],
-  [
-    /(["']?)\b(access_token|refresh_token|id_token|client_secret|api[_-]?key|token|secret|password|authorization)\b\1(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)/gi,
-    `$1$2$1$3${REDACTED}`,
-  ],
-  [/\bcode=[^\s&,;"']+/gi, `code=${REDACTED}`],
-  [/\bya29\.[\w-]+/g, REDACTED],
-  [/\b1\/\/[\w-]{20,}/g, REDACTED],
-  [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, REDACTED],
-  [/\b(?:sk|pk|gh[pousr]|AIza)[_-]?[A-Za-z0-9_-]{16,}/g, REDACTED],
-  [/\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}\b/g, REDACTED],
-];
+const KEYWORDS = new Set([
+  "bearer", "basic", "digest", "negotiate", "token", "authorization",
+  "proxy-authorization", "cookie", "set-cookie", "password", "passwd",
+  "pwd", "secret", "apikey", "api-key", "api_key", "x-api-key", "key",
+  "credential", "credentials", "session", "sid", "jwt", "auth",
+  "access_token", "refresh_token", "id_token", "client_secret", "code",
+]);
 
 /**
- * @param {string} text one line of text
- * @returns {string} the same text with URLs, tokens and credentials replaced
+ * @param {string} text
+ * @returns {string}
  */
-function redact(text) {
-  let out = text.replace(URL_RE, redactUrl);
-  for (const [pattern, replacement] of VALUE_RULES) out = out.replace(pattern, replacement);
-  return out;
-}
-
-/** True when text still says something once the redaction markers are removed. */
-function hasReadableWords(text) {
-  return /[A-Za-z]{3,}/.test(text.replace(/\[redacted(?:-url)?\]/g, ""));
+function normalize(text) {
+  return text
+    .replace(/\u001b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\u001b\][\s\S]*?(?:\u0007|\u001b\\)|\u001b[\s\S]/g, "")
+    .normalize("NFKC")
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Zs}\p{Default_Ignorable_Code_Point}]/gu, " ")
+    .replace(/ +/g, " ")
+    .trim();
 }
 
 /**
- * One safe, bounded line for a failure reason, or `null` when none can be
- * made. Control characters and line breaks become single spaces, tokens and
- * URLs with a query string, a fragment or credentials are replaced, and the
- * result is cut to {@link MAX_SAFE_REASON_LENGTH} characters after redaction.
+ * @param {string} token
+ * @returns {boolean}
+ */
+function isKeyword(token) {
+  return KEYWORDS.has(token.toLowerCase().replace(/^["'()\[\],;:]+|["'()\[\],;:]+$/g, ""));
+}
+
+/** Preserve numeric status diagnostics such as the required `(code 503):`.
+ * @param {string} token
+ * @param {string | undefined} next
+ * @returns {boolean}
+ */
+function isStatusCode(token, next) {
+  return token.toLowerCase() === "(code" && /^\d{1,20}\):$/.test(next ?? "");
+}
+
+/**
+ * @param {string} token
+ * @returns {boolean}
+ */
+function hasAllowedShape(token) {
+  return token.length <= 32
+    && /^[A-Za-z0-9.,:;!()\[\]'"_\-/]+$/.test(token)
+    && !/[A-Za-z0-9]{21}/.test(token)
+    && !token.includes("//");
+}
+
+/**
+ * @param {string} token
+ * @returns {string}
+ */
+function replacement(token) {
+  return token.includes("://") ? REDACTED_URL : REDACTED;
+}
+
+/**
+ * @param {string[]} tokens
+ * @returns {string[]}
+ */
+function redact(tokens) {
+  const output = [];
+  let remaining = 0;
+  for (const [index, token] of tokens.entries()) {
+    let safeToken;
+    if (remaining > 0) {
+      safeToken = replacement(token);
+      remaining -= 1;
+    } else if (isKeyword(token) && !isStatusCode(token, tokens[index + 1])) {
+      safeToken = token;
+      remaining = 2;
+    } else {
+      safeToken = hasAllowedShape(token) ? token : replacement(token);
+    }
+    const marker = safeToken === REDACTED || safeToken === REDACTED_URL;
+    if (!marker || output.at(-1) !== safeToken) output.push(safeToken);
+  }
+  return output;
+}
+
+/**
+ * @param {string} text
+ * @returns {string}
+ */
+function truncate(text) {
+  if (text.length <= MAX_SAFE_REASON_LENGTH) return text;
+  const boundary = text.lastIndexOf(" ", MAX_SAFE_REASON_LENGTH);
+  return text.slice(0, Math.max(0, boundary));
+}
+
+/**
+ * Normalize and keep only allowed tokens, with two tokens masked after each
+ * credential keyword. Return null when no three-letter ASCII word remains.
  *
  * @param {unknown} value
  * @returns {string | null}
  */
 export function safeFailureReason(value) {
   if (typeof value !== "string") return null;
-  const oneLine = value.replace(/[\x00-\x20\x7f]+/g, " ").trim();
-  if (!oneLine) return null;
-  const redacted = redact(oneLine);
-  if (!hasReadableWords(redacted)) return null;
-  return redacted.length > MAX_SAFE_REASON_LENGTH ? redacted.slice(0, MAX_SAFE_REASON_LENGTH) : redacted;
+  const text = normalize(value);
+  if (!text) return null;
+  const reason = redact(text.split(" ")).join(" ");
+  if (!/[A-Za-z]{3}/.test(reason.replace(/\[redacted(?:-url)?\]/g, ""))) return null;
+  return truncate(reason);
 }

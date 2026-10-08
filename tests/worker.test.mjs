@@ -468,7 +468,7 @@ describe('_worker.mjs persists agyPrintTimeout', () => {
 });
 
 describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () => {
-  it('stores agy stderr as errorMessage and status <id> renders a ## Error section', async () => {
+  it('stores filtered agy stderr as errorMessage and status <id> renders a ## Error section', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-data-'));
     const jobId = 'job' + randomBytes(3).toString('hex');
@@ -545,11 +545,12 @@ describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () =>
 
     assert.equal(stored.status, 'failed');
     assert.equal(stored.healthStatus, 'auth_required');
-    assert.equal(stored.errorMessage, 'agy: token expired, please re-authenticate');
+    // The keyword rule masks the two tokens after `token`.
+    assert.equal(stored.errorMessage, 'agy: token [redacted] re-authenticate');
     assert.ok(rendered.includes('## Error'), 'expected a ## Error section');
     assert.ok(
-      rendered.includes('agy: token expired, please re-authenticate'),
-      'expected the preserved stderr text in the rendered status',
+      rendered.includes('agy: token [redacted] re-authenticate'),
+      'expected the filtered stderr text in the rendered status',
     );
   });
 });

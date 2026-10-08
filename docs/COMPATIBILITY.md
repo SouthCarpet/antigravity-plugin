@@ -441,9 +441,9 @@ Once `--json` is accepted, an expected failure on a known path (a validation
 error, a missing `agy` binary, a run that did not complete, a job reference
 or a stored job record that cannot be resolved) also emits exactly one
 version-1 envelope: `answer` is `null`, and `details.error` carries `{ code,
-phase, message }`. `message` is the plugin's own one-line reason; it never
-carries a token, an OAuth URL, or the full upstream stderr. The human-
-readable line stays on stderr, unchanged, on every one of these paths.
+phase, message }`. `message` is a plugin-authored one-line reason or an
+upstream reason processed by the filter in the "Failure reason" section.
+The human-readable line stays on stderr, unchanged, on these paths.
 Therefore the precise stream promise is: if `--json` writes any stdout, that
 stdout is exactly one version-1 envelope and contains no text before or after
 it, on success or on failure. A script that used to treat any stdout as
@@ -521,13 +521,35 @@ failure reason. It reaches three places:
 - `healthMessage` on the stored job record, which `result <id> --json` reads
   as `details.error.message` of a `job_failed` envelope.
 
-The reason is one line of at most 300 characters. Line breaks and control
-characters become single spaces. Bearer tokens, values of `access_token`,
-`refresh_token`, `id_token`, `client_secret`, `api_key`, `token`, `secret`,
-`password`, `authorization` and `code=`, known token shapes, long opaque
-strings, and every URL that has a query string, a fragment or credentials are
-replaced with `[redacted]` or `[redacted-url]` before the text is cut to
-length. If no readable words remain, the plugin keeps its generic text
+The filter first removes ANSI and terminal escapes, then applies Unicode
+NFKC normalization. Control, format, separator and default-ignorable
+characters become spaces. It combines repeated spaces and removes spaces
+at the start and end. The filter then checks each space-separated token.
+
+The filter keeps a token only if it has at most 32 characters, contains
+only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`, has no run of
+more than 20 letters and digits, and does not contain `//`. It replaces
+every other token. A replaced token that contains `://` becomes
+`[redacted-url]`. Other replaced tokens become `[redacted]`.
+
+The keyword rule takes precedence over the shape check. The filter ignores
+letter case and removes surrounding `" ' ( ) [ ] , ; :` to identify these
+keywords: `bearer`, `basic`, `digest`, `negotiate`, `token`, `authorization`,
+`proxy-authorization`, `cookie`, `set-cookie`, `password`, `passwd`, `pwd`,
+`secret`, `apikey`, `api-key`, `api_key`, `x-api-key`, `key`, `credential`,
+`credentials`, `session`, `sid`, `jwt`, `auth`, `access_token`,
+`refresh_token`, `id_token`, `client_secret` and `code`. It keeps the
+keyword token and replaces the next two tokens, or all remaining tokens
+if fewer than two remain. A keyword in those replaced tokens does not
+start another pair of replacements.
+The filter keeps numeric status diagnostics such as `(code 503):`.
+This exception applies only to `(code` followed by 1 to 20 digits and `):`.
+
+Adjacent replacement markers of the same type become one marker. The
+reason is one line of at most 300 characters, cut at the last complete
+token that fits. These rules filter token shapes. A secret that fits the
+allowed shape can remain in the text. If no run of at least three ASCII
+letters remains outside the markers, the plugin keeps its generic text
 (`failed (failed).` for a foreground run, `job <id> failed.` for `result`).
 A reason from the `error:` or `AGY_ERROR:` stderr marker follows the same
 rules. Precedence is unchanged: a plugin-authored timeout, output-limit or
@@ -536,11 +558,11 @@ cancellation reason wins over any agy reason, then the stderr marker, then
 change. A `timeout` or `cancelled` envelope keeps its own message. When agy
 gives no reason of its own, a failed job's stored `errorMessage` is its
 stderr put through the same rules, or empty when nothing readable is left.
-Every output that prints the stored reason carries only this redacted text:
+These outputs use the filtered stored reason:
 the `--show-result` envelope and its text-mode line (`review`, `rescue`,
 `task`), the `## Error` section of `status <id>`, and the `result <id>`
-fallback text. The stored `result.stderr` is the unredacted upstream text and
-is not part of this promise.
+fallback text. The stored `result.stderr` contains the unredacted upstream
+text and is outside the filter's scope.
 
 ### Usage trailer
 

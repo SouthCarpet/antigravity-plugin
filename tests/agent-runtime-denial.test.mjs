@@ -880,7 +880,7 @@ describe('runAgyPrint — fatal error marker reaches errorMessage', () => {
     assert.notEqual(res.errorMessage, FATAL_ERROR_LINE);
   });
 
-  it('exit 3 with only an AGY_ERROR: line and no result event -> failed, errorMessage is that one line, exitCode 3', async () => {
+  it('exit 3 with only an AGY_ERROR: line keeps failed status and filters the JSON token', async () => {
     spawnCalls.length = 0;
     nextStdout = [];
     nextStderr = ['CLI settings initialized\n' + AGY_ERROR_LINE + '\n'];
@@ -888,17 +888,18 @@ describe('runAgyPrint — fatal error marker reaches errorMessage', () => {
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'failed');
     assert.equal(res.exitCode, 3);
-    assert.equal(res.errorMessage, AGY_ERROR_LINE);
+    // The allow-list rejects the whole JSON token, but keeps the marker.
+    assert.equal(res.errorMessage, 'AGY_ERROR: [redacted]');
   });
 
-  it('exit 3 with an ERROR result event plus an AGY_ERROR: line -> failed, errorMessage is the marker line', async () => {
+  it('exit 3 with an ERROR result event uses the filtered AGY_ERROR: marker first', async () => {
     spawnCalls.length = 0;
     nextStdout = [resultLine({ status: 'ERROR', response: '', error: 'agent failure' }) + '\n'];
     nextStderr = [AGY_ERROR_LINE + '\n'];
     nextExitCode = 3;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'failed');
-    assert.equal(res.errorMessage, AGY_ERROR_LINE);
+    assert.equal(res.errorMessage, 'AGY_ERROR: [redacted]');
   });
 
   it('a successful run with a stray AGY_ERROR: line in stderr still gets no errorMessage', async () => {
@@ -968,20 +969,21 @@ describe('runAgyPrint — result.error reaches errorMessage', () => {
     assert.equal(res.errorMessage, null);
   });
 
-  it('a bearer token, a query-string URL and line breaks never reach errorMessage', async () => {
+  it('a bearer masks its value and the next token, and a URL gets its own marker', async () => {
     arm({
       status: 'ERROR',
       exitCode: 1,
       error: 'denied\nBearer ya29.SYNTHETIC-token-0123456789 at https://oauth2.googleapis.com/token?grant_type=refresh_token&code=SECRET&state=s',
     });
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.errorMessage, 'denied Bearer [redacted] at [redacted-url]');
+    // Keyword masking covers both the bearer value and `at`.
+    assert.equal(res.errorMessage, 'denied Bearer [redacted] [redacted-url]');
   });
 
-  it('a reason that is only a token yields null, so the caller keeps its generic text', async () => {
+  it('a token-shaped reason that fits the allow-list stays in errorMessage', async () => {
     arm({ status: 'ERROR', exitCode: 1, error: 'ya29.SYNTHETIC-token-0123456789' });
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.errorMessage, null);
+    assert.equal(res.errorMessage, 'ya29.SYNTHETIC-token-0123456789');
   });
 
   it('the AGY_ERROR: marker is redacted like any other reason', async () => {
@@ -990,7 +992,8 @@ describe('runAgyPrint — result.error reaches errorMessage', () => {
     nextStderr = ['AGY_ERROR: {"detail":"refresh failed","refresh_token":"1//SYNTHETIC0123456789abcdefghij"}\n'];
     nextExitCode = 3;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
-    assert.equal(res.errorMessage, 'AGY_ERROR: {"detail":"refresh failed","refresh_token":[redacted]}');
+    // Both space-separated JSON pieces have excluded characters and collapse.
+    assert.equal(res.errorMessage, 'AGY_ERROR: [redacted]');
   });
 });
 

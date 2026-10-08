@@ -47,7 +47,7 @@ class Program {
         string controlPath = exePath + ".control.txt";
         string stdout = "", stderr = "", touchFile = "", helpText = "";
         int exitCode = 0, delayMs = 0;
-        bool echoArgs = false, echoArgsStderr = false, versionOk = false;
+        bool echoArgs = false, echoArgsStderr = false, versionOk = false, readStdin = false;
         if (File.Exists(controlPath)) {
             foreach (var line in File.ReadAllLines(controlPath)) {
                 int eq = line.IndexOf('=');
@@ -60,6 +60,7 @@ class Program {
                     case "ECHOARGS": echoArgs = val == "1"; break;
                     case "ECHOARGS_STDERR": echoArgsStderr = val == "1"; break;
                     case "VERSION_OK": versionOk = val == "1"; break;
+                    case "READ_STDIN": readStdin = val == "1"; break;
                     case "STDOUT_B64": stdout = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "STDERR_B64": stderr = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "TOUCH_FILE": touchFile = val; break;
@@ -89,6 +90,7 @@ class Program {
         Console.Out.Flush();
         if (stderr.Length > 0) Console.Error.Write(stderr);
         Console.Error.Flush();
+        if (readStdin) Console.In.ReadToEnd();
         if (delayMs > 0) Thread.Sleep(delayMs);
         return exitCode;
     }
@@ -160,7 +162,7 @@ function ensureTemplateExe() {
   return exePath;
 }
 
-function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText }) {
+function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin }) {
   const template = ensureTemplateExe();
   const exePath = path.join(dir, `${name}.exe`);
   fs.copyFileSync(template, exePath);
@@ -170,6 +172,7 @@ function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoAr
     `ECHOARGS=${echoArgs ? 1 : 0}`,
     `ECHOARGS_STDERR=${echoArgsStderr ? 1 : 0}`,
     `VERSION_OK=${versionOk ? 1 : 0}`,
+    `READ_STDIN=${readStdin ? 1 : 0}`,
     `STDOUT_B64=${Buffer.from(stdout, "utf8").toString("base64")}`,
     `STDERR_B64=${Buffer.from(stderr, "utf8").toString("base64")}`,
     `TOUCH_FILE=${touchFile}`,
@@ -184,7 +187,7 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText }) {
+function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin }) {
   const lines = ["#!/bin/sh"];
   // Written on every invocation, before anything else: a test proves "agy
   // was never spawned" by pointing this at a scratch path and asserting the
@@ -204,6 +207,7 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
   }
   if (stdout) lines.push(`printf '%s\\n' ${shQuote(stdout)}`);
   if (stderr) lines.push(`printf '%s\\n' ${shQuote(stderr)} 1>&2`);
+  if (readStdin) lines.push('cat > /dev/null');
   if (delayMs > 0) lines.push(`sleep ${delayMs / 1000}`);
   lines.push(`exit ${exitCode}`);
   const p = path.join(dir, name);
@@ -224,12 +228,15 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
  *   echoArgs?: boolean,
  *   echoArgsStderr?: boolean,
  *   versionOk?: boolean,
+ *   readStdin?: boolean,
  *   touchFile?: string,
  * }} [opts] `echoArgs` prints one `arg=<value>` line per argv entry to
  *   stdout; `echoArgsStderr` does the same to stderr (useful when a verb
  *   only surfaces the child's stderr, i.e. on failure). `versionOk` answers
  *   a lone `--version` with `0.0.0-fake` and exit 0 regardless of the other
  *   settings, so a fake that fails the run still passes the verbs' probe.
+ *   `readStdin` consumes stdin until EOF before exit, so a print-mode fake
+ *   waits for the prompt write without a timing delay.
  *   `touchFile` (Task 5, "Senate R5", 2026-09), when given, writes an empty
  *   file at that path on every invocation, before anything else runs — the
  *   proof a test needs that this binary was never spawned at all.
@@ -242,9 +249,9 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
 export function writeFakeAgy(dir, name, opts = {}) {
   const {
     stdout = "", stderr = "", exitCode = 0, delayMs = 0, echoArgs = false, echoArgsStderr = false,
-    versionOk = false, touchFile = "", helpText = "",
+    versionOk = false, touchFile = "", helpText = "", readStdin = false,
   } = opts;
-  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText };
+  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin };
   return process.platform === "win32"
     ? writeWindowsStub(dir, name, normalized)
     : writePosixStub(dir, name, normalized);

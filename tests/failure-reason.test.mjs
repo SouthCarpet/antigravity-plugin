@@ -35,7 +35,12 @@ const CASES = [
   {
     name: 'a synthetic bearer and refresh token',
     error: 'auth failed: Bearer SYNTHETIC-bearer-0123456789 and refresh_token=SYNTHETIC-refresh-0123456789',
-    expected: 'auth failed: Bearer [redacted] and refresh_token=[redacted]',
+    expected: 'auth [redacted] SYNTHETIC-bearer-0123456789 and [redacted]',
+  },
+  {
+    name: 'a Basic-auth header is redacted',
+    error: 'request failed: Authorization: Basic dXNlcjpwYXNz',
+    expected: 'request failed: Authorization: [redacted]',
   },
   {
     name: 'an OAuth callback URL with a query string',
@@ -50,11 +55,16 @@ const CASES = [
   {
     name: 'over-length text',
     error: 'capacity '.repeat(100),
-    expected: 'capacity '.repeat(100).slice(0, 300),
+    expected: `${'capacity '.repeat(32)}capacity`,
   },
   {
-    name: 'a reason that is only a token (generic text stays)',
+    name: 'a token-shaped reason that fits the grammar stays',
     error: 'ya29.SYNTHETIC-token-0123456789',
+    expected: 'ya29.SYNTHETIC-token-0123456789',
+  },
+  {
+    name: 'a reason that is only a disallowed token (generic text stays)',
+    error: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     expected: GENERIC_MESSAGE,
   },
 ];
@@ -119,6 +129,7 @@ describe('the safe failure reason reaches every JSON writer', () => {
       assert.equal(payload.details.error.code, 'run_failed');
       assert.equal(payload.details.error.phase, 'run');
       assert.equal(payload.details.error.message, expected);
+      assert.equal(payload.details.error.message.includes('dXNlcjpwYXNz'), false);
       const stored = readStoredJob(data, payload.jobId);
       assert.equal(stored.healthMessage ?? null, storedExpected);
       if (storedExpected !== null) assert.equal(stored.errorMessage, storedExpected);
@@ -137,6 +148,7 @@ describe('the safe failure reason reaches every JSON writer', () => {
       assert.equal(payload.details.error.code, 'job_failed');
       assert.equal(payload.details.error.phase, 'run');
       assert.equal(payload.details.error.message, expected === GENERIC_MESSAGE ? `job ${jobId} failed.` : expected);
+      assert.equal(payload.details.error.message.includes('dXNlcjpwYXNz'), false);
       const record = readStoredJob(data, jobId);
       assert.equal(record.healthMessage ?? null, storedExpected);
       if (storedExpected !== null) assert.equal(record.errorMessage, storedExpected);

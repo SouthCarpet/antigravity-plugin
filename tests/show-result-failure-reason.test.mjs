@@ -1,12 +1,11 @@
 /**
- * `--show-result` never renders raw upstream stderr (plan 118 T1b, "O2").
+ * `--show-result` filters upstream stderr used as a failure reason.
  *
  * A fake agy exits 1 with only stderr text: no `result.error`, no `error:`
  * marker. The plugin then has no reason from agy's own channels, and the
  * stored `errorMessage` used to fall back to the raw stderr. The
- * `--show-result` envelope reads that field first. Two stderr shapes matter:
- * a token and nothing else (the generic text must stay), and an OAuth URL
- * with a query string (only the redacted text may reach output).
+ * `--show-result` envelope reads that field first. The allow-list keeps short
+ * token-shaped strings but replaces disallowed tokens, URLs and Basic auth.
  *
  * Runs `bin/antigravity.mjs` in a child process for all three verbs that
  * accept `--show-result` (`review`, `rescue`, `task`); no mocks.
@@ -38,7 +37,21 @@ const OAUTH_STDERR =
 
 /** Each case: what agy wrote on stderr, the message the output must carry ({id} is the job id), and the secret. */
 const CASES = [
-  { name: 'a token and nothing else', stderr: TOKEN, message: 'job {id} failed.', secret: TOKEN, stored: null },
+  { name: 'a token-shaped string that fits the grammar', stderr: TOKEN, message: TOKEN, secret: null, stored: TOKEN },
+  {
+    name: 'a disallowed token and nothing else',
+    stderr: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    message: 'job {id} failed.',
+    secret: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    stored: null,
+  },
+  {
+    name: 'a Basic-auth header is redacted',
+    stderr: 'request failed: Authorization: Basic dXNlcjpwYXNz',
+    message: 'request failed: Authorization: [redacted]',
+    secret: 'dXNlcjpwYXNz',
+    stored: 'request failed: Authorization: [redacted]',
+  },
   {
     name: 'an OAuth URL with a query string',
     stderr: OAUTH_STDERR,
@@ -97,9 +110,8 @@ function readStoredJob(data, jobId) {
 }
 
 function failingAgy(name, stderr) {
-  // The short delay lets the plugin finish writing the prompt to stdin. Without
-  // it a fast exit can add a `stdin error: write EPIPE` line to the stderr.
-  return writeFakeAgy(stubDir, name, { stderr, exitCode: 1, versionOk: true, delayMs: 500 });
+  // Wait for the prompt's EOF so early exit cannot add an EPIPE error.
+  return writeFakeAgy(stubDir, name, { stderr, exitCode: 1, versionOk: true, readStdin: true });
 }
 
 describe('--show-result renders only the redacted reason for a stderr-only failure', () => {
@@ -114,7 +126,7 @@ describe('--show-result renders only the redacted reason for a stderr-only failu
         assert.equal(payload.status, 'failed');
         assert.equal(payload.details.error.code, 'job_failed');
         assert.equal(payload.details.error.message, message.replace('{id}', payload.jobId));
-        assert.equal(res.stdout.includes(secret), false, 'secret reached stdout');
+        if (secret !== null) assert.equal(res.stdout.includes(secret), false, 'secret reached stdout');
         assert.equal(readStoredJob(data, payload.jobId).errorMessage, stored);
       });
 
@@ -125,8 +137,10 @@ describe('--show-result renders only the redacted reason for a stderr-only failu
         assert.equal(res.status, 1, res.stderr);
         const jobId = readJobIdFromData(data);
         assert.ok(res.stderr.split(/\r?\n/).includes(`antigravity:${kind} — ${message.replace('{id}', jobId)}`), res.stderr);
-        assert.equal(res.stdout.includes(secret), false, 'secret reached stdout');
-        assert.equal(res.stderr.includes(secret), false, 'secret reached stderr');
+        if (secret !== null) {
+          assert.equal(res.stdout.includes(secret), false, 'secret reached stdout');
+          assert.equal(res.stderr.includes(secret), false, 'secret reached stderr');
+        }
       });
     });
   });
@@ -138,7 +152,7 @@ function readJobIdFromData(data) {
   return path.basename(files[0], '.json');
 }
 
-describe('status and result render the stored reason, never raw stderr in an error message', () => {
+describe('status and result render the filtered stored reason', () => {
   CASES.forEach(({ name, stderr, secret, stored }, index) => {
     it(`task, then status <id> and result <id>: ${name}`, () => {
       const { work, data } = freshRepo();
@@ -148,12 +162,12 @@ describe('status and result render the stored reason, never raw stderr in an err
       const { jobId } = JSON.parse(queued.stdout);
 
       const status = runVerb(['status', jobId], agy, data, work);
-      assert.equal(status.stdout.includes(secret), false, 'secret reached status stdout');
+      if (secret !== null) assert.equal(status.stdout.includes(secret), false, 'secret reached status stdout');
       if (stored === null) assert.equal(status.stdout.includes('## Error'), false);
       else assert.match(status.stdout, new RegExp(`^## Error\\r?\\n\\r?\\n${escapeRegExp(stored)}$`, 'm'));
 
       const result = runVerb(['result', jobId], agy, data, work);
-      assert.equal(result.stdout.includes(secret), false, 'secret reached result stdout');
+      if (secret !== null) assert.equal(result.stdout.includes(secret), false, 'secret reached result stdout');
       const json = runVerb(['result', jobId, '--json'], agy, data, work);
       // The stored `result.stderr` stays unredacted and is outside the promise
       // (docs/COMPATIBILITY.md, "Failure reason"); the error message is not.

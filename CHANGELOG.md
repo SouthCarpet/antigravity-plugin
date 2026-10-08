@@ -63,10 +63,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `details.error.message` in a foreground `run_failed` envelope and in
   `result <id> --json` for a `job_failed` job. Before, both said only
   `failed (failed).` or `job <id> failed.`. The reason is one line of at most
-  300 characters. Tokens, credentials and URLs with a query string, a
-  fragment or credentials are replaced with `[redacted]` or
-  `[redacted-url]`. When no readable text is left, the old generic text
-  stays. Error codes, statuses, `answer`, exit codes and the stderr line do
+  300 characters, cut at a complete token. The filter removes terminal
+  escapes, applies Unicode NFKC, and turns control, format, separator and
+  default-ignorable characters into spaces. It keeps tokens with at most
+  32 characters, only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`,
+  no run of more than 20 letters and digits, and no `//`. It replaces
+  anything else with `[redacted]`, or `[redacted-url]` if the token contains
+  `://`. Credential keywords take precedence: the keyword stays and the
+  next two tokens are replaced. The complete keyword list is in
+  `docs/COMPATIBILITY.md#failure-reason`. Numeric `(code N):` diagnostics
+  with 1 to 20 digits stay. Adjacent markers of the same type
+  become one marker. A secret that fits the allowed shape can remain.
+  When no run of three ASCII letters remains outside the markers, the old
+  generic text stays. Error codes, statuses, `answer`, exit codes and the stderr line do
   not change. A timeout, output-limit or cancellation reason still wins. The
   `error:` and `AGY_ERROR:` stderr markers get the same redaction. See
   `docs/COMPATIBILITY.md#failure-reason`.
