@@ -319,7 +319,9 @@ function enrichJob(workspaceRoot, job, options = {}) {
     healthMessage: runtimeHealth.healthMessage ?? source.healthMessage ?? null,
     recommendedAction:
       runtimeHealth.recommendedAction ?? source.recommendedAction ?? null,
-    oauthUrl: source.oauthUrl ?? null,
+    // A record from 3.0.0 or earlier can hold a URL taken from model text.
+    // No OAuth URL is shown (see agent-runtime#recordRawAuthSignal).
+    oauthUrl: null,
     ...provenanceProjection(source),
     ...printTimeoutProjection(source),
     ...agyConversationIdProjection(source),

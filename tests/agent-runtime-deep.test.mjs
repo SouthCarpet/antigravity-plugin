@@ -137,13 +137,13 @@ describe('runAgyPrint', () => {
     assert.equal(out.agyConversationId, 'c1');
   });
 
-  it('flags auth_required when the OAuth URL is in stdout', async () => {
+  it('flags auth_required when the OAuth URL is in stdout, and never returns the URL', async () => {
     const url = 'https://accounts.google.com/o/oauth2/auth?token=abc';
     // A small delay lets the stdout 'data' event fire before 'exit' resolves.
     const bin = writeFakeAgy(stubDir, 'agy-auth-url', { stdout: url, delayMs: 50 });
     const out = await runAgyPrint({ prompt: 'go', bin });
     assert.equal(out.status, 'auth_required');
-    assert.equal(out.oauthUrl, url);
+    assert.equal(out.oauthUrl, null);
   });
 
   it('flags auth_required when stdout starts with the sentinel line', async () => {

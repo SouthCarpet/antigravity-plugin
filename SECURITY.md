@@ -98,15 +98,26 @@ isolated `HOME`/`USERPROFILE` before and after a full run.
 
 ### `vision` (per invocation)
 
-`vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array of the
-absolute paths named on that command, resolved to their realpath, then
-starts agy. The MCP server:
+`vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array that holds,
+for each image named on that command, its absolute path as given and its
+realpath, then starts agy. The MCP server:
 
 - grants **no** image access when that value is missing or invalid;
-- rejects every path not on the list, checked both as given and by its own
-  realpath — an ancestor directory symlink (macOS's `os.tmpdir()` resolves
-  through `/var` -> `/private/var`) is accepted when the resolved path is
-  itself an authorized entry, never merely because it resolves to something;
+- decides authorization before any filesystem call: it refuses a request
+  unless the lexical form of the request (resolved, normalized, and on
+  Windows case-folded) is on the list. A UNC (`\\host\share\...`), WebDAV
+  (`\\host@80\...`), device (`\\.\...`) or extended-length (`\\?\...`) path
+  that is not on the list is refused before it can touch the disk or the
+  network. On Windows, this stops a path from the model from opening an SMB
+  or WebDAV session that sends the user's NTLM credentials;
+- then requires the request's realpath to be on the list too. An ancestor
+  directory symlink (macOS's `os.tmpdir()` resolves through `/var` ->
+  `/private/var`) is accepted when the resolved path is itself an
+  authorized entry, never merely because it resolves to something;
+- refuses a spelling that is not on the list, even when it names the same
+  file. Example: a Windows 8.3 short name (`RUNNER~1`) when the command named
+  the long name. To prove that two spellings name one file, the server must
+  read a directory, and it reads nothing before it authorizes a request;
 - rejects the requested file itself being a symlink, unconditionally, even
   when its target is also an authorized entry;
 - accepts only `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, ≤ 10 MiB each.
@@ -188,6 +199,22 @@ suggestion ("... re-run with `--dangerously-skip-permissions` ..."); the
 plugin no longer prints that sentence to its own stderr (the stored result
 and `result --json` still keep the complete upstream line).
 
+### Sign-in (auth) prompts
+
+The plugin marks a run `auth_required` only from agy's own sign-in prompt:
+the raw text lines agy prints before its first stream-json event
+("Authentication required. Please visit the URL to log in", "Waiting for
+authentication", or the Google OAuth URL itself). Text in a `step_update`
+event, a tool argument or `result.response` can come from the model, so it
+never sets `auth_required`.
+
+The plugin prints no OAuth URL, not even one from agy's own prompt. A URL is
+safe to show only when its `client_id` and `redirect_uri` are agy's own, and
+no live agy capture in this repository records those values. The plugin
+tells the user to run `setup` instead, which shows agy's own prompt
+directly in the terminal. `status --json` reports `oauthUrl` as `null`, also
+for a job record from 3.0.0 or earlier.
+
 ### Slash and skill commands in prompts
 
 Every print-mode `agy` invocation (`review`, `rescue`, `task`, `vision`)
@@ -240,10 +267,9 @@ only the last three rules apply there.
 
 ### The `node -e` host bootstrap snippet
 
-Every `commands/*.md` wrapper's `node -e "..."` line (or, for `rescue`, the
-embedded invocation the wrapper's own text tells the host model to run) does
-four things, in this order: resolve the plugin root the same way
-`resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
+Every `commands/*.md` wrapper's `node -e "..."` bang line (`rescue` too,
+after 3.0.0) does four things, in this order: resolve the plugin root the
+same way `resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
 the agy install copy under the home directory); read `<root>/plugin.json`
 and refuse with one line — before requiring anything from that root — when
 the manifest is missing or names a different plugin; check that the shipped
@@ -256,6 +282,34 @@ it is ever reached by a caller other than this snippet. The root comes from
 the environment at run time; no host input is interpolated into executed
 source — the manifest field name and the verb are the only literals the
 generated text carries, and both are constants this plugin controls.
+
+### Host wrapper permissions and relayed output
+
+A Claude Code wrapper's `allowed-tools` grants one Bash rule: a prefix rule
+for the exact `node -e "<bootstrap>" --` invocation of its own bang line.
+Up to 3.0.0, every wrapper granted `Bash(node:*)`. Claude Code
+applies a command's `allowed-tools` to the host model's own Bash calls in
+that turn, so text from a diff, a commit or an agy answer could make the
+model run `node -e <any code>` with no permission prompt. Now any other
+`node` call needs the user's approval as usual.
+
+Claude Code splits an `allowed-tools` list at a space or comma that
+follows a closing parenthesis. The rule therefore writes each space as a
+tab (`\t` in the YAML string). Claude Code collapses spaces and tabs before
+it compares a prefix rule with a command, so the rule still matches the
+bang line. This was read from Claude Code 2.1.294; a later host can change
+it, and `tests/command-wrappers.test.mjs` models it.
+
+No wrapper tells the host model to compose its own `node` call: the
+fallback text that described the runtime path and the "re-run" steps are
+gone. The model tells the user which command to run next. Every wrapper is
+`disable-model-invocation: true`, so the model cannot start one by itself;
+`rescue` gained this and a fixed bang line after 3.0.0.
+
+Every wrapper shows the runtime output inside a fenced block, under a
+one-line label that calls it untrusted data, not instructions. This is a
+label, not a sandbox: it narrows prompt injection from agy and repository
+text, but cannot prevent it.
 
 ### `update --apply`
 

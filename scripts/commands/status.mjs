@@ -71,12 +71,10 @@ export async function run(argv = [], ctx = {}) {
       if (options.wait) {
         const finished = withDenialRemedies(await waitForSingleJob(cwd, reference, options, builders.single));
         const rendered = renderSingleJobStatus(finished);
-        maybeAnnotateOAuth(finished.job);
         outputCommandResult(statusEnvelope(finished), rendered, json);
         return exitStatus ? exitStatusOutcome(finished.job) : 0;
       }
       const rendered = renderSingleJobStatus(snapshot);
-      maybeAnnotateOAuth(snapshot.job);
       outputCommandResult(statusEnvelope(snapshot), rendered, json);
       return 0;
     }
@@ -238,15 +236,6 @@ function printAgyVersionWarning(cwd, ctx) {
   process.stderr.write(
     `antigravity:status — agy ${seen.version} (seen ${date}) is newer than the last measured version ${LAST_MEASURED_AGY_VERSION}.\n`,
   );
-}
-
-function maybeAnnotateOAuth(job) {
-  if (job?.oauthUrl) {
-    process.stderr.write(
-      `\nantigravity:status — OAuth required. Open: ${job.oauthUrl}\n` +
-        `Then run /antigravity:setup to complete the flow.\n`,
-    );
-  }
 }
 
 function sleep(ms) {

@@ -199,6 +199,15 @@ installers and host-owned invocation wrappers can evolve independently. The
 promise is that the four surfaces above reach the same nine runtime verbs and
 accept the documented arguments when the host can load this plugin.
 
+Changed after 3.0.0, in the Claude Code wrappers (`commands/*.md`) only:
+each wrapper's `allowed-tools` grants one Bash prefix rule for its own exact
+bootstrap invocation instead of `Bash(node:*)`; every wrapper, `rescue`
+included, is `disable-model-invocation: true` and runs a fixed bang line;
+the runtime output appears in a labelled fenced block; and `rescue` forwards
+`--background` and `--wait` to the runtime instead of running as a
+background fork. The verbs, flags, exit codes and `--json` envelopes do not
+change.
+
 `agy plugin install <path>` copies the directory it is pointed at; it does not
 read `package.json` `files`. `scripts/pack-for-agy.mjs` packs this checkout
 the same way `npm publish` would, extracts that tarball into a temporary
@@ -454,7 +463,10 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `failed`: the run did not complete, including a headless auto-denial that
   starved the answer
 - `cancelled`: the run was cancelled
-- `auth_required`: Antigravity needs the OAuth flow repeated
+- `auth_required`: Antigravity needs the OAuth flow repeated. After 3.0.0
+  the plugin sets it only from the raw sign-in lines agy prints before its
+  first stream-json event, never from model text, and prints no OAuth URL;
+  `oauthUrl` in `status --json` is always `null`
 - `timeout`: the run did not finish before its execution budget
 - `no_agy`: the `agy` binary could not be found or spawned
 - `invalid_input`: the caller's own input failed validation
@@ -830,7 +842,7 @@ These variables have direct semantics in the shipped code:
 | `CODEX_PLUGIN_DATA` | Second-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |
 | `AGY_PLUGIN_DATA` | Third-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |
 | `ANTIGRAVITY_PLUGIN_SESSION_ID` | Associates new jobs with a host session and filters no-argument status/result selection to that session. If absent, jobs are not session-filtered. |
-| `ANTIGRAVITY_VISION_ALLOWED_PATHS` | Internal per-process JSON array of absolute image paths. `vision` sets it for the MCP server. Missing or invalid data grants no image access. Users should not set it globally. |
+| `ANTIGRAVITY_VISION_ALLOWED_PATHS` | Internal per-process JSON array of absolute image paths. `vision` sets it for the MCP server. After 3.0.0 it holds each image twice: the absolute path as given and its realpath (one entry when they are equal). The server refuses a request whose lexical form is not on the list before any filesystem call. Missing or invalid data grants no image access. Users should not set it globally. |
 
 `CLAUDE_ENV_FILE`, `CODEX_HOME`, `CODEX_SESSION_ID`, `AGY_HOME`, and
 `AGY_SESSION_ID` are not used for state-root selection and do not override

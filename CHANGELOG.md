@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-10-08
+
 ### Security
 
 - **`update --apply` checks the agy tarball before it installs it.** The
@@ -31,8 +33,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process only when it started no later than the job record's last update
   (else the new outcome `unconfirmed`, exit 1). State locations do not
   change. On Windows the owner and mode check stays a no-op.
-
-## [3.0.0] — 2026-10-08
+- **The vision MCP server authorizes a path before any filesystem call.**
+  Before, `view_image` resolved the path from the model on disk and only then
+  checked the allowlist. On Windows, a UNC path such as
+  `\\attacker.example\share\x.png` thus opened an SMB or WebDAV session that
+  sent the user's NTLM credentials, even with an empty allowlist. Now the
+  server refuses a request whose lexical form (resolved, normalized,
+  case-folded on Windows) is not on the allowlist, before it reads anything.
+  `vision` now records each image twice: the absolute path as given and its
+  realpath. A spelling that is not on the list is refused, for example an
+  8.3 short name when the command named the long name.
+- **Claude Code wrappers no longer pre-approve every `node` command.**
+  Before, each `commands/*.md` granted `Bash(node:*)`. Claude Code applies
+  that grant to the host model's own Bash calls in the same turn, while the
+  model reads agy output built from untrusted diffs and commits. An injected
+  `node -e <code>` could thus run with no permission prompt. Now each wrapper
+  grants one prefix rule for the exact bootstrap invocation of its own bang
+  line. The wrappers no longer tell the model how to compose its own `node`
+  call or to re-run a command itself, and they show the runtime output in a
+  fenced block labelled as untrusted data. `rescue` is now
+  `disable-model-invocation: true` with a fixed bang line like the other
+  wrappers. It forwards `--background` and `--wait` to the runtime, so
+  `--background` queues a plugin job, and `--show-result` and `--request-id`
+  now work through it.
+- **Only agy's own sign-in prompt sets `auth_required`, and no OAuth URL is
+  printed.** Before, the plugin took the first Google OAuth URL from any agy
+  output, including model text, and printed it as "OAuth required. Open:
+  ...". A prompt injection could thus show an attacker's OAuth client as the
+  plugin's own login step. Now only the raw lines agy prints before its first
+  stream-json event count. The plugin prints no URL, because no live agy
+  capture records agy's `client_id` and `redirect_uri` to check a URL
+  against. It tells the user to run `setup`, which shows agy's own prompt.
+  `status --json` reports `oauthUrl` as `null`, also for older job records.
 
 ### Breaking
 
