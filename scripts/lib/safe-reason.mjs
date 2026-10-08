@@ -184,8 +184,9 @@ export function removeOAuthUrls(text) {
 
 /**
  * A copy of `value` with {@link removeOAuthUrls} applied to every string in
- * it, through plain objects and arrays. Other values are returned as they
- * are.
+ * it, including property names, through plain objects and arrays. If keys
+ * become equal after replacement, keep the first and drop later entries.
+ * Other values are returned as they are.
  *
  * @template T
  * @param {T} value
@@ -197,9 +198,12 @@ export function removeOAuthUrlsDeep(value) {
   if (value === null || typeof value !== "object") return value;
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return value;
-  return /** @type {T} */ (Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, removeOAuthUrlsDeep(item)]),
-  ));
+  const entries = new Map();
+  for (const [key, item] of Object.entries(value)) {
+    const safeKey = removeOAuthUrls(key);
+    if (!entries.has(safeKey)) entries.set(safeKey, removeOAuthUrlsDeep(item));
+  }
+  return /** @type {T} */ (Object.fromEntries(entries));
 }
 
 /**

@@ -323,7 +323,8 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
     one line: `antigravity:review — warning: structured findings <status>:
     <reason>`.
 
-  `answer` (and the text-mode stdout) stays agy's raw response text. Under
+  `answer` (and the text-mode stdout) stays agy's response text, except that
+  Google OAuth URLs are replaced by `[oauth-url-removed]`. Under
   this flag, that text is JSON text, not the Markdown review: agy 1.2.12 was
   measured to return JSON there, with keys the schema does not allow. Use
   `details.findings`, never a parse of `answer`. A findings problem does not
@@ -1035,18 +1036,21 @@ confirmed killed or already absent. A job with no recorded process id, a
 termination failure, or a state persistence failure remains an error and can
 be retried.
 
-Before it signals a recorded process, cancel checks that the process is
-still the one the job started. At launch the plugin stores the OS start time
-of each worker and agy process in the job record (`workerProcessStartedAt`,
+Before it signals a recorded process, cancel checks its start time. At launch
+the plugin stores the OS start time of each worker and agy process in the
+job record (`workerProcessStartedAt`,
 `agyProcessStartedAt`). Cancel reads the start time again, and the two must
-agree to within 1 second. A process id that the OS gave to another process,
-older or newer, fails this check, also when you run cancel a second time.
-When the start time differs, cannot be read, or is not in the job record (a
-job that an older version started), cancel does not signal that process. It
-reports the target with the outcome `unconfirmed`, records `cancel_failed`,
+agree to within 1 second. A replacement process with a start time within
+1 second of the recorded time passes this check and is not caught. A start
+time outside that window fails the check, also on a second cancel.
+When the start time differs by more than 1 second, cannot be read, or is not
+in the job record (a job that an older version started), cancel does not
+signal that process. It reports the target with the outcome `unconfirmed`,
+records `cancel_failed`,
 and exits 1. Stop the process yourself if you know it is the job's process. A
 recorded process that is no longer running is `not_found` and is not
-signalled.
+signalled. The time between the check and the signal is a separate limit:
+the process can end and the OS can give its id to another process then.
 
 Cancel reads job state only from directories that pass the shared temp
 directory check (see [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix)).

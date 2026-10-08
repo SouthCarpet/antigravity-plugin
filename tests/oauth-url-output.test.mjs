@@ -85,7 +85,7 @@ function successAgy(name, response, before = '') {
 /** Absence of the URL string itself (and of its host+path) in all output. */
 function assertNoOAuthUrl(res, label) {
   for (const stream of ['stdout', 'stderr']) {
-    assert.equal(res[stream].includes('accounts.google.com/o/oauth2'), false, `${label} ${stream}: ${res[stream]}`);
+    assert.equal(res[stream].toLowerCase().includes('accounts.google.com/o/oauth2'), false, `${label} ${stream}: ${res[stream]}`);
     assert.equal(res[stream].toLowerCase().includes('accounts.google.com/signin/oauth'), false, `${label} ${stream}: ${res[stream]}`);
   }
 }
@@ -122,9 +122,42 @@ describe('removeOAuthUrls', () => {
     filter.flush();
     assert.equal(out.join(''), `Open ${OAUTH_URL_MARKER} now. Also ${OTHER_URL}`);
   });
+
+  it('OAuth property names in nested arrays become marker keys and keep the first value on collision', () => {
+    // The security fix brief requires replacement of keys and first-entry retention.
+    const input = { usage: [{
+      'HTTPS://accounts.google.com/signin/oauth/consent': 1,
+      'https://accounts.google.com/o/oauth2/auth': 2,
+      '[oauth-url-removed]': 3,
+      other: 'kept',
+    }] };
+    assert.deepEqual(removeOAuthUrlsDeep(input), {
+      usage: [{ '[oauth-url-removed]': 1, other: 'kept' }],
+    });
+  });
 });
 
 describe('agy text from a new run', () => {
+  it('runtime usage with an OAuth property name prints a marker key through result --json', () => {
+    // The verifier's runtime probe must have no OAuth URL in either output stream.
+    const { work, data } = freshDirs();
+    const agy = writeFakeAgy(stubDir, 'agy-usage-oauth-key', {
+      stdout: event({ event: 'result', result: {
+        status: 'SUCCESS', response: 'done',
+        usage: { 'HTTPS://accounts.google.com/signin/oauth/consent': 1 },
+      } }),
+      versionOk: true,
+    });
+    const run = runVerb(['task', 'go', '--foreground', '--json'], agy, data, work);
+    assert.equal(run.status, 0, run.stderr);
+    assertNoOAuthUrl(run, 'task --foreground --json');
+    const { jobId } = JSON.parse(run.stdout);
+    const shown = runVerb(['result', jobId, '--json'], agy, data, work);
+    assert.equal(shown.status, 0, shown.stderr);
+    assertNoOAuthUrl(shown, 'result --json');
+    assert.deepEqual(JSON.parse(shown.stdout).details.result.usage, { '[oauth-url-removed]': 1 });
+  });
+
   it('result.error with an OAuth URL: stderr and stdout have no URL, the rest of the line stays', () => {
     const { work, data } = freshDirs();
     const line = event({ event: 'result', result: { status: 'ERROR', response: '', error: `sign in at ${URL} please` } });
@@ -209,6 +242,7 @@ describe('a record stored with a URL by an older version', () => {
     }
     const record = JSON.parse(fs.readFileSync(storedFile(data, `${jobId}.json`), 'utf8'));
     record.result.stderr = `agy said: ${SIGNIN_URL}`;
+    record.result.usage = { 'HTTPS://accounts.google.com/signin/oauth/consent': 1 };
     fs.writeFileSync(storedFile(data, `${jobId}.json`), JSON.stringify(record));
     fs.appendFileSync(storedFile(data, `${jobId}.log`), `progress ${URL}\n`);
     return { work, data, agy, jobId };
@@ -223,6 +257,7 @@ describe('a record stored with a URL by an older version', () => {
     assert.equal(payload.answer, `${ANSWER} ${OAUTH_URL_MARKER}\n`);
     assert.equal(payload.details.result.rawOutput, `${ANSWER} ${OAUTH_URL_MARKER}`);
     assert.equal(payload.details.result.stderr, `agy said: ${OAUTH_URL_MARKER}`);
+    assert.deepEqual(payload.details.result.usage, { '[oauth-url-removed]': 1 });
     assertNoOAuthUrl(runVerb(['result', jobId], agy, data, work), 'result');
   });
 

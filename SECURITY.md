@@ -272,20 +272,22 @@ The same check runs when the plugin reads, not only when it writes:
 - `status` reads a job log only from the plugin's own log path for that job,
   never from another path a job record names.
 - `cancel`, and the cleanup a background wait runs when the worker has
-  vanished, signal a recorded process only while it is the process the
-  plugin started. Right after it starts a worker or agy process, the plugin
-  reads the start time of that process from the OS and stores it next to
-  the process id in the job record (`workerProcessStartedAt`,
-  `agyProcessStartedAt`). It writes this value once and never changes it.
+  vanished, check the start time before they signal a recorded process.
+  Right after it starts a worker or agy process, the plugin reads the start
+  time of that process from the OS and stores it next to the process id in
+  the job record (`workerProcessStartedAt`,
+  `agyProcessStartedAt`). It writes this value once at launch.
   Before a signal, the plugin reads the start time again. The process must
-  be running, and the two times must agree to within 1 second, the rounding
-  of the read. A process id that the OS gave to another process, older or
-  newer, fails this check, also on a second `cancel`. When the times differ,
-  the start time cannot be read, or the job record has no start time (a job
-  that an older version started), the plugin does not signal the process.
+  be running, and the two times must agree to within 1 second. A replacement
+  process with a start time within 1 second of the recorded time passes
+  this check and is not caught. A start time outside that window fails the
+  check, also on a second `cancel`. When the times differ by more than
+  1 second, the start time cannot be read, or the job record has no start
+  time (a job that an older version started), the plugin does not signal
+  the process.
   `cancel` reports it as `unconfirmed` and exits 1; the cleanup only writes a
-  line to the job log. Stop such a process yourself. A short time remains
-  between the check and the signal, in which the process can end and its
+  line to the job log. Stop such a process yourself. The time between the
+  check and the signal is a separate limit: the process can end and its
   id can be given to another process.
 
 On Windows the owner and mode check is a no-op, for reads and writes, so

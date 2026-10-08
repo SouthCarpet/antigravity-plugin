@@ -31,17 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignores entries that are not valid job records, and `status` reads a job
   log only from the plugin's own path for that job. State locations do not
   change. On Windows the owner and mode check stays a no-op.
-- **A recorded process id is signalled only while it is still the job's
-  process.** Before, `cancel` and the cleanup a background wait runs when
+- **Recorded process start times are checked before a signal.** Before,
+  `cancel` and the cleanup a background wait runs when
   its worker vanished signalled the stored worker or agy process id with no
   check, so a process that later got the same id from the OS could be
   stopped. Now the plugin stores the OS start time of each process it starts
   (`workerProcessStartedAt`, `agyProcessStartedAt` in the job record), once,
   at launch. Before a signal it reads the start time again, and the two must
-  agree to within 1 second. Otherwise `cancel` reports the new outcome
+  agree to within 1 second. A replacement process with a start time within
+  1 second of the recorded time passes the check and is not caught. The
+  time between the check and the signal is a separate limit: the process
+  can end and the OS can give its id to another process then.
+  If the times differ by more than 1 second, `cancel` reports the new outcome
   `unconfirmed` and exits 1, and the cleanup only logs it. A job record from
-  an older version has no start time, so its processes are never signalled:
-  stop them yourself.
+  an older version has no start time, so the plugin does not signal its
+  processes: stop them yourself.
 - **The vision MCP server authorizes a path before any filesystem call.**
   Before, `view_image` resolved the path from the model on disk and only then
   checked the allowlist. On Windows, a UNC path such as

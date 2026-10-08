@@ -28,7 +28,8 @@
  *   --findings-json   also ask agy for structured findings under the
  *                     shipped schema (`--json-schema`) and validate them
  *                     locally into `details.findings` (Senate R7, 2026-09);
- *                     `answer` stays agy's raw response text
+ *                     `answer` stays agy's response text, except Google
+ *                     OAuth URLs become `[oauth-url-removed]`
  *   --check-locations heuristically check each `path:line` citation the
  *                     answer names against the sent diff's own hunks
  *                     (Task 14, "Senate R8", 2026-09); local only, adds
