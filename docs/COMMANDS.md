@@ -397,8 +397,10 @@ rescue <prompt...>
 All positional tokens are joined with spaces to form the prompt. A prompt is
 required unless `--resume`, `--continue`, or `--conversation` is supplied.
 
-The `rescue` wrapper's host model composes the shell call and must quote the
-task text as one argument to preserve its boundaries.
+The Claude Code `rescue` wrapper passes the arguments to the runtime through
+a fixed bang line, as the other wrappers do. The arguments pass through a
+shell, so quote task text that holds quote characters, `$`, or other shell
+characters.
 
 - Fresh conversation is the default. `--fresh` makes it explicit.
 - `--resume` and `--continue` are equivalent and resume the most recent
@@ -600,14 +602,13 @@ alike; and after the wait, one of four outcomes is reported:
 `--show-result` takes no `--head`/`--tail`; the printed or returned answer is
 always the complete stored text.
 
-The Claude Code `rescue` host wrapper (`commands/rescue.md`) strips
-`--background` and `--wait` before it calls the runtime, because Claude Code
-runs the background fork itself. `--show-result` and `--request-id` do not
-apply through that wrapper as a result: the runtime never sees the
-`--background`/`--wait` flags either one needs, so it refuses them with its
-usual validation error. Both flags work in the standalone CLI and on `task`,
-whose wrapper forwards `--background`/`--wait` unchanged and defaults to
-background.
+The Claude Code `rescue` host wrapper (`commands/rescue.md`) forwards
+`--background` and `--wait` to the runtime unchanged, after 3.0.0. Before,
+it stripped both flags and Claude Code ran the wrapper as a background fork,
+so `--show-result` and `--request-id` were refused through it. Now
+`--background` queues a plugin job (poll it with `status`), and
+`--show-result` and `--request-id` work through the wrapper as in the
+standalone CLI.
 
 ### `--request-id` (task and rescue)
 

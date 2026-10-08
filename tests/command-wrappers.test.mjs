@@ -15,8 +15,12 @@ import { fileURLToPath } from 'node:url';
 import {
   AGY_PLUGIN_INSTALL_SEGMENTS,
   agyPluginInstallDir,
+  HOST_OUTPUT_LABEL,
+  hostAllowedBashRule,
+  hostAllowedToolsLine,
   hostBangLine,
   hostBootstrapSource,
+  hostOutputBlock,
   hostRefusalContract,
   invalidPluginRootMessage,
   isPluginRoot,
@@ -25,6 +29,12 @@ import {
   resolvePluginRoot,
   resolveVerbScript,
 } from '../scripts/lib/plugin-root.mjs';
+import {
+  allowedToolsValue,
+  bashRuleMatches,
+  parseRule,
+  splitAllowedTools,
+} from './helpers/claude-code-rules.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const COMMANDS_DIR = path.join(ROOT, 'commands');
@@ -52,16 +62,6 @@ function bodyAfterFrontmatter(source) {
   const match = source.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
   if (!match) return source;
   return source.slice(match[0].length).replace(/^\s+/, '');
-}
-
-function expectedLocator(verb) {
-  return (
-    'Find the runtime with Node, not the shell. Plugin root is `process.env.CLAUDE_PLUGIN_ROOT` ' +
-    "when that is set and non-empty; otherwise `require('node:path').join(require('node:os').homedir(), " +
-    `'.gemini', 'config', 'plugins', 'antigravity')\`. Then run \`node <root>/scripts/commands/${verb}.mjs\` ` +
-    'with the user\'s arguments. Do not expand `CLAUDE_PLUGIN_ROOT` in the shell: an empty expansion ' +
-    `is the wrong path \`/scripts/commands/${verb}.mjs\`.`
-  );
 }
 
 function extractBangBootstrap(source) {
@@ -293,10 +293,11 @@ describe('commands/*.md wrappers', () => {
         `${verb}.md does not open with the canonical refusal contract`,
       );
       assert.equal(
-        body.includes(expectedLocator(verb)),
-        true,
-        `${verb}.md is missing the Node locator instruction`,
+        body.includes('Find the runtime with Node'),
+        false,
+        `${verb}.md still tells the model how to compose its own node call`,
       );
+      assert.doesNotMatch(body, /Invoke with:|re-run `[a-z]+ --conversation/, `${verb}.md still tells the model to run the runtime itself`);
       assert.equal(
         body.includes('"${CLAUDE_PLUGIN_ROOT}/scripts/commands/'),
         false,
@@ -332,18 +333,7 @@ describe('commands/*.md wrappers', () => {
     });
   }
 
-  it('rescue.md embeds the canonical node -e bootstrap directly, without !`...` substitution', () => {
-    const body = readCommand('rescue');
-    assert.equal(
-      body.includes(hostBootstrapSource('rescue')),
-      true,
-      'rescue.md is missing the canonical bootstrap source',
-    );
-    assert.equal(extractBangBootstrap(body), null, 'rescue.md should not use !`...` substitution');
-  });
-
-  const nonRescueVerbs = verbs.filter((verb) => verb !== 'rescue');
-  for (const verb of nonRescueVerbs) {
+  for (const verb of verbs) {
     it(`${verb}.md embeds the canonical bang-substitution bootstrap`, () => {
       const body = readCommand(verb);
       const embedded = extractBangBootstrap(body);
@@ -354,7 +344,95 @@ describe('commands/*.md wrappers', () => {
         `${verb}.md is missing the canonical bang line`,
       );
     });
+
+    // F4: the host model reads the runtime output as labelled, fenced data.
+    it(`${verb}.md shows the runtime output in the labelled fenced block`, () => {
+      const body = readCommand(verb);
+      assert.equal(body.includes(`Run:\n\n${hostOutputBlock(verb)}\n`), true, `${verb}.md has no labelled output block`);
+      assert.equal(body.split(HOST_OUTPUT_LABEL).length, 2, `${verb}.md must carry the label exactly once`);
+    });
+
+    it(`${verb}.md is never invoked by the model on its own`, () => {
+      assert.match(readCommand(verb), /^disable-model-invocation: true$/m);
+    });
   }
+});
+
+// F3: a wrapper's allowed-tools must not pre-approve `node` in general,
+// because the host model reads untrusted agy and repository text in the
+// same turn. The only Bash grant is the exact bootstrap prefix of the bang
+// line, read and matched the way Claude Code reads it
+// (tests/helpers/claude-code-rules.mjs).
+describe('commands/*.md allowed-tools', () => {
+  const verbs = listVerbs();
+  const sampleArgs = ['', '--json', 'fix the flaky test --background --wait'];
+
+  function bashRules(verb) {
+    const value = allowedToolsValue(readCommand(verb));
+    assert.notEqual(value, null, `${verb}.md has no allowed-tools line`);
+    return splitAllowedTools(value).filter((entry) => parseRule(entry)?.tool === 'Bash');
+  }
+
+  for (const verb of verbs) {
+    it(`${verb}.md carries the generated allowed-tools line`, () => {
+      const extras = verb === 'review' || verb === 'rescue' || verb === 'task' || verb === 'vision'
+        ? ['AskUserQuestion']
+        : [];
+      assert.equal(readCommand(verb).includes(`\n${hostAllowedToolsLine(verb, extras)}\n`), true);
+    });
+
+    it(`${verb}.md grants exactly one Bash rule, and it is not a wildcard over node`, () => {
+      const rules = bashRules(verb);
+      assert.deepEqual(rules, [hostAllowedBashRule(verb)]);
+      const { content } = parseRule(rules[0]);
+      assert.notEqual(content, 'node:*');
+      assert.doesNotMatch(content, /^node(:\*| \*)?$/);
+      assert.equal(content.slice(0, -2).includes('*'), false, 'no wildcard before the trailing :*');
+    });
+
+    it(`${verb}.md bang line matches its allowed rule`, () => {
+      const [rule] = bashRules(verb);
+      const bang = hostBangLine(verb).slice(2, -1);
+      for (const args of sampleArgs) {
+        assert.equal(bashRuleMatches(rule, bang.replace('$ARGUMENTS', args)), true, `args: ${args}`);
+      }
+    });
+
+    it(`${verb}.md rule refuses a node call the model could compose`, () => {
+      const [rule] = bashRules(verb);
+      const snippet = hostBootstrapSource(verb);
+      const composed = [
+        'node -e "require(\'child_process\').execSync(\'calc\')"',
+        'node -e "const p=require(\'node:path\');require(\'child_process\').execSync(\'calc\')" --',
+        `node -e "${snippet}" --import "data:text/javascript,process.exit(7)"`,
+        `node -e "${snippet}" -e "process.exit(7)"`,
+        `node -e "${snippet}"`,
+        'node script.js',
+        'node',
+      ];
+      for (const command of composed) {
+        assert.equal(bashRuleMatches(rule, command), false, command);
+      }
+    });
+  }
+
+  it('the rule model keeps a plain node:* grant matching any node call (control)', () => {
+    assert.equal(bashRuleMatches('Bash(node:*)', 'node -e "process.exit(7)"'), true);
+  });
+
+  // The two host behaviours hostAllowedBashRule depends on.
+  it('a space after a closing parenthesis would split the rule, a tab does not', () => {
+    const withSpaces = `Bash(node -e "${hostBootstrapSource('status')}" --:*)`;
+    assert.notDeepEqual(splitAllowedTools(withSpaces), [withSpaces]);
+    assert.deepEqual(splitAllowedTools(hostAllowedBashRule('status')), [hostAllowedBashRule('status')]);
+  });
+
+  it('the bootstrap source has no comma after a closing parenthesis outside a call', () => {
+    for (const verb of verbs) {
+      const rule = hostAllowedBashRule(verb).replaceAll('\t', '_');
+      assert.deepEqual(splitAllowedTools(rule), [rule], verb);
+    }
+  });
 });
 
 describe('host bootstrap execution', () => {

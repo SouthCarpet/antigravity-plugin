@@ -199,6 +199,15 @@ installers and host-owned invocation wrappers can evolve independently. The
 promise is that the four surfaces above reach the same nine runtime verbs and
 accept the documented arguments when the host can load this plugin.
 
+Changed after 3.0.0, in the Claude Code wrappers (`commands/*.md`) only:
+each wrapper's `allowed-tools` grants one Bash prefix rule for its own exact
+bootstrap invocation instead of `Bash(node:*)`; every wrapper, `rescue`
+included, is `disable-model-invocation: true` and runs a fixed bang line;
+the runtime output appears in a labelled fenced block; and `rescue` forwards
+`--background` and `--wait` to the runtime instead of running as a
+background fork. The verbs, flags, exit codes and `--json` envelopes do not
+change.
+
 `agy plugin install <path>` copies the directory it is pointed at; it does not
 read `package.json` `files`. `scripts/pack-for-agy.mjs` packs this checkout
 the same way `npm publish` would, extracts that tarball into a temporary

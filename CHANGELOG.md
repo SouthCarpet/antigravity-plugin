@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vision` now records each image twice: the absolute path as given and its
   realpath. A spelling that is not on the list is refused, for example an
   8.3 short name when the command named the long name.
+- **Claude Code wrappers no longer pre-approve every `node` command.**
+  Before, each `commands/*.md` granted `Bash(node:*)`. Claude Code applies
+  that grant to the host model's own Bash calls in the same turn, while the
+  model reads agy output built from untrusted diffs and commits. An injected
+  `node -e <code>` could thus run with no permission prompt. Now each wrapper
+  grants one prefix rule for the exact bootstrap invocation of its own bang
+  line. The wrappers no longer tell the model how to compose its own `node`
+  call or to re-run a command itself, and they show the runtime output in a
+  fenced block labelled as untrusted data. `rescue` is now
+  `disable-model-invocation: true` with a fixed bang line like the other
+  wrappers. It forwards `--background` and `--wait` to the runtime, so
+  `--background` queues a plugin job, and `--show-result` and `--request-id`
+  now work through it.
 - **Only agy's own sign-in prompt sets `auth_required`, and no OAuth URL is
   printed.** Before, the plugin took the first Google OAuth URL from any agy
   output, including model text, and printed it as "OAuth required. Open:

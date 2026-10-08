@@ -240,10 +240,9 @@ already per-user there.
 
 ### The `node -e` host bootstrap snippet
 
-Every `commands/*.md` wrapper's `node -e "..."` line (or, for `rescue`, the
-embedded invocation the wrapper's own text tells the host model to run) does
-four things, in this order: resolve the plugin root the same way
-`resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
+Every `commands/*.md` wrapper's `node -e "..."` bang line (`rescue` too,
+after 3.0.0) does four things, in this order: resolve the plugin root the
+same way `resolvePluginRoot` does (`CLAUDE_PLUGIN_ROOT` when set and non-empty, else
 the agy install copy under the home directory); read `<root>/plugin.json`
 and refuse with one line — before requiring anything from that root — when
 the manifest is missing or names a different plugin; check that the shipped
@@ -256,6 +255,34 @@ it is ever reached by a caller other than this snippet. The root comes from
 the environment at run time; no host input is interpolated into executed
 source — the manifest field name and the verb are the only literals the
 generated text carries, and both are constants this plugin controls.
+
+### Host wrapper permissions and relayed output
+
+A Claude Code wrapper's `allowed-tools` grants one Bash rule: a prefix rule
+for the exact `node -e "<bootstrap>" --` invocation of its own bang line.
+Up to 3.0.0, every wrapper granted `Bash(node:*)`. Claude Code
+applies a command's `allowed-tools` to the host model's own Bash calls in
+that turn, so text from a diff, a commit or an agy answer could make the
+model run `node -e <any code>` with no permission prompt. Now any other
+`node` call needs the user's approval as usual.
+
+Claude Code splits an `allowed-tools` list at a space or comma that
+follows a closing parenthesis. The rule therefore writes each space as a
+tab (`\t` in the YAML string). Claude Code collapses spaces and tabs before
+it compares a prefix rule with a command, so the rule still matches the
+bang line. This was read from Claude Code 2.1.294; a later host can change
+it, and `tests/command-wrappers.test.mjs` models it.
+
+No wrapper tells the host model to compose its own `node` call: the
+fallback text that described the runtime path and the "re-run" steps are
+gone. The model tells the user which command to run next. Every wrapper is
+`disable-model-invocation: true`, so the model cannot start one by itself;
+`rescue` gained this and a fixed bang line after 3.0.0.
+
+Every wrapper shows the runtime output inside a fenced block, under a
+one-line label that calls it untrusted data, not instructions. This is a
+label, not a sandbox: it narrows prompt injection from agy and repository
+text, but cannot prevent it.
 
 ### `update --apply`
 
