@@ -248,7 +248,7 @@ describe('buildSingleJobSnapshot', () => {
   // A snapshot never passes a stored URL on.
   it('reports oauthUrl null for a legacy job that stored an OAuth URL', async () => {
     const job = await seedJob({
-      id: 'legacy-oauth',
+      id: 'a1b2c3d4e5f6',
       status: 'failed',
       healthStatus: 'auth_required',
       completedAt: new Date().toISOString(),
