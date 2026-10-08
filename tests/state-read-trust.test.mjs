@@ -77,6 +77,7 @@ function runningJob(overrides = {}) {
 }
 
 let savedEnv;
+let workDir;
 let workCwd;
 let dataDir;
 const extraDirs = [];
@@ -84,7 +85,10 @@ const extraDirs = [];
 beforeEach(() => {
   savedEnv = Object.fromEntries(HOST_VARS.map((name) => [name, process.env[name]]));
   for (const name of HOST_VARS) delete process.env[name];
-  workCwd = fs.realpathSync.native(fs.mkdtempSync(path.join(TMPROOT, 'antigravity-readtrust-cwd-')));
+  // State identity uses the realpath, but cleanup must stay under TMPROOT's
+  // spelling when the OS temp directory is reached through an alias.
+  workDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-readtrust-cwd-'));
+  workCwd = fs.realpathSync.native(workDir);
   dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-readtrust-data-'));
   distrusted.clear();
 });
@@ -95,7 +99,7 @@ afterEach(() => {
     else process.env[name] = value;
   }
   distrusted.clear();
-  removeTestDir(workCwd);
+  removeTestDir(workDir);
   removeTestDir(dataDir);
   for (const dir of extraDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
