@@ -830,7 +830,7 @@ These variables have direct semantics in the shipped code:
 | `CODEX_PLUGIN_DATA` | Second-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |
 | `AGY_PLUGIN_DATA` | Third-priority host state root; state lives below `<value>/state`, subject to the legacy fallback described below. |
 | `ANTIGRAVITY_PLUGIN_SESSION_ID` | Associates new jobs with a host session and filters no-argument status/result selection to that session. If absent, jobs are not session-filtered. |
-| `ANTIGRAVITY_VISION_ALLOWED_PATHS` | Internal per-process JSON array of absolute image paths. `vision` sets it for the MCP server. Missing or invalid data grants no image access. Users should not set it globally. |
+| `ANTIGRAVITY_VISION_ALLOWED_PATHS` | Internal per-process JSON array of absolute image paths. `vision` sets it for the MCP server. After 3.0.0 it holds each image twice: the absolute path as given and its realpath (one entry when they are equal). The server refuses a request whose lexical form is not on the list before any filesystem call. Missing or invalid data grants no image access. Users should not set it globally. |
 
 `CLAUDE_ENV_FILE`, `CODEX_HOME`, `CODEX_SESSION_ID`, `AGY_HOME`, and
 `AGY_SESSION_ID` are not used for state-root selection and do not override

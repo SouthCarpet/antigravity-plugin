@@ -98,15 +98,26 @@ isolated `HOME`/`USERPROFILE` before and after a full run.
 
 ### `vision` (per invocation)
 
-`vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array of the
-absolute paths named on that command, resolved to their realpath, then
-starts agy. The MCP server:
+`vision` sets `ANTIGRAVITY_VISION_ALLOWED_PATHS` to a JSON array that holds,
+for each image named on that command, its absolute path as given and its
+realpath, then starts agy. The MCP server:
 
 - grants **no** image access when that value is missing or invalid;
-- rejects every path not on the list, checked both as given and by its own
-  realpath — an ancestor directory symlink (macOS's `os.tmpdir()` resolves
-  through `/var` -> `/private/var`) is accepted when the resolved path is
-  itself an authorized entry, never merely because it resolves to something;
+- decides authorization before any filesystem call: it refuses a request
+  unless the lexical form of the request (resolved, normalized, and on
+  Windows case-folded) is on the list. A UNC (`\\host\share\...`), WebDAV
+  (`\\host@80\...`), device (`\\.\...`) or extended-length (`\\?\...`) path
+  that is not on the list is refused before it can touch the disk or the
+  network. On Windows, this stops a path from the model from opening an SMB
+  or WebDAV session that sends the user's NTLM credentials;
+- then requires the request's realpath to be on the list too. An ancestor
+  directory symlink (macOS's `os.tmpdir()` resolves through `/var` ->
+  `/private/var`) is accepted when the resolved path is itself an
+  authorized entry, never merely because it resolves to something;
+- refuses a spelling that is not on the list, even when it names the same
+  file. Example: a Windows 8.3 short name (`RUNNER~1`) when the command named
+  the long name. To prove that two spellings name one file, the server must
+  read a directory, and it reads nothing before it authorizes a request;
 - rejects the requested file itself being a symlink, unconditionally, even
   when its target is also an authorized entry;
 - accepts only `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, ≤ 10 MiB each.

