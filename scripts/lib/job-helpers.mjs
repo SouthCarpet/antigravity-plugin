@@ -14,6 +14,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
+import { safeFailureReason } from "./safe-reason.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
@@ -84,7 +85,11 @@ export const AGY_MODES = ["plan", "accept-edits"];
  * `--effort`. `task` and `rescue` forward it with a plugin-side default
  * ({@link resolveRequestEffort}); `review` forwards it too, through
  * {@link EFFORT_CHOICES} and {@link resolveReviewEffort}, but with no
- * plugin-side default of its own. */
+ * plugin-side default of its own.
+ *
+ * agy 1.3.1 `--help` lists `xhigh`, but every model refused `xhigh` and
+ * `max` when probed on 2026-10-08 (plan 118 probes D1 to D6), so `xhigh`
+ * stays out of this list. */
 export const AGY_EFFORTS = ["low", "medium", "high"];
 
 /**
@@ -1316,7 +1321,7 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
     exitCode: result.exitCode,
     summary: deriveSummary(result),
     oauthUrl: result.oauthUrl ?? null,
-    errorMessage: result.errorMessage ?? (result.status === "failed" ? trim(result.stderr) : null),
+    errorMessage: storedErrorMessage(result, result.status === "failed"),
     healthStatus: derived.healthStatus ?? null,
     healthMessage: derived.healthMessage ?? null,
     recommendedAction: derived.recommendedAction ?? null,
@@ -2091,17 +2096,20 @@ export function deriveSummary(result) {
 }
 
 /**
- * The one trimming helper used by both the foreground path and the
- * background worker to turn a possibly-blank stderr into an
- * `errorMessage` (item 16).
+ * The `errorMessage` a terminal job record stores (foreground and worker
+ * share it). The runtime's own reason wins; for a failed job without one the
+ * fallback is agy's stderr put through {@link safeFailureReason}, never the
+ * raw text, because the `--show-result` envelope, `status` and `result`
+ * render this field as it is. `null` when no safe reason can be made, so
+ * readers fall back to `healthMessage` or their generic text. The unredacted
+ * stderr stays on `result.stderr` only.
  *
- * @param {unknown} value
+ * @param {import('./types.mjs').RuntimeResult} result
+ * @param {boolean} failed whether the job ended as `failed`
  * @returns {string | null}
  */
-export function trim(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
+export function storedErrorMessage(result, failed) {
+  return result.errorMessage ?? (failed ? safeFailureReason(result.stderr) : null);
 }
 
 /** Re-export so command modules can pull everything from one place. */

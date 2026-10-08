@@ -39,7 +39,7 @@ import {
   deriveJobStatus,
   deriveSummary,
   patchJob,
-  trim,
+  storedErrorMessage,
 } from "../lib/job-helpers.mjs";
 import { createJobActivityRecorder } from "../lib/job-activity.mjs";
 import { REVIEW_FINDINGS_SCHEMA_PATH } from "../lib/review-findings.mjs";
@@ -259,7 +259,7 @@ async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
     // restores the pre-T6 behaviour for every status this fallback applies
     // to; `result.errorMessage` (set for a timeout/output-limit termination)
     // still wins when present.
-    errorMessage: result.errorMessage ?? (derived.status === "failed" ? trim(result.stderr) : null),
+    errorMessage: storedErrorMessage(result, derived.status === "failed"),
     result: buildStoredResult(result),
   });
   // Fix round 1 F5: pre-T6 this line read `[worker] ${status} exit=${result.exitCode}`

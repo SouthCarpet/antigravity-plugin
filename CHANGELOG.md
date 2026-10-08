@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Raw stderr in the stored failure reason.** When agy gave no reason of its
+  own, a failed job's `errorMessage` was its raw stderr, and `--show-result`
+  (`review`, `rescue`, `task`), `status <id>` and `result <id>` printed it
+  as it was. It is now the same one-line redacted text as above, or empty
+  when nothing readable is left, and then the generic text stays. The stored
+  `result.stderr` is unchanged. A multi-line stderr is no longer shown in
+  full in the `## Error` section of `status <id>`.
 - **`update --apply` from inside the agy install root.** The updater now
   compares the real path of the current directory with the agy install root
   (`~/.gemini/config/plugins/antigravity`), junctions and symlinks included.

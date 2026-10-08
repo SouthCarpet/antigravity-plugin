@@ -418,9 +418,14 @@ A reason from the `error:` or `AGY_ERROR:` stderr marker follows the same
 rules. Precedence is unchanged: a plugin-authored timeout, output-limit or
 cancellation reason wins over any agy reason, then the stderr marker, then
 `result.error`. Status words, error codes, `answer`, and exit codes do not
-change. A `timeout` or `cancelled` envelope keeps its own message. The stored
-`result.stderr` is the unredacted upstream text and is not part of this
-promise.
+change. A `timeout` or `cancelled` envelope keeps its own message. When agy
+gives no reason of its own, a failed job's stored `errorMessage` is its
+stderr put through the same rules, or empty when nothing readable is left.
+Every output that prints the stored reason carries only this redacted text:
+the `--show-result` envelope and its text-mode line (`review`, `rescue`,
+`task`), the `## Error` section of `status <id>`, and the `result <id>`
+fallback text. The stored `result.stderr` is the unredacted upstream text and
+is not part of this promise.
 
 ### Usage trailer
 
