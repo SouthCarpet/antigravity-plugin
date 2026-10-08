@@ -28,6 +28,7 @@ import {
   defaultRunner,
   fetchLatestVersion,
   findOnPath,
+  installRootContaining,
   parseInstalledRoot,
   parseMarketplaceSource,
   readInstalledPluginVersion,
@@ -970,4 +971,141 @@ describe('update rejects untrusted shell operands', () => {
       assert.equal(result.error.message, 'refusing to pass ' + JSON.stringify(operand) + ' through cmd.exe');
     });
   }
+});
+
+describe('update --apply: the working directory and the agy install root', () => {
+  const PACK_JSON = JSON.stringify([{ filename: 'southcarpet-antigravity-plugin-1.5.0.tgz', name: PACKAGE_NAME }]);
+  let installRoot;
+  let work;
+  let binDir;
+
+  beforeEach(() => {
+    installRoot = path.join(tmp, 'plugins', 'antigravity');
+    fs.mkdirSync(path.join(installRoot, 'scripts', 'lib'), { recursive: true });
+    work = path.join(tmp, 'work');
+    fs.mkdirSync(work);
+    binDir = path.join(tmp, 'bin');
+    fs.mkdirSync(binDir);
+  });
+
+  /** Run `update --apply` from `cwd` against the fake install root; return what the steps saw. */
+  async function applyFrom(cwd, { chdir } = {}) {
+    const calls = [];
+    const chdirs = [];
+    const runner = ({ command, args, cwd: stepCwd, capture }) => {
+      calls.push({ command: path.basename(command), cwd: stepCwd });
+      return { status: 0, stdout: capture && args[0] === 'pack' ? PACK_JSON : '', error: null };
+    };
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply'], {
+        env: stubPath(binDir, ['claude', 'agy']),
+        now: NOW,
+        fetch: fakeFetch({ latest: '1.5.0' }),
+        cacheFile,
+        running: '1.0.1',
+        runner,
+        tmpDir: work,
+        cwd,
+        installRoots: [installRoot],
+        chdir: chdir ?? ((dir) => chdirs.push(dir)),
+      });
+    } finally {
+      cap.restore();
+    }
+    return { exit, calls, chdirs, out: cap.out.join(''), err: cap.err.join('') };
+  }
+
+  const STEP_COMMANDS = ['claude', 'claude', 'npm', 'tar', 'agy', 'agy'];
+
+  function assertMovedToNeutral(run) {
+    assert.equal(run.exit, 0, run.err);
+    assert.deepEqual(run.calls, STEP_COMMANDS.map((command) => ({ command, cwd: work })));
+    assert.deepEqual(run.chdirs, [work, os.tmpdir()]);
+    assert.match(run.out, /the current directory is inside the agy install root/);
+  }
+
+  it('cwd equal to the install root: every step runs from the update tmp dir', async () => {
+    assertMovedToNeutral(await applyFrom(installRoot));
+  });
+
+  it('cwd in a child directory of the install root: every step runs from the update tmp dir', async () => {
+    assertMovedToNeutral(await applyFrom(path.join(installRoot, 'scripts', 'lib')));
+  });
+
+  it('cwd reached through a junction to the install root: every step runs from the update tmp dir', async (t) => {
+    const link = path.join(tmp, 'link-to-root');
+    try {
+      fs.symlinkSync(installRoot, link, 'junction');
+    } catch (err) {
+      t.skip(`cannot create a junction or symlink here: ${err.code}`);
+      return;
+    }
+    assertMovedToNeutral(await applyFrom(path.join(link, 'scripts')));
+  });
+
+  it('a sibling whose name shares a prefix with the root is not inside it', async () => {
+    const sibling = `${installRoot}-extra`;
+    fs.mkdirSync(sibling);
+    const run = await applyFrom(sibling);
+    assert.equal(run.exit, 0, run.err);
+    assert.deepEqual(run.calls, STEP_COMMANDS.map((command) => ({ command, cwd: sibling })));
+    assert.deepEqual(run.chdirs, []);
+    assert.doesNotMatch(run.out, /install root/);
+  });
+
+  it('a cwd outside the root is passed to every step unchanged', async () => {
+    const run = await applyFrom(work);
+    assert.deepEqual(run.calls, STEP_COMMANDS.map((command) => ({ command, cwd: work })));
+    assert.deepEqual(run.chdirs, []);
+  });
+
+  it('refuses with a clear message, and runs no step, when it cannot leave the install root', async () => {
+    const run = await applyFrom(installRoot, { chdir: () => { throw new Error('EBUSY'); } });
+    assert.equal(run.exit, 1);
+    assert.deepEqual(run.calls, []);
+    assert.match(run.out, /could not be left: EBUSY\. Run it from another directory\./);
+  });
+
+  it('--json keeps stdout one envelope and sends the cwd notice to stderr', async () => {
+    const cap = captureStdio();
+    let exit;
+    try {
+      exit = await runUpdate(['--apply', '--json'], {
+        env: stubPath(binDir, ['agy']), now: NOW, fetch: fakeFetch({ latest: '1.5.0' }), cacheFile,
+        running: '1.0.1', runner: () => ({ status: 0, stdout: PACK_JSON, error: null }),
+        tmpDir: work, cwd: installRoot, installRoots: [installRoot], chdir: () => {},
+      });
+    } finally {
+      cap.restore();
+    }
+    assert.equal(exit, 0, cap.err.join(''));
+    assert.equal(JSON.parse(cap.out.join('')).command, 'update');
+    assert.match(cap.err.join(''), /the current directory is inside the agy install root/);
+  });
+});
+
+describe('installRootContaining', () => {
+  it('matches the root itself, a trailing separator and a child whose name starts with dots', () => {
+    const root = path.join(tmp, 'root');
+    fs.mkdirSync(path.join(root, '..hidden'), { recursive: true });
+    assert.equal(installRootContaining(root, [root]), root);
+    assert.equal(installRootContaining(`${root}${path.sep}`, [root]), root);
+    assert.equal(installRootContaining(path.join(root, '..hidden'), [root]), root);
+  });
+
+  it('does not match the parent, a sibling with a shared prefix, or an empty list', () => {
+    const root = path.join(tmp, 'root');
+    fs.mkdirSync(`${root}-2`, { recursive: true });
+    assert.equal(installRootContaining(tmp, [root]), null);
+    assert.equal(installRootContaining(`${root}-2`, [root]), null);
+    assert.equal(installRootContaining(root, []), null);
+  });
+
+  it('works when the root does not exist yet', () => {
+    const root = path.join(tmp, 'absent', 'root');
+    assert.equal(installRootContaining(path.join(root, 'x'), [root]), root);
+    assert.equal(installRootContaining(path.join(tmp, 'absent'), [root]), null);
+  });
 });

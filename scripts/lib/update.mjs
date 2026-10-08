@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 
 import { readCommandInput } from "./args.mjs";
 import { assertPrivateDir as defaultAssertPrivateDir, UnsafeStateDirError } from "./fs.mjs";
+import { agyPluginInstallDir } from "./plugin-root.mjs";
 import { createJsonEnvelope } from "./render.mjs";
 import { resolveStateRoot } from "./state.mjs";
 
@@ -740,6 +741,59 @@ export function defaultRunner({ command, args, cwd, capture, childStdoutFd = 1, 
   return { status: result.status, stdout: result.stdout ?? "", error };
 }
 
+/** The real path of `target`, or its resolved path when it does not exist. */
+function realOrResolved(target) {
+  try {
+    return fs.realpathSync.native(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+/**
+ * The first of `roots` that `cwd` equals or lies inside, compared by real
+ * path so a junction, a symlink or a different spelling of the same
+ * directory counts. A sibling whose name only shares a prefix with a root
+ * does not match.
+ *
+ * @param {string} cwd
+ * @param {string[]} roots
+ * @returns {string | null} the matching root as given, or null
+ */
+export function installRootContaining(cwd, roots) {
+  const here = realOrResolved(cwd);
+  return roots.find((root) => {
+    const relative = path.relative(realOrResolved(root), here);
+    return relative === "" ||
+      (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  }) ?? null;
+}
+
+/**
+ * Where `--apply` runs its steps. A step that replaces the plugin install
+ * directory (agy's `plugin uninstall`) cannot remove a directory that is the
+ * working directory of a running process, so a cwd inside the agy install
+ * root moves to the update's own temporary directory first, for this process
+ * and for every step. Any other cwd is passed through unchanged.
+ *
+ * @param {{ deps: object, tmpDir: string, write: (text: string) => void }} args
+ * @returns {{ ok: true, cwd: string | undefined, moved: boolean } | { ok: false }}
+ */
+function chooseStepCwd({ deps, tmpDir, write }) {
+  const roots = deps.installRoots ?? [agyPluginInstallDir(deps.homedir)];
+  const root = installRootContaining(deps.cwd ?? process.cwd(), roots);
+  if (root === null) return { ok: true, cwd: deps.cwd, moved: false };
+  const where = `the current directory is inside the agy install root (${root})`;
+  try {
+    (deps.chdir ?? process.chdir)(tmpDir);
+  } catch (err) {
+    write(`update --apply: ${where} and could not be left: ${err.message}. Run it from another directory.\n`);
+    return { ok: false };
+  }
+  write(`update --apply: ${where}; running the steps from ${tmpDir} instead.\n`);
+  return { ok: true, cwd: tmpDir, moved: true };
+}
+
 function applyToHosts(report, { deps, env, write, json }) {
   const present = report.hosts.filter((host) => host.present && host.binary);
   if (present.length === 0) {
@@ -753,6 +807,8 @@ function applyToHosts(report, { deps, env, write, json }) {
     npm: findOnPath("npm", { env, platform: deps.platform }) ?? "npm",
     tar: findOnPath("tar", { env, platform: deps.platform }) ?? "tar",
   };
+  const stepCwd = chooseStepCwd({ deps, tmpDir, write });
+  if (!stepCwd.ok) return false;
   let ok = true;
   for (const host of present) {
     write(`\n${host.name}:\n`);
@@ -768,7 +824,7 @@ function applyToHosts(report, { deps, env, write, json }) {
     const outcome = applyPlan(buildHostPlan(host, { latest: report.latest, tmpDir, tools }), {
       runner,
       write,
-      cwd: deps.cwd,
+      cwd: stepCwd.cwd,
     });
     host.steps = outcome.steps;
     if (!outcome.ok) {
@@ -776,6 +832,8 @@ function applyToHosts(report, { deps, env, write, json }) {
       write(`${outcome.message}\n`);
     }
   }
+  // A process cannot delete the directory it runs in.
+  if (stepCwd.moved) (deps.chdir ?? process.chdir)(os.tmpdir());
   if (ok && ownTmp) fs.rmSync(tmpDir, { recursive: true, force: true });
   return ok;
 }
@@ -856,8 +914,12 @@ export function readUpdateNotice({ cacheFile = resolveUpdateCacheFile(), running
  * @param {string[]} argv
  * @param {{ env?: object, now?: number, fetch?: Function, cacheFile?: string,
  *   running?: string, platform?: string, runner?: Function, tmpDir?: string, cwd?: string,
+ *   installRoots?: string[], homedir?: string, chdir?: (dir: string) => void,
  *   retry?: object }} [deps] `retry` is the test-only seam for
  *   `fetchLatestVersion`'s injectable clock/delay/jitter (never used by real callers).
+ *   `installRoots`, `homedir` and `chdir` are test-only seams for the cwd guard
+ *   ({@link installRootContaining}); real callers get the agy install dir
+ *   under the home directory and `process.chdir`.
  * @returns {Promise<number>} exit code: 0, or 1 on bad arguments or a failed --apply step
  */
 export async function runUpdate(argv = [], deps = {}) {
