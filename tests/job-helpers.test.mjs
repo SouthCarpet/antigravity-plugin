@@ -382,12 +382,15 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy' });
     await patchJob(workspaceRoot, job.id, {
       status: 'running', workerPid: 909091, pid: 909091, agyPid: 424242,
+      agyProcessStartedAt: '2026-10-08T12:00:00.000Z',
     });
     const terminated = [];
     const finalJob = await waitForJob(workspaceRoot, job.id, {
       pollMs: 5,
       timeoutMs: 2000,
-      isProcessAlive: () => false,
+      // The worker is gone; agy is alive and still the process the job started.
+      isProcessAlive: (pid) => pid === 424242,
+      readStartTime: () => Date.parse('2026-10-08T12:00:00.000Z'),
       terminateTree: async (pid) => { terminated.push(pid); return { outcome: 'killed', pid }; },
     });
     assert.equal(finalJob.status, 'failed');
@@ -415,11 +418,13 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     const job = await createTrackedJob({ workspaceRoot, kind: 'task', title: 'gone-agy-unkillable' });
     await patchJob(workspaceRoot, job.id, {
       status: 'running', workerPid: 909093, pid: 909093, agyPid: 434343,
+      agyProcessStartedAt: '2026-10-08T12:00:00.000Z',
     });
     const finalJob = await waitForJob(workspaceRoot, job.id, {
       pollMs: 5,
       timeoutMs: 2000,
-      isProcessAlive: () => false,
+      isProcessAlive: (pid) => pid === 434343,
+      readStartTime: () => Date.parse('2026-10-08T12:00:00.000Z'),
       terminateTree: async () => { throw new Error('denied'); },
     });
     assert.equal(finalJob.status, 'failed');

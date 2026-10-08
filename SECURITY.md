@@ -208,12 +208,28 @@ authentication", or the Google OAuth URL itself). Text in a `step_update`
 event, a tool argument or `result.response` can come from the model, so it
 never sets `auth_required`.
 
-The plugin prints no OAuth URL, not even one from agy's own prompt. A URL is
-safe to show only when its `client_id` and `redirect_uri` are agy's own, and
-no live agy capture in this repository records those values. The plugin
-tells the user to run `setup` instead, which shows agy's own prompt
-directly in the terminal. `status --json` reports `oauthUrl` as `null`, also
-for a job record from 3.0.0 or earlier.
+The plugin shows no Google OAuth URL, not even one from agy's own prompt. A
+URL is safe to show only when its `client_id` and `redirect_uri` are agy's
+own, and no live agy capture in this repository records those values. One
+helper replaces each URL of the form `accounts.google.com/o/oauth2/...` or
+`accounts.google.com/signin/oauth...` (any scheme, with or without a query)
+with `[oauth-url-removed]` before agy text leaves the plugin:
+
+- the stderr text a failed run prints, which includes agy's own stderr and
+  its `result.error` line;
+- the progress text that `rescue`, `task`, `review` and `vision` stream to
+  stderr;
+- the answer and the `rawOutput` and `stderr` that a job stores;
+- every `--json` envelope and text report on stdout, and the answer or
+  reason that a background wait prints, so a job record that an older
+  version stored with a URL is printed without it.
+
+Other URLs and plain mentions of the host stay. The helper removes only
+these two Google URL forms: a model can still write another link, for
+example a shortened URL, into an answer. The plugin tells the user to run
+`setup` instead, which shows agy's own prompt directly in the terminal, not
+through the plugin. `status --json` reports `oauthUrl` as `null`, also for a
+job record that an older version wrote.
 
 ### Slash and skill commands in prompts
 
@@ -255,12 +271,22 @@ The same check runs when the plugin reads, not only when it writes:
   integer) is ignored.
 - `status` reads a job log only from the plugin's own log path for that job,
   never from another path a job record names.
-- `cancel` signals a process only when the process started no later than
-  the job record's last update (`updatedAt`), with 2 seconds of tolerance.
-  A process id that the OS gave to a new process after the job's process
-  ended fails this test. When the start time is later, or cannot be read,
-  `cancel` does not signal that process: it reports it as `unconfirmed` and
-  exits 1.
+- `cancel`, and the cleanup a background wait runs when the worker has
+  vanished, signal a recorded process only while it is the process the
+  plugin started. Right after it starts a worker or agy process, the plugin
+  reads the start time of that process from the OS and stores it next to
+  the process id in the job record (`workerProcessStartedAt`,
+  `agyProcessStartedAt`). It writes this value once and never changes it.
+  Before a signal, the plugin reads the start time again. The process must
+  be running, and the two times must agree to within 1 second, the rounding
+  of the read. A process id that the OS gave to another process, older or
+  newer, fails this check, also on a second `cancel`. When the times differ,
+  the start time cannot be read, or the job record has no start time (a job
+  that an older version started), the plugin does not signal the process.
+  `cancel` reports it as `unconfirmed` and exits 1; the cleanup only writes a
+  line to the job log. Stop such a process yourself. A short time remains
+  between the check and the signal, in which the process can end and its
+  id can be given to another process.
 
 On Windows the owner and mode check is a no-op, for reads and writes, so
 only the last three rules apply there.

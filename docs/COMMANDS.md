@@ -1035,15 +1035,18 @@ confirmed killed or already absent. A job with no recorded process id, a
 termination failure, or a state persistence failure remains an error and can
 be retried.
 
-Before it signals a recorded process, cancel checks that the process still
-belongs to the job: the process must have started no later than the job
-record's last update (`updatedAt`), with 2 seconds of tolerance. A process id
-that the OS gave to a new process after the job's process ended fails this
-check. When the start time is later, or cannot be read, cancel does not
-signal that process. It reports the target with the outcome `unconfirmed`,
-records `cancel_failed`, and exits 1. Stop the process yourself if you know
-it is the job's process. A recorded process that is no longer running is
-`not_found` and is not signalled.
+Before it signals a recorded process, cancel checks that the process is
+still the one the job started. At launch the plugin stores the OS start time
+of each worker and agy process in the job record (`workerProcessStartedAt`,
+`agyProcessStartedAt`). Cancel reads the start time again, and the two must
+agree to within 1 second. A process id that the OS gave to another process,
+older or newer, fails this check, also when you run cancel a second time.
+When the start time differs, cannot be read, or is not in the job record (a
+job that an older version started), cancel does not signal that process. It
+reports the target with the outcome `unconfirmed`, records `cancel_failed`,
+and exits 1. Stop the process yourself if you know it is the job's process. A
+recorded process that is no longer running is `not_found` and is not
+signalled.
 
 Cancel reads job state only from directories that pass the shared temp
 directory check (see [SECURITY.md](../SECURITY.md#shared-temporary-directories-posix)).

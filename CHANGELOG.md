@@ -28,11 +28,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state root, workspace directory or `jobs` directory that fails the owner,
   mode and symlink check, a legacy temp workspace directory that fails it is
   skipped, and a cache that fails it counts as no cache. The state index
-  ignores entries that are not valid job records, `status` reads a job log
-  only from the plugin's own path for that job, and `cancel` signals a
-  process only when it started no later than the job record's last update
-  (else the new outcome `unconfirmed`, exit 1). State locations do not
+  ignores entries that are not valid job records, and `status` reads a job
+  log only from the plugin's own path for that job. State locations do not
   change. On Windows the owner and mode check stays a no-op.
+- **A recorded process id is signalled only while it is still the job's
+  process.** Before, `cancel` and the cleanup a background wait runs when
+  its worker vanished signalled the stored worker or agy process id with no
+  check, so a process that later got the same id from the OS could be
+  stopped. Now the plugin stores the OS start time of each process it starts
+  (`workerProcessStartedAt`, `agyProcessStartedAt` in the job record), once,
+  at launch. Before a signal it reads the start time again, and the two must
+  agree to within 1 second. Otherwise `cancel` reports the new outcome
+  `unconfirmed` and exits 1, and the cleanup only logs it. A job record from
+  an older version has no start time, so its processes are never signalled:
+  stop them yourself.
 - **The vision MCP server authorizes a path before any filesystem call.**
   Before, `view_image` resolved the path from the model on disk and only then
   checked the allowlist. On Windows, a UNC path such as
@@ -56,15 +65,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wrappers. It forwards `--background` and `--wait` to the runtime, so
   `--background` queues a plugin job, and `--show-result` and `--request-id`
   now work through it.
-- **Only agy's own sign-in prompt sets `auth_required`, and no OAuth URL is
-  printed.** Before, the plugin took the first Google OAuth URL from any agy
-  output, including model text, and printed it as "OAuth required. Open:
-  ...". A prompt injection could thus show an attacker's OAuth client as the
-  plugin's own login step. Now only the raw lines agy prints before its first
-  stream-json event count. The plugin prints no URL, because no live agy
-  capture records agy's `client_id` and `redirect_uri` to check a URL
-  against. It tells the user to run `setup`, which shows agy's own prompt.
+- **Only agy's own sign-in prompt sets `auth_required`.** Before, the plugin
+  took the first Google OAuth URL from any agy output, including model text,
+  and printed it as "OAuth required. Open: ...". A prompt injection could
+  thus show an attacker's OAuth client as the plugin's own login step. Now
+  only the raw lines agy prints before its first stream-json event count.
+  The plugin tells the user to run `setup`, which shows agy's own prompt.
   `status --json` reports `oauthUrl` as `null`, also for older job records.
+- **No Google OAuth URL leaves the plugin.** No live agy capture records
+  agy's `client_id` and `redirect_uri` to check a URL against, so the
+  plugin replaces each `accounts.google.com/o/oauth2/...` and
+  `accounts.google.com/signin/oauth...` URL with `[oauth-url-removed]`.
+  This applies to stderr (also the line that quotes agy's `result.error`),
+  streamed progress text, the stored answer and `rawOutput`, every `--json`
+  envelope and text report, and job records an older version stored. Other
+  URLs stay. Streamed progress text is now written up to its last
+  whitespace character, so a URL split across two deltas is also caught.
 
 ### Breaking
 

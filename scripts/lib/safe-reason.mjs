@@ -158,3 +158,71 @@ export function safeFailureReason(value) {
   if (!/[A-Za-z]{3}/.test(reason.replace(/\[redacted(?:-url)?\]/g, ""))) return null;
   return reason;
 }
+
+/** What {@link removeOAuthUrls} puts where a Google OAuth URL was. */
+export const OAUTH_URL_MARKER = "[oauth-url-removed]";
+
+// A Google OAuth URL: `accounts.google.com/o/oauth2/...` or
+// `accounts.google.com/signin/oauth...`, with any scheme (or none), user
+// info, port, query and fragment. No part matches whitespace, so a match
+// never spans a whitespace character.
+const OAUTH_URL_PATTERN =
+  /(?:[a-z][a-z0-9+.-]*:)?(?:\/\/)?(?:[^\s/@"'<>`\\]*@)?accounts\.google\.com(?::\d*)?\/+(?:o\/oauth2|signin\/oauth)[^\s"'<>`\\]*/gi;
+
+/**
+ * Replace every Google OAuth URL in `text` with {@link OAUTH_URL_MARKER}.
+ * The plugin cannot prove that such a URL came from agy and not from the
+ * model, so it never shows one. Other URLs and plain mentions of the host
+ * stay.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function removeOAuthUrls(text) {
+  return text.replace(OAUTH_URL_PATTERN, OAUTH_URL_MARKER);
+}
+
+/**
+ * A copy of `value` with {@link removeOAuthUrls} applied to every string in
+ * it, through plain objects and arrays. Other values are returned as they
+ * are.
+ *
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
+export function removeOAuthUrlsDeep(value) {
+  if (typeof value === "string") return /** @type {T} */ (removeOAuthUrls(value));
+  if (Array.isArray(value)) return /** @type {T} */ (value.map(removeOAuthUrlsDeep));
+  if (value === null || typeof value !== "object") return value;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  return /** @type {T} */ (Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, removeOAuthUrlsDeep(item)]),
+  ));
+}
+
+/**
+ * A text sink that applies {@link removeOAuthUrls} to streamed text. It
+ * holds back the text after the last whitespace character, because a URL
+ * can arrive split across chunks; `flush` writes what is left.
+ *
+ * @param {(text: string) => void} write
+ * @returns {{ write: (text: string) => void, flush: () => void }}
+ */
+export function createOAuthUrlFilter(write) {
+  let pending = "";
+  return {
+    write(text) {
+      pending += text;
+      const end = pending.search(/\s\S*$/) + 1;
+      if (end === 0) return;
+      write(removeOAuthUrls(pending.slice(0, end)));
+      pending = pending.slice(end);
+    },
+    flush() {
+      if (pending) write(removeOAuthUrls(pending));
+      pending = "";
+    },
+  };
+}

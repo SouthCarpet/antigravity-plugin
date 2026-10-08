@@ -28,6 +28,7 @@ import path from "node:path";
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { runAgyPrint } from "../lib/agent-runtime.mjs";
+import { recordProcessStartTime } from "../lib/process.mjs";
 import {
   AGY_MODES,
   DEFAULT_AGY_TIMEOUT_MS,
@@ -198,6 +199,7 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
           pid: process.pid,
           workerPid: process.pid,
           agyPid: pid ?? null,
+          agyProcessStartedAt: recordProcessStartTime(pid),
         });
         appendJobLog(workspaceRoot, jobId, `[worker] agy spawned pid=${pid ?? "unknown"}`);
       },

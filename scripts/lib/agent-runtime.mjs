@@ -9,7 +9,7 @@
  */
 import { spawn } from './process-adapter.mjs';
 import { terminateProcessTree } from './process.mjs';
-import { safeFailureReason } from './safe-reason.mjs';
+import { removeOAuthUrlsDeep, safeFailureReason } from './safe-reason.mjs';
 import { existsSync } from 'node:fs';
 import { join, delimiter, extname } from 'node:path';
 
@@ -1398,7 +1398,10 @@ function classifyRunResult({ session, exitCode }) {
     ? safeFailureReason(extractFatalErrorMarker(session.stderr)) ?? safeFailureReason(parsed.resultError)
     : null;
 
-  return {
+  // Every text field leaves without a Google OAuth URL: the answer and
+  // stdout that are printed and stored, and stderr, which carries agy's own
+  // stderr and its `result.error` line. Auth is already classified above.
+  return removeOAuthUrlsDeep({
     status: finalized.status,
     stderr: session.errorMessage ? `${finalized.stderr}\n${session.errorMessage}` : finalized.stderr,
     errorMessage: session.errorMessage ?? agyReason,
@@ -1417,7 +1420,7 @@ function classifyRunResult({ session, exitCode }) {
     agyPrintTimeout: truncation,
     structured: parsed.structured ?? null,
     spawnError: session.spawnError,
-  };
+  });
 }
 
 /**

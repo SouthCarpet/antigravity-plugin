@@ -1580,7 +1580,9 @@ describe('/antigravity:review', () => {
     try {
       await run(['--json'], { cwd: tempDir });
       assert.equal(typeof agyRuntime.calls[0].onText, 'function');
-      agyRuntime.calls[0].onText('a piece of readable text');
+      // Progress is written up to its last whitespace (a URL can arrive
+      // split across deltas), so this delta ends with a newline.
+      agyRuntime.calls[0].onText('a piece of readable text\n');
     } finally {
       cap.restore();
     }
@@ -1901,7 +1903,9 @@ describe('/antigravity:rescue argv parsing', () => {
     try {
       await run(['do the thing'], { cwd: tempDir });
       assert.equal(typeof agyRuntime.calls[0].onText, 'function');
-      agyRuntime.calls[0].onText('a piece of readable text');
+      // Progress is written up to its last whitespace (a URL can arrive
+      // split across deltas), so this delta ends with a newline.
+      agyRuntime.calls[0].onText('a piece of readable text\n');
     } finally {
       cap.restore();
     }
@@ -2303,7 +2307,9 @@ describe('/antigravity:task argv parsing', () => {
     try {
       await run(['do the thing', '--foreground'], { cwd: tempDir });
       assert.equal(typeof agyRuntime.calls[0].onText, 'function');
-      agyRuntime.calls[0].onText('a piece of readable text');
+      // Progress is written up to its last whitespace (a URL can arrive
+      // split across deltas), so this delta ends with a newline.
+      agyRuntime.calls[0].onText('a piece of readable text\n');
     } finally {
       cap.restore();
     }

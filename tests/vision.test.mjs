@@ -301,7 +301,9 @@ describe('/antigravity:vision', () => {
     try {
       await run([imagePath, '--prompt', 'x'], { cwd: tmpDir });
       assert.equal(typeof runtime.calls[0].onText, 'function');
-      runtime.calls[0].onText('a piece of readable text');
+      // Progress is written up to its last whitespace (a URL can arrive
+      // split across deltas), so this delta ends with a newline.
+      runtime.calls[0].onText('a piece of readable text\n');
     } finally {
       cap.restore();
     }

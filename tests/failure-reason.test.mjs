@@ -166,9 +166,9 @@ describe('the safe failure reason reaches every JSON writer', () => {
 
   // Only agy's raw prompt lines before the first stream-json event are an
   // auth signal, so a sign-in URL inside the result event is a plain failure.
-  // stderr still quotes agy's own error line, as for every result.error, but
-  // never offers the URL as a sign-in step.
-  it('a sign-in URL in result.error is a run_failed envelope with no URL in the JSON', () => {
+  // stderr still quotes agy's own error line, as for every result.error, with
+  // the URL removed.
+  it('a sign-in URL in result.error is a run_failed envelope with no URL in stdout or stderr', () => {
     const { work, data } = freshDirs();
     const url = 'https://accounts.google.com/o/oauth2/auth?client_id=abc&state=s';
     const agy = resultErrorAgy('agy-signin', `sign in at ${url}`);
@@ -177,6 +177,7 @@ describe('the safe failure reason reaches every JSON writer', () => {
     const payload = JSON.parse(res.stdout);
     assert.equal(payload.details.error.code, 'run_failed');
     assert.equal(res.stdout.includes('accounts.google.com'), false, res.stdout);
+    assert.equal(res.stderr.includes('accounts.google.com'), false, res.stderr);
     assert.doesNotMatch(res.stderr, /OAuth URL:|OAuth required/);
   });
 

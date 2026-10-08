@@ -465,8 +465,9 @@ success must now read `status` (and, on a failure, `details.error.code`).
 - `cancelled`: the run was cancelled
 - `auth_required`: Antigravity needs the OAuth flow repeated. After 3.0.0
   the plugin sets it only from the raw sign-in lines agy prints before its
-  first stream-json event, never from model text, and prints no OAuth URL;
-  `oauthUrl` in `status --json` is always `null`
+  first stream-json event, never from model text, and prints every Google
+  OAuth URL as `[oauth-url-removed]`; `oauthUrl` in `status --json` is
+  always `null`
 - `timeout`: the run did not finish before its execution budget
 - `no_agy`: the `agy` binary could not be found or spawned
 - `invalid_input`: the caller's own input failed validation
@@ -1347,10 +1348,36 @@ meaning:
   [`update`](./COMMANDS.md#update).
 - `unconfirmed` (additive, 2026-10): a new `outcome` value in a `cancel --json`
   `details.termination[]` entry. `cancel` does not signal a running process
-  that started later than the job record's last `updatedAt` (plus 2 seconds)
-  or whose start time cannot be read. The envelope status is the existing
-  `cancel_failed`, and the exit code is the existing 1. See
-  [`cancel`](./COMMANDS.md#cancel).
+  whose OS start time differs by more than 1 second from the one the job
+  record holds for it, whose start time cannot be read, or that has no
+  recorded start time (a job record from an older version). For the last
+  case the message tells the user to stop the process manually. The
+  envelope status is the existing `cancel_failed`, and the exit code is the
+  existing 1. See [`cancel`](./COMMANDS.md#cancel).
+- `workerProcessStartedAt` (additive, 2026-10): on the job record and its
+  `state.json` entry, the OS start time (ISO) of `workerPid`, read right
+  after the plugin started that process and never updated. `null` when the
+  read failed, absent on a job record from an older version. The job record
+  validator accepts records with and without it.
+- `agyProcessStartedAt` (additive, 2026-10): the same for `agyPid`, read
+  right after agy started.
+- **Vanished-worker cleanup checks process identity** (2026-10): when a
+  background wait finds that the worker is gone, it signals the recorded
+  `agyPid` only when `agyProcessStartedAt` matches the current start time
+  of that process (within 1 second). Otherwise it writes
+  `[wait] agy pid=<pid> not signalled: not confirmed as this job's process`
+  to the job log and still records `worker_missing`, as before.
+- **Google OAuth URLs are removed from output** (2026-10): each URL of the
+  form `accounts.google.com/o/oauth2/...` or
+  `accounts.google.com/signin/oauth...` becomes `[oauth-url-removed]` in
+  stderr, streamed progress text, the stored and printed answer, the stored
+  `result.rawOutput` and `result.stderr`, every `--json` envelope (for
+  example `answer` and `details.result.rawOutput` of `result --json`), text
+  reports, and output from job records an older version stored. Other URLs
+  stay. Streamed progress text is now written up to its last whitespace
+  character, because a URL can arrive split across two deltas; the rest is
+  written when the run ends. See
+  [SECURITY.md](../SECURITY.md#sign-in-auth-prompts).
 
 ### Structured output flag
 

@@ -196,6 +196,11 @@
  * @property {number | null} [pid]
  * @property {number | null} [workerPid]
  * @property {number | null} [agyPid]
+ * @property {string | null} [workerProcessStartedAt] the OS start time of
+ *   `workerPid` (ISO), read once right after launch and never updated;
+ *   `cancel` and the vanished-worker cleanup signal the PID only while its
+ *   current start time matches; additive, `null`/absent on legacy records
+ * @property {string | null} [agyProcessStartedAt] the same for `agyPid`
  * @property {string | null} [conversationId] the id the *caller* passed via
  *   `--conversation`; `null`/absent when the run started fresh or continued
  * @property {string | null} [agyConversationId] the id *agy itself reported*

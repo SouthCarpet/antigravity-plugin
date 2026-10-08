@@ -523,7 +523,8 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'completed');
     assert.equal(res.oauthUrl, null);
-    assert.equal(res.stdout, response);
+    // The answer keeps its text; only the OAuth URL is removed.
+    assert.equal(res.stdout, response.replace(AUTH_URL, '[oauth-url-removed]'));
   });
 
   it('an OAuth URL inside a non-SUCCESS model answer is not an auth signal', async () => {
@@ -583,7 +584,7 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     nextExitCode = 0;
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });
     assert.equal(res.status, 'completed');
-    assert.equal(res.stdout, response);
+    assert.equal(res.stdout, `${padding}The endpoint is [oauth-url-removed] and here is more analysis text.`);
   });
 
   it('a timeout reason wins over an ERROR result.error that arrived before the kill', async () => {

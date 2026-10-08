@@ -37,7 +37,7 @@ mock.module('../scripts/lib/git.mjs', {
 const { listJobs, readJobFile, resolveStateDir, resolveJobLogFile, upsertJob, writeJobFile, appendJobLog } =
   await import('../scripts/lib/state.mjs');
 const { buildSingleJobSnapshot } = await import('../scripts/lib/job-control.mjs');
-const { run: cancel, PID_START_TOLERANCE_MS } = await import('../scripts/commands/cancel.mjs');
+const { run: cancel } = await import('../scripts/commands/cancel.mjs');
 
 const TMPROOT = portableTmpRoot();
 const FALLBACK_ROOT = path.join(os.tmpdir(), 'antigravity');
@@ -142,7 +142,7 @@ describe('state reads refuse a directory that fails the trust check', () => {
       const exit = await cancel([JOB_ID, '--json'], {
         cwd: workCwd,
         isProcessAlive: () => true,
-        processStartedAt: () => 0,
+        readProcessStartTime: () => 0,
         terminateProcessTree: async () => { signalled += 1; return { outcome: 'killed' }; },
         outputCommandResult: () => {},
       });
@@ -240,70 +240,3 @@ describe('status reads only the plugin\'s own job log path', () => {
   });
 });
 
-describe('cancel signals a PID only while it still belongs to the job', () => {
-  let recordedAt;
-
-  beforeEach(async () => {
-    process.env.CLAUDE_PLUGIN_DATA = dataDir;
-    await upsertJob(workCwd, runningJob({ workerPid: 4242, pid: 4242 }));
-    await writeJobFile(workCwd, JOB_ID, runningJob({ workerPid: 4242, pid: 4242 }));
-    recordedAt = Date.parse(listJobs(workCwd)[0].updatedAt);
-  });
-
-  async function cancelWith({ alive = true, startedAt }) {
-    const signalled = [];
-    let payload;
-    const answers = Array.isArray(alive) ? [...alive] : null;
-    const exit = await cancel([JOB_ID, '--json'], {
-      cwd: workCwd,
-      isProcessAlive: () => (answers ? answers.shift() : alive),
-      processStartedAt: () => startedAt,
-      terminateProcessTree: async (pid) => {
-        signalled.push(pid);
-        return { outcome: 'killed', killed: true, pid, status: 0, attempts: [], message: `Process tree ${pid} terminated.` };
-      },
-      outputCommandResult: (value) => { payload = value; },
-    });
-    return { exit, signalled, payload };
-  }
-
-  it('a process that started after the job record (a reused PID) is not signalled', async () => {
-    const { exit, signalled, payload } = await cancelWith({ startedAt: recordedAt + PID_START_TOLERANCE_MS + 1 });
-    assert.equal(exit, 1);
-    assert.deepEqual(signalled, []);
-    assert.equal(payload.status, 'cancel_failed');
-    assert.deepEqual(payload.details.termination.map((t) => [t.role, t.pid, t.outcome, t.killed]), [
-      ['worker', 4242, 'unconfirmed', false],
-    ]);
-    assert.match(payload.details.message, /worker pid 4242: Process 4242 could not be confirmed as this job's worker process/);
-    assert.equal(readJobFile(workCwd, JOB_ID).status, 'running');
-  });
-
-  it('a process whose start time cannot be read is not signalled', async () => {
-    const { exit, signalled, payload } = await cancelWith({ startedAt: null });
-    assert.equal(exit, 1);
-    assert.deepEqual(signalled, []);
-    assert.equal(payload.details.termination[0].outcome, 'unconfirmed');
-  });
-
-  it('a process that started within the tolerance of the job record is signalled', async () => {
-    const { exit, signalled } = await cancelWith({ startedAt: recordedAt + PID_START_TOLERANCE_MS });
-    assert.equal(exit, 0);
-    assert.deepEqual(signalled, [4242]);
-    assert.equal(readJobFile(workCwd, JOB_ID).status, 'cancelled');
-  });
-
-  it('a process that ends while its start time is read is not_found, without a signal', async () => {
-    const { exit, signalled, payload } = await cancelWith({ alive: [true, false], startedAt: null });
-    assert.equal(exit, 0);
-    assert.deepEqual(signalled, []);
-    assert.equal(payload.details.termination[0].outcome, 'not_found');
-  });
-
-  it('a PID that is not running is reported not_found without a signal', async () => {
-    const { exit, signalled, payload } = await cancelWith({ alive: false, startedAt: 0 });
-    assert.equal(exit, 0);
-    assert.deepEqual(signalled, []);
-    assert.equal(payload.details.termination[0].outcome, 'not_found');
-  });
-});

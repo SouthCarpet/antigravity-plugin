@@ -14,7 +14,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
-import { safeFailureReason } from "./safe-reason.mjs";
+import { createOAuthUrlFilter, removeOAuthUrlsDeep, safeFailureReason } from "./safe-reason.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
   appendJobLog,
@@ -28,7 +28,13 @@ import {
 } from "./state.mjs";
 import { requestFingerprint } from "./request-id.mjs";
 import { SESSION_ID_ENV } from "./job-control.mjs";
-import { isProcessAlive as processIsAlive, terminateProcessTree } from "./process.mjs";
+import {
+  checkProcessIdentity,
+  isProcessAlive as processIsAlive,
+  readProcessStartTime,
+  recordProcessStartTime,
+  terminateProcessTree,
+} from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
 import { readRunningVersion } from "./update.mjs";
 import { isFileLockTimeoutError } from "./file-lock.mjs";
@@ -842,7 +848,9 @@ function reportShowResultOutcome(kind, jobId, final, json) {
  * @returns {Promise<number>}
  */
 export async function waitAndReport(kind, workspaceRoot, jobId, wait, { json = false, showResult = false } = {}) {
-  const final = await wait(workspaceRoot, jobId);
+  // The stored record can come from an older plugin version, so its text is
+  // printed without a Google OAuth URL on stdout and stderr alike.
+  const final = removeOAuthUrlsDeep(await wait(workspaceRoot, jobId));
   if (showResult) return reportShowResultOutcome(kind, jobId, final, json);
   if (final?.status === "completed") printMeasuredUsageTrailer(final.result?.usage ?? null);
   const line = waitOutcomeLine(kind, final);
@@ -1239,11 +1247,14 @@ export async function runForegroundJob({
     startedAt,
     pid: process.pid,
     workerPid: process.pid,
+    workerProcessStartedAt: recordProcessStartTime(process.pid),
   });
   appendJobLog(workspaceRoot, job.id, `[job] running (foreground) pid=${process.pid}`);
 
   let result;
   const activity = createJobActivityRecorder(workspaceRoot, job.id);
+  // Progress text reaches the user without a Google OAuth URL.
+  const progress = onText ? createOAuthUrlFilter(onText) : null;
   try {
     result = await runAgyPrint({
       prompt,
@@ -1262,10 +1273,10 @@ export async function runForegroundJob({
       onStderr,
       onText: (delta) => {
         activity.onText();
-        onText?.(delta);
+        progress?.write(delta);
       },
       onSpawn: async ({ pid }) => {
-        await patchJob(workspaceRoot, job.id, { agyPid: pid ?? null });
+        await patchJob(workspaceRoot, job.id, { agyPid: pid ?? null, agyProcessStartedAt: recordProcessStartTime(pid) });
       },
     });
     await activity.finish();
@@ -1282,6 +1293,7 @@ export async function runForegroundJob({
     });
     throw err;
   } finally {
+    progress?.flush();
     await activity.finish();
   }
 
@@ -1880,8 +1892,8 @@ async function createBackgroundJob(jobOptions, requestId) {
  *   kind: import('./types.mjs').JobKind, title?: string | null,
  *   request?: object | null, env?: NodeJS.ProcessEnv,
  *   agyVersion?: string | null, spawnWorker?: typeof spawn,
- *   persistWorkerPid?: typeof patchJob,
- *   terminateTree?: typeof terminateProcessTree, requestId?: string | null }} options
+ *   persistWorkerPid?: typeof patchJob, terminateTree?: typeof terminateProcessTree,
+ *   readStartTime?: typeof readProcessStartTime, requestId?: string | null }} options
  * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry | null, pid: number | null,
  *   requestClaim?: { outcome: "deduplicated" | "conflict", jobId: string,
  *   job: import('./types.mjs').JobIndexEntry } }>}
@@ -1902,6 +1914,7 @@ export async function startBackgroundJob({
   spawnWorker = spawn,
   persistWorkerPid = patchJob,
   terminateTree = terminateProcessTree,
+  readStartTime = readProcessStartTime,
   requestId = null,
 }) {
   const claim = await createBackgroundJob({
@@ -1914,22 +1927,23 @@ export async function startBackgroundJob({
     agyVersion,
   }, requestId);
   if (claim.outcome !== "created") return { job: null, pid: null, requestClaim: claim };
-  return launchWorker(workspaceRoot, claim.job, { env, spawnWorker, persistWorkerPid, terminateTree });
+  return launchWorker(workspaceRoot, claim.job, { env, spawnWorker, persistWorkerPid, terminateTree, readStartTime });
 }
 
 /**
- * Spawn the detached worker for a freshly created job and record its PID;
- * on a launch failure, mark the job `failed` instead. Split out of
+ * Spawn the detached worker for a freshly created job and record its PID
+ * with its start time; on a launch failure, mark the job `failed` instead. Split out of
  * {@link startBackgroundJob} so that function stays under the complexity
  * ceiling.
  *
  * @param {string} workspaceRoot
  * @param {import('./types.mjs').JobIndexEntry} job
  * @param {{ env: NodeJS.ProcessEnv, spawnWorker: typeof spawn,
- *   persistWorkerPid: typeof patchJob, terminateTree: typeof terminateProcessTree }} deps
+ *   persistWorkerPid: typeof patchJob, terminateTree: typeof terminateProcessTree,
+ *   readStartTime: typeof readProcessStartTime }} deps
  * @returns {Promise<{ job: import('./types.mjs').JobIndexEntry, pid: number | null }>}
  */
-async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorkerPid, terminateTree }) {
+async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorkerPid, terminateTree, readStartTime }) {
   const workerPath = resolveWorkerPath();
   let child;
   let spawned = false;
@@ -1949,6 +1963,7 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
     await persistWorkerPid(workspaceRoot, job.id, {
       pid: child.pid ?? null,
       workerPid: child.pid ?? null,
+      workerProcessStartedAt: recordProcessStartTime(child.pid, readStartTime),
     });
     child.unref();
   } catch (error) {
@@ -1977,7 +1992,8 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
  * @param {string} workspaceRoot the resolved workspace root
  * @param {string} jobId
  * @param {{ pollMs?: number, timeoutMs?: number, isProcessAlive?: typeof processIsAlive,
- *   now?: () => number, sleep?: (ms: number) => Promise<void> }} [options]
+ *   now?: () => number, sleep?: (ms: number) => Promise<void>,
+ *   terminateTree?: typeof terminateProcessTree, readStartTime?: typeof readProcessStartTime }} [options]
  * @returns {Promise<import('./types.mjs').JobRecord | null>}
  */
 /**
@@ -2004,20 +2020,31 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
  * `running`/`queued` jobs — once this function's own `patchJob` call below
  * lands, a later `/antigravity:cancel` can no longer find the job at all, so
  * a live `agyPid` would be orphaned with no reachable way to stop it (plan
- * 086 T5e F4). Termination failures are swallowed (`.catch(() => {})`): a
- * pid that cannot be killed here is no worse than the pre-fix behaviour, and
- * must never block persisting the terminal state.
+ * 086 T5e F4). The PID is signalled only when `checkProcessIdentity` says it
+ * is still the agy process this job started; any other answer (a PID the OS
+ * gave to another process, an unreadable start time, a job record with no
+ * start time) only logs that it was not signalled. Termination failures are
+ * swallowed (`.catch(() => {})`): a pid that cannot be killed here is no
+ * worse than the pre-fix behaviour, and must never block persisting the
+ * terminal state.
  *
  * @param {string} workspaceRoot
  * @param {string} jobId
  * @param {number} workerPid
- * @param {number | null | undefined} agyPid
- * @param {typeof terminateProcessTree} terminateTree
+ * @param {import('./types.mjs').JobRecord} job
+ * @param {{ terminateTree: typeof terminateProcessTree, isProcessAlive: typeof processIsAlive,
+ *   readStartTime: typeof readProcessStartTime }} deps
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
-async function markWorkerVanished(workspaceRoot, jobId, workerPid, agyPid, terminateTree) {
+async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime }) {
+  const agyPid = Number(job.agyPid);
   if (Number.isInteger(agyPid) && agyPid > 0) {
-    await terminateTree(agyPid).catch(() => {});
+    const identity = checkProcessIdentity(agyPid, job.agyProcessStartedAt, { isProcessAlive, readStartTime });
+    if (identity === "match") {
+      await terminateTree(agyPid).catch(() => {});
+    } else if (identity !== "gone") {
+      appendJobLog(workspaceRoot, jobId, `[wait] agy pid=${agyPid} not signalled: not confirmed as this job's process`);
+    }
   }
   const failed = await patchJob(workspaceRoot, jobId, {
     status: "failed",
@@ -2042,6 +2069,7 @@ export async function waitForJob(
     now = () => Date.now(),
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
     terminateTree = terminateProcessTree,
+    readStartTime = readProcessStartTime,
   } = {},
 ) {
   const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
@@ -2051,7 +2079,7 @@ export async function waitForJob(
     if (!job || TERMINAL.has(job.status)) return job;
     const workerPid = Number(job?.workerPid ?? job?.pid);
     if (isWorkerVanished(job, workerPid, isProcessAlive)) {
-      return markWorkerVanished(workspaceRoot, jobId, workerPid, Number(job?.agyPid), terminateTree);
+      return markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
     }
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);
