@@ -57,20 +57,29 @@ exists for discovery on the repository page.
    `## [Unreleased]` in `CHANGELOG.md`.
    `bump-version` refuses to promote an empty section.
 2. Documentation currency. Search the README and `docs/` for numbers and
-   version phrases: `grep -rn '[0-9]\+\.[0-9]\+\.[0-9]\+' README.md docs/`.
+   every version-bearing sentence, including About, Status, install and
+   checksum text: `grep -rn '[0-9]\+\.[0-9]\+\.[0-9]\+' README.md docs/`.
    Read the sections that describe behaviour you changed: Updating,
-   Troubleshooting, Commands, and Compatibility. Correct every number and
-   every sentence that the change made false. Then run
+   Troubleshooting, Commands, and Compatibility. Add one inventory bullet
+   for each new field, key or rule. Correct every number and every sentence
+   that the change made false. An independent reviewer confirms the quoted
+   facts and their sections. Then run
    `node scripts/bump-version.mjs --check`. The check fails when a
    `Plugin <version>` phrase in `README.md` or in `docs/*.md` names a version
    that is not the one in `package.json`, and it prints the file and the line.
-3. Bump every version scalar at once:
+3. Setup and MCP checks. agy has no `setup` subcommand. Run the plugin's
+   `setup` verb (`antigravity-plugin setup`, or the setup command of a host)
+   or `agy mcp add` only from the installed plugin copy. A scratch
+   integration test uses an isolated test configuration and must not update
+   the shared MCP registration. After the actual plugin release run, run
+   `agy mcp list` from the installed copy and record the result.
+4. Bump every version scalar at once:
    `node scripts/bump-version.mjs <patch|minor|major|x.y.z>`.
    This rewrites the seven host manifest scalars, the root and
    `packages[""]` versions in `package-lock.json` when it exists, the
    changelog heading and compare links, the README status line, and every
    `Plugin <version>` phrase in the README and in `docs/`.
-4. Run the gates locally:
+5. Run the gates locally:
 
    ```bash
    npm run lint
@@ -81,7 +90,7 @@ exists for discovery on the repository page.
    npm publish --dry-run
    ```
 
-5. Before you push the tag, open <https://status.npmjs.org>. If an incident
+6. Before you push the tag, open <https://status.npmjs.org>. If an incident
    names package publishing, wait until it is resolved. Measured on
    2026-09-03: the publish of 1.1.2 ran fifteen minutes into the incident
    "Intermittent Failures Impacting npm Publish". npm reported `E401`, wrote
@@ -91,16 +100,16 @@ exists for discovery on the repository page.
    same content shipped as 1.1.3. After a failed publish, run `npm view
    <package>@<version>` before any rerun.
 
-6. Commit: `git commit -am "release: X.Y.Z"`.
-7. Tag with a signature. See [Tag signing](#tag-signing).
+7. Commit: `git commit -am "release: X.Y.Z"`.
+8. Tag with a signature. See [Tag signing](#tag-signing).
    `git tag -s vX.Y.Z -m "vX.Y.Z"`, then `git tag -v vX.Y.Z`.
-8. Push the commit first. Then push the tag:
+9. Push the commit first. Then push the tag:
    `git push origin main` and `git push origin vX.Y.Z`.
    CI runs on the commit; the tag push starts `release.yml`.
-9. Watch the run on the Actions tab or use `gh run watch`. The job stops
+10. Watch the run on the Actions tab or use `gh run watch`. The job stops
    before publishing when a gate fails, when the tag does not match
    `package.json`, or when npmjs.com does not trust the workflow yet.
-10. Verify the published version (next section).
+11. Verify the published version (next section).
 
 ## Tag signing
 

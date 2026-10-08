@@ -7,7 +7,6 @@ that matches your workflow.
 
 1. **Node.js ≥ 22.3.0** — `node --version`.
 2. **agy CLI 1.1.15 to 1.3.1; newest measured 1.3.1** - Google Antigravity CLI on `PATH`. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table.
-   See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table.
    ```bash
    curl -fsSL https://antigravity.google/cli/install.sh | bash
    agy --version
@@ -104,8 +103,8 @@ node scripts/pack-for-agy.mjs
 
 # From a published version, without a checkout:
 npm pack @southcarpet/antigravity-plugin
-# Prints the tarball filename, for example southcarpet-antigravity-plugin-2.0.2.tgz
-tar -xzf southcarpet-antigravity-plugin-2.0.2.tgz
+# Prints the tarball filename: southcarpet-antigravity-plugin-<version>.tgz
+tar -xzf southcarpet-antigravity-plugin-<version>.tgz
 agy plugin install ./package
 ```
 
@@ -200,7 +199,8 @@ See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table and
 
 The lines below come from standalone commands run from a clone of this
 repository. The test commands use temporary files, temporary job stores, and a
-fake `agy`. They do not contact Google.
+fake `agy`. They do not contact Google. A row that names an agy version was
+measured with that real agy version instead.
 
 | Situation | What you see (verbatim first line) | What to do |
 |---|---|---|
@@ -214,6 +214,9 @@ fake `agy`. They do not contact Google.
 | `rescue` or `task` receives `--mode yolo`.<br><br>Commands: `node bin/antigravity.mjs rescue probe --mode yolo`; `node bin/antigravity.mjs task probe --mode yolo`. | `rescue`: `antigravity:rescue — invalid value for --mode: "yolo" (expected plan\|accept-edits)`<br><br>`task`: `antigravity:task — invalid value for --mode: "yolo" (expected plan\|accept-edits)`<br><br>Each command exits 1. | Use `--mode plan` or `--mode accept-edits`. |
 | `result` receives an unknown job ID.<br><br>Command: `node bin/antigravity.mjs result unknown-job-id`. | `antigravity:result — No job found for "unknown-job-id". Run /antigravity:status to inspect active jobs.` Exit 1. | Run `status` and use a listed finished job ID. |
 | `cancel` receives the ID of a finished job.<br><br>Command: `node bin/antigravity.mjs cancel a0a74eadce4a` after that job completed. | `antigravity:cancel — No active antigravity jobs to cancel.` Exit 1. | Use `result` to read the finished job. Cancel only a queued or running job. |
+| `rescue` or `task` has a prompt that needs a shell command.<br><br>Command: `node bin/antigravity.mjs rescue "summarize this repository in one sentence"` on agy 1.3.1. | `antigravity:rescue — failed (failed).`<br><br>A later stderr line: `agent-runtime: command (RunCommand) for "Get-ChildItem -Force": Headless runs cannot grant "command"; the host must run this step itself.` Then a `resume with` line. Exit 1. With `--json`, the error code is `agy_denied`. | Headless agy denies the `command` tool, and the plugin never grants it. Run the command yourself, or let the host run it, and give the output to the model in the prompt. |
+| A `vision` run fails with a 503 capacity error.<br><br>Command: `node bin/antigravity.mjs vision pixel.png --model gemini-3.6-flash-high` on agy 1.3.1, measured 2026-10-08. | After any model text on stderr: `antigravity:vision — failed (failed).`<br><br>A later stderr line: `agent-runtime: agy reported error: API error (attempt 1): UNAVAILABLE (code 503): No capacity available for model gemini-3.6-flash-high on the server`. Exit 1. With `--json`, `details.error.message` carries the reason. | The model has no capacity on the server side. Retry later, or pass another model with `--model`. `agy models` lists them. Without `--model`, `vision` uses `gemini-3.8-flash-high`. |
+| `agy plugin install` reports that another process holds the plugin.<br><br>Command: `agy plugin install <dir>` on agy 1.3.1 or later. The agy 1.3.1 changelog describes this message. It was not seen in the isolated probes. | A message from agy that another Antigravity process still holds the plugin open. | Close the other process: another `agy` session, the Antigravity Hub, or the `remote-control` daemon. Then run the command again. If it still fails, use the uninstall-then-install recipe in [agy itself](#agy-itself). |
 | `update --apply` runs with `ANTIGRAVITY_NO_UPDATE_CHECK=1`.<br><br>Command: `$env:ANTIGRAVITY_NO_UPDATE_CHECK='1'; node bin/antigravity.mjs update --apply`, with fake host binaries and a recording runner. | `agy: update check disabled (ANTIGRAVITY_NO_UPDATE_CHECK=1); no known "latest" version to pack, skipping this host.` Exit 1. Claude Code and Codex steps still run. | Allow the registry check before you apply an agy update. You can update the other detected hosts while the check stays disabled. |
 | The npm registry is unreachable during `update`.<br><br>Command: `node bin/antigravity.mjs update`, with `fetch` forced to fail offline. | `- latest: unknown: could not reach the npm registry: probe offline` Exit 0. A failed check is a message, not a command error. | Check the network and run `update` again. You can still use the printed host instructions. |
 | Codex reinstalled an old version.<br><br>Command: `node bin/antigravity.mjs update --apply`, with the `antigravity` marketplace registered from a local clone that is behind `main`. Measured on 2026-09-03 with 1.1.1: `plugin remove` and `plugin add` reinstalled 1.1.0. | `codex: the marketplace "antigravity" is a local clone at <path>. Pull that clone first; plugin add installs the version it holds. This command does not change it.`<br><br>After the install: `codex: installed 1.1.0`, then `codex: installed 1.1.0 does not match latest 1.1.2. Pull the marketplace clone, then run update --apply again.` Exit 0, because the commands themselves did not fail. | Run `git pull` in the named clone, then run `update --apply` again. `codex plugin marketplace list` prints the path. To leave local clones out of it, register the marketplace from GitHub instead. |

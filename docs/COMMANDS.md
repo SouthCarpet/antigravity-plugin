@@ -1,9 +1,9 @@
 # Commands reference
 
-This is the argument and execution reference for the nine public 2.x verbs,
+This is the argument and execution reference for the nine public 3.x verbs,
 and for the standalone `update` convenience at the end. The broader
 versioning, output, environment, and state promises are in the
-[2.x compatibility contract](./COMPATIBILITY.md).
+[3.x compatibility contract](./COMPATIBILITY.md).
 
 ## Invocation forms
 
@@ -25,7 +25,7 @@ Repeating a scalar value flag uses its last value; repeating `--add-dir`
 preserves all values. Unknown flags return exit 1 with
 `antigravity:<verb> — unknown flag --<name>; put prompt text after --`.
 Put prompt words that begin with `--` after the `--` terminator. Undocumented
-extra positionals may be ignored and may become errors in 2.x.
+extra positionals may be ignored and may become errors in 3.x.
 
 `--cwd <path>` changes the working directory used to resolve the workspace on
 every verb except `setup`. A Git repository root is used when one can be
@@ -414,6 +414,13 @@ task text as one argument to preserve its boundaries.
   that run only (evidence in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access)).
   A run that needed a file it was not granted fails with the denied tool
   named and this flag as the remedy.
+  `--add-dir` does not give agy a shell: a prompt that needs a shell command
+  (for example "summarize this repository in one sentence") can still fail,
+  because headless agy denies the `command` tool. Measured on agy 1.3.1 (see
+  [COMPATIBILITY.md](./COMPATIBILITY.md#supported-matrix)). The plugin names
+  the tool and reports that the host must run the step itself. Run the
+  command yourself, or let the host run it, and give the output to the model
+  in the prompt. The same holds for `task`.
 - `--mode <plan|accept-edits>` is forwarded to agy as its execution mode
   for this run (`plan`: propose without editing; `accept-edits`: apply file
   edits without a prompt). Any other value is an argument error (exit 1)
@@ -690,10 +697,13 @@ one run wrote `Běžné`. The `gemini-3.7-flash-high` model transcribed all
 three strings exactly in one run and used about twice the input tokens,
 65k compared with 33k. On 2026-10-08 with agy 1.3.1, the default
 `gemini-3.6-flash-high` failed with a 503 capacity error
-(`No capacity available for model gemini-3.6-flash-high`), and
-`gemini-3.8-flash-high` completed the same call. This is why the default
-changed in 3.0.0. Pass `--model gemini-3.7-flash-high` when exact diacritics
-matter.
+(`No capacity available for model gemini-3.6-flash-high`) in 2 of 5 runs, and
+`gemini-3.8-flash-high` completed 5 of 5 runs. The new model used more
+tokens per run (57,637 to 72,416 against 39,418 to 52,066) and finished
+faster (27 to 51 seconds against 45 to 64 seconds). This is why the default
+changed in 3.0.0. The numbers and the files are in
+[COMPATIBILITY.md](./COMPATIBILITY.md#deprecation-and-compatibility-changes).
+Pass `--model gemini-3.7-flash-high` when exact diacritics matter.
 
 Run `setup` first to register the MCP server and permission. Failure to obtain
 actual image content is reported through the stable
@@ -1041,7 +1051,7 @@ update [--apply] [--json]
 ```
 
 `update` is a standalone dispatcher convenience, not one of the nine verbs.
-No host wrapper reaches it, and its `--json` output is unstable in 2.x. It
+No host wrapper reaches it, and its `--json` output is unstable in 3.x. It
 reads the running version, asks the npm registry for the latest version
 (cached 24 hours), and prints the update command of every host it finds on
 `PATH`. Without `--apply` it changes nothing.

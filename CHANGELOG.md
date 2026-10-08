@@ -10,13 +10,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking
 
 - **`vision` default model is now `gemini-3.8-flash-high`.** It was
-  `gemini-3.6-flash-high`. On agy 1.3.1 the old default failed with a 503
-  `No capacity available` error, and the new one completed the same call. To
-  keep the old model, pass `--model gemini-3.6-flash-high`. Changed in the
-  help text, `commands/vision.md`, and `docs/COMMANDS.md`.
+  `gemini-3.6-flash-high`. This is the only breaking change in 3.0.0. Every
+  verb, flag, exit code, `--json` field, and state location of 2.x keeps its
+  meaning.
+  - **Why.** Measured on agy 1.3.1 on 2026-10-08, the old default completed 3
+    of 5 runs. The other 2 failed with `UNAVAILABLE (code 503): No capacity
+    available for model gemini-3.6-flash-high on the server`. The new default
+    completed 5 of 5 runs. It used more tokens per run, 57,637 to 72,416
+    against 39,418 to 52,066, and it was faster, 27 to 51 seconds against 45
+    to 64 seconds. Five runs per model are a small sample.
+  - **No earlier notice.** No 2.x release announced this change first. The
+    contract allows a breaking change in a major release, so 3.0.0 makes it
+    without a deprecation period.
+  - **What you may notice.** The `model` field of a `vision` `--json` envelope
+    and `provenance.model` on the job name the new model, and each run costs
+    more tokens.
+  - **The way back.** Pass `--model gemini-3.6-flash-high`. That model can fail
+    with the 503 capacity error again.
+  - Changed in the help text, `commands/vision.md`, `docs/COMMANDS.md`, and
+    `docs/COMPATIBILITY.md`.
 
 ### Changed
 
+- **The 3.x contract.** The compatibility contract now runs from 3.0.0. A
+  documented surface is marked deprecated first and stays for at least one more
+  3.x minor release, and a removal waits for 4.0.0. The README Status block,
+  `docs/COMPATIBILITY.md`, `docs/COMMANDS.md`, and `CONTRIBUTING.md` say 3.x.
+  Statements about what 2.x did keep their wording.
+- **agy 1.3.1 measured per verb.** The `docs/COMPATIBILITY.md` row for agy 1.3.1
+  now names, per verb, what passed, what failed, and what was not run, and the
+  transcript table has the raw file for each probe. A new section lists the
+  isolated plugin install, the project-rule probes, and the conversation
+  pruning. 1.2.13 to 1.3.0 are not claimed as measured.
+- **Effort levels on agy 1.3.1.** `agy --help` and the bad-value error list
+  `xhigh`, but every model refused `xhigh` and `max` in the probes. The plugin
+  keeps `low|medium|high|agy-default`. The reason is in
+  `docs/COMPATIBILITY.md#effort-levels-on-agy-131`.
+- **Troubleshooting.** `docs/INSTALL.md` has three new rows: a prompt that needs
+  a shell command (headless agy denies the `command` tool), a `vision` 503
+  capacity error, and a reinstall that reports another process holding the
+  plugin. The tarball example no longer names a version.
+- **README "Why this plugin".** The 21 bullets became 8 short ones. The facts
+  they held are in `docs/COMMANDS.md`, `docs/COMPATIBILITY.md`, and the README
+  sections that stay.
+- **Release checklist.** In `docs/RELEASING.md`, the documentation-currency
+  step now asks for one inventory bullet per new field, key, or rule and for an
+  independent check of the quoted facts. A new step covers the plugin `setup`
+  verb and the MCP checks. The later steps are renumbered.
 - **The real failure reason in JSON errors.** When agy ends a run with
   `result.status: ERROR` and a `result.error` line, that line is now the
   failure reason: `errorMessage` and `healthMessage` on the stored job, and
