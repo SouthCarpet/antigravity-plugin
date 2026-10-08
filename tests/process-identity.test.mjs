@@ -39,13 +39,19 @@ const AGY_RECORDED = '2026-10-08T12:00:02.500Z';
 const AGY_RECORDED_MS = Date.parse(AGY_RECORDED);
 
 let savedEnv;
+let workDir;
 let workCwd;
 let dataDir;
 
 beforeEach(() => {
   savedEnv = Object.fromEntries(HOST_VARS.map((name) => [name, process.env[name]]));
   for (const name of HOST_VARS) delete process.env[name];
-  workCwd = fs.realpathSync.native(fs.mkdtempSync(path.join(TMPROOT, 'antigravity-identity-cwd-')));
+  // The job state is keyed by the realpath of the cwd. The directory is
+  // removed through the path mkdtemp returned: on macOS and on a CI Windows
+  // runner the realpath leaves the temp root (/var -> /private/var, short
+  // names), and removeTestDir refuses a path outside that root.
+  workDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-identity-cwd-'));
+  workCwd = fs.realpathSync.native(workDir);
   dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-identity-data-'));
   process.env.CLAUDE_PLUGIN_DATA = dataDir;
 });
@@ -55,7 +61,7 @@ afterEach(() => {
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;
   }
-  removeTestDir(workCwd);
+  removeTestDir(workDir);
   removeTestDir(dataDir);
 });
 
