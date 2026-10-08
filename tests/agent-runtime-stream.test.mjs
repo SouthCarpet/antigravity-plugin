@@ -563,6 +563,32 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     assert.equal(res.oauthUrl, authUrl);
   });
 
+  it('a timeout reason wins over an ERROR result.error that arrived before the kill', async () => {
+    spawnCalls.length = 0;
+    autoExit = false;
+    exitOnSigkill = true;
+    try {
+      const pending = runAgyPrint({
+        prompt: 'p', bin: 'agy', timeoutMs: 10,
+        terminationGraceMs: 10, forceKillGraceMs: 20,
+        terminateTree: (_pid, options) => terminateProcessTree(123, {
+          ...options, platform: 'linux',
+          probe: () => !spawnCalls[0].child.killSignals.includes('SIGKILL'),
+          killImpl: (_target, signal) => spawnCalls[0].child.kill(signal),
+        }),
+      });
+      spawnCalls[0].child.stdout.emit('data', resultLine({
+        status: 'ERROR', response: '', error: 'UNAVAILABLE (code 503): No capacity available',
+      }) + '\n');
+      const res = await pending;
+      assert.equal(res.status, 'timeout');
+      assert.equal(res.errorMessage, 'agy did not finish within 10 ms');
+    } finally {
+      autoExit = true;
+      exitOnSigkill = false;
+    }
+  });
+
   it('bounds timeout and escalates when a child ignores SIGTERM', async () => {
     spawnCalls.length = 0;
     autoExit = false;

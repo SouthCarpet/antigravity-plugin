@@ -448,6 +448,53 @@ describe('review --findings-json --background: result <id> reads the stored reco
 });
 
 // ---------------------------------------------------------------------------
+// A run that does not complete reports no findings (3.0.0, O4 gap)
+// ---------------------------------------------------------------------------
+
+describe('review --findings-json: a run that ends in result ERROR carries no findings fields', () => {
+  const REASON = 'API error (attempt 1): UNAVAILABLE (code 503): No capacity available for model gemini-3.8-flash-high on the server';
+  let erroredAgy;
+
+  before(() => {
+    const line = JSON.stringify({
+      event: 'result',
+      // A valid structured_output beside status ERROR must not be reported as findings.
+      result: { status: 'ERROR', response: '', error: REASON, structured_output: validFindings() },
+    });
+    erroredAgy = writeFakeAgy(stubDir, 'agy-errored', { stdout: `${line}
+`, exitCode: 1, versionOk: true });
+  });
+
+  it('foreground --json: failed, the reason is the message, no findings keys', () => {
+    const { work, data } = freshRepo();
+    const res = runVerb(['review', '--findings-json', '--json'], envFor(erroredAgy, data), work);
+    assert.equal(res.status, 1, res.stderr);
+    const payload = JSON.parse(res.stdout);
+    assert.equal(payload.status, 'failed');
+    assert.equal(payload.answer, null);
+    assert.equal(payload.details.error.code, 'run_failed');
+    assert.equal(payload.details.error.message, REASON);
+    for (const key of ['findings', 'findingsStatus', 'findingsError']) assert.equal(key in payload.details, false, key);
+    assert.deepEqual(warningLines(res.stderr), []);
+  });
+
+  it('background then result --json: job_failed, the same reason, no findings keys', () => {
+    const { work, data } = freshRepo();
+    const env = envFor(erroredAgy, data);
+    const queued = runVerb(['review', '--findings-json', '--background', '--wait', '--json'], env, work);
+    const { jobId } = JSON.parse(queued.stdout);
+    const res = runVerb(['result', jobId, '--json'], env, work);
+    assert.equal(res.status, 1, res.stderr);
+    const payload = JSON.parse(res.stdout);
+    assert.equal(payload.status, 'failed');
+    assert.equal(payload.details.error.code, 'job_failed');
+    assert.equal(payload.details.error.message, REASON);
+    for (const key of ['findings', 'findingsStatus', 'findingsError']) assert.equal(key in payload.details, false, key);
+    assert.doesNotMatch(runVerb(['result', jobId], env, work).stdout, /^Findings:/m);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Worker revalidation of a stored findingsJson
 // ---------------------------------------------------------------------------
 

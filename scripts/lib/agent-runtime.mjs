@@ -9,6 +9,7 @@
  */
 import { spawn } from './process-adapter.mjs';
 import { terminateProcessTree } from './process.mjs';
+import { safeFailureReason } from './safe-reason.mjs';
 import { existsSync } from 'node:fs';
 import { join, delimiter, extname } from 'node:path';
 
@@ -1472,14 +1473,17 @@ function classifyRunResult({ session, exitCode }) {
   // output-limit, cancellation) is already the more specific, plugin-
   // authored reason and must not be replaced by whatever agy happened to
   // print before it was killed.
-  const fatalErrorLine = !session.errorMessage && finalized.status === 'failed'
-    ? extractFatalErrorMarker(session.stderr)
+  // The same fallback covers agy's `result.error` (a 503 with no `error:`
+  // marker on stderr). Both pass through safeFailureReason: one redacted,
+  // bounded line, or null so the caller keeps its generic text.
+  const agyReason = !session.errorMessage && finalized.status === 'failed'
+    ? safeFailureReason(extractFatalErrorMarker(session.stderr)) ?? safeFailureReason(parsed.resultError)
     : null;
 
   return {
     status: finalized.status,
     stderr: session.errorMessage ? `${finalized.stderr}\n${session.errorMessage}` : finalized.stderr,
-    errorMessage: session.errorMessage ?? fatalErrorLine,
+    errorMessage: session.errorMessage ?? agyReason,
     exitCode,
     oauthUrl: detected.oauthUrl,
     stdout: session.terminationReason === 'output_limit' ? session.stdout
@@ -1625,7 +1629,12 @@ function classifyRunResult({ session, exitCode }) {
  * `errorMessage` also picks up agy's stable `error:` fatal marker
  * ({@link extractFatalErrorMarker}, additive, T1/plan 086) when the run
  * failed for a reason agy itself reported and no plugin-authored termination
- * reason (timeout, output-limit, cancellation) already explains it.
+ * reason (timeout, output-limit, cancellation) already explains it. When
+ * agy sent no such marker, the run's `result.error` (for example `UNAVAILABLE
+ * (code 503): No capacity available ...`) fills the same field. Both go
+ * through {@link safeFailureReason}: one line, bounded, with tokens and
+ * query-string URLs replaced; when nothing safe is left, `errorMessage`
+ * stays `null`.
  *
  * @param {import('./types.mjs').ProcessRequest & { platform?: NodeJS.Platform }} options
  * @returns {Promise<import('./types.mjs').RuntimeResult>}

@@ -1049,6 +1049,9 @@ export function deriveJobStatus(result, kind) {
       return {
         status: "failed",
         healthStatus: "failed",
+        // The runtime's own safe reason (redacted, one line), when it has
+        // one: `result --json` names it as `details.error.message`.
+        ...(result.errorMessage ? { healthMessage: result.errorMessage } : {}),
       };
   }
 }
@@ -1471,10 +1474,14 @@ function foregroundErrorCode(result) {
 
 /**
  * The `error.message` for a non-completed `finishForeground` result: the
- * plugin's own one-line reason, never agy's raw stderr. For every status but
- * `auth_required` this is exactly {@link foregroundFailureLine}'s text with
- * the `antigravity:<kind> — ` prefix stripped, so the two can never drift
- * apart into two different wordings for the same event.
+ * plugin's own one-line reason, never agy's raw stderr. A `run_failed` result
+ * that carries the runtime's safe reason (`result.errorMessage`: redacted,
+ * one line, bounded by `safe-reason.mjs`) uses it, for example `API error
+ * (attempt 1): UNAVAILABLE (code 503): No capacity available ...`. For every
+ * other result but `auth_required` this is {@link foregroundFailureLine}'s
+ * text with the `antigravity:<kind> — ` prefix stripped. The stderr line
+ * itself stays `failed (<status>).`, because stderr already carries the full
+ * upstream text after it.
  *
  * @param {string} kind
  * @param {import('./types.mjs').RuntimeResult} result
@@ -1482,6 +1489,7 @@ function foregroundErrorCode(result) {
  */
 function foregroundErrorMessage(kind, result) {
   if (result.status === "auth_required") return "Antigravity is not authenticated.";
+  if (foregroundErrorCode(result) === "run_failed" && result.errorMessage) return result.errorMessage;
   const prefix = `antigravity:${kind} — `;
   const line = foregroundFailureLine(kind, result);
   return line.startsWith(prefix) ? line.slice(prefix.length) : line;
