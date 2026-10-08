@@ -14,7 +14,7 @@
  *
  * Flags:
  *   --prompt <text>   question to ask about the image(s); default: generic description
- *   --model <id>      agy model id (default gemini-3.6-flash-high)
+ *   --model <id>      agy model id (default gemini-3.8-flash-high)
  *   --json            output JSON instead of markdown
  *   --cwd <dir>       override working directory
  *   --expect <text>   repeatable; after a completed answer, check this text
@@ -44,7 +44,7 @@ import {
 } from "../lib/vision-capability.mjs";
 import { checkVisionExpectations, formatExpectationsMarkdown, validateExpectOption } from "../lib/vision-expect.mjs";
 
-const DEFAULT_MODEL = "gemini-3.6-flash-high";
+const DEFAULT_MODEL = "gemini-3.8-flash-high";
 const DEFAULT_PROMPT =
   "Describe this image in concrete, specific detail: layout, elements, colors, text, and anything unusual.";
 

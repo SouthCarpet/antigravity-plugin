@@ -18,7 +18,7 @@ import { compareVersions } from "./update.mjs";
 export const MIN_AGY_VERSION = "1.1.15";
 
 /** The newest agy version anyone has run this plugin against live. */
-export const LAST_MEASURED_AGY_VERSION = "1.2.12";
+export const LAST_MEASURED_AGY_VERSION = "1.3.1";
 
 /**
  * Every agy version that has an actual live-run row in the
@@ -35,6 +35,7 @@ export const MEASURED_AGY_VERSIONS = Object.freeze([
   "1.2.7",
   "1.2.11",
   "1.2.12",
+  "1.3.1",
 ]);
 
 /**

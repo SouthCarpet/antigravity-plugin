@@ -99,7 +99,7 @@ const COMMAND_HELP = {
     'Usage: antigravity-plugin vision <image-path> [<image-path>...] [flags]\n\n' +
     'Flags:\n' +
     '  --prompt <text>         question to ask about the image(s)\n' +
-    '  --model <id>            agy model id (default gemini-3.6-flash-high)\n' +
+    '  --model <id>            agy model id (default gemini-3.8-flash-high)\n' +
     '  --expect <text>         repeatable; check this text against the answer\'s\n' +
     '                          `## Transcription` section after a completed run\n' +
     '                          (substring check, not a truth check of the image)\n' +

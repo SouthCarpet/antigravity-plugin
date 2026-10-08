@@ -148,7 +148,9 @@ describe("doctor: agy classification (Senate R2)", () => {
     ["1.1.15", "verified", "ok", 0],
     ["1.1.16", "unmeasured", "warnings", 0],
     ["1.2.12", "verified", "ok", 0],
-    ["1.3.0", "beyond_measured", "warnings", 0],
+    ["1.3.0", "unmeasured", "warnings", 0],
+    ["1.3.1", "verified", "ok", 0],
+    ["1.3.2", "beyond_measured", "warnings", 0],
   ];
 
   for (const [version, classification, status, exitCode] of classificationCases) {
@@ -226,7 +228,7 @@ describe("doctor: --json envelope shape (Senate R2)", () => {
     assert.deepEqual(Object.keys(payload.details.agy).sort(), ["classification", "path", "version"].sort());
     assert.deepEqual(Object.keys(payload.details.measuredRange).sort(), ["min", "newest"].sort());
     assert.equal(payload.details.measuredRange.min, "1.1.15");
-    assert.equal(payload.details.measuredRange.newest, "1.2.12");
+    assert.equal(payload.details.measuredRange.newest, "1.3.1");
     for (const entry of payload.details.flags) {
       assert.deepEqual(Object.keys(entry).sort(), ["flag", "state"].sort());
     }

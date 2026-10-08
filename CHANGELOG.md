@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **`vision` default model is now `gemini-3.8-flash-high`.** It was
+  `gemini-3.6-flash-high`. On agy 1.3.1 the old default failed with a 503
+  `No capacity available` error, and the new one completed the same call. To
+  keep the old model, pass `--model gemini-3.6-flash-high`. Changed in the
+  help text, `commands/vision.md`, and `docs/COMMANDS.md`.
+
+### Changed
+
+- **The real failure reason in JSON errors.** When agy ends a run with
+  `result.status: ERROR` and a `result.error` line, that line is now the
+  failure reason: `errorMessage` and `healthMessage` on the stored job, and
+  `details.error.message` in a foreground `run_failed` envelope and in
+  `result <id> --json` for a `job_failed` job. Before, both said only
+  `failed (failed).` or `job <id> failed.`. The reason is one line of at most
+  300 characters. Tokens, credentials and URLs with a query string, a
+  fragment or credentials are replaced with `[redacted]` or
+  `[redacted-url]`. When no readable text is left, the old generic text
+  stays. Error codes, statuses, `answer`, exit codes and the stderr line do
+  not change. A timeout, output-limit or cancellation reason still wins. The
+  `error:` and `AGY_ERROR:` stderr markers get the same redaction. See
+  `docs/COMPATIBILITY.md#failure-reason`.
+- **agy 1.3.1 is the newest measured version.** `LAST_MEASURED_AGY_VERSION` is
+  `1.3.1`. `doctor` and the version warning now class 1.3.1 as verified, 1.2.13
+  to 1.3.0 as unmeasured, and anything newer as beyond the measured range.
+
+### Fixed
+
+- **`update --apply` from inside the agy install root.** The updater now
+  compares the real path of the current directory with the agy install root
+  (`~/.gemini/config/plugins/antigravity`), junctions and symlinks included.
+  If the current directory is that root or lies inside it, the updater moves
+  to its temporary directory, prints one line, and runs every step from
+  there. If it cannot move, it runs no step and exits 1. Before, agy could
+  fail to remove the directory, which left the uninstall half-done.
+
+### Tests
+
+- A denied `command` tool in a headless `rescue` run now has an end-to-end test
+  for the label line, the exact remedy, and the `agy_denied` envelope.
+- A failed `review --findings-json` run is tested to carry no findings fields.
+
 ## [2.1.0] — 2026-09-28
 
 ### Added

@@ -547,7 +547,7 @@ describe('/antigravity:status — agy version warning (Senate R2)', () => {
   });
 
   it('warns on stderr for a cached beyond_measured version, with no reference and no agy call', async () => {
-    await setConfig(tempDir, { agyVersionSeen: { version: '1.3.0', observedAt: '2026-09-20T00:00:00.000Z' } });
+    await setConfig(tempDir, { agyVersionSeen: { version: '1.3.2', observedAt: '2026-09-20T00:00:00.000Z' } });
     const { run } = await import('../scripts/commands/status.mjs');
     const cap = captureStdio();
     let exit;
@@ -555,7 +555,7 @@ describe('/antigravity:status — agy version warning (Senate R2)', () => {
     assert.equal(exit, 0);
     assert.match(
       cap.err.join(''),
-      /antigravity:status — agy 1\.3\.0 \(seen 2026-09-20\) is newer than the last measured version 1\.2\.12\.\n/,
+      /antigravity:status — agy 1\.3\.2 \(seen 2026-09-20\) is newer than the last measured version 1\.3\.1\.\n/,
     );
   });
 
@@ -566,12 +566,12 @@ describe('/antigravity:status — agy version warning (Senate R2)', () => {
     try { await run([], { cwd: tempDir }); } finally { cap.restore(); }
     assert.match(
       cap.err.join(''),
-      /antigravity:status — agy 1\.1\.16 \(seen 2026-09-20\) is newer than the last measured version 1\.2\.12\.\n/,
+      /antigravity:status — agy 1\.1\.16 \(seen 2026-09-20\) is newer than the last measured version 1\.3\.1\.\n/,
     );
   });
 
   it('never warns on a single-job status <id> call, even with a beyond_measured version cached', async () => {
-    await setConfig(tempDir, { agyVersionSeen: { version: '1.3.0', observedAt: '2026-09-20T00:00:00.000Z' } });
+    await setConfig(tempDir, { agyVersionSeen: { version: '1.3.2', observedAt: '2026-09-20T00:00:00.000Z' } });
     const id = 'jobw' + randomBytes(2).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {

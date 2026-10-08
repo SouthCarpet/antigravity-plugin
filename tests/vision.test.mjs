@@ -276,7 +276,7 @@ describe('/antigravity:vision', () => {
     assert.equal(exit, 0);
     assert.match(cap.out.join(''), /red square/);
     assert.equal(runtime.calls.length, 1);
-    assert.equal(runtime.calls[0].model, 'gemini-3.6-flash-high');
+    assert.equal(runtime.calls[0].model, 'gemini-3.8-flash-high');
     // vision has no --effort flag (plan 086 T2 D1 item 3), so it must never
     // pick up task/rescue's default effort.
     assert.equal(runtime.calls[0].effort, undefined);
@@ -363,7 +363,7 @@ describe('/antigravity:vision', () => {
     assert.equal(payload.status, 'completed');
     assert.equal(typeof payload.jobId, 'string');
     assert.equal(payload.answer, 'described.');
-    assert.equal(payload.model, 'gemini-3.6-flash-high');
+    assert.equal(payload.model, 'gemini-3.8-flash-high');
     assert.deepEqual(payload.imagePaths, [imagePath]);
     assert.equal(typeof payload.details, 'object');
   });

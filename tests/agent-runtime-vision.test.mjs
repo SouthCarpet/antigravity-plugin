@@ -208,13 +208,13 @@ describe('assertAgyBinSpawnable — refuse Windows batch shims', () => {
 describe('runAgyPrint — model + extraArgs spawn-arg placement', () => {
   it('pushes --model <id> after addDirs and before --print', async () => {
     spawnCalls.length = 0;
-    await runAgyPrint({ prompt: 'p', bin: 'agy', model: 'gemini-3.6-flash-high', addDirs: ['/extra'] });
+    await runAgyPrint({ prompt: 'p', bin: 'agy', model: 'gemini-3.8-flash-high', addDirs: ['/extra'] });
     const { args } = spawnCalls[0];
     const addDirIdx = args.indexOf('--add-dir');
     const modelIdx = args.indexOf('--model');
     const printIdx = args.indexOf('--print');
     assert.ok(modelIdx > -1, 'expected --model in spawn args');
-    assert.equal(args[modelIdx + 1], 'gemini-3.6-flash-high');
+    assert.equal(args[modelIdx + 1], 'gemini-3.8-flash-high');
     assert.ok(addDirIdx < modelIdx, '--add-dir should precede --model');
     assert.ok(modelIdx < printIdx, '--model should precede --print');
     assert.deepEqual(

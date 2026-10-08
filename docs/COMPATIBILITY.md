@@ -6,8 +6,8 @@ the original contract was frozen. 2.0.0 is the baseline for 2.x. A behavior
 is public only when this document or the
 [commands reference](./COMMANDS.md) says it is promised.
 
-Plugin 2.1.0 is this package's version number. agy 1.1.15 to 1.2.12 is the
-tested range of Google's Antigravity CLI, with 1.2.12 as the newest measured
+Plugin 2.1.0 is this package's version number. agy 1.1.15 to 1.3.1 is the
+tested range of Google's Antigravity CLI, with 1.3.1 as the newest measured
 version. See the [per-version table](#supported-matrix). The two version lines advance
 independently. A new agy release does not change the plugin version.
 
@@ -18,7 +18,7 @@ independently. A new agy release does not change the plugin version.
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.2.12; newest measured 1.2.12. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
+| Google Antigravity CLI | `agy` 1.1.15 to 1.3.1; newest measured 1.3.1. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -48,6 +48,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.2.7 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-19 |
 | 1.2.11 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-25 |
 | 1.2.12 | `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and smoke-only measurement. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12. See the [structured output flag](#structured-output-flag) probe. | 2026-09-27 |
+| 1.3.1 | `doctor`, `task` foreground and background, `review` with `--findings-json`, `status` list, and `vision` (the 2.x default model `gemini-3.6-flash-high` failed with a 503 capacity error; `gemini-3.8-flash-high` completed). `rescue` failed because agy headless mode denied the `command` tool; the plugin reported the denial and its remedy. `setup`, `cancel`, and `result` by job id alone were not run live on 1.3.1. | 2026-10-08 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -58,8 +59,9 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.2.12, on 2026-09-27, from commit
-`9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
+The newest version measured live is agy 1.3.1, on 2026-10-08. The 1.3.1 row
+lists the verbs run. The previous smoke-only measurement is agy 1.2.12, on
+2026-09-27, from commit `9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
 `probe-background-lifecycle.txt`, `probe-status-list.txt`). The 1.2.12 row covers smoke-only measurement: `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and the structured output flag probe. The table also retains the saved
 transcripts for earlier versions. The 1.2.11 rows cover `task`,
 `rescue`, `review`, `vision`, `status`, `result`, and `cancel`
@@ -388,6 +390,37 @@ success must now read `status` (and, on a failure, `details.error.code`).
 Quota exhaustion is not yet classified into its own `status`/`error.code`
 pair. A run that fails on a provider quota limit still reports as the
 generic `failed` path above.
+
+### Failure reason
+
+When agy ends a run with `result.status: ERROR` and a one-line
+`result.error` (agy 1.3.1 sent `API error (attempt 1): UNAVAILABLE (code
+503): No capacity available for model gemini-3.6-flash-high on the server`
+with no `error:` line on stderr), the plugin keeps that line as the run's
+failure reason. It reaches three places:
+
+- `errorMessage` on the runtime result and on the stored job record.
+- `details.error.message` of a foreground `run_failed` envelope. The stderr
+  line stays `failed (failed).` after its usual prefix, and the full
+  upstream text still follows it on stderr.
+- `healthMessage` on the stored job record, which `result <id> --json` reads
+  as `details.error.message` of a `job_failed` envelope.
+
+The reason is one line of at most 300 characters. Line breaks and control
+characters become single spaces. Bearer tokens, values of `access_token`,
+`refresh_token`, `id_token`, `client_secret`, `api_key`, `token`, `secret`,
+`password`, `authorization` and `code=`, known token shapes, long opaque
+strings, and every URL that has a query string, a fragment or credentials are
+replaced with `[redacted]` or `[redacted-url]` before the text is cut to
+length. If no readable words remain, the plugin keeps its generic text
+(`failed (failed).` for a foreground run, `job <id> failed.` for `result`).
+A reason from the `error:` or `AGY_ERROR:` stderr marker follows the same
+rules. Precedence is unchanged: a plugin-authored timeout, output-limit or
+cancellation reason wins over any agy reason, then the stderr marker, then
+`result.error`. Status words, error codes, `answer`, and exit codes do not
+change. A `timeout` or `cancelled` envelope keeps its own message. The stored
+`result.stderr` is the unredacted upstream text and is not part of this
+promise.
 
 ### Usage trailer
 
@@ -1045,6 +1078,21 @@ meaning:
   present only when the status is not `valid`. A status other than `valid`
   also prints one stderr warning line. All three are absent without the
   flag. The exit code does not change.
+- **Failure reason** (3.0.0): a `result.error` line from agy now fills
+  `errorMessage` when no `error:` marker is present, and the reason is
+  redacted and bounded. See [Failure reason](#failure-reason).
+- `details.error.message` (3.0.0): a foreground `run_failed` envelope and a
+  `result <id> --json` `job_failed` envelope carry the failure reason instead
+  of `failed (failed).` or `job <id> failed.` when a safe reason exists.
+- `healthMessage` (3.0.0): set on a stored `failed` job when the run has a
+  failure reason and no denial. It was absent for a plain `failed` job before.
+- **`update --apply` working directory** (3.0.0): when the current directory
+  is the agy install root or lies inside it (checked by real path), the
+  steps run from the update's temporary directory, and the plugin prints one
+  line saying so. If the directory cannot be changed, no step runs and the
+  exit code is 1. See [`update`](./COMMANDS.md#update).
+- **`vision` default model** (3.0.0, breaking): `gemini-3.8-flash-high`. It
+  was `gemini-3.6-flash-high`. `--model gemini-3.6-flash-high` restores it.
 - `request.findingsJson` (additive, 2026-09): `true` on a job record started
   with `review --findings-json`, absent otherwise. The background worker
   fails the job before starting agy when the stored value is not a boolean.

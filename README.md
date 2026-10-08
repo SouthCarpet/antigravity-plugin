@@ -75,7 +75,7 @@ Plugin 2.1.0 is this package's version number. agy is Google's Antigravity
 CLI. The two version lines advance independently. A new agy release does
 not change the plugin version.
 
-Plugin 2.1.0 is tested with agy 1.1.15 to 1.2.12; newest measured 1.2.12 (smoke-only: `setup`, `task`, `status`, `result`). See
+Plugin 2.1.0 is tested with agy 1.1.15 to 1.3.1; newest measured 1.3.1. See
 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 The plugin does not update itself.
 
@@ -171,12 +171,12 @@ For Claude Code, run `claude plugin marketplace update antigravity` first, then 
 
 For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <dir>` again on a fresh packed copy: `node scripts/pack-for-agy.mjs` from a checkout (or `npm pack @southcarpet/antigravity-plugin` plus a manual extract), then `agy plugin install` on the directory it prints. This ships exactly what `npm publish` ships; `agy plugin install` on a plain clone also copies `.git`, `.github`, and `tests/`, since it does not read `package.json` `files`. Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28, `agy plugin install` replaces the managed directory exactly (`agy-changelog-1.2.7.txt`). Uninstall-then-install remains the safe path on every version. See [Installation](./docs/INSTALL.md#agy-itself) for the full recipe.
 
-`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check. Run `update --apply` from a directory outside the agy install root: a cwd inside it can leave the uninstall step half-done.
+`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check. Run `update --apply` from a directory outside the agy install root. If you run it from inside that root, it moves to its own temporary directory and tells you, because a cwd inside the root can leave the uninstall step half-done.
 
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15 to 1.2.12 on `PATH`; newest measured 1.2.12 (smoke-only: `setup`, `task`, `status`, `result`). See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+- agy 1.1.15 to 1.3.1 on `PATH`; newest measured 1.3.1. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
 - A Google account for agy OAuth.
 
 ## Permissions and privacy

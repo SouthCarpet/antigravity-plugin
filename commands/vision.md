@@ -20,7 +20,7 @@ Run:
 Flags:
 - `<image-path>` one or more image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`). At least one required.
 - `--prompt "<question>"` what to ask about the image(s). Default: a generic concrete-detail description prompt.
-- `--model <id>` agy model id. Default `gemini-3.6-flash-high`.
+- `--model <id>` agy model id. Default `gemini-3.8-flash-high`.
 - `--expect "<text>"` repeatable. After a completed run, checks this text
   against the answer's `## Transcription` section (a substring check on
   what agy already said, never a truth check of the image). Trimmed; an

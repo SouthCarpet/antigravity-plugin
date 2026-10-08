@@ -72,7 +72,10 @@ describe("classifyAgyVersion", () => {
     ["1.2.7", "verified"],
     ["1.2.11", "verified"],
     [LAST_MEASURED_AGY_VERSION, "verified"],
-    ["1.2.13", "beyond_measured"],
+    ["1.2.13", "unmeasured"],
+    ["1.3.0", "unmeasured"],
+    ["1.3.1", "verified"],
+    ["1.3.2", "beyond_measured"],
     ["2.0.0", "beyond_measured"],
   ];
 

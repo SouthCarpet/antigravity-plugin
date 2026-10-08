@@ -671,7 +671,9 @@ current directory and must name existing regular files.
 
 - `--prompt` defaults to: “Describe this image in concrete, specific detail:
   layout, elements, colors, text, and anything unusual.”
-- `--model` defaults to `gemini-3.6-flash-high` and is forwarded to agy.
+- `--model` defaults to `gemini-3.8-flash-high` and is forwarded to agy.
+  Before 3.0.0 the default was `gemini-3.6-flash-high`; pass
+  `--model gemini-3.6-flash-high` to keep it.
 - Vision is foreground-only. `--background` and `--wait` are not public flags.
 - The MCP server accepts `.png`, `.jpg`, `.jpeg`, `.webp`, and `.gif`, with a
   10 MiB maximum per source file. A directory symlink among the ancestors is
@@ -686,8 +688,12 @@ Measured on 2026-09-02 with agy 1.1.24, `gemini-3.6-flash-high` transcribed
 `ZETA-4471`, `Bežné účty`, and `1 435,50 €` exactly in three of four runs;
 one run wrote `Běžné`. The `gemini-3.7-flash-high` model transcribed all
 three strings exactly in one run and used about twice the input tokens,
-65k compared with 33k, so the default stays; pass
-`--model gemini-3.7-flash-high` when exact diacritics matter.
+65k compared with 33k. On 2026-10-08 with agy 1.3.1, the default
+`gemini-3.6-flash-high` failed with a 503 capacity error
+(`No capacity available for model gemini-3.6-flash-high`), and
+`gemini-3.8-flash-high` completed the same call. This is why the default
+changed in 3.0.0. Pass `--model gemini-3.7-flash-high` when exact diacritics
+matter.
 
 Run `setup` first to register the MCP server and permission. Failure to obtain
 actual image content is reported through the stable
@@ -926,7 +932,11 @@ produce a result payload before its nonzero exit.
 
 A stored `failed` job keeps its normal envelope (`status: "failed"`, `answer`
 as stored) and adds `details.error.code: "job_failed"` under `--json`, naming
-why without repeating the raw upstream stderr. A reference that resolves to
+why without repeating the raw upstream stderr. When agy gave a reason (for
+example `API error (attempt 1): UNAVAILABLE (code 503): No capacity available
+for model ...`), `details.error.message` is that reason as one redacted line
+(see [Failure reason](./COMPATIBILITY.md#failure-reason)). Without a safe
+reason it stays `job <id> failed.` A reference that resolves to
 no job, one that is still active, or lock contention on the job state emits
 one `state_error` error envelope instead (see
 [COMPATIBILITY.md](./COMPATIBILITY.md#--json)); the stderr line is unchanged
@@ -1072,5 +1082,15 @@ Per host, `--apply` does this:
   `plugin install` of the extracted directory. With the registry check
   disabled there is no known latest version, so this host is skipped.
 - npx: nothing. An unversioned `npx` resolves the latest version on every run.
+
+Before it runs a step, `--apply` compares the real path of the current
+directory with the agy install root (`~/.gemini/config/plugins/antigravity`),
+junctions and symlinks included. When the current directory is that root or
+lies inside it, `--apply` prints one line, changes this process to its own
+temporary directory, and runs every step from there, because agy cannot
+remove a directory that a running process uses as its working directory. If
+it cannot change the directory, it runs no step and exits 1. Any other
+current directory is passed to the steps unchanged. A sibling directory whose
+name only starts like the root's name does not count as inside it.
 
 `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.
