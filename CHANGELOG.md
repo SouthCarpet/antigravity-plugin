@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **CI runs on `ubuntu-24.04` instead of `ubuntu-latest`.** GitHub moves `ubuntu-latest` to Ubuntu 26.04 from 2026-10-19. The CI, CodeQL, GitHub Packages and release workflows now name the image, so a runner change cannot break a build without notice.
+
 ## [3.0.0] — 2026-10-08
 
 ### Security
