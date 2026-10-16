@@ -9,8 +9,10 @@
  *      plus `plugin.json`, `SKILL.md`, `package.json`, `bin/antigravity.mjs`).
  *      Hosts look these up by location; adding a file to one of those trees
  *      automatically tightens this gate.
- *   2. Every `commands/*.md` — Claude Code and agy TUI slash-command
- *      discovery. Dropping
+ *   2. Every `commands/*.md` for Claude Code and its matching
+ *      `agy-skills/<verb>/SKILL.md` native agy wrapper. Native paths are
+ *      derived from the command verbs even when a skill file is absent.
+ *      Dropping
  *      `commands/vision.md` from `files` is the failure the old representative
  *      list missed.
  *   3. Every `scripts/commands/*.mjs` — the modules those markdown files
@@ -258,6 +260,9 @@ export function deriveRequired() {
   add(required, 'plugin.json', 'agy / root manifest');
   add(required, 'bin/antigravity.mjs', 'standalone CLI');
   add(required, 'SKILL.md', 'Codex skill-discovery entry');
+  add(required, 'scripts/pack-for-agy.mjs', 'agy prepared-copy packaging entry point');
+  add(required, 'scripts/prepare-for-agy.mjs', 'manual agy tarball preparation entry point');
+  add(required, 'scripts/lib/agy-install-copy.mjs', 'shared agy preparation for pack and update');
 
   const discoveryTrees = [
     ['.claude-plugin', 'Claude Code host discovery (.claude-plugin/)'],
@@ -271,6 +276,8 @@ export function deriveRequired() {
 
   for (const rel of listFiles('commands', (name) => name.endsWith('.md'))) {
     add(required, rel, 'Claude Code slash command (commands/*.md)');
+    const verb = rel.slice('commands/'.length, -'.md'.length);
+    add(required, `agy-skills/${verb}/SKILL.md`, 'agy native wrapper for the same runtime verb');
   }
 
   const commandModules = listFiles('scripts/commands', (name) => name.endsWith('.mjs'));

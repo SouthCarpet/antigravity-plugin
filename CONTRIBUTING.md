@@ -34,6 +34,13 @@ Work lands on `main` through a pull request. Releases follow [docs/RELEASING.md]
 
 A change that alters behavior, output, flags, or state updates `CHANGELOG.md` and the relevant file under `docs/` in the same pull request. A pull request that changes behavior without its docs is incomplete.
 
+## Release notes stay short
+
+- `CHANGELOG.md` entries are short, user-facing bullets: what changed for users, any breaking change, and any action users must take.
+- Security entries name who is affected and the remedy. They leave out exploit payloads, attack steps, internal paths, and implementation details.
+- Do not add probe logs, test names, file lists, or long rationale. Put reference detail in `docs/`.
+- Keep old entries short too; do not start a detailed archive.
+
 ## Scope
 
 This repository ships a product: the plugin's code, tests, and docs. Pull requests stay in that scope. A maintainer's internal notes, vault, or agent orchestration tooling never belong here.

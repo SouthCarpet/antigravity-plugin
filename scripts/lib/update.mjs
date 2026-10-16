@@ -26,6 +26,7 @@ import { assertPrivateDir as defaultAssertPrivateDir, UnsafeStateDirError } from
 import { agyPluginInstallDir } from "./plugin-root.mjs";
 import { createJsonEnvelope } from "./render.mjs";
 import { resolveStateRoot } from "./state.mjs";
+import { prepareAgyInstallCopy } from "./agy-install-copy.mjs";
 
 export const PACKAGE_NAME = "@southcarpet/antigravity-plugin";
 /** The only registry `update --apply` fetches from or packs from. */
@@ -96,7 +97,7 @@ export const HOSTS = [
     name: "agy",
     binary: "agy",
     instruction:
-      "agy plugin uninstall antigravity, then agy plugin install <published tarball> " +
+      "agy plugin uninstall antigravity, then agy plugin install <prepared packed copy> " +
       "(update --apply does this; on agy before 1.1.28 a reinstall without the uninstall merged into the old copy)",
   },
 ];
@@ -583,7 +584,7 @@ export function buildHostPlan(host, { latest, integrity, tmpDir, tools = {} }) {
         ),
         step(tools.tar ?? "tar", ["-xzf", TARBALL_PLACEHOLDER, "-C", tmpDir], { verify: "extracted", version: latest }),
         step(host.binary, ["plugin", "uninstall", "antigravity"]),
-        step(host.binary, ["plugin", "install", path.join(tmpDir, "package")]),
+        step(host.binary, ["plugin", "install", path.join(tmpDir, "antigravity")]),
       ];
     default:
       return [];
@@ -757,7 +758,14 @@ function verifyExtracted(step) {
   } catch {
     // unreadable is a mismatch
   }
-  if (manifest?.name === PACKAGE_NAME && manifest?.version === step.version) return {};
+  if (manifest?.name === PACKAGE_NAME && manifest?.version === step.version) {
+    try {
+      prepareAgyInstallCopy(dir);
+      return {};
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
   return {
     error: `agy: the extracted package is ${manifest?.name ?? "unknown"}@${manifest?.version ?? "unknown"}, ` +
       `not ${PACKAGE_NAME}@${step.version}`,

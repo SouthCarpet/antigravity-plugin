@@ -53,9 +53,17 @@ exists for discovery on the repository page.
 
 ## Release flow
 
+Use `patch` for fixes and small compatible changes (`3.0.0` to `3.0.1`).
+Use `minor` for new features and larger compatible updates (`3.0.0` to `3.1.0`).
+Use `major` only for breaking changes (`3.x` to `4.0.0`). Size alone does not require a major version.
+
 1. Start from the commit that you will release. Write the release notes under
    `## [Unreleased]` in `CHANGELOG.md`.
-   `bump-version` refuses to promote an empty section.
+   `bump-version` refuses to promote an empty section. Keep the notes concise
+   and user-facing: short bullets for what changed, any breaking change, and
+   any action users must take. A security entry states who is affected and the
+   remedy, with no exploit payload, attack steps, internal paths, or
+   implementation detail. Put reference detail in `docs/`, not the changelog.
 2. Documentation currency. Search the README and `docs/` for numbers and
    every version-bearing sentence, including About, Status, install and
    checksum text: `grep -rn '[0-9]\+\.[0-9]\+\.[0-9]\+' README.md docs/`.

@@ -64,13 +64,8 @@ fi
 section "agy plugin validate"
 if command -v agy >/dev/null 2>&1; then
   if agy plugin validate "$ROOT" >/tmp/agy-validate.$$ 2>&1; then
-    if grep -q '\[ok\]' /tmp/agy-validate.$$; then
-      ok "agy plugin validate reports ok"
-      grep -E 'processed|skipped' /tmp/agy-validate.$$ | sed 's/^/      /'
-    else
-      no "agy plugin validate did not report [ok]"
-      cat /tmp/agy-validate.$$
-    fi
+    ok "agy plugin validate exited 0"
+    sed 's/^/      /' /tmp/agy-validate.$$
   else
     no "agy plugin validate exited non-zero"
     cat /tmp/agy-validate.$$

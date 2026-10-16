@@ -8,8 +8,8 @@
  * it does not read `package.json` `files` (docs/INSTALL.md "agy itself").
  * Pointing agy at a clean checkout still ships those extra trees into
  * `~/.gemini/config/plugins/antigravity/`. Pointing it at the *packed and
- * re-extracted* tarball ships exactly what `npm publish` would ship,
- * because that is the same artifact.
+ * re-extracted* tarball preserves those files. A separate agy copy adds
+ * the nine standard skills paths required by its native loader.
  *
  * This script never runs `agy` and never touches `~/.gemini`. It writes
  * only under one `fs.mkdtempSync` directory in `os.tmpdir()`, which it
@@ -24,7 +24,8 @@
  *   3. Verify `<extracted>/package.json` `.version` equals the checkout's
  *      own `package.json` `.version` (a corrupted or stale tarball would
  *      disagree) -> otherwise exit 1 with a plain message.
- *   4. Print the extracted directory, the integrity (sha512) and shasum
+ *   4. Prepare a separate canonical agy install copy with standard skills.
+ *   5. Print the prepared directory, the tarball integrity (sha512) and shasum
  *      (sha1), the file count, and the exact next command.
  */
 import { spawnSync } from 'node:child_process';
@@ -32,6 +33,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareAgyInstallCopy } from './lib/agy-install-copy.mjs';
 
 const { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } = fs;
 
@@ -134,7 +136,7 @@ export function manualExtractCommand(tarballPath, destDir) {
     '',
     `  cd "${destDir}"`,
     `  tar -xzf "${filename}"`,
-    `  agy plugin install "${join(destDir, 'package')}"`,
+    `  node "${join(destDir, 'package', 'scripts', 'prepare-for-agy.mjs')}" "${join(destDir, 'package')}"`,
   ].join('\n');
 }
 
@@ -253,12 +255,13 @@ export function run(argv) {
     );
   }
 
+  const installDir = prepareAgyInstallCopy(extractedDir);
   const report = buildReport({
-    dir: extractedDir,
+    dir: installDir,
     tarball: packed.filename,
     shasum: packed.shasum,
     integrity: packed.integrity,
-    fileCount: countFiles(extractedDir),
+    fileCount: countFiles(installDir),
     version: actual,
   });
   printReport(report, options.json);

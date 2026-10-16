@@ -6,7 +6,9 @@ that matches your workflow.
 ## Prerequisites (all hosts)
 
 1. **Node.js ≥ 22.3.0** — `node --version`.
-2. **agy CLI 1.1.15 to 1.3.1; newest measured 1.3.1** - Google Antigravity CLI on `PATH`. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table.
+2. **agy CLI 1.1.15 to 1.4.0; newest measured 1.4.0** - Google Antigravity CLI on `PATH`. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table.
+   Coverage differs by version. The 1.4.0 probes include native loading and
+   a runtime subset; `setup` was not run.
    ```bash
    curl -fsSL https://antigravity.google/cli/install.sh | bash
    agy --version
@@ -76,72 +78,72 @@ Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
 
 ## agy itself
 
-agy 1.1.15 and 1.1.17 can install, list, validate, enable, and disable this
-plugin. They have no `plugin run` subcommand. After install, the nine verbs
-are reachable two ways:
+Install a prepared agy copy. The source and npm package keep the native
+wrappers in `agy-skills/`, where Claude and Codex do not discover them.
+Preparation creates a separate directory named `antigravity` and adds the
+same nine wrappers under its standard `skills/<verb>/SKILL.md` paths.
+This avoids agy 1.4.0 turning a custom directory path into a command prefix.
+The source, npm tarball, host manifests, and runtime are preserved.
 
-- Interactive TUI: `/antigravity:<verb>` (agy converts `commands/*.md` to
-  skills). The wrapper locates the copied runtime with Node — it does not
-  depend on `CLAUDE_PLUGIN_ROOT`. If that run cannot start, the skill tells
-  the model to print the error and stop, not to do the task itself.
-- Standalone CLI: `npx @southcarpet/antigravity-plugin <verb>`. This is the
-  fallback that always works.
-
-`agy plugin install <path>` copies the **entire directory it is pointed
-at**. It does not honour `package.json` `files`. Point it at a clean clone
-and it also copies `.git`, `.github`, and `tests/` into
-`~/.gemini/config/plugins/antigravity/`.
-
-**Install from a packed copy instead.** This ships exactly what `npm
-publish` would ship, nothing more:
-
-```bash
-# From a checkout:
-node scripts/pack-for-agy.mjs
-# Prints the extracted directory and the exact next command, for example:
-#   agy plugin install C:\Users\you\AppData\Local\Temp\pack-for-agy-XXXX\package
-
-# From a published version, without a checkout:
-npm pack @southcarpet/antigravity-plugin
-# Prints the tarball filename: southcarpet-antigravity-plugin-<version>.tgz
-tar -xzf southcarpet-antigravity-plugin-<version>.tgz
-agy plugin install ./package
-```
-
-`agy plugin install` keeps its own copy of whatever directory you name.
-Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28,
-`agy plugin install` replaces the managed directory exactly
-(`agy-changelog-1.2.7.txt`). **To upgrade, run `agy plugin uninstall
-antigravity`, then `agy plugin install <dir>` again with a fresh packed
-copy.** This remains the safe path on every version.
+From a checkout:
 
 ```bash
 node scripts/pack-for-agy.mjs
+# Prints the prepared directory and the next command, for example:
+# agy plugin install C:\Users\you\AppData\Local\Temp\pack-for-agy-XXXX\antigravity
 agy plugin install <the printed directory>
-agy plugin list                  # expect: antigravity, with agents and commands
-agy plugin validate <the printed directory>
-# validate reports: commands: 9 processed (converted to skills)
-
-# TUI, after install (approve the node run if prompted):
-#   /antigravity:setup
-#   /antigravity:review
-
-npx @southcarpet/antigravity-plugin setup
-npx @southcarpet/antigravity-plugin review
 ```
 
-A clean clone is still the right choice for development, where you want to
-edit the source and reinstall it as you go:
+From a published version, without a checkout:
 
 ```bash
-git clone https://github.com/SouthCarpet/antigravity-plugin.git
-agy plugin install ./antigravity-plugin
-node ./antigravity-plugin/bin/antigravity.mjs review
+npm pack @southcarpet/antigravity-plugin
+tar -xzf southcarpet-antigravity-plugin-<version>.tgz
+node package/scripts/prepare-for-agy.mjs ./package
+# Prints: agy plugin install "<absolute path to antigravity>"
+agy plugin install ./antigravity
 ```
 
-`agy plugin install antigravity@antigravity` fails with `unknown marketplace:
-antigravity`. `agy plugin import claude` reports `No claude extensions found`
-even when Claude Code already has the plugin.
+`pack-for-agy` builds the npm tarball and verifies the extracted version
+before preparation. The manual helper verifies the package and plugin
+identity and all nine wrappers. Both refuse a missing or extra wrapper,
+an incorrect public name, or a conflicting prepared copy. Repeating
+preparation of the same unchanged extraction is safe. Neither helper runs
+agy or changes a global installation.
+
+`agy plugin install <path>` copies the whole directory it receives and
+ignores npm's `files` list. On agy 1.4.0, do not install the source clone
+or raw `package/` extraction directly: they have no standard native skills
+directory. Use the prepared `antigravity/` copy, including for development.
+
+To upgrade, run the uninstall and install from a neutral directory outside
+the installed plugin tree. Close host sessions that hold the plugin open.
+
+```bash
+agy plugin uninstall antigravity
+agy plugin install <fresh prepared antigravity directory>
+agy plugin list --json
+# skills: antigravity:setup, antigravity:review, antigravity:rescue,
+# antigravity:task, antigravity:vision, antigravity:status,
+# antigravity:result, antigravity:cancel, antigravity:doctor
+agy plugin validate <fresh prepared antigravity directory>
+# agy 1.4.0: skills 9; Validation passed
+# Optional on 1.4.0: plugin validate <dir> --strict --json
+```
+
+Restart the TUI after reinstalling. Check `/skills` for the exact names
+above, then invoke `/antigravity:<verb>`. The native skill runs the same
+protected Node bootstrap as the other hosts and requests normal terminal
+approval if needed. If it cannot execute the runtime, it must show the
+error and stop. The standalone fallback is
+`npx @southcarpet/antigravity-plugin <verb>`.
+
+The agy 1.4.0 installer can report `commands: 9 processed (converted to
+skills)` even when the loader sees zero skills in an old or unprepared
+copy. A successful validation with zero skills proves no command
+availability. Validate the prepared copy and inspect its exact skill names.
+See the [1.4.0 runtime results](./COMPATIBILITY.md#agy-140-runtime-probes)
+for the measured subset; `setup` was not run.
 
 ## Standalone (any shell)
 
@@ -187,7 +189,7 @@ npx @southcarpet/antigravity-plugin doctor
 Then, or instead, the individual host-agnostic checks:
 
 ```bash
-agy --version              # 1.1.15 to 1.3.1; newest measured 1.3.1
+agy --version              # 1.1.15 to 1.4.0; newest measured 1.4.0
 node --version             # 22.3.0+
 which agy                  # /home/<user>/.local/bin/agy on Linux
 ```
@@ -206,7 +208,7 @@ measured with that real agy version instead.
 |---|---|---|
 | `agy` is not on `PATH`.<br><br>Commands: `node bin/antigravity.mjs setup`; `node bin/antigravity.mjs review`; `node bin/antigravity.mjs task probe --foreground` with a Node-only `PATH`; then `review` again with Git on `PATH` but no `agy`, first in a repository with a modified file and then with nothing to review. | `setup`: `antigravity:setup — \`agy\` is not on PATH (not-installed).` Exit 2.<br><br>`review` with a Node-only `PATH`: `antigravity:review — git is not on PATH (spawnSync git ENOENT).` Exit 1, because that `PATH` hides Git too and `review` reads the diff first.<br><br>`review` with Git on `PATH` and no `agy`: `antigravity:review — \`agy\` is not on PATH (not-installed). Run /antigravity:setup.` Exit 1 when there are changes. With nothing to review it prints the `no_changes` result and exits 0, so a machine without `agy` still gets an answer.<br><br>`task --foreground`: `antigravity:task — \`agy\` is not on PATH (not-installed). Run /antigravity:setup.` Exit 1. `rescue` and `vision` print the same line with their own prefix. The check runs before any job record or spawn. | Install `agy`. Restore the normal `PATH`, including Git, then run `setup` again. On WSL, remove a Windows-only `~/.local/bin/agy` link and install the Linux CLI. |
 | `agy` is installed, but OAuth is incomplete.<br><br>Commands: `node bin/antigravity.mjs rescue probe`; `review`; `task probe --foreground`; and `vision pixel.png --prompt probe`, with `AGY_BIN` set to the test fake. | `rescue`: `antigravity:rescue — Antigravity is not authenticated.`<br><br>`review`: `antigravity:review — Antigravity is not authenticated.`<br><br>`task`: `antigravity:task — Antigravity is not authenticated.`<br><br>`vision`: `antigravity:vision — Antigravity is not authenticated.`<br><br>For every verb, the setup remedy is on the second line: `Run /antigravity:setup to complete the OAuth flow, then retry.` Each command exits 1. No Google OAuth URL is printed, here or later by `result` and `status`: the plugin replaces each one with `[oauth-url-removed]`, because it cannot prove that a URL came from agy. `setup` shows agy's own sign-in prompt instead. A background worker stores `auth_required` in the job state. | Run `/antigravity:setup`. Complete OAuth, then retry. For a background job, use `status` or `result` to inspect its health. |
-| The installed `agy` version is outside the tested matrix.<br><br>Command: `node bin/antigravity.mjs setup --skip-vision` with a fake `agy` version 9.9.9. | `antigravity:setup — using <path to agy> v9.9.9` Exit 0. `setup` reports the version and does not enforce the matrix. | Use agy 1.1.15 to 1.3.1; newest measured 1.3.1. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table. |
+| The installed `agy` version is outside the tested matrix.<br><br>Command: `node bin/antigravity.mjs setup --skip-vision` with a fake `agy` version 9.9.9. | `antigravity:setup — using <path to agy> v9.9.9` Exit 0. `setup` reports the version and does not enforce the matrix. | Use agy 1.1.15 to 1.4.0; newest measured 1.4.0. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table. |
 | A `vision` file does not exist.<br><br>Command: `node bin/antigravity.mjs vision Z:\missing.png --prompt probe`. | `antigravity:vision — image file not found: Z:\missing.png` Exit 1. | Correct the path and retry. |
 | A `vision` file has an unsupported extension.<br><br>Command: `node bin/antigravity.mjs vision note.txt --prompt probe`. | `antigravity:vision — unsupported image extension ".txt": <path>\note.txt. Supported: .png, .jpg, .jpeg, .webp, .gif` Exit 1. The command checks the extension before it starts `agy`, so the run costs no tokens. | Use `.png`, `.jpg`, `.jpeg`, `.webp`, or `.gif`. |
 | A `vision` file is over 10 MiB.<br><br>Command: `node bin/antigravity.mjs vision large.png --prompt probe` with an 11 MiB file. | `antigravity:vision — image too large (11534336 bytes > 10485760 byte cap): <path>\large.png` Exit 1. The command checks the size before it starts `agy`, so the run costs no tokens. | Reduce the file to 10 MiB or less. |
@@ -243,11 +245,9 @@ this for you.
 
 ### `agy plugin install` syntax
 
-The form that works is `agy plugin install <path>`, where `<path>` is a
-packed-and-extracted copy (`node scripts/pack-for-agy.mjs`) or, for
-development, a clean clone. The `<name>@<marketplace>` form and
-`agy plugin import claude` fail on the tested agy versions (see above).
-There is no `agy plugin run`. After a plugin upgrade, run
+Use `agy plugin install <path>` with the prepared `antigravity/` directory
+from the [agy recipe](#agy-itself). Source-clone and raw-tarball installs do
+not provide native commands on agy 1.4.0. There is no `agy plugin run`. After a plugin upgrade, run
 `agy plugin uninstall antigravity` and then `agy plugin install <path>`
 again with a fresh copy, so the TUI copy matches; otherwise
 `/antigravity:<verb>` keeps the previous wrappers.

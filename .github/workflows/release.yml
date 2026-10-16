@@ -14,7 +14,7 @@ on:
 jobs:
   publish:
     name: Publish ${{ github.ref_name }} to npm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The repository default is read-only; this job declares the two grants
     # trusted publishing needs and nothing else.

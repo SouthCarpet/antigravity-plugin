@@ -14,9 +14,9 @@ treat an older number in a leftover note as the target.
 ## Prerequisites (do once)
 
 - [ ] `node --version` → ≥ 22.3.0
-- [ ] `agy --version` -> 1.1.15 to 1.3.1; newest measured 1.3.1. See
-      [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table; other
-      versions are not promised.
+- [ ] `agy --version` -> 1.1.15 to 1.4.0; newest measured 1.4.0. See
+      [COMPATIBILITY.md](./COMPATIBILITY.md) for per-version coverage and
+      limits. The 1.4.0 probes did not run `setup`.
 - [ ] Logged into a Google account that can use `agy` (run `agy --print 'hi'`
       once outside the plugin if the token cache is empty)
 - [ ] No shell-rc overrides that would confuse host detection
@@ -37,6 +37,8 @@ node scripts/check-pack.mjs
 (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24.
 
 On a POSIX shell you can also run `bash scripts/smoke.sh`.
+Its validator check uses the process exit status. It accepts both the older
+`[ok]` text and agy 1.4.0's `Validation passed`; a nonzero status still fails.
 
 - [ ] Lint green
 - [ ] Full suite green
@@ -170,23 +172,24 @@ $antigravity status
 
 ```bash
 agy plugin uninstall antigravity
-agy plugin install /path/to/antigravity-plugin
-#   from a clean clone: agy copies the whole working tree, including .git
-#   and tests/, and does not honour package.json files.
+node scripts/pack-for-agy.mjs
+agy plugin install <the printed prepared antigravity directory>
+#   Do not install the source clone or raw npm extraction on agy 1.4.0.
 #   Uninstall, then install again after every upgrade — agy keeps its own copy.
 
-agy plugin list
-#   expect: antigravity appears (agents, commands)
+agy plugin list --json
+#   skills must list antigravity:<verb> for setup, review, rescue, task, vision, status, result, cancel, doctor
 
-agy plugin validate /path/to/antigravity-plugin
-#   expect: commands: 9 processed (converted to skills)
+agy plugin validate <the printed prepared antigravity directory>
+#   agy 1.4.0: skills 9; Validation passed
 
 npx @southcarpet/antigravity-plugin status
 npx @southcarpet/antigravity-plugin review
 ```
 
 Interactive TUI (cannot be checked headlessly). In a **fresh** `agy` TUI
-session, in this repository, type:
+session, in this repository, first check `/skills` for exactly the nine
+`antigravity:<verb>` names with no path fragments, then type:
 
 ```text
 /antigravity:review

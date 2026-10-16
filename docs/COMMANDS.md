@@ -705,7 +705,9 @@ tokens per run (57,637 to 72,416 against 39,418 to 52,066) and finished
 faster (27 to 51 seconds against 45 to 64 seconds). This is why the default
 changed in 3.0.0. The numbers and the files are in
 [COMPATIBILITY.md](./COMPATIBILITY.md#deprecation-and-compatibility-changes).
-Pass `--model gemini-3.7-flash-high` when exact diacritics matter.
+These are historical results. Run `agy models` for the current model IDs,
+then pass a listed ID with `--model` when needed. Check the returned text
+against the image when exact diacritics matter.
 
 Run `setup` first to register the MCP server and permission. Failure to obtain
 actual image content is reported through the stable
@@ -1119,8 +1121,11 @@ Per host, `--apply` does this:
   integrity that `npm pack` reports and the sha512 of the tarball file must
   both equal the registry's value. Then `tar -x`, and the extracted
   `package/package.json` must name `@southcarpet/antigravity-plugin` and that
-  version. Only then `plugin uninstall`, then `plugin install` of the
-  extracted directory. If the record cannot be read or a check fails, the
+  version. The shared preparation helper then makes a separate `antigravity/`
+  copy with the nine native wrappers under standard `skills/` paths. Only
+  after preparation succeeds does `plugin uninstall` run, followed by
+  `plugin install` of that prepared copy. The source extraction and tarball
+  bytes stay unchanged. If the record cannot be read or a check fails, the
   command prints the reason, runs no later step, so the installed copy stays
   as it was, and exits 1. With the registry check disabled or unreachable
   there is no known latest version, so this host is skipped.

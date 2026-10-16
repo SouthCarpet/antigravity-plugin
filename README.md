@@ -18,7 +18,9 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 
 ## What it is
 
-This plugin starts `agy --print` from the host that you already use. It gives Claude Code, Codex CLI, agy, and the standalone CLI the same nine verbs. You can review a diff, run a delegated prompt, analyze named images, and inspect or stop a background job from that host.
+- Runs `agy --print` from the host you already use.
+- Gives Claude Code, Codex CLI, agy, and the standalone CLI the same nine verbs.
+- Reviews diffs, runs delegated prompts, analyzes named images, and manages background jobs.
 
 ## Installation and quick start
 
@@ -44,7 +46,9 @@ $antigravity review
 
 ```bash
 git clone https://github.com/SouthCarpet/antigravity-plugin.git
-agy plugin install <path-to-clone>
+cd antigravity-plugin
+node scripts/pack-for-agy.mjs
+# Run the printed agy plugin install command, then restart agy.
 # In the agy TUI:
 /antigravity:<verb>
 ```
@@ -62,70 +66,38 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 ## Status
 
-> **v3.0.0.** From 3.0.0 forward, while the first number of this version
-> stays 3, an update does not break a command or an output that already
-> works. If a command, flag, exit code, `--json` envelope, state location,
-> or supported host is removed, release notes and documentation first mark
-> it deprecated. It then stays for at least one more release that still
-> starts with 3. It is removed only in version 4.0.0. That contract is in
-> [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md). Version 3.0.0 is a
-> major release because one default changed: `vision` now uses
-> `gemini-3.8-flash-high`, not `gemini-3.6-flash-high`. Pass
-> `--model gemini-3.6-flash-high` to keep the old model. See
-> [`CHANGELOG.md`](./CHANGELOG.md).
+> **v3.0.1.** From 3.0.0, while the first number stays 3, an update
+> does not break a command or output that already works. Removals are first
+> marked deprecated, stay for at least one more 3.x minor release, and happen
+> only in 4.0.0. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md).
 
-Plugin 3.0.0 is this package's version number. agy is Google's Antigravity
-CLI. The two version lines advance independently. A new agy release does
-not change the plugin version.
-
-Plugin 3.0.0 is tested with agy 1.1.15 to 1.3.1; newest measured 1.3.1. See
-[`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
-The plugin does not update itself.
+- 3.0.0 changed one default: `vision` now uses `gemini-3.8-flash-high`. Pass `--model gemini-3.6-flash-high` to keep the old model. See [`CHANGELOG.md`](./CHANGELOG.md).
+- Plugin 3.0.1 is this package's version. agy is Google's Antigravity CLI, and its version moves separately.
+- Measured agy versions span 1.1.15 to 1.4.0, newest measured 1.4.0. Coverage differs by version; see [Compatibility](./docs/COMPATIBILITY.md).
+- The plugin does not update itself.
+- Version numbers: **Y** in `X.Y.Z` changes for new features and larger compatible updates. **Z** changes for fixes; **X** changes only for breaking changes.
 
 ## Why this plugin
 
-- **One command set on every host.** The same nine verbs run on Claude Code, Codex CLI, agy, and the standalone CLI.
-- **Clear failures instead of empty answers.** When agy denies a tool in headless mode, the plugin fails the run, names the tool, and gives one remedy.
-- **Real image input.** `vision` sends pixels to agy through a local MCP server, and `--expect` checks the transcription for text you name.
-- **Reviews you can check.** `review` can preview its input, refuse an incomplete input, return schema-checked findings, and check where its citations land in the diff.
-- **Background jobs under control.** `status`, `result`, and `cancel` manage jobs, `--wait --show-result` returns the finished answer in one call, and `--request-id` stops a double dispatch.
-- **Predictable runs.** `task` and `rescue` have a default effort, agy gets a time budget that it also enforces, slash text in a prompt stays text, and every job records its provenance.
-- **Output for scripts.** `--json` writes one envelope, also for expected failures, and a usage line goes to stderr.
-- **Small and verifiable.** The package has zero runtime dependencies, `doctor` is read-only, CI runs on three systems, and releases carry npm provenance and signed tags.
+- **One command set on every host.** The same nine verbs run everywhere.
+- **Clear failures.** Denied actions are reported with a remedy. An empty answer with a denied action fails.
+- **Real image input.** `vision` sends pixels to agy, and `--expect` checks the transcription for text you name.
+- **Reviews you can check.** `review` can preview its input, return schema-checked findings, and check cited lines against the diff.
+- **Background jobs.** `status`, `result`, and `cancel` manage them, and `--request-id` prevents double dispatch.
+- **Predictable runs.** `task` and `rescue` have a default effort and a time budget, and every job records its provenance.
+- **Script-friendly.** `--json` writes one envelope, also for expected failures.
+- **Small.** No runtime dependencies, a read-only `doctor`, CI on three systems, and releases with npm provenance and signed tags.
 
-Flags, defaults, and exit codes are in the [Commands reference](./docs/COMMANDS.md). Measured limits and promises are in [Compatibility](./docs/COMPATIBILITY.md). What leaves your machine is in [Permissions and privacy](#permissions-and-privacy).
+Flags, defaults, and exit codes: [Commands reference](./docs/COMMANDS.md). Measured limits: [Compatibility](./docs/COMPATIBILITY.md).
 
 ## How it works
 
-```mermaid
-flowchart LR
-    Host["Host or shell command"] --> Runtime["Plugin runtime<br/>bin/antigravity.mjs and scripts/"]
-    Runtime -->|"review, rescue, task, vision: stream-json"| Agy["agy --print"]
-    Agy --> Google["Google service via agy"]
-    Agy -->|"vision: view_image callback"| MCP["Local MCP server<br/>per-run image allowlist"]
-    MCP -->|"image content"| Agy
-    Agy -->|"result and denial details"| Runtime
-    Runtime -->|"job records; status, result, cancel"| Store["Local job store"]
-    Runtime -->|"cancel"| Processes["Local worker and agy process trees"]
-    Runtime -->|"denied action, target when known, remedy"| Denial["Permission-denial report"]
-    Denial -->|"host wrapper"| HostChoice["Host asks user<br/>or reports and stops if no question tool"]
-    Denial -->|"eligible interactive foreground"| TerminalChoice["Terminal: retry or stop"]
-    TerminalChoice -->|"one retry if chosen"| Runtime
-```
-
-`setup` configures agy to launch the local vision MCP server. Each `vision`
-run supplies an image allowlist; agy calls `view_image` and receives image
-content. If agy offloads that content, the prompt opens only the exact copy
-with `view_file`. Prompts, selected diffs, image bytes, and files read by agy's
-own tools can reach its service. Job records stay local; `status`, `result`
-and `cancel` do not call the model service.
-
-A denied run reports the action, its target when known, and a remedy. Empty
-answers with denial evidence fail; answers with denied actions carry a warning.
-The host asks the user what to do, or reports and stops if it has no question
-tool. An eligible interactive foreground run can offer one retry of the same
-conversation. The plugin never grants the denied action or prints a bypass
-flag. `setup` writes user-level files under `~/.gemini`, not the repository.
+- Your host or shell calls the plugin, which runs `agy --print`. agy talks to Google's service.
+- `vision` uses a local MCP server that hands agy only the images you named. If agy offloads a large image, the prompt opens only that exact copy.
+- Prompts, selected diffs, image bytes, and files agy reads with its own tools can reach Google's service.
+- Job records stay on your machine. `status`, `result`, and `cancel` never call the model.
+- If agy denies an action, the plugin reports the action, its target when known, and a remedy. Your host asks you what to do, or reports and stops.
+- `setup` writes user-level files under `~/.gemini`, never the repository.
 
 ## Commands
 
@@ -136,46 +108,49 @@ flag. `setup` writes user-level files under `~/.gemini`, not the repository.
 | `rescue` | Delegate a prompt in a fresh or resumed conversation. |
 | `task` | Run a delegated prompt, in the background by default. |
 | `vision` | Analyze one or more named image files. |
-| `status` | List jobs or inspect and wait for one job, optionally exiting by that job's own outcome (`--exit-status`). |
+| `status` | List jobs or inspect and wait for one job. |
 | `result` | Read the stored result for a job. |
 | `cancel` | Stop a queued or running job. |
-| `doctor` | Read-only environment and configuration check. No OAuth, no model call, no write, no network. |
+| `doctor` | Read-only environment check. No OAuth, model call, write, or network. |
 
-`update` is a standalone convenience command. It is not one of the nine verbs. See [Commands reference](./docs/COMMANDS.md) for flags and exit codes.
+`update` is a standalone convenience command, not one of the nine verbs. Flags and exit codes: [Commands reference](./docs/COMMANDS.md).
 
 ## Vision
 
-`agy --print` has no native image input. The local MCP server delivers the pixels. On agy 1.1.24, agy can offload a large result to a copy, and the prompt opens exactly that copy with `view_file`.
-
-The requested answer has `Transcription`, `Observations`, and `Answer` sections. If the channel cannot deliver visual content, the answer is `VISION-UNAVAILABLE: <reason>`. An answer from this channel is not evidence. The cross-checked transcript is the evidence.
+- `agy --print` has no native image input, so a local MCP server delivers the pixels.
+- Answers have `Transcription`, `Observations`, and `Answer` sections. If images cannot be delivered, the answer is `VISION-UNAVAILABLE: <reason>`.
+- An answer from this channel is not evidence. Cross-check the transcript.
+- The default model is `gemini-3.8-flash-high` (before 3.0.0: `gemini-3.6-flash-high`).
+- Formats, limits, and flags: [Commands reference](./docs/COMMANDS.md#vision).
 
 ```bash
 npx @southcarpet/antigravity-plugin vision ./screenshot.png --prompt "Which text is visible?"
 ```
 
-The default model is `gemini-3.8-flash-high`. Before 3.0.0 it was `gemini-3.6-flash-high`. See [Commands reference](./docs/COMMANDS.md#vision) for formats, limits, flags, and the measured model guidance.
-
 ## Updating
 
-For the standalone CLI, use an unversioned `npx @southcarpet/antigravity-plugin <command>` invocation to resolve the latest published version. A pinned version does not update.
-
-For Claude Code, run `claude plugin marketplace update antigravity` first, then `claude plugin update antigravity@antigravity`, then restart Claude Code. Without the marketplace refresh, `plugin update` reports the old version as the latest. Codex CLI has no plugin update command. Run `codex plugin remove antigravity@antigravity`, then `codex plugin add antigravity@antigravity`. Codex installs from the marketplace you registered: if that marketplace is a local clone, pull the clone first.
-
-For agy, run `agy plugin uninstall antigravity`, then `agy plugin install <dir>` again on a fresh packed copy: `node scripts/pack-for-agy.mjs` from a checkout (or `npm pack @southcarpet/antigravity-plugin` plus a manual extract), then `agy plugin install` on the directory it prints. This ships exactly what `npm publish` ships; `agy plugin install` on a plain clone also copies `.git`, `.github`, and `tests/`, since it does not read `package.json` `files`. Before 1.1.28, agy merged a reinstall into the old copy. Since 1.1.28, `agy plugin install` replaces the managed directory exactly (`agy-changelog-1.2.7.txt`). Uninstall-then-install remains the safe path on every version. See [Installation](./docs/INSTALL.md#agy-itself) for the full recipe.
-
-`antigravity-plugin update` checks the registry and reports the host commands. `antigravity-plugin update --apply` runs those commands for detected hosts. For Claude Code it refreshes the marketplace first. For Codex CLI it lists the marketplaces first: if the `antigravity` marketplace is a local clone, it prints the path and tells you to pull that clone, then after the install it prints the installed version and a warning when that version is not the latest. It never pulls or changes your clone. Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check. For agy it reads the integrity of the latest version from registry.npmjs.org, packs that version from its own temporary directory with that registry named on the command line, and checks the tarball and the extracted name and version before it uninstalls the old copy; a failed check stops it with exit 1. Run `update --apply` from a directory outside the agy install root. If you run it from inside that root, it moves to its own temporary directory and tells you, because a cwd inside the root can leave the uninstall step half-done.
+- **Standalone:** use an unversioned `npx @southcarpet/antigravity-plugin <command>`. A pinned version does not update.
+- **Claude Code:** `claude plugin marketplace update antigravity`, then `claude plugin update antigravity@antigravity`, then restart.
+- **Codex CLI:** `codex plugin remove antigravity@antigravity`, then `codex plugin add antigravity@antigravity`. Pull your local clone first if the marketplace is one.
+- **agy:** `agy plugin uninstall antigravity`, then reinstall from a fresh packed copy. See [Installation](./docs/INSTALL.md#agy-itself).
+- **Helper:** `antigravity-plugin update` checks the npm registry and prints the commands for the hosts it finds.
+  - `update --apply` runs them. For Claude Code it refreshes the marketplace first. For Codex CLI with a local clone it tells you to pull the clone and never changes it. For agy it checks the downloaded package before it uninstalls the old copy, and stops with exit 1 if the check fails.
+  - Run it from outside the agy install directory.
+  - Set `ANTIGRAVITY_NO_UPDATE_CHECK=1` to skip the registry check.
+  - More: [Commands reference](./docs/COMMANDS.md).
 
 ## Requirements
 
 - Node.js `>= 22.3.0`.
-- agy 1.1.15 to 1.3.1 on `PATH`; newest measured 1.3.1. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md) for the per-version table.
+- agy on `PATH`. See [measured versions and limits](./docs/COMPATIBILITY.md).
 - A Google account for agy OAuth.
 
 ## Permissions and privacy
 
-`setup` changes user-level files under `~/.gemini`. After a successful OAuth probe, it registers `mcpServers.vision` and the `mcp(vision/view_image)` allow rule. Each `vision` run allows only the image paths that you name. The server denies every other path and denies all access when no per-run allowlist is present.
-
-Headless verbs (`rescue`, `task`, `review`, `vision` run through a host wrapper or in the background) are read-and-reason, not read-and-write. Reads are granted per invocation with `--add-dir <dir>` (bounded to that directory, read-only, for that run); execution inside agy is all-or-nothing, since headless mode cannot prompt for a permission. A task that needs a command actually run must either grant everything up front (accepting that risk) or run the command yourself and hand the seat the output to judge.
+- `setup` changes user-level files under `~/.gemini` and registers the vision server after a successful OAuth probe.
+- Each `vision` run allows only the image paths you name. The server denies every other path.
+- Use `--add-dir <dir>` for access to another directory. agy controls tool permissions.
+- When agy needs a permission it cannot ask for, the run reports the denial. You decide what to do next, or run the step yourself.
 
 Undo the vision configuration without changing OAuth or job state:
 
@@ -194,60 +169,51 @@ What each verb sends:
 |---|---|
 | `setup` | Google OAuth via `agy`. The plugin itself only writes `~/.gemini`. |
 | `review` | The collected git diff, untracked snippets, and review prompt go through `agy` to Google. |
-| `rescue` / `task` | Your prompt goes through `agy` to Google. agy can also read workspace files and `--add-dir` roots with its own tools. |
+| `rescue` / `task` | Your prompt goes through `agy` to Google. agy can also read workspace files and `--add-dir` roots. |
 | `vision` | Your prompt and the bytes of the named images go through the local MCP server and `agy`. |
-| `status` / `result` / `cancel` | Nothing. These verbs only read or signal local job state. |
+| `status` / `result` / `cancel` | Nothing. These only read or signal local job state. |
 
-Delegation is like pasting the content into a Google product. Secrets in diffs, prompts, or screenshots are sent. Delegation also costs tokens on the Google side. When agy reports measured use, stderr contains `usage: total=<N> in=<N> out=<N>`.
+- Secrets in diffs, prompts, or screenshots are sent, as if pasted into a Google product.
+- Delegation costs tokens on Google's side. Measured use appears on stderr as `usage: total=<N> in=<N> out=<N>`.
 
 See [Security](./SECURITY.md) for threat boundaries and vulnerability reports.
 
 ## Release integrity
 
-Socket scores the published package (the badge is at the top of this page). Its supply chain score counts the capabilities this plugin needs: it starts the `agy` process, makes up to three npm registry attempts inside one 25-second budget in `update` only, reads and writes the local job store, and reads host environment variables; [Security](./SECURITY.md) and [Permissions and privacy](#permissions-and-privacy) state exactly what leaves the machine.
-
-npmjs.org is the primary registry. Releases use npm trusted publishing and include a provenance attestation. Release tags use SSH signatures from v1.1.0 onward.
-
-Check the attestation:
+- Releases use npm trusted publishing with a provenance attestation and signed tags (from v1.1.0). Steps: [Release runbook](./docs/RELEASING.md).
+- Check the attestation, then the registry signature in a fresh install:
 
 ```bash
 npm view @southcarpet/antigravity-plugin@<version> dist.attestations
-```
-
-Check the registry signature and attestation in a fresh install:
-
-```bash
-mkdir verify && cd verify
-npm init -y
+mkdir verify && cd verify && npm init -y
 npm install @southcarpet/antigravity-plugin@<version>
 npm audit signatures
 ```
 
-GitHub Packages mirrors the same tarball with `--provenance=false`. It exists for discovery on the repository page and needs a token to install, even for this public package.
+- GitHub Packages mirrors the tarball for discovery only and needs a token to install.
 
 ## Documentation
 
-- [Installation](./docs/INSTALL.md): per-host setup recipes.
-- [Troubleshooting](./docs/INSTALL.md#troubleshooting): command failures and corrective actions.
-- [3.x compatibility contract](./docs/COMPATIBILITY.md): supported matrix, outputs, state, and versioning promises.
-- [Commands reference](./docs/COMMANDS.md): all nine verbs, flags, defaults, and exit behavior.
-- [Security](./SECURITY.md): reporting channel, scope, and what leaves the machine.
-- [Release smoke checklist](./docs/SMOKE.md): four-host pre-release pass.
-- [Spike findings](./docs/SPIKE-findings.md): why the project does not use ACP.
-- [Release runbook](./docs/RELEASING.md): trusted publishing, signed tags, and verification.
+- [Installation](./docs/INSTALL.md) and [Troubleshooting](./docs/INSTALL.md#troubleshooting)
+- [3.x compatibility contract](./docs/COMPATIBILITY.md)
+- [Commands reference](./docs/COMMANDS.md)
+- [Security](./SECURITY.md)
+- [Release smoke checklist](./docs/SMOKE.md)
+- [Spike findings](./docs/SPIKE-findings.md): why the project does not use ACP
+- [Release runbook](./docs/RELEASING.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the five gates, the frozen 3.x contract, the branch and release flow, and the docs-in-the-same-change rule. Every pull request runs the five gates on Ubuntu, Windows, and macOS with Node 22.3.x and Node 24; the lint gate runs on the Node 24 jobs only. `npm run lint` needs a Node version that eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`); CI runs it on Node 24. The tests and the rest of the runtime still support Node 22.3+.
-
-The package has no runtime dependencies. `devDependencies` holds one entry, `eslint@^10.10.0`, pinned by `package-lock.json`, for the lint gate. The pack gate checks the files that all four hosts need and that the lockfile and lint config never ship in the tarball.
+- See [CONTRIBUTING.md](./CONTRIBUTING.md) for the gates, the 3.x contract, and the release flow.
+- Pull requests run on Ubuntu, Windows, and macOS with Node 22.3.x and Node 24. Lint runs on the Node 24 jobs only.
+- The package has no runtime dependencies. The only dev dependency is `eslint`, for the lint gate.
 
 ## Known issues
 
-All previously tracked items, including [#5](https://github.com/SouthCarpet/antigravity-plugin/issues/5), are fixed. New items use the [`known issue` label](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22).
+All previously tracked items are fixed. New items use the [`known issue` label](https://github.com/SouthCarpet/antigravity-plugin/issues?q=is%3Aissue+is%3Aopen+label%3A%22known+issue%22).
 
 ## Acknowledgements and license
 
-This project is a maintained fork of [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin). Credit goes to the original author for the plugin architecture. The project replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) because Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
-
-The code uses the MIT License. See [`LICENSE`](./LICENSE). Antigravity and Gemini are Google's trademarks. Claude Code is Anthropic's trademark. Codex is OpenAI's trademark. This project is not affiliated with or endorsed by these companies.
+- A maintained fork of [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin), which replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
+- MIT License. See [`LICENSE`](./LICENSE).
+- Antigravity and Gemini are Google's trademarks, Claude Code is Anthropic's, and Codex is OpenAI's. This project is not affiliated with or endorsed by them.
