@@ -131,7 +131,7 @@ function registryFetch(latest, record = {}) {
  * and prints its `--json` line, `tar` writes the extracted package.json.
  * Returns the step's stdout, or null for any other command.
  */
-function fakeAgyStep(command, args, { bytes = tarballBytes, packIntegrity, extracted = {} } = {}) {
+function fakeAgyStep(command, args, { bytes = tarballBytes, packIntegrity, extracted = {}, omitWrapper = false } = {}) {
   if (command === 'npm') {
     const version = args[1].split('@').pop();
     const filename = `southcarpet-antigravity-plugin-${version}.tgz`;
@@ -145,6 +145,9 @@ function fakeAgyStep(command, args, { bytes = tarballBytes, packIntegrity, extra
     const dir = path.join(args[args.indexOf('-C') + 1], 'package');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version, ...extracted }));
+    fs.writeFileSync(path.join(dir, 'plugin.json'), JSON.stringify({ name: 'antigravity', version }));
+    fs.cpSync(path.join(ROOT, 'agy-skills'), path.join(dir, 'agy-skills'), { recursive: true });
+    if (omitWrapper) fs.unlinkSync(path.join(dir, 'agy-skills', 'doctor', 'SKILL.md'));
     return '';
   }
   return null;
@@ -621,7 +624,7 @@ describe('update --apply: command plans', () => {
       { command: 'npm', args: packArgs('1.5.0', work), capture: true },
       { command: 'tar', args: ['-xzf', tarball, '-C', work], capture: false },
       { command: 'agy', args: ['plugin', 'uninstall', 'antigravity'], capture: false },
-      { command: 'agy', args: ['plugin', 'install', path.join(work, 'package')], capture: false },
+      { command: 'agy', args: ['plugin', 'install', path.join(work, 'antigravity')], capture: false },
     ]);
     assert.ok(!runner.calls.some((c) => c.command === 'codex'), 'codex is absent and must not run');
     const text = cap.out.join('');
@@ -674,7 +677,7 @@ describe('update --apply: command plans', () => {
       { command: 'npm', args: packArgs('1.5.0', tmp), capture: 'pack', cwd: tmp, integrity, version: '1.5.0' },
       { command: 'tar', args: ['-xzf', '<tarball>', '-C', tmp], verify: 'extracted', version: '1.5.0' },
       { command: host.binary, args: ['plugin', 'uninstall', 'antigravity'] },
-      { command: host.binary, args: ['plugin', 'install', path.join(tmp, 'package')] },
+      { command: host.binary, args: ['plugin', 'install', path.join(tmp, 'antigravity')] },
     ]);
   });
 
@@ -1210,6 +1213,9 @@ describe('update --apply: agy installs only the verified tarball', () => {
   it('a matching tarball is installed: exact argv and cwd of every step, and both registry reads', async () => {
     const run = await applyAgy();
     assert.equal(run.exit, 0, run.out);
+    assert.deepEqual(fs.readdirSync(path.join(work, 'antigravity', 'skills')).sort(), [
+      'cancel', 'doctor', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision',
+    ]);
     assert.deepEqual(run.calls, [
       { command: 'npm', args: packArgs('1.5.0', work), cwd: work, capture: true },
       {
@@ -1219,7 +1225,7 @@ describe('update --apply: agy installs only the verified tarball', () => {
         capture: false,
       },
       { command: 'agy', args: ['plugin', 'uninstall', 'antigravity'], cwd: userCwd, capture: false },
-      { command: 'agy', args: ['plugin', 'install', path.join(work, 'package')], cwd: userCwd, capture: false },
+      { command: 'agy', args: ['plugin', 'install', path.join(work, 'antigravity')], cwd: userCwd, capture: false },
     ]);
     assert.deepEqual(run.fetch.calls.map((c) => c.url), [
       'https://registry.npmjs.org/-/package/@southcarpet%2Fantigravity-plugin/dist-tags',
@@ -1246,6 +1252,8 @@ describe('update --apply: agy installs only the verified tarball', () => {
       ['npm', 'tar'], /the extracted package is evil-plugin@1\.5\.0, not @southcarpet\/antigravity-plugin@1\.5\.0/],
     ['the extracted package has another version', { step: { extracted: { version: '1.4.0' } } },
       ['npm', 'tar'], /the extracted package is @southcarpet\/antigravity-plugin@1\.4\.0, not/],
+    ['the native doctor wrapper is missing', { step: { omitWrapper: true } },
+      ['npm', 'tar'], /agy-skills must contain exactly the nine public wrappers/],
   ]) {
     it(`stops before uninstall when ${name}`, async () => {
       const run = await applyAgy({ fetch: options.fetch?.(), step: options.step });

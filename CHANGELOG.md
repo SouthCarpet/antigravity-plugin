@@ -1,1417 +1,344 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to this project are listed here, as short user-facing notes.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.0.1] — 2026-10-16
+
 ### Changed
 
-- **CI runs on `ubuntu-24.04` instead of `ubuntu-latest`.** GitHub moves `ubuntu-latest` to Ubuntu 26.04 from 2026-10-19. The CI, CodeQL, GitHub Packages and release workflows now name the image, so a runner change cannot break a build without notice.
+- Shorten the README and historical release notes. Keep future release notes brief.
+- Load all nine native commands in agy. Existing agy users must reinstall from a prepared copy; see the installation guide.
+- Accept both legacy and current agy validation output in smoke checks.
+- Keep Linux builds on Ubuntu 24.04.
 
 ## [3.0.0] — 2026-10-08
 
-### Security
-
-- **`update --apply` checks the agy tarball before it installs it.** The
-  tarball came from `npm pack` in your current directory with no explicit
-  registry, so a project `.npmrc` there could choose where it was downloaded
-  from, and nothing compared it with the npm registry record. Now `npm pack`
-  runs from the update's temporary directory with the npmjs.org registry and
-  scope registry on its command line. The integrity that `npm pack` reports
-  and the sha512 of the tarball must equal the `dist.integrity` of the
-  registry record, read over HTTPS from registry.npmjs.org, and the
-  extracted `package.json` must name this package and version. A missing
-  value or a mismatch stops the update before `agy plugin uninstall`, with
-  exit 1. With the registry unreachable, agy is now skipped.
-- **Reads of shared temp state are checked like writes.** On a shared POSIX
-  host, another local user could plant job state or an update-check cache
-  under the OS temp directory. `status`, `result` and `cancel` now refuse a
-  state root, workspace directory or `jobs` directory that fails the owner,
-  mode and symlink check, a legacy temp workspace directory that fails it is
-  skipped, and a cache that fails it counts as no cache. The state index
-  ignores entries that are not valid job records, and `status` reads a job
-  log only from the plugin's own path for that job. State locations do not
-  change. On Windows the owner and mode check stays a no-op.
-- **Recorded process start times are checked before a signal.** Before,
-  `cancel` and the cleanup a background wait runs when
-  its worker vanished signalled the stored worker or agy process id with no
-  check, so a process that later got the same id from the OS could be
-  stopped. Now the plugin stores the OS start time of each process it starts
-  (`workerProcessStartedAt`, `agyProcessStartedAt` in the job record), once,
-  at launch. Before a signal it reads the start time again, and the two must
-  agree to within 1 second. A replacement process with a start time within
-  1 second of the recorded time passes the check and is not caught. The
-  time between the check and the signal is a separate limit: the process
-  can end and the OS can give its id to another process then.
-  If the times differ by more than 1 second, `cancel` reports the new outcome
-  `unconfirmed` and exits 1, and the cleanup only logs it. A job record from
-  an older version has no start time, so the plugin does not signal its
-  processes: stop them yourself.
-- **The vision MCP server authorizes a path before any filesystem call.**
-  Before, `view_image` resolved the path from the model on disk and only then
-  checked the allowlist. On Windows, a UNC path such as
-  `\\attacker.example\share\x.png` thus opened an SMB or WebDAV session that
-  sent the user's NTLM credentials, even with an empty allowlist. Now the
-  server refuses a request whose lexical form (resolved, normalized,
-  case-folded on Windows) is not on the allowlist, before it reads anything.
-  `vision` now records each image twice: the absolute path as given and its
-  realpath. A spelling that is not on the list is refused, for example an
-  8.3 short name when the command named the long name.
-- **Claude Code wrappers no longer pre-approve every `node` command.**
-  Before, each `commands/*.md` granted `Bash(node:*)`. Claude Code applies
-  that grant to the host model's own Bash calls in the same turn, while the
-  model reads agy output built from untrusted diffs and commits. An injected
-  `node -e <code>` could thus run with no permission prompt. Now each wrapper
-  grants one prefix rule for the exact bootstrap invocation of its own bang
-  line. The wrappers no longer tell the model how to compose its own `node`
-  call or to re-run a command itself, and they show the runtime output in a
-  fenced block labelled as untrusted data. `rescue` is now
-  `disable-model-invocation: true` with a fixed bang line like the other
-  wrappers. It forwards `--background` and `--wait` to the runtime, so
-  `--background` queues a plugin job, and `--show-result` and `--request-id`
-  now work through it.
-- **Only agy's own sign-in prompt sets `auth_required`.** Before, the plugin
-  took the first Google OAuth URL from any agy output, including model text,
-  and printed it as "OAuth required. Open: ...". A prompt injection could
-  thus show an attacker's OAuth client as the plugin's own login step. Now
-  only the raw lines agy prints before its first stream-json event count.
-  The plugin tells the user to run `setup`, which shows agy's own prompt.
-  `status --json` reports `oauthUrl` as `null`, also for older job records.
-- **No Google OAuth URL leaves the plugin.** No live agy capture records
-  agy's `client_id` and `redirect_uri` to check a URL against, so the
-  plugin replaces each `accounts.google.com/o/oauth2/...` and
-  `accounts.google.com/signin/oauth...` URL with `[oauth-url-removed]`.
-  This applies to stderr (also the line that quotes agy's `result.error`),
-  streamed progress text, the stored answer and `rawOutput`, every `--json`
-  envelope and text report, and job records an older version stored. Other
-  URLs stay. Streamed progress text is now written up to its last
-  whitespace character, so a URL split across two deltas is also caught.
-
 ### Breaking
 
-- **`vision` default model is now `gemini-3.8-flash-high`.** It was
-  `gemini-3.6-flash-high`. This is the only breaking change in 3.0.0. Every
-  verb, flag, exit code, `--json` field, and state location of 2.x keeps its
-  meaning.
-  - **Why.** Measured on agy 1.3.1 on 2026-10-08, the old default completed 3
-    of 5 runs. The other 2 failed with `UNAVAILABLE (code 503): No capacity
-    available for model gemini-3.6-flash-high on the server`. The new default
-    completed 5 of 5 runs. It used more tokens per run, 57,637 to 72,416
-    against 39,418 to 52,066, and it was faster, 27 to 51 seconds against 45
-    to 64 seconds. Five runs per model are a small sample.
-  - **No earlier notice.** No 2.x release announced this change first. The
-    contract allows a breaking change in a major release, so 3.0.0 makes it
-    without a deprecation period.
-  - **What you may notice.** The `model` field of a `vision` `--json` envelope
-    and `provenance.model` on the job name the new model, and each run costs
-    more tokens.
-  - **The way back.** Pass `--model gemini-3.6-flash-high`. That model can fail
-    with the 503 capacity error again.
-  - Changed in the help text, `commands/vision.md`, `docs/COMMANDS.md`, and
-    `docs/COMPATIBILITY.md`.
+- **`vision` now defaults to `gemini-3.8-flash-high`** (was `gemini-3.6-flash-high`). This is the only breaking change; all other verbs, flags, exit codes, `--json` fields, and state locations of 2.x keep their meaning.
+  - Why: on agy 1.3.1, the old default failed 2 of 5 test runs with a "no capacity" error; the new one completed 5 of 5. It uses more tokens per run. Five runs per model is a small sample.
+  - Action: to keep the old model, pass `--model gemini-3.6-flash-high`. It can fail with the capacity error again.
+
+### Security
+
+Upgrade to 3.0.0 to get all of these fixes.
+
+- **`update --apply` verifies the agy package.** It now checks the downloaded package against the npm registry record and stops before uninstalling the old copy if the check fails. Affects users of `update --apply` for agy. If the registry is unreachable, the agy step is skipped.
+- **Stricter checks on shared temp state.** Shared POSIX hosts now get ownership and access checks on job state and update caches. Unsafe job state is refused; an unsafe cache is ignored. State locations do not change.
+- **Safer `cancel`.** The plugin now checks that a process is still the one it started before stopping it, which reduces the risk of stopping an unrelated process. The check has timing limits and is not a guarantee. A mismatch is reported as `unconfirmed` (exit 1). **Action:** for jobs created by older versions, `cancel` does not signal their processes; stop them yourself.
+- **`vision` checks the image path before touching the filesystem.** Affects Windows users. A path that is not on the per-run allowlist, including a different spelling of an allowed file, is refused.
+- **Claude Code wrappers no longer pre-approve every `node` command.** Each wrapper now allows only its own command, and agy output is shown as untrusted data. Affects Claude Code users. `rescue` is now user-invoked only and supports `--background`, `--wait`, `--show-result`, and `--request-id`.
+- **Only agy's own sign-in prompt reports `auth_required`.** Model text no longer triggers that status. Run `setup` to sign in. `status --json` reports `oauthUrl` as `null`.
+- **Google OAuth URLs are removed from plugin output** and replaced with `[oauth-url-removed]`, including in older stored job records.
 
 ### Changed
 
-- **The 3.x contract.** The compatibility contract now runs from 3.0.0. A
-  documented surface is marked deprecated first and stays for at least one more
-  3.x minor release, and a removal waits for 4.0.0. The README Status block,
-  `docs/COMPATIBILITY.md`, `docs/COMMANDS.md`, and `CONTRIBUTING.md` say 3.x.
-  Statements about what 2.x did keep their wording.
-- **agy 1.3.1 measured per verb.** The `docs/COMPATIBILITY.md` row for agy 1.3.1
-  now names, per verb, what passed, what failed, and what was not run, and the
-  transcript table has the raw file for each probe. A new section lists the
-  isolated plugin install, the project-rule probes, and the conversation
-  pruning. 1.2.13 to 1.3.0 are not claimed as measured.
-- **Effort levels on agy 1.3.1.** `agy --help` and the bad-value error list
-  `xhigh`, but every model refused `xhigh` and `max` in the probes. The plugin
-  keeps `low|medium|high|agy-default`. The reason is in
-  `docs/COMPATIBILITY.md#effort-levels-on-agy-131`.
-- **Troubleshooting.** `docs/INSTALL.md` has three new rows: a prompt that needs
-  a shell command (headless agy denies the `command` tool), a `vision` 503
-  capacity error, and a reinstall that reports another process holding the
-  plugin. The tarball example no longer names a version.
-- **README "Why this plugin".** The 21 bullets became 8 short ones. The facts
-  they held are in `docs/COMMANDS.md`, `docs/COMPATIBILITY.md`, and the README
-  sections that stay.
-- **Release checklist.** In `docs/RELEASING.md`, the documentation-currency
-  step now asks for one inventory bullet per new field, key, or rule and for an
-  independent check of the quoted facts. A new step covers the plugin `setup`
-  verb and the MCP checks. The later steps are renumbered.
-- **The real failure reason in JSON errors.** When agy ends a run with
-  `result.status: ERROR` and a `result.error` line, that line is now the
-  failure reason: `errorMessage` and `healthMessage` on the stored job, and
-  `details.error.message` in a foreground `run_failed` envelope and in
-  `result <id> --json` for a `job_failed` job. Before, both said only
-  `failed (failed).` or `job <id> failed.`. The reason is one line of at most
-  300 characters, cut at a complete token. The filter removes ANSI CSI and
-  OSC sequences and replaces each other ESC and next-character pair with
-  the disallowed character `=`. It applies Unicode NFKC and replaces format
-  characters and default-ignorable code points with a private U+E000 marker.
-  For a token with this marker, it removes all markers and checks the joined
-  token, or its text before the first `:`, for a keyword. This check ignores
-  letter case and removes the keyword rule's surrounding punctuation.
-  A joined keyword uses the keyword rule; any other token is replaced.
-  Thus, a zero-width character between `Bearer` and `shortSecret` causes
-  replacement of the whole token. Raw U+E000 characters get the same
-  treatment. No private marker reaches the output. The filter turns control and
-  separator characters into spaces. It keeps tokens with at most
-  32 characters, only ASCII letters, digits or `. , : ; ! ( ) [ ] ' " _ - /`,
-  no `//`, and these limits for each complete run of ASCII letters and
-  digits: fewer than 12 characters for a mixed run, at most 12 for digits
-  only, and at most 20 for letters only. It replaces a token with an ASCII
-  letter directly before `:` and an ASCII letter or digit directly after
-  it, including `src/index.mjs:12`. It replaces
-  anything else with `[redacted]`, or `[redacted-url]` if the token contains
-  `://`. Credential keywords take precedence: the keyword stays and the
-  next two tokens are replaced. For a keyword with a value attached by
-  `:`, such as `password:hunter2`, that token and the next token are
-  replaced. A final `:` with no attached value uses the usual keyword rule.
-  The complete keyword list is in
-  `docs/COMPATIBILITY.md#failure-reason`. Numeric `(code N):` diagnostics
-  with 1 to 20 digits keep the keyword exception; the digit run must also
-  pass the shape rules. The word after `(code <digits>):` is an ordinary
-  token. Adjacent markers of the same type become one marker. The source
-  is agy's own error text. A secret split by a line break or a space-class
-  character into pieces that each fit the grammar can remain. A short
-  secret after a word that is not in the keyword list can remain. A secret
-  that fits the allowed shape can remain. After the cut, an empty result
-  or a result with no run of three ASCII letters outside the markers
-  returns `null`, and the old
-  generic text stays. Error codes, statuses, `answer`, exit codes and the stderr line do
-  not change. A timeout, output-limit or cancellation reason still wins. The
-  `error:` and `AGY_ERROR:` stderr markers get the same redaction. See
-  `docs/COMPATIBILITY.md#failure-reason`.
-- **agy 1.3.1 is the newest measured version.** `LAST_MEASURED_AGY_VERSION` is
-  `1.3.1`. `doctor` and the version warning now class 1.3.1 as verified, 1.2.13
-  to 1.3.0 as unmeasured, and anything newer as beyond the measured range.
+- The 3.x compatibility contract starts here: a documented surface is marked deprecated first, stays for at least one more 3.x minor release, and is removed only in 4.0.0.
+- agy 1.3.1 is now the newest measured version, with per-verb results in `docs/COMPATIBILITY.md`. 1.2.13 to 1.3.0 are not claimed as measured.
+- `--effort` still accepts `low`, `medium`, `high`, and `agy-default`; the probes did not support `xhigh` or `max`.
+- Failed jobs now show agy's own one-line failure reason, shortened and redacted, in `errorMessage` and in `--json` errors. Error codes, statuses, and exit codes do not change.
+- Troubleshooting gained rows for a prompt that needs a shell command, a `vision` capacity error, and a reinstall blocked by another process.
+- README "Why this plugin" is shorter. The release checklist asks for one docs bullet per new field and an independent fact check.
 
 ### Fixed
 
-- **Raw stderr in the stored failure reason.** When agy gave no reason of its
-  own, a failed job's `errorMessage` was its raw stderr, and `--show-result`
-  (`review`, `rescue`, `task`), `status <id>` and `result <id>` printed it
-  as it was. It is now the same one-line redacted text as above, or empty
-  when nothing readable is left, and then the generic text stays. The stored
-  `result.stderr` is unchanged. A multi-line stderr is no longer shown in
-  full in the `## Error` section of `status <id>`.
-- **`update --apply` from inside the agy install root.** The updater now
-  compares the real path of the current directory with the agy install root
-  (`~/.gemini/config/plugins/antigravity`), junctions and symlinks included.
-  If the current directory is that root or lies inside it, the updater moves
-  to its temporary directory, prints one line, and runs every step from
-  there. If it cannot move, it runs no step and exits 1. Before, agy could
-  fail to remove the directory, which left the uninstall half-done.
-
-### Tests
-
-- A denied `command` tool in a headless `rescue` run now has an end-to-end test
-  for the label line, the exact remedy, and the `agy_denied` envelope.
-- A failed `review --findings-json` run is tested to carry no findings fields.
+- A failed job no longer stores raw stderr as its failure reason.
+- `update --apply` run from inside the agy install directory now moves out of it first, or stops with exit 1, instead of leaving the uninstall half-done.
 
 ## [2.1.0] — 2026-09-28
 
 ### Added
 
-- **`--findings-json` on `review`.** Opt-in structured findings. agy gets
-  `--json-schema <path>` for the schema the plugin ships
-  (`scripts/lib/review-findings.schema.json`), right before
-  `--print-timeout`. The prompt's Output section gains one sentence about
-  the schema. The plugin checks agy's structured output against the schema
-  with its own validator: types, enums, required keys, no extra keys, at
-  most 200 findings, and at most 2000 characters per string. `--json` adds
-  `details.findings` (the parsed object, or `null`),
-  `details.findingsStatus` (`valid`, `invalid`, or `missing`), and, when
-  not valid, a one-line `details.findingsError` plus one stderr warning
-  line. `answer` is unchanged: it is agy's raw response text, which is JSON
-  text under this flag. The exit code is unchanged. Background jobs store
-  `request.findingsJson` and `result.structuredRaw`. `result <job-id>
-  --json` and `--show-result` report the same three fields, and `result
-  <job-id>` adds a `Findings: <status>` line. Without the flag, nothing
-  changes. See `docs/COMMANDS.md#review`.
-- **`--check-locations` on `review` and `result`.** Opt-in, local-only
-  heuristic: checks each `path:line` citation a review answer names against
-  the diff that run actually sent, using the hunks that diff carried
-  (`request.hunks`, stored on every review job). Classifies each citation
-  `in_diff`, `outside_diff`, or `unknown_path`. Never calls agy again, and
-  adds nothing to the agy call. `--json` adds `details.locationCheck: {
-  heuristic, citations, counts }`, `null` on a job stored before this
-  feature shipped. One stderr line reports the counts, also appended to the
-  markdown output after the answer. `answer` and the exit code are
-  unchanged. `result <job-id> --check-locations` runs the same check later
-  and works even on a job reviewed without the flag. A citation outside the
-  diff is not by itself a model error. See `docs/COMMANDS.md#review`.
-- **`--expect <text>` on `vision`.** Repeatable, opt-in: after a completed
-  run, checks each trimmed value against the answer's `## Transcription`
-  section — a substring check on what agy already transcribed, never a
-  truth check of the image itself. A value is found when it equals one
-  transcription line exactly (both trimmed) or is a substring of the
-  section. If the section is missing, or the whole answer is the single
-  `VISION-UNAVAILABLE: <reason>` line, every value comes back unverifiable
-  instead. `--json` adds `details.expectations` (`[{ value, found,
-  reason? }]`) and `details.expectationSummary`
-  (`all_found`/`missing`/`unverifiable`), both present only when `--expect`
-  was given. Markdown appends an `Expectations: <summary>` block after the
-  answer, with one `  missing: <value>` line per value not found, or one
-  `  unverifiable: no transcription section` line. An empty value, or more
-  than 32 values, is an argument error, stderr only, exit 1. The exit code
-  is unaffected either way; this is documented as a first version. See
-  `docs/COMMANDS.md#--expect`.
-- **`--prompt-file <path>` on `task`.** Opt-in: reads the prompt from a
-  file (UTF-8, 512 KiB max) resolved against the invocation's working
-  directory, instead of a positional prompt. Combining it with a
-  positional prompt is an argument error (`cannot combine --prompt-file
-  with a positional prompt`), stderr only, exit 1. May be combined with
-  `--continue`/`--conversation`: the file becomes the new turn.
-  `--prompt-file -` reads the prompt from stdin to EOF under the same cap,
-  and only from the standalone CLI run directly by a person or script; a
-  host wrapper (Claude Code, Codex CLI, the agy TUI) refuses it (`--prompt-
-  file - (stdin) is available in the standalone CLI only`), stderr only,
-  exit 1. An oversized, missing/unreadable, or empty/whitespace-only
-  source is refused with `invalid_input` and one of `prompt_file_too_large`,
-  `prompt_file_unreadable`, or `prompt_file_empty`, before agy is ever
-  probed. The job's title becomes the 80-char truncation of the source's
-  first non-empty line. Neither the path nor the content ever reaches
-  `provenance` or a stderr diagnostic. `rescue` does not gain this flag.
-  Without the flag, nothing changes. See `docs/COMMANDS.md#task`.
-- **`--request-id <id>` on `task` and `rescue --background`.** Opt-in
-  idempotent background dispatch. The id is 1 to 128 characters from
-  `[A-Za-z0-9._-]`; any other value, or a foreground run (`task
-  --foreground`, `rescue` without `--background`), is an argument error
-  (`--request-id applies to background jobs only`), stderr only, exit 1.
-  The plugin stores a sha256 fingerprint of the request (verb, prompt,
-  conversation mode and id, `--add-dir` values, agy mode arguments, model,
-  effort, workspace root) as `request.requestFingerprint` next to
-  `request.requestId`, and maps the id to its job in `state.json`'s new
-  `requestIds` object. The claim and the job creation share one state
-  lock, so two concurrent calls with one id create one job. A repeat with
-  the same request starts nothing and prints the existing job's envelope
-  with its current `status` and `details.deduplicated: true`, exit 0
-  (`--wait` then waits on that job). A repeat with a different request
-  starts nothing and fails with `invalid_input` / `request_id_conflict`
-  and `details.existingJobId`, exit 1. A rebuilt `state.json` recreates the
-  map from the job files. No automatic retry. Without the flag, nothing
-  changes. See `docs/COMMANDS.md#--request-id-task-and-rescue`.
-- **`--exit-status` on `status <id> --wait`.** Opt-in: requires both a job
-  reference and `--wait` (an argument error otherwise, `--exit-status
-  requires a job id and --wait`, before any job lookup). With the flag,
-  `status` exits by the waited job's own outcome instead of the usual 0: 0
-  completed, 1 failed, 2 cancelled, and a new 3 when the wait's own
-  deadline passes first with the job still `queued`/`running` (one added
-  stderr line names the id and its live status). Without the flag, `status
-  --wait` is unchanged: always 0. Markdown and `--json` output are
-  identical either way. See `docs/COMMANDS.md#status`.
-- **`--show-result` after a background `--wait`, on `review`, `rescue`, and
-  `task`.** Opt-in: requires `--wait` (an argument error otherwise,
-  `--show-result requires --wait`), and on `review`/`rescue` also requires
-  `--background` (`--show-result requires --background`); on `task`,
-  `--foreground` fails the same `--wait` check instead, since foreground has
-  no wait to opt into. With the flag, the dispatch prints nothing on
-  stdout: the queued notice moves to stderr as `Background <verb> started:
-  <job-id>`, in text mode and under `--json` alike. After the wait, one
-  of four outcomes is reported: a completed job's stored answer (with the
-  same `details` `result <job-id> --json` builds); a failed or cancelled job
-  as an error envelope (`job_failed`/`job_cancelled`); or, if the wait's own
-  deadline passes first, `wait_timeout` with the job's still-live status and
-  no completion ever reported for that call. Without the flag, all three
-  verbs are unchanged. See `docs/COMMANDS.md#--show-result-all-three-verbs`.
-- **`doctor`, a ninth, read-only verb.** Checks Node's version against
-  `package.json`'s `engines.node`, the `agy` binary and version (classified
-  against this plugin's measured range: `verified`, `beyond_measured`,
-  `unmeasured`, `incompatible`, or `missing`), which of the flags this
-  plugin forwards appear in `agy --help`'s text (`listed`, never proof the
-  flag works, or `not_listed`), the vision configuration
-  (`registered`/`absent`/`unreadable`), and the job-state root. Never runs
-  OAuth, never calls a model, never writes a file, never opens the network.
-  No `--live` flag: `setup` is already this plugin's live probe. Markdown
-  output ends with `doctor: <n> ok, <m> warnings, <k> problems`; `--json`
-  returns `status: "ok" | "warnings" | "problems"`, `jobId: null`, `answer:
-  null`. Exit 0 for `ok`/`warnings`, 1 for `problems`.
-- **agy version warnings on `setup` and `status`.** After a successful agy
-  probe, `review`, `rescue`, `task`, and `vision` cache the version seen
-  (throttled to once per 60 minutes per workspace, never on `review
-  --preview`). `setup` prints one line after `using <bin> v<version>`, and a
-  no-reference `status` prints one stderr line, when that version falls
-  outside this plugin's measured range. See `doctor` above and
-  `docs/COMPATIBILITY.md` for the exact wording and the measured range.
-
-- **`review --preview` and `--require-complete`.** `--preview` shows exactly
-  what a real run would send: the included files (with kind, `diff` or
-  `untracked`, and byte size), the skipped files with their reasons,
-  whether the diff was cut by the 196 KB cap, the file/byte counts, and the
-  SHA-256 hash of the exact prompt string, all from one selection function
-  (`buildReviewInput`) every path (`--preview`, foreground, background) now
-  calls. It never calls agy and changes nothing; `--json` returns
-  `status: "preview"`. It cannot combine with `--background`, `--wait`,
-  `--continue`, or `--conversation`. `--require-complete` refuses to send an
-  input that skipped a file or cut the diff, instead of sending it with a
-  warning: `status: "invalid_input"`, `error.code: "input_incomplete"`,
-  exit 1, before any agy probe. Without `--require-complete`, the same
-  condition prints one warning line on stderr before sending. Every review
-  job now stores `request.inputHash`, `request.inputCounts`, and
-  `request.headSha`; `status <id>` and `result <id>` show the hash as
-  "Input hash: sha256:..." in the "## Provenance" section.
-
-- **Safe job provenance.** Every job now carries a `provenance` record
-  (plugin version, agy version, model, effort, mode, and the count, never the
-  paths, of `--add-dir` values), set once at creation, with no prompt,
-  workspace path, image path, `extraArgs` content, or tool list ever stored.
-  `status <id>` and `result <id>` render it as a "## Provenance" section
-  (markdown) and `details.job.provenance` / `details.provenance` (`--json`);
-  the Recent Jobs table adds `Model`/`Effort` columns only when at least one
-  listed job's provenance names either one. The stored result also carries
-  `reportedModel`, the model agy's own `result` event named when that event
-  carries one; measured against agy 1.2.11 and 1.2.12 it never does, so this
-  is always `null` today. Legacy job records without either field still
-  render and report `null`.
-- **Usage trailer on `review`, `rescue`, and `task`.** The measured-usage
-  trailer (`usage: total=<N> in=<N> out=<N>`) now prints on stderr for these
-  three verbs' successful runs, foreground or an awaited `--wait` background
-  run, the same way it already did for `vision` and `result`.
-- **`--model`, `--effort`, and `--focus` on `review`.** `review` now accepts
-  `--model <id>` and `--effort <low|medium|high|agy-default>`, forwarded on
-  both the foreground and the background path. Unlike `task`/`rescue`,
-  `review` has no plugin-side effort default: with neither flag, no
-  `--effort` reaches agy, unchanged from before this addition; `agy-default`
-  sends none either. A new optional `--focus <text>` narrows the review's
-  attention: trimmed, capped at 500 characters, never required, and never
-  derived from the diff or any other repository content. A given focus adds
-  a "## Reviewer focus (caller instruction)" section to the prompt
-  immediately before "## Output", is stored as `request.focus`, and appends
-  ` focus: <first 40 characters>` to the job title. An empty, whitespace-only,
-  or over-cap focus is a new `invalid_focus` validation error, exit 1.
-- **`scripts/pack-for-agy.mjs`.** Packs the checkout the way `npm publish`
-  would, extracts the tarball into a temporary directory, and prints the
-  extracted directory, its integrity hash (sha512) and shasum (sha1), the
-  file count, and the exact `agy plugin install <dir>` command. It never
-  runs `agy` and never touches
-  `~/.gemini`. This closes the gap where `agy plugin install <path>` copies
-  the entire directory it is pointed at, including `.git`, `.github`, and
-  `tests/` on a plain clone, because it does not read `package.json`
-  `files`. A hash-guarded isolated run against agy 1.2.12 confirmed that
-  installing, listing, validating, and uninstalling a packed copy never
-  touched the real `~/.gemini` store. See
-  [docs/INSTALL.md](./docs/INSTALL.md#agy-itself).
+- **`doctor`**, a ninth, read-only verb. It checks Node, the `agy` binary and version, forwarded flags, the vision setup, and the job-state location. No login, no model call, no writes, no network.
+- **`review` options:** `--preview` (show what would be sent), `--require-complete` (refuse an incomplete input), `--findings-json` (schema-checked findings), `--check-locations` (check cited lines against the diff; also on `result`), and `--model`, `--effort`, `--focus`.
+- **`--show-result`** on `review`, `rescue`, and `task`: after a background `--wait`, print the finished answer.
+- **`--request-id`** on `task` and `rescue --background`: a repeated request returns the existing job instead of starting a second one.
+- **`task --prompt-file`:** read the prompt from a file, or from stdin in the standalone CLI.
+- **`status --exit-status`:** exit by the waited job's outcome (0 completed, 1 failed, 2 cancelled, 3 still running at timeout).
+- **`vision --expect`:** check named text against the transcription.
+- **Job provenance** (plugin, agy, model, effort, mode) on every job, and the `usage:` line on stderr for `review`, `rescue`, and `task`.
+- agy version warnings on `setup` and `status` when agy is outside the measured range.
+- `scripts/pack-for-agy.mjs` packs the same files `npm publish` ships, for `agy plugin install`.
+- A release check that blocks internal planning references in user-facing docs.
 
 ### Changed
 
-- **Tested agy range extends to 1.2.12.** Live runs covered `setup` with `--skip-vision`, `task` foreground and background, `status` list, and `result` (`probe-setup.txt`, `probe-task-foreground-json.txt`, `probe-background-lifecycle.txt`, `probe-status-list.txt`). A direct agy `--json-schema` capability probe succeeded with `structured_output` field on the result event. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12 (smoke measurement only).
-- **One JSON error envelope for expected failures.** Once `--json` is
-  accepted by the parser, an expected failure (bad input, no `agy` binary, a
-  run that did not complete, an unresolved job reference) now emits exactly
-  one envelope on stdout, with `answer: null` and `details.error` naming the
-  reason, instead of empty stdout. A parser error still emits nothing on
-  stdout, unchanged. A script that treated any stdout as success must now
-  read `status` instead.
-
-### Added
-
-- A ninth command, `doctor`: a read-only check of your setup (Node version,
-  the `agy` binary and version, which flags this plugin forwards that
-  `agy --help` lists, the vision setup, and where job data is stored). It
-  makes no changes and needs no login.
-- `review --model`, `--effort`, and `--focus`: pick the model, set how much
-  reasoning effort agy spends, and point the reviewer's attention where you
-  want it.
-- `review --preview`: see exactly what a review would send, without sending
-  it.
-- `review --require-complete`: refuse to send a review that is missing a
-  file or was cut short, instead of sending it with a warning.
-- `review --findings-json`: ask for a checked, structured list of findings
-  alongside the review.
-- `review --check-locations` and `result --check-locations`: a best-effort
-  check of whether each file-and-line a review cites actually falls inside
-  the diff it reviewed.
-- `--show-result` on `review`, `rescue`, and `task`: after waiting for a
-  background job, print its finished answer directly instead of the plain
-  dispatch notice.
-- `--request-id` on `task` and `rescue --background`: send the same request
-  twice by accident and get back the one job it started, not two.
-- `task --prompt-file`: read a long or scripted prompt from a file, or from
-  standard input in the standalone command.
-- `status --exit-status`: exit with the code that matches a waited job's own
-  outcome, instead of always exiting 0.
-- `vision --expect`: check specific text against what agy actually saw in an
-  image, after the run finishes.
-- A release check that stops a release when a user-facing document still
-  names an internal planning reference, so no document ships pointing to
-  tracking nobody outside the project can see.
-
-### Changed
-
-- The plugin's tested range of the `agy` CLI now reaches 1.2.12.
-- The README, the commands reference, the compatibility contract, every
-  command's own help text, and the security notes were reviewed together and
-  brought back into agreement after nine releases' worth of additions.
+- With `--json`, expected failures now print one error envelope on stdout instead of nothing. **Action:** scripts that treated any stdout as success should read `status`.
+- Tested agy range extends to 1.2.12.
+- README, commands reference, compatibility contract, and help text were brought back into agreement.
 
 ### Fixed
 
-- A stale "eight commands" count in a few documents now correctly says
-  nine, now that `doctor` is one of them.
-- A few outdated `agy` version numbers in the installation guide and the
-  release-smoke checklist now match the version this release actually tests.
-- **CI: the `windows-latest` fake-agy `csc.exe` compile could race and fail
-  with `CS0016`.** `node --test` runs each test file as its own process, and
-  four test files call `writeFakeAgy`, so several processes could compile the
-  same content-hashed template path at once. `csc.exe` refused the losing
-  writer with `error CS0016: Could not write to output file '...' -- The
-  process cannot access the file because it is being used by another
-  process.` (`windows-latest`, `Node 24`, CI runs on 2026-09-12 and
-  2026-09-25). `tests/helpers/fake-agy.mjs` now compiles to a unique
-  per-call temp path and promotes it into the shared cache with an atomic
-  rename, so no two processes ever write the same output file.
+- Windows CI race when compiling the test helper.
+- Stale "eight commands" and agy version numbers in docs.
 
 ## [2.0.2] — 2026-09-25
 
 ### Fixed
 
-- **Model-only `task` and `rescue` runs work with agy 1.2.11.** Plugin 2.0.1
-  supplied its default `--effort medium` next to `--model`. agy reported
-  `--model gemini-3.1-pro-high conflicts with --effort=medium`
-  (`probe-task-pro-default-effort.txt`) or `--effort is not supported for model
-  "claude-sonnet-4-6"` (`probe-task-claude-default-effort.txt`). Model-only
-  foreground and background runs failed (`probe-rescue-pro-default-effort.txt`,
-  `probe-task-background-pro-default-effort.txt`). These runs pass on 2.0.2
-  with exit 0 (`probe-fixed-task-pro.txt`, `probe-fixed-task-claude.txt`,
-  `probe-fixed-rescue-pro.txt`, `probe-fixed-task-background-pro.txt`). With
-  `--model` and no explicit `--effort`, the plugin now sends no `--effort` flag
-  and stores `request.effort` as `agy-default` (`scripts/lib/job-helpers.mjs`,
-  `resolveRequestEffort`; `tests/passthrough-argv.test.mjs`, `task --foreground
-  --model with no --effort sends --model and no --effort flag`, `rescue --model
-  with no --effort sends --model and no --effort flag`, and `task (background
-  worker): --model with no --effort stores agy-default and reaches argv with no
-  --effort flag`). agy applies the level carried by a variant id
-  such as `gemini-3.1-pro-high`, and rejects a base id that needs one
-  (`raw-base-gemini-3.1-pro-no-effort.txt`). With
-  neither flag, the default remains `medium`, unchanged since 2.0.0. This
-  narrow change uses the documented upstream-break exception and marks the
-  compatibility boundary.
+- `task` and `rescue` with `--model` and no `--effort` work again on agy 1.2.11. The plugin sends no `--effort` in that case. With neither flag, the default is still `medium`.
 
 ### Changed
 
-- **Tested agy range extends to 1.2.11.** Live runs covered `task`, `rescue`,
-  `review`, `vision`, `status`, `result`, and `cancel`
-  (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`,
-  `probe-review-json.txt`, `probe-vision-json.txt`,
-  `probe-background-lifecycle.txt`).
-- **The plugin still rejects `--effort max`.** agy 1.2.11 accepts `max` as
-  flag syntax, but no model on this account supports it
-  (`agy-help-1.2.11.txt`, `raw-effort-max-default-model.txt`,
-  `raw-base-gemini-3.1-pro-effort-max.txt`).
+- Tested agy range extends to 1.2.11. The plugin still rejects `--effort max`.
 
 ## [2.0.1] — 2026-09-19
 
 ### Added
 
-- **`AGY_ERROR:` as a second `errorMessage` source.** Per the agy 1.2.6
-  changelog, a turn that ends on an agent or model API failure prints one
-  `AGY_ERROR: {...}` line on stderr and exits 3 instead of 1
-  (`agy-changelog-1.2.7.txt`). This shape and exit 3 are not yet measured
-  live; `raw-api-failure-bogus-key.txt` did not provoke the failure. The
-  plugin takes the line, sanitized and capped at 300 characters, when no
-  `error:` line is present. `error:` wins when both are present, and a
-  plugin-authored termination reason still takes priority. agy's exit
-  status is stored as `exitCode`, never propagated. A failed foreground
-  verb still exits 1.
+- agy's `AGY_ERROR:` stderr line is used as the failure reason when no `error:` line is present.
 
 ### Changed
 
-- **Tested agy range extends to 1.2.7.** Live runs covered `task`, `rescue`,
-  `review`, `vision`, `status`, `result`, and `cancel`
-  (`probe-task-foreground-json.txt`, `probe-task-effort-default.txt`,
-  `probe-task-effort-agy-default.txt`, `probe-task-denied-url.txt`,
-  `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`,
-  `probe-background-lifecycle.txt`).
-- **`update` host instructions for agy explain the version boundary.**
-  The printed instruction now says that on agy before 1.1.28 a reinstall
-  without the uninstall merged into the old copy. This explains the
-  uninstall-then-install advice.
+- Tested agy range extends to 1.2.7.
+- `update` explains why agy needs uninstall-then-install before agy 1.1.28.
 
 ### Fixed
 
-- **Print-timeout documentation states the 1.2.6 boundary.** agy changed
-  the default to unlimited and `0` now waits until the turn completes
-  (`agy-changelog-1.2.7.txt`, `agy-help-1.2.7.txt`,
-  `raw-print-timeout-zero.txt`). The plugin still forwards the job budget
-  plus 60 seconds, or `24h` for a `0` budget, as the agy-side backstop.
-- **Reinstall documentation states the 1.1.28 boundary.** README and
-  INSTALL now distinguish the old merge behaviour from exact replacement
-  (`agy-changelog-1.2.7.txt`).
-- **Internal identifiers removed from the command and compatibility
-  references.** Public behaviour is unchanged.
+- Docs describe the agy 1.2.6 print-timeout change and the 1.1.28 reinstall behavior.
+- Internal identifiers removed from the command and compatibility references.
 
 ## [2.0.0] — 2026-09-12
 
-This major release exists because a documented default changed.
-`task` and `rescue` without `--effort` now send `medium`.
-
 ### Breaking
 
-- **`task` and `rescue` without `--effort` now send `medium`.** A run without
-  `--effort` sent no effort field at all, so the value agy used came from
-  whatever that machine had saved, not reproducible across machines. When
-  the caller passes no `--effort`, the plugin now sends `medium`; an
-  explicit `--effort <value>` still wins. The stored `request.effort` on a
-  job record records the effective value either way. `review` and `vision`
-  have no `--effort` flag and are unaffected. `medium` runs longer than
-  `low`, so a flag-less job is more likely to reach the agy execution
-  budget, which stores a failed job with no answer; pass `--effort low`
-  explicitly, or raise `ANTIGRAVITY_AGY_TIMEOUT_MS`, to avoid this. Pass
-  `--effort agy-default` to send no `--effort` flag, so the user's own agy
-  configuration decides. That value is new in this release. It is not the
-  default.
-
-- **Empty SUCCESS answers are now `failed`.** A run that agy reported as
-  SUCCESS with an empty or whitespace-only answer used to be stored as
-  `completed` with nothing in it when the only evidence was the JSON
-  `denied_actions` list, and when there was no denial and no print-timeout
-  marker at all. Both are now `failed` (exit 1 on the foreground path), the
-  same treatment a stderr-sentinel denial that starved the answer already
-  had. A non-empty answer with a denial stays `completed` and the denial is
-  a warning.
+- **`task` and `rescue` without `--effort` now send `medium`.** Before, no effort was sent, so results depended on each machine's saved setting. `medium` can run longer and hit the time budget. **Action:** pass `--effort low` or raise `ANTIGRAVITY_AGY_TIMEOUT_MS` if needed, or `--effort agy-default` to use your own agy setting.
+- **Empty SUCCESS answers are now `failed`** (exit 1 in the foreground), including runs where the only sign of trouble was a denied action. A non-empty answer with a denial stays `completed` with a warning.
 
 ### Added
 
-- **Denied-action target reporting.** agy's `result.denied_actions` names
-  only the action; a separate `step_update` event's tool error message
-  (`permission check failed for <action> "<target>":`, measured on agy
-  1.2.1) names what was actually refused. The plugin now extracts that
-  target and joins it onto the matching `denied_actions` member by the
-  action name parsed out of the message, never by the step's `tool_name`,
-  which differs from the action (`read_url_content` vs `read_url`,
-  `run_command` vs `command`). The target is additive on every
-  `deniedActions` output (`--json`'s `target` field, the markdown "Denied
-  Actions" line, the stderr denial hint), sanitized and capped the same way
-  `action`/`displayName` are, and `null` when no `step_update` matched.
-  Shown for context only: never assembled into a `permissions.allow` line,
-  never a wildcard.
-- **agy print-timeout truncation reporting.** Since agy 1.1.28, a `--print-timeout`
-  that expires while a turn is still in progress exits 0 and writes one
-  stable stderr line instead of failing outright. The plugin detects that
-  marker and reports it as `agyPrintTimeout: { limit: '<duration>' | null }`
-  on the job record and the stored result. `--json` sets
-  `details.agyPrintTimeout` on a completed foreground envelope and on
-  `result <id> --json`, and `details.job.agyPrintTimeout` on `status <id>
-  --json`; job lists carry the same field per job. Markdown `status <id>`
-  and `result` add a "Note:" line; the `status` tables add a `Partial`
-  column. A non-empty answer with the marker present stays `completed`. A
-  partial answer is still an answer; an empty answer with the marker present
-  is reclassified `failed`, the same treatment a starved headless denial
-  already gets. This field is distinct from the pre-existing
-  `details.truncated` boolean on `result` (`--head`/`--tail`).
-- **agy fatal-error marker.** Since agy 1.1.28, a fatal headless failure
-  writes a stable `error: <reason>` line on stderr. When a run fails and
-  such a line is present, it becomes the job's `errorMessage` (trimmed,
-  sanitized, bounded) instead of the raw stderr dump, unless a
-  plugin-authored termination reason (timeout, output-limit, cancellation)
-  already explains the failure.
-- **`--effort agy-default` on `task` and `rescue`.** A fourth accepted
-  value. The plugin sends no `--effort` flag, so the user's own agy
-  configuration decides. The run is therefore not reproducible across
-  machines. Stored `request.effort` keeps `agy-default` verbatim. This is
-  an opt-in. The default when the flag is absent is still `medium`.
-
-- **Self-contained How-it-works diagram.** The README now uses the
-  authored `docs/how-it-works.svg` instead of a Mermaid flowchart. It
-  shows the host command and all eight verbs, the plugin runtime, what
-  agy sends to Google, the local vision MCP server, the local job store
-  that `status`, `result`, and `cancel` read without reaching Google,
-  and the denial path where the plugin reports the refused action and
-  target. The SVG title and description give screen readers the complete
-  flow in prose, and the README alt text uses the same sentences. The
-  diagram follows the reader's light or dark colour scheme and paints its
-  own background so it stays readable.
-
-- **README image pack gate.** The pack check now derives required
-  relative README images as it already did markdown links. It reports an
-  image that is absent from the source tree as a dead link and requires
-  an existing image in the package. Packagers can now catch a missing
-  diagram before publishing instead of silently shipping an npm README
-  whose relative image does not resolve in the unpacked install.
+- Denied actions now name the refused target when agy reports it.
+- A run cut short by agy's print timeout is reported as `agyPrintTimeout`; an empty answer in that case is `failed`.
+- agy's fatal `error:` line becomes the job's failure reason.
+- `--effort agy-default` on `task` and `rescue`.
+- A self-contained how-it-works diagram in the README, and a pack check for README images.
 
 ### Changed
 
-- **Supported agy matrix.** The tested range now runs from agy 1.1.15 to
-  1.2.1, with 1.2.1 as the newest measured version.
+- Tested agy range is 1.1.15 to 1.2.1.
 
 ### Security
 
-- **The plugin no longer relays agy's bypass advice to its own stderr.**
-  agy's headless-denial sentinel ends with "Alternatively, re-run with
-  `--dangerously-skip-permissions` to auto-approve all tools." Printing that
-  sentence contradicted `SECURITY.md`'s own promise never to suggest
-  bypassing headless permission checks. The console echo of a failed run's
-  stderr now drops just that sentence; the stored result and
-  `result --json` still keep the complete upstream line unmodified.
-- **Vision MCP tool schema closes to undeclared arguments.** agy 1.1.27
-  rejected an argument a server's schema never declared; agy 1.2.1
-  "preserves open object schemas ... instead of rejecting undeclared
-  arguments on schemas that allow them". `scripts/mcp/vision-server.mjs`'s
-  `view_image` schema declared no `additionalProperties`, which JSON Schema
-  treats as permissive, so on 1.2.1 an invented argument would reach the
-  server again. The schema now declares `additionalProperties: false`.
+- The plugin no longer repeats agy's advice to bypass permission checks.
+- The `view_image` tool now rejects undeclared arguments.
 
 ## [1.3.0] — 2026-09-09
 
 ### Added
 
-- **Structured denial reporting.** Since agy 1.1.27, a headless run's
-  `denied_actions` JSON list is parsed. The plugin validates each member,
-  drops exact repeats, and caps the list at 32 members and 200 characters
-  per string. It merges that list with the existing stderr sentinel. The
-  JSON list wins when it is present. Older agy without the field still gets
-  one denial from the stderr sentinel. Each member gets a computed remedy:
-  `--add-dir <dir>` for read-type actions, `--mode accept-edits` for
-  edit-type actions, or `Headless runs cannot grant "<action>"; the host
-  must run this step itself.` for every other action. `--json` sets
-  `details.deniedActions` on a completed foreground envelope and on
-  `result <id> --json`. `--json` sets `details.job.deniedActions` on
-  `status <id> --json`. Job lists carry `deniedActionsCount`. Markdown
-  `status <id>` and `result` add a `## Denied Actions` section. The
-  `status` tables add a `Denied` column. A live 1.1.27 denial of `read_url`
-  (`displayName` `ReadUrlContent`) printed `Headless runs cannot grant
-  "read_url"; the host must run this step itself.` A failed foreground
-  `--json` run still writes no stdout envelope. The fail-vs-warn decision
-  and every exit code stay unchanged.
-- **`--effort <low|medium|high>` on `task` and `rescue`.** Both verbs accept
-  `--effort`. They forward it to agy as `--effort <value>`. This applies in
-  the foreground and in the background. The flag sits right after `--model`,
-  or in its place when there is no model. The plugin has no default. When
-  the flag is absent, nothing is forwarded. Live 1.1.27 runs with
-  `--effort low` and `--effort high` completed. The plugin does not probe
-  what agy does with the value beyond forwarding it.
+- Structured reporting of actions agy denied in headless runs, with a suggested remedy for each (agy 1.1.27 and later).
+- `--effort <low|medium|high>` on `task` and `rescue`.
 
 ### Changed
 
-- **CI matrix.** `macos-latest` joins `ubuntu-latest` and `windows-latest`.
-  The test matrix uses Node 22.3.x and Node 24. The lint gate still runs on
-  the Node 24 jobs only. It now runs on all three operating systems.
-  Release-tree CI run 34289858536 on commit `4f9b317` was green on all six
-  cells.
+- CI now also runs on macOS.
 
 ### Fixed
 
-- **Long runs no longer end at agy's 5-minute default.** Every print-mode
-  `agy` invocation (`review`, `rescue`, `task`, `vision`; foreground,
-  background, plain, `--continue`, and `--conversation`) now forwards
-  `--print-timeout` as the plugin execution budget plus 60 seconds of
-  headroom (`1860s` for the 30-minute default). The plugin deadline fires
-  first. agy's default `--print-timeout 5m0s` no longer ends the run early
-  with `status: ERROR` / `"timeout waiting for response"`. A `0` budget
-  forwards a fixed `24h` ceiling. agy treats a literal `0` as an immediate
-  timeout.
-- **Vision allowlist on macOS.** The vision MCP server refused every image
-  on macOS. `os.tmpdir()` sits under `/var`, a symlink to `/private/var`,
-  so the resolved path never matched the request's own logical spelling.
-  `vision` now records the allowlist in its resolved (realpath) form. The
-  server accepts a request whose own realpath is itself an authorized
-  entry. The requested file's own final component being a symlink is still
-  refused. The identity checks made while reading an image are unchanged.
-- **Workspace-root canonicalization.** The job state directory is keyed off
-  the realpath of the workspace root. A caller that holds a logical,
-  symlinked spelling of the same directory (macOS `os.tmpdir()`) and a
-  background worker whose `process.cwd()` is already the physical path
-  therefore use the same leaf. An existing install's jobs, stored under the
-  pre-085 logical-path leaf, stay reachable until that leaf is moved. A
-  realpath leaf is preferred once it exists. The logical leaf is still read
-  until then. A background job's worker receives the parent's exact
-  workspace spelling. A job started through a logical spelling stays under
-  the leaf it was created in.
+- Long runs no longer stop at agy's 5-minute default timeout.
+- `vision` works on macOS (symlinked temp directory).
+- Job state is found consistently when a workspace is reached through a symlink.
 
 ### Security
 
-- **Slash expansion disabled.** Every print-mode `agy` invocation now
-  forwards `--disable-slash-commands`. Prompt text that starts with `/`,
-  including untrusted diff, review, rescue, or task content, reaches the
-  model as plain text. It is not parsed as an agy slash command or skill.
-  A live 1.1.27 `task` whose prompt began with `/model` completed with
-  answer `OK.`
+- Prompt text starting with `/` is passed to agy as plain text, never run as an agy slash command.
 
 ## [1.2.0] — 2026-09-06
 
 ### Added
 
-- **Retrievable result size.** `status` (and `status --json`) shows the
-  stored answer's byte and line counts (`answerBytes`, `answerLines`) on the
-  job record. `result` gains `--head <n>` and `--tail <n>` (a positive
-  integer number of lines; both may be given) to show only part of a stored
-  answer; when a cut happens, the markdown output ends with
-  `(showing <k> of <total> lines; full answer stored)` and `--json` sets
-  `details.truncated: true`. Without the flags, output is unchanged.
-- **Safer registry retries for the update check.** `update` now retries a
-  failed registry request up to twice on a network
-  error, HTTP 429, or 5xx, waiting `500ms * 2^attempt` plus up to 250ms of
-  jitter and honouring a numeric `Retry-After` header, all inside one 25
-  second total budget for the whole check. A 4xx other than 429, malformed
-  JSON, and the semver check never retry; `update --apply` steps never
-  retry either. Before this, one failed request ended the check immediately.
-- **`--model` on `task` and `rescue`.** Both verbs now accept `--model <id>`
-  and forward it to agy exactly as `vision` already did, foreground and
-  background. `rescue --model` previously logged the flag as ignored; it now
-  reaches agy.
-- **Contributor files.** A public `CONTRIBUTING.md` (the five gates, the
-  frozen 1.x contract pointer, the release runbook pointer, the docs-in-
-  the-same-change rule). `.cursor/rules/antigravity-plugin.mdc` and
-  `.cursorignore` for contributors working in Cursor.
-
-### Security
-
-- **Socket-flagged host bootstrap moved to a shipped module.** The
-  `node -e` snippet every `commands/*.md` wrapper runs no longer builds its
-  spawn logic as one long interpolated string. That body now lives in the
-  shipped, tested `scripts/lib/host-bootstrap.cjs` module. The generated
-  snippet resolves the plugin root, checks `<root>/plugin.json` itself and
-  refuses with one line before requiring anything from that root, checks that
-  the shipped module exists and refuses with one line when it does not, and
-  only then requires the module and calls into it; the module carries its own
-  copy of the manifest check as a second layer. No host input is
-  interpolated into executed source; the root is read from the environment
-  at run time, same as before.
-- **Vision image access.** Vision checks file identity while it reads an image.
-  It keeps the 10 MiB limit when a file grows after the first check.
-- **Vision MCP request processing.** Malformed requests do not stop the
-  server. The server rejects oversized input frames. A paused client cannot
-  queue unlimited replies.
-- **Update command execution.** Updates reject invalid registry and cache
-  versions. On Windows, updates reject unsafe batch command paths and
-  arguments. Native executables take precedence over shims.
-- **Background job arguments.** Background jobs reject stored agy flags other
-  than the supported mode pair before they start agy. Tampered requests fail.
-- **Review context labeling.** Review skips untracked files with secret-shaped
-  names (`.env`, `.env.*`, `.pem`/`.key`/`.p12`/`.pfx`, default SSH key names) instead
-  of sending them. Diffs, commits, and untracked file bodies sent to agy are
-  wrapped in a labeled, self-escaping data block with one sentence telling the
-  model that content is untrusted, not instructions. Every `commands/*.md`
-  wrapper repeats that rule for the model output it hands back.
-- **Git path parsing.** Untracked, staged, unstaged, and branch-comparison
-  file lists are parsed the way git prints them (`-z`, no quoting), so a
-  non-ASCII or space-containing name, or a rename, is no longer skipped or
-  garbled.
-- **Shared temp directory trust (POSIX only).** The job state root, its lock
-  directory, and the update-check cache now refuse a pre-existing directory
-  they do not own or that is group/other-writable, and refuse a symlinked
-  root, instead of writing into it silently.
-
-### Fixed
-
-- **Live job retention.** Queued and running jobs no longer disappear when
-  terminal history reaches its 50-job cap. Their job records and logs remain
-  available for status, result, and cancellation.
-- **Recoverable job state.** Job details are committed before their index
-  entries. An unreadable state index is kept as a timestamped corrupt copy and
-  rebuilt from valid job files; `result` now exits 1 instead of reporting
-  success when a selected job file is missing or unreadable.
-- **Observed worker health and waits.** Background workers now persist
-  heartbeats and model-output progress, legacy running jobs use their start
-  time until observations arrive, and every worker-liveness check follows the
-  same permission-denied policy. Timed-out background waits now say that the
-  job is still queued or running and point to `status`. Stale locks no longer
-  survive merely because their recorded PID was reused by another process.
-  Workspace root resolution (used by every job read/write) is cached per
-  directory for the run, so a background worker no longer repeats the same
-  `git rev-parse` on each state update.
-- **Bounded agy runs.** Foreground and background jobs fail after 30 minutes
-  instead of waiting forever. Set `ANTIGRAVITY_AGY_TIMEOUT_MS` to change the
-  budget, or `0` to disable it. Excess output (16 MiB stdout or 4 MiB stderr)
-  also fails the job with a diagnostic; timeout and output failures terminate
-  the agy process tree. Git commands and update steps now have timeouts.
-- **Interrupted foreground runs.** Ctrl+C during a foreground verb terminates
-  agy and its child processes before the command exits.
-- **Final output capture.** Answers and permission denials arriving as agy
-  exits are retained until its streams close. Pipes that stay open five
-  seconds after exit are closed with a warning.
-- **Background launch failures.** A worker must acknowledge its spawn before
-  a command reports a queued job. Launch or PID-recording failures now fail
-  the job and command; an untracked worker is terminated.
-- **Command argument boundaries.** Quoted prompts and image paths keep their
-  argument boundaries. Prompt words cannot select permission modes or extra
-  directories.
-- **Review base references.** Review rejects unknown and option-like base
-  references before it compares commits.
-- **Auth classification false positive.** A completed review that quotes the
-  Google sign-in URL inside its answer (for example, a change that touches
-  the sign-in flow) no longer reports `auth_required`. That classification
-  now applies only when the run did not succeed, or the answer looks like
-  agy's own short auth sentinel.
-- **Table-cell escaping.** The `status` table escapes backslashes as well as
-  pipes in summaries, so a summary ending in a backslash before a pipe no
-  longer splits the cell.
+- `result --head <n>` and `--tail <n>`; `status` shows answer size.
+- `--model` on `task` and `rescue`.
+- `update` retries failed registry requests, within a 25-second budget.
+- `CONTRIBUTING.md` and Cursor rule files.
 
 ### Changed
 
-- **Unknown flags.** Unknown flags exit 1 with guidance to put prompt text
-  after `--`.
-- **Workspace root resolved once per command.** Each verb resolves its
-  workspace root once and passes it down; `status`, `result`, and `cancel`
-  no longer re-resolve it once per stored job they read.
-- **Bounded log tails.** `status` and the single-job view now read at most
-  64 KB from the end of a job log to show its last lines, instead of loading
-  the whole file.
-- **Foreground runs now store their conversation id.** A foreground
-  `rescue`, `review`, `task`, or `vision` run stores `agyConversationId` in
-  its job record the same way a background run always did. It appears under
-  `details.result` in `result --json`'s unstable nested `details` metadata,
-  not as a promised envelope field.
-- **Auth-required message wording.** `review`, `rescue`, `task`, and `vision`
-  now print the same not-authenticated message on a foreground OAuth prompt.
-  Each verb had its own slightly different wording before. Diagnostic and
-  error text is not part of the frozen 1.x contract.
-- **Background auth-required message wording.** A background job's stored
-  `healthMessage` for `auth_required` now uses the same wording as the
-  foreground message above. It appears in the status snapshot inside
-  `status --json`'s unstable nested `details` metadata, not as a promised
-  envelope field.
-- **Empty or missing progress log.** `status`'s `recentProgress` (in
-  `--json` `details`) is now `[]` for a job whose log is empty or missing.
-  Before, an empty log gave `[""]` and a missing log left the field absent.
-- **Cyclomatic complexity lint gate.** `npm run lint` (ESLint 10 flat config,
-  `complexity: max 20` on `bin/**`/`scripts/**`, globs also cover `.js`/`.cjs`)
-  runs in CI on the Node 24 jobs and in the release workflow. `devDependencies`
-  gains its one entry, `eslint@^10.10.0`, pinned by the new
-  `package-lock.json`; zero runtime dependencies stays true. `npm run lint`
-  needs a Node version eslint 10 supports (`^20.19.0 || ^22.13.0 || >=24`);
-  CI runs it on Node 24. Tests still run on the 22.3 floor.
-- **Functions split under the complexity ceiling.** No behavior change.
-  `runAgyPrint` (`scripts/lib/agent-runtime.mjs`), `terminateProcessTree`
-  (`scripts/lib/process.mjs`), `renderSingleJobStatus`
-  (`scripts/lib/render.mjs`), the verb `run` functions (`task`, `rescue`,
-  `review`, `result`, `cancel`), `_worker.mjs`'s worker `main`,
-  `classifyRuntimeHealth` (`scripts/lib/job-control.mjs`), `parseArgs`
-  (`scripts/lib/args.mjs`), and a handful of other functions above the
-  ceiling are each split into smaller named helpers.
-- **Smaller published tarball.** `package.json` `files` now lists
-  `scripts/commands`, `scripts/lib`, and `scripts/mcp` instead of the whole
-  `scripts` directory, so the maintainer-only scripts
-  (`bump-version.mjs`, `check-pack.mjs`, `check-manifests.mjs`, `smoke.sh`)
-  no longer ship in the installed package; `CONTRIBUTING.md` is added to the
-  tarball instead.
-- **Agent orientation files stay local.** `CLAUDE.md` and `AGENTS.md` are
-  gitignored going forward (they stay on disk; they were never part of the
-  product). `.verify-*.md`, `.audit-*.md`, and `.report-*.md` (verifier and
-  audit reports) are gitignored the same way.
+- Unknown flags exit 1 with guidance to put prompt text after `--`.
+- `npm run lint` added, with `eslint` as the only dev dependency. The published package got smaller.
+- Foreground runs now store their conversation id.
+- Auth-required messages use the same wording everywhere.
+- `status` reads only the end of long job logs.
 
 ### Removed
 
-- **Unused `scripts/lib` exports.** Nothing in the plugin called these, and
-  `docs/COMPATIBILITY.md` states direct imports of `scripts/lib` modules are
-  not promised in 1.x: `spawnAgyDetached`, `spawnDetached`, `binaryAvailable`,
-  `runCommandChecked`, `readJsonFile`, `readFileSafe`, `withJobMutex`,
-  `readJobLog` (its bounded replacement is `readLogTail`), `getStagedDiff`,
-  `getUnstagedDiff`, `measureGitOutputBytes`, `normalizeMaxInlineFiles`,
-  `normalizeMaxInlineDiffBytes`.
-- **Never-populated fields in `status <id>`.** `Session ID`, `Transport`,
-  and `Recent Events` never appeared (nothing ever recorded a conversation
-  thread id, a runtime transport, or ACP-era events on a job), and
-  `Last Tool Call` always read `-`. All four lines are gone from the
-  single-job status view.
-- **`result`'s conversation footer.** `result`'s answer text no longer
-  appends a `Conversation ID:` / `Resume conversation:` footer. Nothing ever
-  wrote the field this footer read, so it could never actually appear (same
-  cause as the `status <id>` fields above).
+- Some unused internal exports and a few never-populated fields in `status <id>` and `result`.
+
+### Security
+
+- Safer handling of host bootstrap, `vision` image reads, malformed or oversized MCP requests, update commands, and tampered background-job requests.
+- `review` skips untracked secret-shaped files (such as `.env` and key files) and marks diffs and file contents as untrusted data.
+- Correct handling of non-ASCII and renamed file names.
+- On POSIX, shared temp state that you do not own or that others can write is refused.
+
+### Fixed
+
+- Queued and running jobs are never dropped by history cleanup.
+- A damaged job index is rebuilt instead of failing.
+- Background workers report health; timed-out waits point to `status`.
+- Runs stop after 30 minutes by default; change it with `ANTIGRAVITY_AGY_TIMEOUT_MS` (`0` disables).
+- Ctrl+C stops agy and its child processes.
+- Final output is no longer lost when agy exits.
+- Background launch failures fail the job and the command.
+- Quoted prompts and image paths keep their boundaries.
+- `review` rejects unknown and option-like base references.
+- A review that quotes a sign-in URL no longer reports `auth_required`.
+- `status` table cells escape backslashes correctly.
 
 ## [1.1.3] — 2026-09-04
 
 ### Changed
 
-- **1.1.2 republished as 1.1.3.** The npm publish of 1.1.2 ran during an npm
-  registry incident on 2026-09-03 and left no installable version, while npm
-  still records the number as used. 1.1.3 ships the same content. The release
-  runbook now checks the npm status page before a tag is pushed.
+- Same content as 1.1.2, republished because the 1.1.2 npm publish was lost to a registry incident. The runbook now checks the npm status page before tagging.
 
 ## [1.1.2] — 2026-09-03
 
 ### Added
 
-- **`docs/` and `CHANGELOG.md` in the package.** The npm tarball now ships the
-  documentation the README links to. Before this, an installed copy had a
-  README whose relative links pointed at files that were not there, and the
-  Troubleshooting table could not be read offline. The pack check derives the
-  required list from the README links, so a new documentation link tightens
-  the gate by itself.
-- **A check for stale documentation.** A bump now rewrites every
-  `Plugin <version>` phrase in the README and in `docs/`, and
-  `bump-version --check` fails when such a phrase names a version that is not
-  the one in `package.json`. The pack check also fails when the README links
-  a markdown file that is not in the package.
+- `docs/` and `CHANGELOG.md` now ship in the package, so README links work offline.
+- Checks for stale version text in docs and for README links to files missing from the package.
 
 ### Changed
 
-- **`update --apply` refreshes the Claude Code marketplace.** The plan runs
-  `claude plugin marketplace update antigravity` before
-  `claude plugin update antigravity@antigravity`. Without that step,
-  `plugin update` reports the version you already have as the latest.
-- **`update --apply` reports a local Codex marketplace.** The plan runs
-  `codex plugin marketplace list` first. If the `antigravity` marketplace is a
-  local clone, the command prints the path and tells you to pull that clone,
-  because `plugin add` installs the version the clone holds. After the install
-  it prints the installed version, and one more line when that version is not
-  the latest. It never pulls or changes your clone.
-- **Socket badge.** The badge now sits in the badge row at the top of the
-  README and links to the Socket overview page. The image URL stays
-  unversioned, so it needs no change per release.
-- **Update instructions.** The README now says that Claude Code needs
-  `claude plugin marketplace update antigravity` before `plugin update`, that
-  Codex installs from the registered marketplace (pull a local clone first),
-  and what `update --apply` does for each host. The commands reference gains
-  an `update` section, and the installation guide gains a Troubleshooting row
-  for a Codex reinstall of an old version. The README no longer states a test
-  count, the Socket badge sits with the other badges without a version pin,
-  and the compatibility contract notes the wrapper manifest check.
+- `update --apply` refreshes the Claude Code marketplace first.
+- `update --apply` reports a local Codex marketplace clone and never pulls it.
+- README update instructions, commands reference, and Troubleshooting were extended.
 
 ## [1.1.1] — 2026-09-03
 
 ### Added
 
-- **GitHub Packages mirror.** A workflow republishes each `v*` release tarball
-  to GitHub Packages and supports a manual run for an existing tag.
-- **Troubleshooting guide.** The installation guide now lists measured command
-  failures, their first output lines, exit codes, and corrective actions.
-- **Automated repository checks.** `.github/dependabot.yml` checks GitHub
-  Actions pins each week. Its npm entry stays idle until a dependency exists.
-  `.github/workflows/codeql.yml` scans `javascript-typescript` on pushes and
-  pull requests to `main`, and each week.
-- **Socket badge.** The README now links to the Socket score for the published
-  npm package.
+- GitHub Packages mirror of each release.
+- Troubleshooting guide in the installation docs.
+- Weekly Actions dependency checks and CodeQL scanning.
+- Socket badge in the README.
 
 ### Changed
 
-- **Local vault notes.** `.vault/`, which contains the maintainer's local
-  vault-ops notes, is no longer tracked in the repository.
-- **Release documentation.** The README now uses per-host quick starts and
-  includes how the plugin works, release integrity, and contributing guidance.
-  The release runbook now warns that trusted publisher fields must match
-  exactly. The vision reference now includes the measured model guidance.
+- Per-host quick starts in the README; clearer release runbook.
 
 ### Fixed
 
-- **The host wrapper spawned a script from any plugin root.** The wrapper took
-  `CLAUDE_PLUGIN_ROOT` as given and ran `<root>/scripts/commands/<verb>.mjs`
-  from it. It now reads `<root>/plugin.json` first and exits 1 with one line
-  unless that manifest names this plugin. The standalone dispatcher applies
-  the same check to `ANTIGRAVITY_SCRIPT_ROOT` before it imports a verb.
-- **A missing `agy` or Git surfaced as a raw Node error.** `rescue`, `task`
-  and `vision` now probe `agy` first and exit 1 with
-  `antigravity:<verb> — \`agy\` is not on PATH (<reason>). Run
-  /antigravity:setup.` before any job record or spawn. `review` reads the
-  diff first, so nothing to review still exits 0 with the `no_changes`
-  result and never needs `agy`; with changes to send it prints the same
-  line and exits 1. A run whose process never starts prints
-  `failed: <spawn error>` instead of `failed (failed).`, and `review`
-  without Git prints `git is not on PATH (spawnSync git ENOENT).`
-- **`vision` started agy for a file it could never send.** An unsupported
-  extension or a file over the 10 MiB cap failed only when the model called
-  the local image server, which spent tokens and returned an answer-shaped
-  reply. The command now checks both limits before any spawn and exits 1.
-- **`update --apply` sent Codex an unqualified plugin name.** The Codex plan's
-  `plugin remove` step passed `antigravity`, and Codex refuses that with
-  "plugin requires --marketplace unless passed as `<plugin>@<marketplace>`",
-  stopping the whole run before `plugin add` could run. The remove step now
-  passes `antigravity@antigravity`. The remove and add argv now match the
-  printed instruction.
-- **`update --apply` could reinstall a stale cached version on agy.** The
-  24 h cache is right for the plain report, but `--apply` read it too, so a
-  run could pack a version the cache still remembered even after a newer
-  release shipped. `--apply` now always asks the npm registry once and
-  rewrites the cache. With `ANTIGRAVITY_NO_UPDATE_CHECK=1` the agy step is
-  skipped with a clear message instead of packing an unknown version; Claude
-  Code and Codex, which do not need a version number, still run.
+- The host wrapper now refuses a plugin root whose manifest is not this plugin.
+- A missing `agy` or Git gives a clear message instead of a raw Node error.
+- `vision` checks the file type and size before starting agy.
+- `update --apply` passes Codex a fully qualified plugin name.
+- `update --apply` always asks the registry for the latest version instead of using a cached one.
 
 ## [1.1.0] — 2026-09-03
 
 ### Added
 
-- **Standalone `update`.** `antigravity-plugin update` checks the npm
-  registry for the latest published version. It makes one request and caches
-  the result for 24 h. `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the check. The
-  command compares the running copy with the latest version and prints an
-  update command for each host on `PATH`. `--apply` prints and runs those
-  commands. For agy, it packs the published tarball, uninstalls, then
-  installs. No clone is needed. `status` prints one stderr line when the
-  cache knows a newer version. `status` never calls the network. The plugin
-  does not update itself. No host wrapper exposes `update`. See
-  `docs/COMPATIBILITY.md`, "Public command surface".
-- **npm provenance.** `.github/workflows/release.yml` publishes a `v*` tag
-  through npm trusted publishing. The job holds `id-token: write` and
-  `contents: read`. No token is stored. npm attaches an attestation that
-  binds the tarball to this repository, the tagged commit, and the workflow
-  run. The job refuses a tag that does not match `package.json`.
-  `docs/RELEASING.md` is the runbook. `SECURITY.md` explains verification and
-  the limits of a signature.
-- **`--mode <plan|accept-edits>` for `rescue` and `task`.** The plugin
-  forwards this value to agy as the execution mode for that run. This works
-  on foreground and background paths. For any other value the plugin reports
-  an argument error and does not start agy.
-- **Vision answer shape prompt.** The prompt requires the model to answer with
-  `## Transcription`, then `## Observations`, then `## Answer`.
-  `## Transcription` must list every visible string of every image, verbatim,
-  one per line. The prompt names `view_image` as the only way to see an image.
-  It forbids `read_file` on an image path. The `VISION-UNAVAILABLE` sentinel
-  is unchanged. agy does not enforce this shape. A caller must check the
-  answer. An answer from this channel is not evidence. Cross-check the
-  transcript against the source image.
-- **`--add-dir` headless read grant.** On agy 1.1.24, no
-  `read_file(<path>)` allow rule works headless except the wildcard.
-  `--add-dir <dir>` grants bounded, read-only access to that directory for
-  one run. `docs/COMPATIBILITY.md` has the probe table. A test for each verb
-  proves that the flag reaches agy argv verbatim and in order.
-
-### Changed
-
-- **Owned test seams.** Tests fake seams this plugin owns, not Node built-ins.
-  `scripts/lib/process-adapter.mjs` is the single spawn seam. The clock,
-  `sleep`, the atomic writer, and the `{ platform, fs }` options of
-  `paths.mjs` and `vision-server` are injectable with production defaults.
-  The 8.3 short-name and junction cases run against a fixture volume and
-  assert on every host. They no longer skip where the volume mints no alias.
-  No runtime behaviour changes.
+- **`update`** in the standalone CLI: checks npm for a newer version and prints, or with `--apply` runs, the update commands for each host. The plugin does not update itself.
+- npm provenance through trusted publishing.
+- `--mode <plan|accept-edits>` on `rescue` and `task`.
+- A fixed answer shape for `vision` (`Transcription`, `Observations`, `Answer`).
+- `--add-dir <dir>` grants bounded, read-only access for one run.
 
 ### Fixed
 
-- **Headless permission denial reports failure.** Since agy 1.1.20, a tool
-  that print mode cannot prompt for is auto-denied. The run still exits 0
-  with `status: SUCCESS` and an empty response. The runtime previously
-  reported this as `completed`. It now detects `auto-denied` and the quoted
-  tool name on stderr. An empty answer with a denial is `failed`. The error
-  names the denied tool and the remedy: `--add-dir <dir>` for `rescue` and
-  `task`, and the `view_image` MCP tool for `vision`. A real answer with a
-  denial remains `completed`. The denial stays on stderr and is listed in
-  `details.warnings` in `--json`. An empty answer without a denial remains
-  `completed`. The `CANCELED` result of older agy remains `failed`.
-- **Newline after `stdin error`.** The diagnostic no longer joins the first
-  line of agy's stderr.
-- **Large images work with agy 1.1.24.** agy writes an MCP image result to a
-  file in its conversation directory. It gives the model the note
-  `[Resource offloaded to file://<X>]` instead of the pixels. The prompt now
-  tells the model to open exactly that path with agy's `view_file` tool, and
-  no other path. The ban on `read_file` and `view_file` for named image
-  paths remains. The MCP allowlist does not change. No directory grant
-  is added.
-- **Failed agy results include a reason.** `parseAgyStream` reads
-  `result.error`. The runtime adds `agent-runtime: agy reported error:
-  <reason>` to stderr. A `--print-timeout` exits 1 with empty stderr. Before
-  this change, the output did not contain the word "timeout".
-- **`vision` rejects `--add-dir`.** The parser used to keep the flag without
-  forwarding it to agy, so the run proceeded as if it had granted extra read
-  access. `vision` now reports an argument error and exits before it reads
-  or validates any image path. No directory grant exists for `vision`; the
-  images named on the command line remain the only files agy can see.
+- A headless run where agy denied a tool is now `failed` when the answer is empty, and names the tool and a remedy.
+- `vision` rejects `--add-dir`, which it never supported.
+- Large images work with agy 1.1.24.
+- Failed agy runs include a reason, and a timeout says so.
 
 ## [1.0.1] — 2026-08-22
 
 ### Fixed
 
-- **Windows 8.3 short paths are no longer treated as symlink escapes** —
-  `vision-server` compared `path.resolve` against `fs.realpathSync.native()`,
-  so a legitimate image under `C:\Users\RUNNER~1\…` was refused when native
-  realpath expanded it to `C:\Users\runneradmin\…`. Both sides are now
-  canonicalised (8.3 expanded, `\\?\` prefix stripped, case-folded) without
-  following junctions, so a real junction or symlink that points elsewhere
-  is still refused.
-- **Windows clones no longer rewrite text to CRLF** — `.gitattributes`
-  normalises text to LF and marks binary extensions as `binary`, so a
-  fresh checkout matches the Unix test baseline and binary fixtures cannot
-  be mangled by `core.autocrlf`.
-- **One workspace no longer takes two different state locks on Windows** —
-  `lockPathFor` hashed `path.resolve` output, so the short (`RUNNER~1`) and
-  long (`runneradmin`) spelling of the same directory produced different
-  lock paths and two processes could each hold "the" lock. It now hashes the
-  canonical form. `cli-entry`'s main-module check was canonicalised for the
-  same reason.
-- **`spawnDetached` tests wait for the child `exit` after re-ref'ing** —
-  the helper unrefs by design; tests that awaited `exit` without re-ref'ing
-  left a pending promise after the event loop drained (`cancelledByParent`
-  on Node 22.3, a failure on Windows).
+- Windows: images under 8.3 short paths are no longer refused.
+- Windows: one workspace no longer uses two different state locks.
+- Windows: clones no longer rewrite text files to CRLF.
 
 ## [1.0.0] — 2026-08-21
 
 ### Added
 
-- **`SECURITY.md` and a README permissions/privacy section** — private
-  GitHub vulnerability reporting, in-scope threat boundaries, what `setup`
-  writes, how to undo it, and what each verb sends off-machine.
-- **`bump-version` README Status gate** — `--check` fails if the Status
-  blockquote version drifts from `package.json`; a bump rewrites it. The
-  per-version README table was removed so release history lives only in
-  this file.
+- `SECURITY.md` and a Permissions and privacy section in the README.
+- A check that the README Status version matches `package.json`.
 
 ### Changed
 
-- **README Status line states the 1.x freeze** — the blockquote no longer
-  calls the tree a pre-release or promises breaking changes until v1.0.0.
-  `bump-version` still pins the `vX.Y.Z` token against `package.json`;
-  `--check` fails on drift.
-- **Command wrappers no longer describe their own output** — on 2026-08-21
-  agy's model answered `/antigravity:status` and `/antigravity:review` with
-  fabricated job tables and review verdicts, using the wrappers' column
-  lists and formatting recipes as a template. Every `commands/*.md` now
-  opens with a canonical refusal contract (generated by
-  `hostRefusalContract` in `scripts/lib/plugin-root.mjs`, drift-tested),
-  and no wrapper, `SKILL.md` row, or `agents/openai.yaml` description
-  enumerates output columns, fields, or layout. A host that cannot run the
-  runtime has nothing left to imitate.
-- **Upgrading the agy copy needs uninstall-then-install** — a plain
-  reinstall merges into `~/.gemini/config/plugins/antigravity/` instead of
-  replacing it. INSTALL.md now says to run `agy plugin uninstall
-  antigravity` before installing the new clone.
-- **npm package is `@southcarpet/antigravity-plugin`** — standalone
-  invocation is `npx @southcarpet/antigravity-plugin <command>`. The
-  installed binary name remains `antigravity-plugin`.
-- **`LICENSE` names the fork maintainer** — a second copyright line for
-  SouthCarpet sits under the original author's. README notes that
-  Antigravity, Gemini, Claude Code, and Codex are their owners' marks.
-- **`SECURITY.md` only claims what this repo can see** — the plugin
-  spawns `agy` and passes it prompts, context, and image bytes; what agy
-  or Google does after that is out of this file's reach.
-- **Dropped the `gemini-replacement` keyword** — it read as a Gemini
-  substitute. This package replaced `gemini-plugin-cc`.
-- **Install and invocation docs match the live hosts** — agy install is
-  `agy plugin install <path-to-clone>` from a clean clone (agy copies the
-  whole tree and ignores `package.json` `files`). Codex needs
-  `codex plugin add antigravity@antigravity` after registering the
-  marketplace. agy has no `plugin run`. After install, TUI
-  `/antigravity:<verb>` locates the copied runtime; the standalone CLI is
-  the fallback that always works. Tested agy versions are 1.1.15 and 1.1.17.
-- **`check-pack` promises only the static pack graph** — it no longer
-  tries to fail closed on computed `import()` specifiers. Distinguishing a
-  regex literal from a division operator needs parser context this
-  zero-dependency scanner does not have. The derived required set (host
-  discovery trees, `commands/*.md`, `scripts/commands/*.mjs`,
-  `scripts/mcp/*.mjs`) and the walk over static imports and literal
-  `import("…")` stay. A computed specifier's target must be named by an
-  explicit rule; `bin/antigravity.mjs` loading `scripts/commands/<verb>.mjs`
-  already is.
+- The 1.x contract is frozen.
+- The npm package is `@southcarpet/antigravity-plugin`; the binary stays `antigravity-plugin`.
+- Command wrappers no longer describe their own output, which stops models from imitating it.
+- agy installs need uninstall-then-install; install docs match the live hosts.
 
 ### Removed
 
-- **Unused `host-detect` and `plugin-info` modules** — they were reached
-  only by tests and still shipped in the tarball. State-root selection
-  stays in `state.mjs`.
+- Unused internal modules.
 
 ### Fixed
 
-- **agy TUI `/antigravity:<verb>` no longer looks succeeded when the plugin
-  did not run** — `commands/*.md` located the runtime via
-  `${CLAUDE_PLUGIN_ROOT}`, which agy does not set, so the path collapsed to
-  `/scripts/commands/<verb>.mjs` and the model did the task itself. Wrappers
-  now resolve the plugin root in Node (`CLAUDE_PLUGIN_ROOT` when set,
-  otherwise the `agy plugin install` copy at
-  `~/.gemini/config/plugins/antigravity`) and tell the reading model to
-  print the error and stop if that run cannot start. The standalone CLI is
-  the fallback that always works. Re-run `agy plugin install <path>` after
-  upgrading; agy keeps its own copy.
-- **Windows lock acquisition no longer aborts on `EPERM`/`EACCES`/`EBUSY`**
-  — those codes are contention, so two concurrent job operations wait
-  instead of failing.
-- **`review` accepts an untracked-only working tree** — only a genuinely
-  empty tree reports no changes.
-- **agy binary discovery prefers `agy.exe` across `PATH`** — a `.cmd` /
-  `.bat` shim is refused with an actionable message instead of failing
-  with `EINVAL`.
-- **`check-pack` requires every host file, not a sample** — dropping
-  `commands/vision.md` or a verb module fails the gate.
-- **Cancellation tests measure only cancellation** — plus coverage for
-  cancelling a queued worker that has no lock yet.
-- **CLI path-identity assertions run on every platform** — the suite no
-  longer skips them.
-- **`bump-version` no longer half-bumps on a failed write** — payloads
-  are staged next to their targets first; temps are deleted if staging
-  fails. Renames onto the live files are the remaining non-atomic
-  window (Windows cannot atomically replace).
-- **fix: host surfaces advertised different verbs** — Claude Code had no
-  `commands/setup.md`, Codex's `agents/openai.yaml` omitted `vision`, and
-  `review`/`rescue` were documented as background-by-default while the
-  runtime is foreground unless `--background` is passed. All four hosts
-  now enumerate the same verb set; docs match the code.
-- **fix: `metadata.commands` broke `claude plugin validate --strict`** —
-  marketplace descriptors are catalogs, not verb lists. Claude Code
-  rejects the unknown field. The inventory test now derives from the
-  `SKILL.md` verb table instead.
+- agy `/antigravity:<verb>` now finds the plugin and no longer looks successful when it did not run. **Action:** re-run `agy plugin install <path>` after upgrading.
+- Windows lock contention no longer aborts job operations.
+- `review` accepts a tree with only untracked files.
+- agy binary discovery prefers `agy.exe` and refuses `.cmd` and `.bat` shims with a clear message.
+- All four hosts list the same verbs; docs match the code.
 
 ## [0.2.4] — 2026-08-19
 
 ### Fixed
 
-- **fix: stdin envelope updated for agy 1.1.15** — the stream-json input
-  message now uses the `{"event": "user", ...}` envelope. agy 1.1.15
-  rejects the previous `{"type": "user", ...}` shape (accepted by 1.1.14)
-  with 'stream input message is missing the "event" field', which broke
-  every verb's agy call after upgrading agy. Verified live against 1.1.15
-  (vision E2E, measured usage intact).
+- Compatible with agy 1.1.15, which changed its input format and broke every verb after an agy upgrade.
 
 ## [0.2.3] — 2026-08-19
 
 ### Fixed
 
-- **fix: `$ARGUMENTS` blobs mangled space-bearing Windows paths** (#4) —
-  `splitRawArgumentString`'s backslash-escape grammar dropped the backslash
-  in front of every character (`\P` → `P`), corrupting a lone quoted blob
-  like `"C:\Program Files\shot.png"`. Backslash is now always a literal
-  character — there is no escape mechanism. Quotes still toggle as before;
-  a literal quote inside an argument is written using the other quote type.
-- **fix: `rescue`/`review`/`task` foreground progress mirrors printed raw
-  NDJSON** (#1) — the three verbs still passed `onStdout` (the raw event
-  stream) to their stderr progress mirror instead of `onText` (readable
-  deltas), unlike `vision`, which already used it. All three now use
-  `onText`, matching `vision`.
-- **fix: background jobs never persisted measured `usage` /
-  `durationSeconds` / `agyConversationId`** (#2) — the background worker's
-  completion patch wrote `rawOutput`/`stderr`/`status`/`exitCode`/`oauthUrl`
-  but dropped the measured fields `runAgyPrint` already returns.
-  `/antigravity:result` now also prints a `usage: total=<N> in=<in>
-  out=<out>` trailer to stderr when the stored job carries measured usage
-  — the same machine-read line `vision` already prints, now for background
-  jobs too.
-- **fix: 13 tests failed on native Windows / Node 25** (#3) —
-  `agent-runtime-deep.test.mjs` and `process-deep.test.mjs` spawned
-  `#!/bin/sh` stub files (some under a literal `/tmp`), which Windows
-  cannot execute and which does not exist as a path on this machine. Added
-  a shared, platform-aware fake-binary factory
-  (`tests/helpers/fake-agy.mjs`) and moved every affected test onto it and
-  onto `os.tmpdir()`. Follow-up in the same release: the last three
-  `sh`-dependent tests in `process-deep.test.mjs` now use `cmd`/`node`, so
-  the suite is green regardless of whether Git-Bash `sh` is on `PATH`.
-  First fully green run of the suite on native Windows.
+- Windows paths with spaces in `$ARGUMENTS` are no longer mangled.
+- Foreground progress shows readable text, not raw event data.
+- Background jobs now save usage, duration, and conversation id.
+- Test suite passes on native Windows.
 
 ## [0.2.2] — 2026-08-19
 
 ### Fixed
 
-- **fix: the prompt now travels to `agy` over stdin (stream-json), not
-  argv** — `runAgyPrint`/`spawnAgyDetached` used to pass the whole prompt as
-  one `--print <prompt>` argv element. On Windows, `CreateProcess` caps a
-  spawned command line at ~32K chars and fails outright above that (Win32
-  error 206, surfaced to Node as `ENAMETOOLONG`); long review/rescue/task
-  briefs routinely cross it. Every invocation now runs `agy ... --print ""`
-  and writes one NDJSON line (`{"type":"user","message":{...}}`) to stdin,
-  removing the limit.
-- **fix: background jobs (`task --background`, `/antigravity:status`,
-  `/antigravity:result`) no longer hang `queued` forever on Windows** —
-  `startBackgroundJob` resolved the worker script path with
-  `new URL(...).pathname`, which yields a POSIX-shaped path
-  (`/A:/projects-vault/...`) that does not exist on disk. The spawned
-  worker died `MODULE_NOT_FOUND` immediately, invisibly (stdio was
-  `ignore`), and the job never left `queued` — `task --wait` hung until its
-  timeout, or forever with none set. Now uses `fileURLToPath`, exported as
-  `resolveWorkerPath()`.
-- **fix: background job logs and `/antigravity:vision` progress no longer
-  show raw NDJSON** — since the stdin transport fix above, `onStdout`
-  delivers the raw event stream (including a ~1.2 KB `init` event) instead
-  of plain text. Added `onText(delta)` to `runAgyPrint`, firing once per
-  `step_update.text_delta`; the background worker's per-job log and
-  `/antigravity:vision`'s stderr mirror now use it instead of raw
-  `onStdout` chunks.
+- Long prompts no longer fail on Windows; they are sent over stdin.
+- Background jobs no longer stay `queued` forever on Windows.
+- Job logs and `vision` progress show readable text, not raw event data.
 
 ### Changed
 
-- `agy` always runs with `--input-format stream-json --output-format
-  stream-json` now; the old `outputFormat: 'json'` parameter on
-  `runAgyPrint` is still accepted for backward compat but is a no-op — it no
-  longer changes the spawned args or gates parsing.
-- `usage`, `durationSeconds`, and `agyConversationId` are now always
-  populated on a completed `runAgyPrint` run (previously only when
-  `outputFormat: 'json'` was passed), parsed from the stream's `result`
-  event via the new exported `parseAgyStream` helper.
-- `runAgyPrint` no longer reports `completed` on a bare `exitCode === 0`: it
-  now requires a `result` event with `status: "SUCCESS"` in the NDJSON
-  stream. Exiting 0 without a `result` event, or with a non-`SUCCESS`
-  result status, is `failed` with a diagnostic line in `stderr` — never a
-  silent success.
+- A run counts as completed only when agy reports success, not on exit code 0 alone.
 
 ## [0.2.1] — 2026-08-16
 
 ### Fixed
 
-- **fix: command modules now execute when invoked directly** (all Claude
-  Code `/antigravity:*` verbs were silently exiting 0). Every
-  `commands/*.md` surface runs `node ".../scripts/commands/<verb>.mjs"
-  $ARGUMENTS` directly, but the 8 command modules only exported `run()` —
-  nothing called it on direct execution, so `node vision.mjs foo.png` (and
-  every other verb) loaded the module and exited 0 with zero output. Added
-  `scripts/lib/cli-entry.mjs` (`runIfMain`), which calls `run()` and exits
-  with its code when the module is the process entrypoint, and is a no-op
-  when merely `import()`ed (as `bin/antigravity.mjs` does). Applied to
-  `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
-  `cancel`.
+- All Claude Code `/antigravity:*` verbs ran silently and exited 0 without output. They now run.
 
 ## [0.2.0] — 2026-08-10
 
-`agy --print` (headless print mode) has no native image ingestion path — its
-`read_file` tool feeds file bytes to the model as text, `@file` prompt syntax
-does not create image parts, there is no CLI attachment flag, and the
-internal send-message call goes out with `media=0`. The proven fix is an MCP
-tool call whose result carries an MCP image content block, which agy's
-headless mode DOES pass through to the model as real pixels.
-
 ### Added
 
-- **`/antigravity:vision`** — ask agy to look at one or more image files
-  (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, ≤10 MB each). Builds a prompt
-  that instructs agy to call an MCP `view_image` tool for each image before
-  answering; if the tool call can't deliver real visual content, agy is
-  contractually required to reply with a single `VISION-UNAVAILABLE: <reason>`
-  line instead of guessing from the file name. Foreground-only in this
-  version — flags: `--prompt`, `--model` (default `gemini-3.6-flash-high`),
-  `--json`, `--cwd`.
-- `scripts/mcp/vision-server.mjs` — the MCP stdio server behind `vision`:
-  a single `view_image` tool that reads an image file off disk and returns
-  it as an MCP image content block. Verified live against agy 1.1.11 /
-  gemini-3.6-flash-high.
-- `scripts/lib/vision-config.mjs` — idempotent, mergeable registration of
-  the vision MCP server (`~/.gemini/config/mcp_config.json`) and the
-  `read_file(*)` / `view_image(*)` / `mcp(*)` permissions agy needs to run
-  it unattended (`~/.gemini/antigravity-cli/settings.json`). Never clobbers
-  unrelated keys or invalid JSON; writes a same-day backup before the first
-  change to an existing file.
-- `/antigravity:setup` now runs `ensureVisionConfig()` after its OAuth probe
-  succeeds (opt out with `--skip-vision`) and prints a short summary of what
-  changed.
-- `runAgyPrint` / `spawnAgyDetached` (`scripts/lib/agent-runtime.mjs`) accept
-  optional `model` (`--model <id>`) and `extraArgs` (appended verbatim before
-  `--print`) — non-breaking, both default to prior behavior when omitted.
+- **`vision`**: ask agy about one or more image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, up to 10 MB each) through a local MCP server. If the images cannot be delivered, the answer is `VISION-UNAVAILABLE: <reason>`.
+- `setup` registers the vision server after a successful sign-in probe (skip with `--skip-vision`).
 
 ### Fixed
 
-- `resolveAgyBin` no longer mis-splits `PATH` on Windows (`;` via
-  `path.delimiter`, not a hardcoded POSIX `:`), now probes `agy.exe` /
-  `agy.cmd` / bare `agy` on `win32`, and falls back to `USERPROFILE` when
-  `HOME` is unset — all silent failure modes on native Windows shells before
-  this release.
+- agy lookup on native Windows (`PATH` splitting, `.exe` and `.cmd`, home directory).
 
 ## [0.1.0] — 2026-05-22
 
-Initial release. Replaces and supersedes
-[`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc)
-ahead of the June 18, 2026 Gemini CLI deprecation.
+Initial release. Replaces [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) ahead of the June 18, 2026 Gemini CLI deprecation.
 
 ### Added
 
-- Delegation runtime targeting **Google Antigravity CLI (`agy`)** via `agy --print`,
-  `agy --continue`, and `agy --conversation <id>`. No ACP — agy 1.0.1 does not
-  expose `--acp`.
-- Multi-host packaging from a single source tree:
-  - Claude Code (`.claude-plugin/plugin.json` + `marketplace.json`).
-  - Codex CLI (`.codex-plugin/plugin.json`).
-  - agy itself (`plugin.json` at root — importable via `agy plugin import claude`
-    or installable via `agy plugin install antigravity@antigravity`).
-  - Standalone CLI (`npx antigravity-plugin`).
-- `/antigravity:setup` interactive auth wizard; background workers also surface
-  the OAuth URL via `/antigravity:status` for re-auth flows.
-- `/antigravity:review`, `/antigravity:rescue`, `/antigravity:status`,
-  `/antigravity:result`, `/antigravity:cancel`, `/antigravity:task` commands
-  (ported from `gemini-plugin-cc` v1.0.1).
+- Delegation to Google's Antigravity CLI (`agy`) for Claude Code, Codex CLI, agy, and a standalone CLI.
+- `setup`, `review`, `rescue`, `task`, `status`, `result`, and `cancel`.
 
 ### Removed
 
-- All ACP client / broker code (`acp-client`, `acp-broker`, `acp-diagnostics`).
-  agy does not speak ACP.
-- Live token streaming and thought-chunk surfacing — `agy --print` returns a
-  single final response.
-- `gemini --experimental-acp` runtime path — deprecation deadline is too close
-  to maintain a transitional fallback.
+- All ACP code, since agy does not support ACP, and live token streaming.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...v3.0.0
 [2.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...v2.1.0
 [2.0.2]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.1...v2.0.2

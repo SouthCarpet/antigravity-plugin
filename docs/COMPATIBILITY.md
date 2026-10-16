@@ -9,19 +9,23 @@ changes](#deprecation-and-compatibility-changes)). A behavior is public only
 when this document or the [commands reference](./COMMANDS.md) says it is
 promised.
 
-Plugin 3.0.0 is this package's version number. agy 1.1.15 to 1.3.1 is the
-tested range of Google's Antigravity CLI, with 1.3.1 as the newest measured
-version. See the [per-version table](#supported-matrix). The two version lines advance
-independently. A new agy release does not change the plugin version.
+Plugin 3.0.1 is this package's version number. Measured versions of Google's
+Antigravity CLI span 1.1.15 to 1.4.0; newest measured 1.4.0. Coverage differs
+by version. The 1.4.0 checks cover native discovery, `doctor`, `task`,
+`status`, `result`, running-job `cancel`, `rescue`, `review`, and one simple
+`vision` image. `setup` was not run on 1.4.0. See the
+[per-version table](#supported-matrix) and [runtime probes](#agy-140-runtime-probes).
+The two version lines advance independently. A new agy release does not
+change the plugin version.
 
 ## Supported matrix
 
 | Surface | Supported in 3.x |
 |---|---|
-| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via the copied command files; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
+| Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via native skills in the prepared agy copy; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | `agy` 1.1.15 to 1.3.1; newest measured 1.3.1. This range forms the tested and supported matrix. See the [per-version table](#supported-matrix) for live coverage. |
+| Google Antigravity CLI | Measured versions span `agy` 1.1.15 to 1.4.0; newest measured 1.4.0. Coverage differs by version. See the [per-version table](#supported-matrix) for live results and limits. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -52,6 +56,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.2.11 | `task`, `rescue`, `review`, `vision`, `status`, `result`, and `cancel` (`probe-task-foreground-json.txt`, `probe-rescue-json.txt`, `probe-review-json.txt`, `probe-vision-json.txt`, `probe-background-lifecycle.txt`). `setup` was not run live. | 2026-09-25 |
 | 1.2.12 | `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and smoke-only measurement. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12. See the [structured output flag](#structured-output-flag) probe. | 2026-09-27 |
 | 1.3.1 | Measured pass: `doctor`; `task` foreground, and background with `--wait`; `status` list and by job id; `result`; `cancel` of a running job; `review`, plain and with `--findings-json`; `setup --skip-vision`; `rescue` with a trivial prompt; `--add-dir`; `vision` with `gemini-3.8-flash-high` (5 of 5 runs, one with a path that holds a space, `#`, and `%`); `vision` with `gemini-3.6-flash-high` (3 of 5 runs); `agy plugin install`, `list`, `validate`, and `uninstall` in an isolated profile. Measured failure: `vision` with `gemini-3.6-flash-high` failed 2 of 5 runs with a 503 capacity error; `rescue` with a prompt that needs a shell command failed because agy headless mode denied the `command` tool (the plugin named the tool and gave the remedy); `cancel` of a job that had already finished returned `job_not_found`, exit 1; `setup --json` is not supported. Not measured: `setup` without `--skip-vision`, `setup --remove-vision`, `review --background`, `--show-result`, `--request-id`, `--prompt-file`, `--preview`, `--check-locations`, `--mode`, and resuming a conversation with `--continue` or `--conversation`. 1.2.13 to 1.3.0 were not run live. See the [agy 1.3.1 probes](#agy-131-probes) for the raw files. | 2026-10-08 |
+| 1.4.0 | Measured pass: native discovery of all nine exact aliases and one TUI `doctor --json`; `task` foreground and background; `status` and `result` for that background job; `cancel` of an observed running job; trivial foreground `rescue`; plain `review` detecting a subtraction regression; one synthetic `vision` image with `--expect`. Not measured: `setup`, the remaining flags/modes, and all nine verbs through native wrappers. See the [1.4.0 runtime probes](#agy-140-runtime-probes). | 2026-10-16 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -62,8 +67,9 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest version measured live is agy 1.3.1, on 2026-10-08. The 1.3.1 row
-says, per verb, what passed, what failed, and what was not run. The agy
+The newest measured version is agy 1.4.0, on 2026-10-16. Each row states
+what passed and what was not run. The historical 1.3.1 row retains its
+per-verb results from 2026-10-08. The agy
 changelogs for 1.2.13 to 1.3.0 were read, not measured. The previous smoke-only measurement is agy 1.2.12, on
 2026-09-27, from commit `9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
 `probe-background-lifecycle.txt`, `probe-status-list.txt`). The 1.2.12 row covers smoke-only measurement: `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and the structured output flag probe. The table also retains the saved
@@ -180,11 +186,58 @@ prompt answers this: it tells the model to open exactly that path with agy's
 every run and a 790-byte image was offloaded in some runs, so there is no
 size limit you can depend on.
 
+### agy 1.4.0 native discovery
+
+No-inference local probes on 2026-10-16 found zero loaded skills for the
+raw source/npm layout, even after an installer summary said it converted
+nine command files. An explicit custom skill directory then introduced
+path fragments into TUI command names. Skill count alone is not acceptance.
+
+The agy install artifact is now a separate prepared copy. The source/npm
+package stores the nine native wrappers in `agy-skills/` and has no root
+`skills/` directory. `scripts/pack-for-agy.mjs` extracts the npm package,
+checks its version, then prepares a sibling `antigravity/` copy with
+standard `skills/<verb>/SKILL.md` paths. Each skill declares the exact
+`name: antigravity:<verb>`. The protected Node invocation reaches the
+existing runtime verb; the skill must show its output and stop on failure.
+There is no Claude bang substitution in the native skill.
+
+Both the pack script and `update --apply` call
+`scripts/lib/agy-install-copy.mjs`. The updater does so only after its
+registry integrity and extracted package identity checks, before uninstall.
+The manual tarball path uses the shipped `scripts/prepare-for-agy.mjs`.
+Preparation rejects a foreign manifest, missing or extra wrapper, wrong
+name, symlink, or conflicting prepared copy. An unchanged existing prepared
+copy is reused. The source, tarball bytes, other-host manifests and runtime
+files stay unchanged. Only the separate agy install copy gains the nine
+standard skill files.
+
+Reinstall from a fresh prepared copy using [INSTALL.md](./INSTALL.md#agy-itself),
+then check `plugin list --json` and TUI `/skills` for the exact nine
+`antigravity:<verb>` names. Raw source validation can still report zero
+skills on 1.4.0; validate the prepared copy instead. Discovery checks do not
+establish live success of all nine native wrappers. The separate runtime
+checks are listed below.
+
+The prepared copy also passed an actual TUI check on 2026-10-16: `/skills`
+listed all nine exact names, and `/antigravity:doctor --json` executed the
+protected Node bootstrap after one-time approval and returned the doctor
+JSON envelope for agy 1.4.0. This TUI probe covers native loading and `doctor`
+only; the runtime probes below used the standalone candidate CLI.
+The retained terminal transcript is partial; it is diagnostic evidence.
+
+The standard layout follows the upstream [plugin documentation](https://www.antigravity.google/docs/plugins?tab=cli)
+and [skill documentation](https://www.antigravity.google/docs/skills/).
+Upstream `PLUGIN_DATA` does not change the state-variable precedence or
+compatibility fallback in this release; its native invocation value was
+not measured in these probes.
+
 agy is a real host for discovery and lifecycle: `agy plugin install <path>`,
 `list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no
 `plugin run` subcommand. After install, the nine verbs are reachable from an
-interactive agy TUI as `/antigravity:<verb>` (command markdown converted to
-skills) and from the standalone CLI. The TUI wrappers locate the copied runtime
+interactive agy TUI as `/antigravity:<verb>` and from the standalone CLI.
+Earlier hosts used converted command markdown; 1.4.0 uses the native skills
+described above. The TUI wrappers locate the copied runtime
 in Node: `CLAUDE_PLUGIN_ROOT` when that is set and non-empty, otherwise
 `<homedir>/.gemini/config/plugins/antigravity`. They do not shell-expand
 `CLAUDE_PLUGIN_ROOT`. They then refuse a plugin root whose `plugin.json` is
@@ -199,7 +252,7 @@ installers and host-owned invocation wrappers can evolve independently. The
 promise is that the four surfaces above reach the same nine runtime verbs and
 accept the documented arguments when the host can load this plugin.
 
-Changed after 3.0.0, in the Claude Code wrappers (`commands/*.md`) only:
+The Claude Code wrappers (`commands/*.md`) keep the 3.0.0 invocation contract:
 each wrapper's `allowed-tools` grants one Bash prefix rule for its own exact
 bootstrap invocation instead of `Bash(node:*)`; every wrapper, `rescue`
 included, is `disable-model-invocation: true` and runs a fixed bang line;
@@ -210,15 +263,46 @@ change.
 
 `agy plugin install <path>` copies the directory it is pointed at; it does not
 read `package.json` `files`. `scripts/pack-for-agy.mjs` packs this checkout
-the same way `npm publish` would, extracts that tarball into a temporary
-directory, and prints the exact `agy plugin install <dir>` command for it, so
-the installed copy holds the same files an npm install would hold, not the
-whole working tree. A hash-guarded isolated run (fresh `HOME`/`USERPROFILE`/
+the same way `npm publish` would, extracts it into a temporary directory,
+then creates the prepared agy copy described above. The printed install
+command points to that copy. It holds the npm files plus nine standard skill
+copies, without development files from the working tree. A hash-guarded isolated run (fresh `HOME`/`USERPROFILE`/
 `APPDATA`/`LOCALAPPDATA`, real `~/.gemini` hashed before and after every step)
 confirmed on 2026-09-27 that `agy plugin install`, `plugin list`,
 `plugin validate`, and `plugin uninstall` against that packed copy never
 touched the real `~/.gemini` store on agy 1.2.12: verified, transcript
 `probe-plugin-install-pack.txt`.
+
+### agy 1.4.0 runtime probes
+
+Plugin 3.0.1 was run on Windows with agy 1.4.0 and Node 25.8.1 on
+2026-10-16. Scratch repositories and a separate plugin state root kept the
+jobs isolated. Existing OAuth and the existing trusted vision server were
+used without changing host configuration.
+
+| Probe | Observed result | Evidence file |
+|---|---|---|
+| `task --foreground --json` | Completed with the exact requested marker. | `live140/foreground.stdout.txt` |
+| `task --background --json`, then `status` and `result` | Queued, then completed; result held the exact requested marker. | `live140/background.stdout.txt`, `background-status.stdout.txt`, `background-result.stdout.txt` |
+| `cancel` | A retry observed the same job running, then returned `cancelled`, `killed: true`, `stopped: true`; final status was cancelled. Worker, agy and their children were absent in both process checks. The first trial finished before cancellation and is retained. | `live140/cancel-retry-report.json` |
+| `rescue --json` | Completed with the exact requested marker. | `live140/rescue.stdout.txt` |
+| plain `review --json` | Reported the fixture's wrong subtraction at `math.mjs:1`. | `live140/review.stdout.txt` |
+| `vision --expect AGY140 --json` | Read `AGY140` and the red background correctly; expectation was `all_found`, exit 0. | `live140/vision-final-report.json` |
+
+Task and rescue requested `gemini-3.8-flash-low` with effort `low`.
+Review requested `gemini-3.8-flash-high` with effort `high`.
+Vision requested `gemini-3.8-flash-high`; its stored effort was null, as the
+existing vision contract specifies. agy returned no serving-model identity,
+so these are requested selectors, not independently verified model IDs.
+The existing vision server had the same SHA256 as the candidate server.
+`doctor` reported it absent because its registered path pointed to installed
+3.0.0 rather than the candidate path; the existing exact tool permission
+allowed the real vision call. No setup or configuration write was needed.
+
+`setup` was not run. These probes do not cover every flag, mode, native
+wrapper or vision workload. One synthetic image is not a model benchmark.
+The retained reports are `live140/report.json`, `cancel-retry-report.json`
+and `vision-final-report.json` in the 2026-10-16 upstream audit artifacts.
 
 ### agy 1.3.1 probes
 
@@ -636,6 +720,8 @@ The plugin passes the line through verbatim on stdout (or inside the current
 JSON vision field) and returns 0 when agy otherwise reported success. The
 prefix and one-line form are stable machine-readable signals. The reason text
 is not stable, and the sentinel is not a distinct exit status.
+
+### Headless read access
 
 `agy --print` cannot prompt for a tool permission. Since agy 1.1.20 a tool
 it cannot prompt for is auto-denied and the run still reports success. The

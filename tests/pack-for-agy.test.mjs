@@ -19,6 +19,11 @@ const SCRIPT = path.join(ROOT, 'scripts', 'pack-for-agy.mjs');
 const TAMPER_PRELOAD = pathToFileURL(
   path.join(ROOT, 'tests', 'helpers', 'tamper-extracted-version.mjs'),
 ).href;
+const INSTALL_SKILLS = [
+  'skills/cancel/SKILL.md', 'skills/doctor/SKILL.md', 'skills/rescue/SKILL.md',
+  'skills/result/SKILL.md', 'skills/review/SKILL.md', 'skills/setup/SKILL.md',
+  'skills/status/SKILL.md', 'skills/task/SKILL.md', 'skills/vision/SKILL.md',
+];
 const SYSTEM32 = 'C:\\Windows\\System32';
 
 /** Every temp dir this file creates (test-owned or script-owned), removed once at the end. */
@@ -87,12 +92,12 @@ function runScriptJson(args, extraEnv) {
   return report;
 }
 
-describe('pack-for-agy: extracted directory matches npm pack exactly', () => {
-  it('the extracted file list equals the tarball list from npm pack --dry-run --json', () => {
+describe('pack-for-agy: prepared copy preserves npm files and adds only nine standard skills', () => {
+  it('the prepared file list equals the tarball list plus exactly the nine standard native skills', () => {
     const report = runScriptJson([]);
 
     const extracted = listFilesRecursive(report.dir);
-    const expected = dryRunPackFiles();
+    const expected = [...dryRunPackFiles(), ...INSTALL_SKILLS].sort();
     assert.deepEqual(extracted, expected);
     assert.equal(report.fileCount, expected.length);
   });
@@ -118,13 +123,13 @@ describe('pack-for-agy: extracted directory matches npm pack exactly', () => {
     assert.match(result.stdout, /integrity \(sha512\): sha512-/);
     assert.match(result.stdout, /shasum \(sha1\): [0-9a-f]{40}/);
     assert.match(result.stdout, /Extracted: .+ \(\d+ files\)/);
-    assert.match(result.stdout, /agy plugin install .+[\\/]package\s*$/m);
+    assert.match(result.stdout, /agy plugin install .+[\\/]antigravity\s*$/m);
   });
 
   it('--json prints one object with dir, tarball, shasum, integrity, fileCount, version, installCommand', () => {
     const report = runScriptJson([]);
     assert.equal(typeof report.dir, 'string');
-    assert.match(report.dir, /package$/);
+    assert.match(report.dir, /antigravity$/);
     assert.match(report.tarball, /\.tgz$/);
     assert.match(report.shasum, /^[0-9a-f]{40}$/);
     assert.match(report.integrity, /^sha512-/);
@@ -140,7 +145,7 @@ describe('pack-for-agy: works with bsdtar (Windows System32 tar) first on PATH',
   it('extracts successfully when System32 resolves before any other tar', { skip: process.platform !== 'win32' }, () => {
     const report = runScriptJson([], { PATH: `${SYSTEM32}${path.delimiter}${process.env.PATH ?? ''}` });
     assert.ok(fs.existsSync(path.join(report.dir, 'package.json')));
-    assert.equal(report.fileCount, dryRunPackFiles().length);
+    assert.equal(report.fileCount, dryRunPackFiles().length + 9);
   });
 });
 
@@ -203,7 +208,7 @@ describe('pack-for-agy: missing tar', () => {
     assert.match(message, /cd "\/tmp\/x"/);
     assert.match(message, /tar -xzf "thing\.tgz"/);
     assert.doesNotMatch(message, /-C /);
-    assert.match(message, /agy plugin install/);
+    assert.match(message, /prepare-for-agy\.mjs/);
     assert.match(message, /package/);
   });
 });

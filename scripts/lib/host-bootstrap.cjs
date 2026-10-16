@@ -122,7 +122,7 @@ function run(root, verb, argv = process.argv.slice(1)) {
   const result = spawnSync(process.execPath, [script, ...argv], {
     stdio: "inherit",
     // Every verb reached through this wrapper (Claude Code, the agy TUI —
-    // both go through the same `commands/*.md` `node -e` snippet) must never
+    // both use the same protected `node -e` snippet) must never
     // offer the interactive denial prompt (plan 086 T5k F2), even when
     // `stdio: "inherit"` happens to hand the child a real TTY.
     env: { ...process.env, [HOST_WRAPPER_ENV]: "1" },
