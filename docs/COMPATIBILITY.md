@@ -1600,4 +1600,4 @@ All files below are under A:/tmp/150-p1-maker/probes/. Exact commands, exit code
 | refuse-missing | 1 | media_not_found | refuse-missing.out, refuse-missing.err |
 | refuse-conflict | 1 | parser refusal | refuse-conflict.out, refuse-conflict.err |
 
-Earlier attempts are retained as *-attempt1.out/err. Initial local probes hit the existing five-second agy version-probe timeout under load. The first audio run hit a command-tool denial; the prompt now explicitly confines the model to read_file. The first subtitle attempt downloaded every language and failed upstream; metadata-based selection passed on retry. These are not hidden passes.
+Earlier attempts are retained as *-attempt1.out/err. Initial local probes hit the existing five-second agy version-probe timeout under load. The first audio run hit a command-tool denial; the prompt now explicitly confines the model to read_file. The first subtitle attempt requested every language and failed; metadata-based selection passed on retry. These are not hidden passes.
