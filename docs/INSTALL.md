@@ -6,7 +6,7 @@ that matches your workflow.
 ## Prerequisites (all hosts)
 
 1. **Node.js ≥ 22.3.0** — `node --version`.
-2. **agy CLI 1.1.15 to 1.4.0; newest measured 1.4.0** - Google Antigravity CLI on `PATH`. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table.
+2. **agy CLI 1.1.15 to 1.5.1; newest measured 1.5.1** - Google Antigravity CLI on `PATH`. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table.
    Coverage differs by version. The 1.4.0 probes include native loading and
    a runtime subset; `setup` was not run.
    ```bash
@@ -73,7 +73,7 @@ under the `plugins[]` array, pointing `source.path` at your local clone:
 
 Then install it (`codex plugin add antigravity@personal` for the example
 name above) and restart Codex. The plugin is available under `$antigravity`.
-Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
+Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`,
 `cancel`, `doctor`.
 
 ## agy itself
@@ -81,7 +81,7 @@ Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`,
 Install a prepared agy copy. The source and npm package keep the native
 wrappers in `agy-skills/`, where Claude and Codex do not discover them.
 Preparation creates a separate directory named `antigravity` and adds the
-same nine wrappers under its standard `skills/<verb>/SKILL.md` paths.
+same ten wrappers under its standard `skills/<verb>/SKILL.md` paths.
 This avoids agy 1.4.0 turning a custom directory path into a command prefix.
 The source, npm tarball, host manifests, and runtime are preserved.
 
@@ -106,7 +106,7 @@ agy plugin install ./antigravity
 
 `pack-for-agy` builds the npm tarball and verifies the extracted version
 before preparation. The manual helper verifies the package and plugin
-identity and all nine wrappers. Both refuse a missing or extra wrapper,
+identity and all ten wrappers. Both refuse a missing or extra wrapper,
 an incorrect public name, or a conflicting prepared copy. Repeating
 preparation of the same unchanged extraction is safe. Neither helper runs
 agy or changes a global installation.
@@ -189,7 +189,7 @@ npx @southcarpet/antigravity-plugin doctor
 Then, or instead, the individual host-agnostic checks:
 
 ```bash
-agy --version              # 1.1.15 to 1.4.0; newest measured 1.4.0
+agy --version              # 1.1.15 to 1.5.1; newest measured 1.5.1
 node --version             # 22.3.0+
 which agy                  # /home/<user>/.local/bin/agy on Linux
 ```
@@ -208,7 +208,7 @@ measured with that real agy version instead.
 |---|---|---|
 | `agy` is not on `PATH`.<br><br>Commands: `node bin/antigravity.mjs setup`; `node bin/antigravity.mjs review`; `node bin/antigravity.mjs task probe --foreground` with a Node-only `PATH`; then `review` again with Git on `PATH` but no `agy`, first in a repository with a modified file and then with nothing to review. | `setup`: `antigravity:setup — \`agy\` is not on PATH (not-installed).` Exit 2.<br><br>`review` with a Node-only `PATH`: `antigravity:review — git is not on PATH (spawnSync git ENOENT).` Exit 1, because that `PATH` hides Git too and `review` reads the diff first.<br><br>`review` with Git on `PATH` and no `agy`: `antigravity:review — \`agy\` is not on PATH (not-installed). Run /antigravity:setup.` Exit 1 when there are changes. With nothing to review it prints the `no_changes` result and exits 0, so a machine without `agy` still gets an answer.<br><br>`task --foreground`: `antigravity:task — \`agy\` is not on PATH (not-installed). Run /antigravity:setup.` Exit 1. `rescue` and `vision` print the same line with their own prefix. The check runs before any job record or spawn. | Install `agy`. Restore the normal `PATH`, including Git, then run `setup` again. On WSL, remove a Windows-only `~/.local/bin/agy` link and install the Linux CLI. |
 | `agy` is installed, but OAuth is incomplete.<br><br>Commands: `node bin/antigravity.mjs rescue probe`; `review`; `task probe --foreground`; and `vision pixel.png --prompt probe`, with `AGY_BIN` set to the test fake. | `rescue`: `antigravity:rescue — Antigravity is not authenticated.`<br><br>`review`: `antigravity:review — Antigravity is not authenticated.`<br><br>`task`: `antigravity:task — Antigravity is not authenticated.`<br><br>`vision`: `antigravity:vision — Antigravity is not authenticated.`<br><br>For every verb, the setup remedy is on the second line: `Run /antigravity:setup to complete the OAuth flow, then retry.` Each command exits 1. No Google OAuth URL is printed, here or later by `result` and `status`: the plugin replaces each one with `[oauth-url-removed]`, because it cannot prove that a URL came from agy. `setup` shows agy's own sign-in prompt instead. A background worker stores `auth_required` in the job state. | Run `/antigravity:setup`. Complete OAuth, then retry. For a background job, use `status` or `result` to inspect its health. |
-| The installed `agy` version is outside the tested matrix.<br><br>Command: `node bin/antigravity.mjs setup --skip-vision` with a fake `agy` version 9.9.9. | `antigravity:setup — using <path to agy> v9.9.9` Exit 0. `setup` reports the version and does not enforce the matrix. | Use agy 1.1.15 to 1.4.0; newest measured 1.4.0. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table. |
+| The installed `agy` version is outside the tested matrix.<br><br>Command: `node bin/antigravity.mjs setup --skip-vision` with a fake `agy` version 9.9.9. | `antigravity:setup — using <path to agy> v9.9.9` Exit 0. `setup` reports the version and does not enforce the matrix. | Use agy 1.1.15 to 1.5.1; newest measured 1.5.1. See [COMPATIBILITY.md](./COMPATIBILITY.md) for the per-version table. |
 | A `vision` file does not exist.<br><br>Command: `node bin/antigravity.mjs vision Z:\missing.png --prompt probe`. | `antigravity:vision — image file not found: Z:\missing.png` Exit 1. | Correct the path and retry. |
 | A `vision` file has an unsupported extension.<br><br>Command: `node bin/antigravity.mjs vision note.txt --prompt probe`. | `antigravity:vision — unsupported image extension ".txt": <path>\note.txt. Supported: .png, .jpg, .jpeg, .webp, .gif` Exit 1. The command checks the extension before it starts `agy`, so the run costs no tokens. | Use `.png`, `.jpg`, `.jpeg`, `.webp`, or `.gif`. |
 | A `vision` file is over 10 MiB.<br><br>Command: `node bin/antigravity.mjs vision large.png --prompt probe` with an 11 MiB file. | `antigravity:vision — image too large (11534336 bytes > 10485760 byte cap): <path>\large.png` Exit 1. The command checks the size before it starts `agy`, so the run costs no tokens. | Reduce the file to 10 MiB or less. |
@@ -251,3 +251,7 @@ not provide native commands on agy 1.4.0. There is no `agy plugin run`. After a 
 `agy plugin uninstall antigravity` and then `agy plugin install <path>`
 again with a fresh copy, so the TUI copy matches; otherwise
 `/antigravity:<verb>` keeps the previous wrappers.
+
+## Media smoke
+
+Run `node bin/antigravity.mjs media ./speech.wav --expect pineapple --json`. No vision registration is needed. YouTube needs yt-dlp on PATH and ffmpeg for merged video. Install with `winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`. Check `doctor --json` for both tools.

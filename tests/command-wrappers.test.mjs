@@ -375,7 +375,7 @@ describe('commands/*.md allowed-tools', () => {
 
   for (const verb of verbs) {
     it(`${verb}.md carries the generated allowed-tools line`, () => {
-      const extras = verb === 'review' || verb === 'rescue' || verb === 'task' || verb === 'vision'
+      const extras = verb === 'review' || verb === 'rescue' || verb === 'task' || verb === 'vision' || verb === 'media'
         ? ['AskUserQuestion']
         : [];
       assert.equal(readCommand(verb).includes(`\n${hostAllowedToolsLine(verb, extras)}\n`), true);

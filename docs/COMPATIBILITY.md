@@ -10,7 +10,7 @@ when this document or the [commands reference](./COMMANDS.md) says it is
 promised.
 
 Plugin 3.0.1 is this package's version number. Measured versions of Google's
-Antigravity CLI span 1.1.15 to 1.4.0; newest measured 1.4.0. Coverage differs
+Antigravity CLI span 1.1.15 to 1.5.1; newest measured 1.5.1. Coverage differs
 by version. The 1.4.0 checks cover native discovery, `doctor`, `task`,
 `status`, `result`, running-job `cancel`, `rescue`, `review`, and one simple
 `vision` image. `setup` was not run on 1.4.0. See the
@@ -24,8 +24,10 @@ change the plugin version.
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via native skills in the prepared agy copy; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
 | Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
+| Public verbs | Ten: setup, review, rescue, task, vision, media, status, result, cancel, doctor. |
+| Optional YouTube tools | yt-dlp 2026.10.26; ffmpeg for video merges. Local media needs neither. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | Measured versions span `agy` 1.1.15 to 1.4.0; newest measured 1.4.0. Coverage differs by version. See the [per-version table](#supported-matrix) for live results and limits. |
+| Google Antigravity CLI | Measured versions span `agy` 1.1.15 to 1.5.1; newest measured 1.5.1. Coverage differs by version. See the [per-version table](#supported-matrix) for live results and limits. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -57,6 +59,8 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.2.12 | `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and smoke-only measurement. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12. See the [structured output flag](#structured-output-flag) probe. | 2026-09-27 |
 | 1.3.1 | Measured pass: `doctor`; `task` foreground, and background with `--wait`; `status` list and by job id; `result`; `cancel` of a running job; `review`, plain and with `--findings-json`; `setup --skip-vision`; `rescue` with a trivial prompt; `--add-dir`; `vision` with `gemini-3.8-flash-high` (5 of 5 runs, one with a path that holds a space, `#`, and `%`); `vision` with `gemini-3.6-flash-high` (3 of 5 runs); `agy plugin install`, `list`, `validate`, and `uninstall` in an isolated profile. Measured failure: `vision` with `gemini-3.6-flash-high` failed 2 of 5 runs with a 503 capacity error; `rescue` with a prompt that needs a shell command failed because agy headless mode denied the `command` tool (the plugin named the tool and gave the remedy); `cancel` of a job that had already finished returned `job_not_found`, exit 1; `setup --json` is not supported. Not measured: `setup` without `--skip-vision`, `setup --remove-vision`, `review --background`, `--show-result`, `--request-id`, `--prompt-file`, `--preview`, `--check-locations`, `--mode`, and resuming a conversation with `--continue` or `--conversation`. 1.2.13 to 1.3.0 were not run live. See the [agy 1.3.1 probes](#agy-131-probes) for the raw files. | 2026-10-08 |
 | 1.4.0 | Measured pass: native discovery of all nine exact aliases and one TUI `doctor --json`; `task` foreground and background; `status` and `result` for that background job; `cancel` of an observed running job; trivial foreground `rescue`; plain `review` detecting a subtraction regression; one synthetic `vision` image with `--expect`. Not measured: `setup`, the remaining flags/modes, and all nine verbs through native wrappers. See the [1.4.0 runtime probes](#agy-140-runtime-probes). | 2026-10-16 |
+| 1.5.0 | On 2026-11-04: setup --skip-vision, task foreground/background, status/result/cancel lifecycle, rescue, plain review and findings review, vision. The native doctor attempt was denied; its alternate skip-permission run is not a normal-wrapper pass. Evidence: A:/tmp/agy-update-check/probes/ (setup-skip-vision.txt, task-bg-wait.txt, cancel.txt, rescue.txt, review-plain.txt, review-findings.txt, vision.txt, native-doctor.txt, native-doctor-skip.txt). Media and doctor tool probes on 2026-11-06 are recorded below. | 2026-11-06 |
+| 1.5.1 | Media local and YouTube probes, near-cap file and doctor. Partial coverage and exact outcomes below. The installed binary reported 1.5.1 during these runs; 1.5.0 remains the separate controller measurement above. | 2026-11-06 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -67,7 +71,7 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest measured version is agy 1.4.0, on 2026-10-16. Each row states
+The newest measured version is agy 1.5.1, on 2026-11-06. Each row states
 what passed and what was not run. The historical 1.3.1 row retains its
 per-verb results from 2026-10-08. The agy
 changelogs for 1.2.13 to 1.3.0 were read, not measured. The previous smoke-only measurement is agy 1.2.12, on
@@ -194,7 +198,7 @@ nine command files. An explicit custom skill directory then introduced
 path fragments into TUI command names. Skill count alone is not acceptance.
 
 The agy install artifact is now a separate prepared copy. The source/npm
-package stores the nine native wrappers in `agy-skills/` and has no root
+package stores the ten native wrappers in `agy-skills/` and has no root
 `skills/` directory. `scripts/pack-for-agy.mjs` extracts the npm package,
 checks its version, then prepares a sibling `antigravity/` copy with
 standard `skills/<verb>/SKILL.md` paths. Each skill declares the exact
@@ -209,11 +213,11 @@ The manual tarball path uses the shipped `scripts/prepare-for-agy.mjs`.
 Preparation rejects a foreign manifest, missing or extra wrapper, wrong
 name, symlink, or conflicting prepared copy. An unchanged existing prepared
 copy is reused. The source, tarball bytes, other-host manifests and runtime
-files stay unchanged. Only the separate agy install copy gains the nine
+files stay unchanged. Only the separate agy install copy gains the ten
 standard skill files.
 
 Reinstall from a fresh prepared copy using [INSTALL.md](./INSTALL.md#agy-itself),
-then check `plugin list --json` and TUI `/skills` for the exact nine
+then check `plugin list --json` and TUI `/skills` for the exact ten
 `antigravity:<verb>` names. Raw source validation can still report zero
 skills on 1.4.0; validate the prepared copy instead. Discovery checks do not
 establish live success of all nine native wrappers. The separate runtime
@@ -234,7 +238,7 @@ not measured in these probes.
 
 agy is a real host for discovery and lifecycle: `agy plugin install <path>`,
 `list`, `validate`, `enable`, and `disable`. agy 1.1.15 and 1.1.17 have no
-`plugin run` subcommand. After install, the nine verbs are reachable from an
+`plugin run` subcommand. After install, the ten verbs are reachable from an
 interactive agy TUI as `/antigravity:<verb>` and from the standalone CLI.
 Earlier hosts used converted command markdown; 1.4.0 uses the native skills
 described above. The TUI wrappers locate the copied runtime
@@ -249,7 +253,7 @@ task itself; `npx @southcarpet/antigravity-plugin <verb>` is the fallback that
 always works. agy stores its own copy of the tree, so an upgrade takes effect
 in the TUI only after `agy plugin install <path>` is re-run. Host
 installers and host-owned invocation wrappers can evolve independently. The
-promise is that the four surfaces above reach the same nine runtime verbs and
+promise is that the four surfaces above reach the same ten runtime verbs and
 accept the documented arguments when the host can load this plugin.
 
 The Claude Code wrappers (`commands/*.md`) keep the 3.0.0 invocation contract:
@@ -265,7 +269,7 @@ change.
 read `package.json` `files`. `scripts/pack-for-agy.mjs` packs this checkout
 the same way `npm publish` would, extracts it into a temporary directory,
 then creates the prepared agy copy described above. The printed install
-command points to that copy. It holds the npm files plus nine standard skill
+command points to that copy. It holds the npm files plus ten standard skill
 copies, without development files from the working tree. A hash-guarded isolated run (fresh `HOME`/`USERPROFILE`/
 `APPDATA`/`LOCALAPPDATA`, real `~/.gemini` hashed before and after every step)
 confirmed on 2026-09-27 that `agy plugin install`, `plugin list`,
@@ -392,7 +396,7 @@ for a model, the plugin can add it after a probe shows it.
 
 The public verbs are exactly:
 
-`setup`, `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`,
+`setup`, `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`,
 and `doctor`.
 
 Their positional arguments, flags, defaults, conflicts, and foreground versus
@@ -401,8 +405,8 @@ documented flag names, documented positional meanings, and documented defaults
 are stable through 3.x subject to the deprecation and emergency rules below.
 
 The standalone dispatcher's `help`, `-h`/`--help`, and `-v`/`--version` entry
-points are also public. They are dispatcher conveniences, not tenth and
-eleventh runtime verbs. Per-command help interception is guaranteed only through the
+points are also public. They are dispatcher conveniences, not eleventh and
+twelfth runtime verbs. Per-command help interception is guaranteed only through the
 standalone dispatcher. `update` (from 1.1.0) is a third convenience in the
 same carve-out: it is reachable only through the standalone dispatcher
 (`antigravity-plugin update`, `npx @southcarpet/antigravity-plugin update`,
@@ -429,7 +433,7 @@ has command-specific meanings, and this contract preserves that reality.
 |---|---|
 | `0` | The command itself succeeded. For a background launch, this means the job was queued, not that agy completed it; with `--request-id`, it can also mean that an existing job was found for the same request. `status --wait` also returns 0 after its timeout and when the observed job ended failed or cancelled, because status retrieval itself succeeded (unless `--exit-status` is given; see the `3` row). |
 | `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. `status --exit-status` uses 1 for a `failed` waited job. |
-| `2` | A cancelled agy outcome from `review`, `rescue`, `task`, or `vision`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. `status --exit-status` uses 2 for a `cancelled` waited job. It is therefore not a global “cancelled” code. |
+| `2` | A cancelled agy outcome from `review`, `rescue`, `task`, `vision`, or `media`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. `status --exit-status` uses 2 for a `cancelled` waited job. It is therefore not a global “cancelled” code. |
 | `3` | `status <id> --wait --exit-status` only (added 2026-09): the wait's own deadline passed while the job was still `queued`/`running`. No other command uses this value. |
 | `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy. |
 | other nonzero | `setup` passes through the exit status of its interactive agy OAuth probe. No meaning beyond “setup failed” is promised for that upstream value. |
@@ -489,7 +493,7 @@ fields in envelope version 1:
 | Field | 3.x contract |
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
-| `command` | One of `review`, `rescue`, `task`, `vision`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
+| `command` | One of `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
 | `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
@@ -691,7 +695,7 @@ text and is outside the filter's scope.
 
 ### Usage trailer
 
-On a successful `review`, `rescue`, `task`, or `vision` (foreground, or an
+On a successful `review`, `rescue`, `task`, `vision`, or `media` (foreground, or an
 awaited `--wait` background run), and when `result` reads a stored result
 with measured usage, the command writes this exact newline-terminated
 trailer to stderr. Before 2026-09 only `vision` and `result` did this;
@@ -1565,3 +1569,35 @@ There are two exceptions:
 Neither exception authorizes unrelated breaking changes. Explicitly unstable
 surfaces may change in 3.x without deprecation, but the change must still be
 called out when it affects observable output.
+
+## Media channel and size cap
+
+Media uses agy read_file plus --add-dir for only the file directory. It does not use the vision MCP server. The historical read_file limitation in that server header describes agy 1.1.11. On agy 1.5.0 the earlier probes delivered real audio/video; these new command probes ran against the installed agy 1.5.1 binary. The default media model is gemini-3.8-flash-high, matching vision.
+
+The cap is 100,000,000 bytes (decimal 100 MB). A real 99,993,947-byte, approximately eight-minute 480p MP4 passed on 2026-11-06 with agy 1.5.1: the answer described the picture and repeated speech, including pineapple and 42. Measured usage was total=96509 in=91222 out=5287. The fixture joins four copies of the earlier 24,982,222-byte probe. No cap reduction was needed. Evidence: A:/tmp/150-p1-maker/probes/near-generation.txt, near-cap.out and near-cap.err. The cap is a local guard, not a promise about every codec or future upstream limit.
+
+yt-dlp 2026.10.26 was installed with winget. Video merges need ffmpeg; the installed yt-dlp FFmpeg package was N-127043-g5a54fcf75e-20260930. Both are optional for local files. Doctor reads their paths and yt-dlp version without network access. Subtitles use metadata to choose the original language and English, with manual captions before automatic captions in yt-dlp. Missing captions point to --audio; upstream download errors remain download_failed with a bounded, filtered diagnostic.
+
+### Media probe evidence (2026-11-06)
+
+All files below are under A:/tmp/150-p1-maker/probes/. Exact commands, exit codes and output excerpts are in the maker report at A:/tmp/150-p1-maker/report.md. Native host discovery of the new tenth wrapper is covered by the fake-host tests, not a live install. No agy configuration or installed plugin copy was changed.
+
+| Probe | Exit | Result | Files |
+|---|---|---|---|
+| local-wav | 0 | completed / all_found | local-wav.out, local-wav.err |
+| local-mp4 | 0 | completed / all_found | local-mp4.out, local-mp4.err |
+| youtube-360 | 0 | completed | youtube-360.out, youtube-360.err |
+| youtube-720 | 0 | completed | youtube-720.out, youtube-720.err |
+| youtube-audio | 0 | completed | youtube-audio.out, youtube-audio.err |
+| youtube-transcript | 0 | completed | youtube-transcript.out, youtube-transcript.err |
+| youtube-summary | 0 | completed | youtube-summary.out, youtube-summary.err |
+| near-cap | 0 | completed | near-cap.out, near-cap.err |
+| doctor | 0 | warnings | doctor.out, doctor.err |
+| doctor-no-ytdlp | 0 | warnings | doctor-no-ytdlp.out, doctor-no-ytdlp.err |
+| refuse-playlist | 1 | youtube_url_invalid | refuse-playlist.out, refuse-playlist.err |
+| refuse-image | 1 | media_unsupported_type | refuse-image.out, refuse-image.err |
+| refuse-extension | 1 | media_unsupported_type | refuse-extension.out, refuse-extension.err |
+| refuse-missing | 1 | media_not_found | refuse-missing.out, refuse-missing.err |
+| refuse-conflict | 1 | parser refusal | refuse-conflict.out, refuse-conflict.err |
+
+Earlier attempts are retained as *-attempt1.out/err. Initial local probes hit the existing five-second agy version-probe timeout under load. The first audio run hit a command-tool denial; the prompt now explicitly confines the model to read_file. The first subtitle attempt downloaded every language and failed upstream; metadata-based selection passed on retry. These are not hidden passes.

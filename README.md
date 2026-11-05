@@ -2,7 +2,7 @@
 
 # antigravity-plugin
 
-Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CLI from Claude Code, Codex CLI, agy, or your shell.
+Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's Antigravity CLI from Claude Code, Codex CLI, agy, or your shell.
 
 [npm](https://www.npmjs.com/package/@southcarpet/antigravity-plugin) · [Releases](https://github.com/SouthCarpet/antigravity-plugin/releases) · [Changelog](./CHANGELOG.md) · [Commands](./docs/COMMANDS.md) · [Security](./SECURITY.md)
 
@@ -19,7 +19,7 @@ Delegate code reviews, fixes, and screenshot analysis to Google's Antigravity CL
 ## What it is
 
 - Runs `agy --print` from the host you already use.
-- Gives Claude Code, Codex CLI, agy, and the standalone CLI the same nine verbs.
+- Gives Claude Code, Codex CLI, agy, and the standalone CLI the same ten verbs.
 - Reviews diffs, runs delegated prompts, analyzes named images, and manages background jobs.
 
 ## Installation and quick start
@@ -73,13 +73,13 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 - 3.0.0 changed one default: `vision` now uses `gemini-3.8-flash-high`. Pass `--model gemini-3.6-flash-high` to keep the old model. See [`CHANGELOG.md`](./CHANGELOG.md).
 - Plugin 3.0.1 is this package's version. agy is Google's Antigravity CLI, and its version moves separately.
-- Measured agy versions span 1.1.15 to 1.4.0, newest measured 1.4.0. Coverage differs by version; see [Compatibility](./docs/COMPATIBILITY.md).
+- Measured agy versions span 1.1.15 to 1.5.1, newest measured 1.5.1. Coverage differs by version; see [Compatibility](./docs/COMPATIBILITY.md).
 - The plugin does not update itself.
 - Version numbers: **Y** in `X.Y.Z` changes for new features and larger compatible updates. **Z** changes for fixes; **X** changes only for breaking changes.
 
 ## Why this plugin
 
-- **One command set on every host.** The same nine verbs run everywhere.
+- **One command set on every host.** The same ten verbs run everywhere.
 - **Clear failures.** Denied actions are reported with a remedy. An empty answer with a denied action fails.
 - **Real image input.** `vision` sends pixels to agy, and `--expect` checks the transcription for text you name.
 - **Reviews you can check.** `review` can preview its input, return schema-checked findings, and check cited lines against the diff.
@@ -107,13 +107,14 @@ Flags, defaults, and exit codes: [Commands reference](./docs/COMMANDS.md). Measu
 | `review` | Review a working-tree or branch diff. |
 | `rescue` | Delegate a prompt in a fresh or resumed conversation. |
 | `task` | Run a delegated prompt, in the background by default. |
+| `media` | Analyze local audio/video or one YouTube video. |
 | `vision` | Analyze one or more named image files. |
 | `status` | List jobs or inspect and wait for one job. |
 | `result` | Read the stored result for a job. |
 | `cancel` | Stop a queued or running job. |
 | `doctor` | Read-only environment check. No OAuth, model call, write, or network. |
 
-`update` is a standalone convenience command, not one of the nine verbs. Flags and exit codes: [Commands reference](./docs/COMMANDS.md).
+`update` is a standalone convenience command, not one of the ten verbs. Flags and exit codes: [Commands reference](./docs/COMMANDS.md).
 
 ## Vision
 
@@ -126,6 +127,16 @@ Flags, defaults, and exit codes: [Commands reference](./docs/COMMANDS.md). Measu
 ```bash
 npx @southcarpet/antigravity-plugin vision ./screenshot.png --prompt "Which text is visible?"
 ```
+
+## Media
+
+Send a local audio or video file with `media ./clip.mp4`. agy 1.5.0 opens the exact file with `read_file`, with `--add-dir` limited to its directory. Media bytes reach Google. For YouTube, yt-dlp downloads the file first, then that file reaches Google.
+
+YouTube needs yt-dlp on PATH (`winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`). Merging video formats needs ffmpeg. Default quality is 360p; use `--quality 480p`, `--quality 720p`, `--audio`, or `--transcript`. Transcript-only mode prints captions without a model call; add `--prompt` to ask about them. Downloads are deleted after the job unless `--keep`. Local files have a 100,000,000-byte cap. The default model matches vision: `gemini-3.8-flash-high`.
+
+`media ./speech.wav --expect pineapple --json`
+
+Full flags, supported extensions and errors: [Media reference](./docs/COMMANDS.md#media).
 
 ## Updating
 

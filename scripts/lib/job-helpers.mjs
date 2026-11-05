@@ -920,6 +920,7 @@ const VISION_DENIAL_REMEDY =
  */
 export function denialRemedy(action, verb) {
   if (verb === "vision") return VISION_DENIAL_REMEDY;
+  if (verb === "media" && READ_GRANTABLE_ACTIONS.has(action)) return "Media reads use --add-dir for only the file directory. Check that grant, then run media again.";
   if (READ_GRANTABLE_ACTIONS.has(action)) {
     return "Pass --add-dir <dir> to grant read access to that directory for this run.";
   }
@@ -1095,6 +1096,7 @@ function buildJobProvenance({ agyVersion, request, requestedAt }) {
     mode: request?.mode ?? "print",
     addDirCount: Array.isArray(request?.addDirs) ? request.addDirs.length : 0,
     requestedAt,
+    ...(request?.media ?? {}),
   };
 }
 
@@ -1210,6 +1212,7 @@ function stripDetail(patch) {
  * @returns {Promise<{ job: import('./types.mjs').JobRecord, result: import('./types.mjs').RuntimeResult }>}
  */
 export async function runForegroundJob({
+  existingJob,
   workspaceRoot,
   kind,
   title,
@@ -1230,7 +1233,7 @@ export async function runForegroundJob({
   onStderr,
   onText,
 } = {}) {
-  const job = await createTrackedJob({
+  const job = existingJob ?? await createTrackedJob({
     workspaceRoot,
     kind,
     title,

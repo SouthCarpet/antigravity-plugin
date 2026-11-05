@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { deriveRequired } from '../scripts/check-pack.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const VERBS = ['cancel', 'doctor', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision'];
+const VERBS = ['cancel', 'doctor', 'media', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision'];
 
 function readSkill(verb) {
   return fs.readFileSync(path.join(ROOT, 'agy-skills', verb, 'SKILL.md'), 'utf8');
@@ -26,8 +26,8 @@ function tempRoot(t) {
   return dir;
 }
 
-// Oracle: frozen nine-verb contract, not an inventory inferred from the tree.
-it('native skill discovery exposes exactly the nine public verbs', () => {
+// Oracle: frozen ten-verb contract, not an inventory inferred from the tree.
+it('native skill discovery exposes exactly the ten public verbs', () => {
   assert.deepEqual(fs.readdirSync(path.join(ROOT, 'agy-skills')).sort(), VERBS);
 });
 

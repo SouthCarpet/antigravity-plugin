@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const AGY_VERBS = Object.freeze([
-  'cancel', 'doctor', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision',
+  'cancel', 'doctor', 'media', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision',
 ]);
 
 function readIdentity(root) {
@@ -28,7 +28,7 @@ function nativeFiles(root) {
   const expected = AGY_VERBS.map((verb) => path.join(verb, 'SKILL.md'));
   const actual = filesUnder(dir).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('agy install copy: agy-skills must contain exactly the nine public wrappers');
+    throw new Error('agy install copy: agy-skills must contain exactly the ten public wrappers');
   }
   for (const verb of AGY_VERBS) {
     const source = fs.readFileSync(path.join(dir, verb, 'SKILL.md'), 'utf8');

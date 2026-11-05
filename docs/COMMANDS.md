@@ -1,6 +1,6 @@
 # Commands reference
 
-This is the argument and execution reference for the nine public 3.x verbs,
+This is the argument and execution reference for the ten public 3.x verbs,
 and for the standalone `update` convenience at the end. The broader
 versioning, output, environment, and state promises are in the
 [3.x compatibility contract](./COMPATIBILITY.md).
@@ -124,6 +124,7 @@ exactly once; a second denial is reported the same way and the plugin stops
 | `review` | none | foreground |
 | `rescue` | prompt words | foreground |
 | `task` | prompt words | background |
+| `media` | one audio/video path or one YouTube video URL | foreground only |
 | `vision` | one or more image paths | foreground only |
 | `status` | optional job reference | foreground state read; optionally waits |
 | `result` | optional job reference | foreground state read |
@@ -211,7 +212,7 @@ Five checks, one line each in markdown mode:
 Markdown output ends with `doctor: <n> ok, <m> warnings, <k> problems`.
 `--json` returns `command: "doctor"`, `jobId: null`, `answer: null`, and
 `details: { node, agy: { path, version, classification }, flags: [{ flag,
-state }], vision, stateRoot: { source, dir, exists, legacyLeaf },
+state }], vision, media: { ytDlp: { path, version }, ffmpeg: { path }, sizeCapBytes }, stateRoot: { source, dir, exists, legacyLeaf },
 measuredRange: { min, newest } }`. `status` is `"ok"`, `"warnings"`, or
 `"problems"`. `beyond_measured` and `unmeasured` are warnings, never
 problems. Exit status is 0 for `ok` or `warnings`, and 1 for `problems`
@@ -657,6 +658,28 @@ stays claimed while its job stays in the job history; when the history
 limit drops the job, the id is free again. Without `--request-id`, dispatch
 is unchanged and the job record has no request id fields.
 
+## media
+
+`media <file-path | youtube-url> [--prompt <text>] [--model <id>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]`
+
+Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp3 (audio/mpeg), m4a (audio/mp4), aac (audio/aac), flac (audio/flac), ogg (audio/ogg), opus (audio/opus). Video: mp4 and m4v (video/mp4), mov (video/quicktime), webm (video/webm), mkv (video/x-matroska). Images use `vision`. Files must be regular files at most 100,000,000 bytes. Paths resolve from `--cwd` or the caller directory and then through realpath. agy opens exactly that path with `read_file`; only its directory is granted through `--add-dir`.
+
+- `--prompt`: default describes content and transcribes speech.
+- `--model`: default `gemini-3.8-flash-high`.
+- `--expect`: same trimmed, repeatable transcription substring check as vision, at most 32 values, no exit-code change.
+- `--quality`: YouTube only; 360p default, 480p or 720p. A ceiling, not a promise that the source has that resolution. Needs ffmpeg when formats must merge.
+- `--audio`: YouTube m4a audio only. Conflicts with quality.
+- `--transcript`: captions only, manual before automatic, original language before English. Prints plain text without timestamps and no agy call. With prompt, sends the transcript as text to agy, with no add-dir. Conflicts with quality and audio. No captions: `transcript_unavailable`, try audio.
+- `--keep`: YouTube only; retain downloaded files and print the kept path (JSON: mediaPath). Otherwise remove the job download directory after success or failure.
+- `--json`: common envelope with command media.
+- `--cwd`: resolve local input and workspace from this directory.
+
+YouTube hosts: youtube.com, www.youtube.com, m.youtube.com, music.youtube.com and youtu.be. Watch, shorts, embed, live and youtu.be URLs with one 11-character video id; no playlists, credentials or other hosts. yt-dlp uses argv arrays, no cookies, no login, no user configuration, no playlist, a max-filesize limit, and a 10-minute download budget. Downloads use `<stateRoot>/media/<jobId>/`. Jobs record a separate download phase; the agy phase uses the existing execution budget.
+
+Exit 0: completed; 1: validation, download or run failure; 2: cancelled agy run. Parser errors are stderr only. Expected input errors have an invalid_input envelope; failures after job creation use failed. Details: source (local/youtube), mode (video/audio/transcript), quality (or null), mediaPath, mimeType, bytes, videoId and ytDlpVersion (null for local), usage, durationSeconds, and expectations/expectationSummary when requested on a completed run. Provenance adds source, mode (the media mode), quality, videoId, bytes and ytDlpVersion; no secrets.
+
+Errors: media_not_found, media_unsupported_type, media_too_large, youtube_url_invalid, yt_dlp_missing, download_failed, transcript_unavailable, invalid_arguments, plus the existing agy denial, spawn and run errors. yt_dlp_missing names the winget and pip installation commands. A merge failure names ffmpeg and suggests quality 360p or audio. A denied read uses the existing remedy path and explains the directory grant.
+
 ## `vision`
 
 `agy --print` has no native image input. Its `read_file` tool sends file bytes
@@ -1073,7 +1096,7 @@ failure keeps its own existing `cancel_failed`/`state_busy` envelope
 update [--apply] [--json]
 ```
 
-`update` is a standalone dispatcher convenience, not one of the nine verbs.
+`update` is a standalone dispatcher convenience, not one of the ten verbs.
 No host wrapper reaches it, and its `--json` output is unstable in 3.x. It
 reads the running version, asks the npm registry for the latest version
 (cached 24 hours), and prints the update command of every host it finds on
@@ -1122,7 +1145,7 @@ Per host, `--apply` does this:
   both equal the registry's value. Then `tar -x`, and the extracted
   `package/package.json` must name `@southcarpet/antigravity-plugin` and that
   version. The shared preparation helper then makes a separate `antigravity/`
-  copy with the nine native wrappers under standard `skills/` paths. Only
+  copy with the ten native wrappers under standard `skills/` paths. Only
   after preparation succeeds does `plugin uninstall` run, followed by
   `plugin install` of that prepared copy. The source extraction and tarball
   bytes stay unchanged. If the record cannot be read or a check fails, the
@@ -1143,3 +1166,7 @@ always runs from the update's temporary directory. A sibling directory whose
 name only starts like the root's name does not count as inside it.
 
 `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.
+
+### Doctor media tools
+
+Doctor adds details.media with ytDlp.path and ytDlp.version (or absent), ffmpeg.path (or absent), and sizeCapBytes. The text report prints these too. Probes are local, read-only, without a network request. Missing optional tools do not block local media.

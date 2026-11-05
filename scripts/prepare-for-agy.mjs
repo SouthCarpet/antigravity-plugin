@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// The prepared copy contains exactly ten public wrappers.
 import { prepareAgyInstallCopy } from './lib/agy-install-copy.mjs';
 
 try {

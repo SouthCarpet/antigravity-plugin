@@ -6,6 +6,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Add media for local audio/video and one YouTube video, with quality, audio and transcript modes.
+- YouTube uses optional yt-dlp and ffmpeg tools.
+- Show media tools and the file size cap in doctor.
+
 ## [3.0.1] — 2026-10-16
 
 ### Changed

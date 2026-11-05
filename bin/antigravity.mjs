@@ -17,7 +17,7 @@ const SCRIPT_ROOT_OVERRIDE = process.env.ANTIGRAVITY_SCRIPT_ROOT
 const SCRIPT_ROOT = SCRIPT_ROOT_OVERRIDE ?? resolve(ROOT, 'scripts', 'commands');
 
 const INSTALL_URL = 'https://antigravity.google/download';
-const KNOWN = ['setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel', 'doctor'];
+const KNOWN = ['media', 'setup', 'review', 'rescue', 'task', 'vision', 'status', 'result', 'cancel', 'doctor'];
 // Commands that shell out to `agy`. status/result/cancel/doctor only read
 // disk state (doctor also probes agy read-only, but a missing agy is one of
 // its findings, not a preflight failure: it never needs this fast-fail).
@@ -25,6 +25,7 @@ const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
 const COMMAND_HELP = {
+  media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]',
   setup:
     'antigravity-plugin setup — one-time OAuth wizard.\n\n' +
     'Usage: antigravity-plugin setup [--skip-vision|--remove-vision]\n\n' +

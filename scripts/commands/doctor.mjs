@@ -35,6 +35,8 @@ import {
 import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
+import { mediaDoctor } from "../lib/media.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = join(HERE, "..", "..");
 
@@ -210,11 +212,14 @@ export async function run(argv = [], ctx = {}) {
   const visionCheck = checkVision();
   const stateRootCheck = checkStateRoot(workspaceRoot);
 
-  const checks = [nodeCheck, agyCheck, ...flagChecks, visionCheck, stateRootCheck];
+  const media = mediaDoctor();
+  const mediaCheck = { line: `Media: yt-dlp=${media.ytDlp.path} version=${media.ytDlp.version}; ffmpeg=${media.ffmpeg.path}; size cap=${media.sizeCapBytes} bytes`, bucket: "ok" };
+  const checks = [mediaCheck,nodeCheck, agyCheck, ...flagChecks, visionCheck, stateRootCheck];
   const counts = tally(checks);
   const status = overallStatus(counts);
 
   const details = {
+    media,
     node: nodeCheck.details,
     agy: agyCheck.details,
     flags: flagChecks.map((c) => c.details),

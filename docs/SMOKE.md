@@ -165,7 +165,7 @@ $antigravity status
 - [ ] `codex plugin add antigravity@antigravity` installs and enables the plugin
 - [ ] `$antigravity setup` succeeds
 - [ ] `$antigravity review` completes
-- [ ] `$antigravity vision` is reachable (same nine verbs as the other hosts)
+- [ ] `$antigravity vision` is reachable (same ten verbs as the other hosts)
 - [ ] `$antigravity status` lists jobs
 
 ## Host 4 — agy native
@@ -188,7 +188,7 @@ npx @southcarpet/antigravity-plugin review
 ```
 
 Interactive TUI (cannot be checked headlessly). In a **fresh** `agy` TUI
-session, in this repository, first check `/skills` for exactly the nine
+session, in this repository, first check `/skills` for exactly the ten
 `antigravity:<verb>` names with no path fragments, then type:
 
 ```text
@@ -221,3 +221,7 @@ Capture:
 If any host fails, file an issue against `SouthCarpet/antigravity-plugin`
 with that log. Do **not** tag the release until every host has at least one
 green smoke run for the verbs you ship.
+
+## Media smoke
+
+Run `node bin/antigravity.mjs media ./speech.wav --expect pineapple --json`. No vision registration is needed. YouTube needs yt-dlp on PATH and ffmpeg for merged video. Install with `winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`. Check `doctor --json` for both tools.
