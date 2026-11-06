@@ -164,6 +164,28 @@ test("VTT and SRT remove timestamps and tags", () => {
     "Hello\nWorld",
   );
 });
+// Oracle: plan 150 fix-2 caption conversion contract; each case pins plain-text output.
+test("nested entity spelling decodes only once", () =>
+  assert.equal(transcriptText("&amp;lt;b&amp;gt;"), "&lt;b&gt;"));
+
+test("malformed nested tags leave no angle brackets and retain speech", () =>
+  assert.equal(transcriptText("<<b>script>alert(1)</b>"), "alert(1)"));
+
+test("VTT class, timestamp and voice tags leave only speech", () =>
+  assert.equal(transcriptText("<c.yellow><00:00:01.500>Hello</c> <v Jawed>world</v>"), "Hello world"));
+
+test("SRT comma timing and VTT cue settings are dropped", () =>
+  assert.equal(
+    transcriptText("00:00:01,000 --> 00:00:02,000\n00:01.000 --> 00:02.000 align:start position:0%\nHello"),
+    "Hello",
+  ));
+
+test("speech containing a timing arrow is kept", () =>
+  assert.equal(transcriptText("A --> B is an arrow"), "A -- B is an arrow"));
+
+test("bare cue numbers are dropped while numbers with speech are kept", () =>
+  assert.equal(transcriptText("12\n12 elephants"), "12 elephants"));
+
 test("cleanup deletes default files and keeps opted-in files", (t) => {
   const dir = tmp(t),
     child = path.join(dir, "download");

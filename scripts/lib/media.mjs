@@ -70,11 +70,29 @@ export function ytDlpArgs({ videoId, mode, quality = '360p', directory, subtitle
   return [...args, '--', `https://www.youtube.com/watch?v=${videoId}`];
 }
 
+function isCaptionSpeech(line) {
+  const timing = /^(?:\d{2}:)?\d{2}:\d{2}[.,]\d{3}\b/.test(line) && line.includes('-->');
+  return !timing && !/^(?:WEBVTT|Kind:|Language:|NOTE|STYLE|Region:|\d+$)/.test(line);
+}
+
+const CAPTION_ENTITIES = Object.freeze({
+  '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&nbsp;': ' ',
+});
+
+function cleanCaptionLine(line) {
+  // Captions become plain text for terminals or model prompts, never HTML.
+  let previous;
+  do {
+    previous = line;
+    line = line.replace(/<[^<>]*>/g, '');
+  } while (line !== previous);
+  return line.replace(/[<>]/g, '')
+    .replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, (entity) => CAPTION_ENTITIES[entity]).trim();
+}
+
 export function transcriptText(text) {
-  const lines = text.replace(/\r/g, '').split('\n').filter((line) =>
-    line.trim() && !/^WEBVTT|^Kind:|^Language:|^NOTE|^STYLE|^Region:|^\d+$|-->|^\s*$/.test(line))
-    .map((line) => line.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim())
-    .filter(Boolean);
+  const lines = text.replace(/\r/g, '').split('\n').map((line) => line.trim())
+    .filter(isCaptionSpeech).map(cleanCaptionLine).filter(Boolean);
   return lines.filter((line, index) => index === 0 || line !== lines[index - 1]).join('\n');
 }
 
