@@ -165,7 +165,7 @@ $antigravity status
 - [ ] `codex plugin add antigravity@antigravity` installs and enables the plugin
 - [ ] `$antigravity setup` succeeds
 - [ ] `$antigravity review` completes
-- [ ] `$antigravity vision` is reachable (same nine verbs as the other hosts)
+- [ ] `$antigravity vision` is reachable (same ten verbs as the other hosts)
 - [ ] `$antigravity status` lists jobs
 
 ## Host 4 — agy native
@@ -188,7 +188,7 @@ npx @southcarpet/antigravity-plugin review
 ```
 
 Interactive TUI (cannot be checked headlessly). In a **fresh** `agy` TUI
-session, in this repository, first check `/skills` for exactly the nine
+session, in this repository, first check `/skills` for exactly the ten
 `antigravity:<verb>` names with no path fragments, then type:
 
 ```text
@@ -221,3 +221,7 @@ Capture:
 If any host fails, file an issue against `SouthCarpet/antigravity-plugin`
 with that log. Do **not** tag the release until every host has at least one
 green smoke run for the verbs you ship.
+
+## Media smoke
+
+Follow [INSTALL Media smoke](./INSTALL.md#media-smoke).

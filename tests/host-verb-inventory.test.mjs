@@ -3,10 +3,10 @@
  *
  * Each surface's set is derived from the file (dispatcher array, directory
  * listing, YAML command names, SKILL.md verb table) and compared against
- * the frozen 1.x contract in docs/COMPATIBILITY.md — not against each
+ * the approved 3.x contract in docs/COMPATIBILITY.md — not against each
  * other. Deriving "expected" from a union of the same surfaces under test
  * would let all of them drift together in lockstep and still pass; only an
- * independent oracle catches that. A ninth verb added in one place and
+ * independent oracle catches that. A new verb added in one place and
  * forgotten in another names the exact neglected surface.
  */
 
@@ -152,7 +152,7 @@ const SURFACES = [
 ];
 
 /**
- * The frozen 1.x public command surface, copied verbatim from
+ * The approved 3.x public command surface, copied verbatim from
  * docs/COMPATIBILITY.md ("The public verbs are exactly: ..."). This is the
  * independent oracle (TotT R19): it comes from the contract document, never
  * from reading any of the surfaces under test.
@@ -166,12 +166,12 @@ const EXPECTED_VERBS = uniqueSorted([
   'status',
   'result',
   'cancel',
-  'doctor',
+  'doctor', 'media',
 ]);
 
 describe('host verb inventory', () => {
   for (const surface of SURFACES) {
-    it(`${surface.name} matches the frozen 1.x verb set exactly, with no gaps or extras`, () => {
+    it(`${surface.name} matches the approved 3.x verb set exactly, with no gaps or extras`, () => {
       assert.deepEqual(uniqueSorted(surface.verbs), EXPECTED_VERBS, `${surface.name} does not match docs/COMPATIBILITY.md`);
     });
 

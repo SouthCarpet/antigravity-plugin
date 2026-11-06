@@ -193,7 +193,7 @@ export function resolveAgyBin(env = process.env, platform = process.platform) {
  */
 export async function probeAgy({
   bin = resolveAgyBin(),
-  timeoutMs = 5000,
+  timeoutMs = 20000,
   terminateTree = terminateProcessTree,
   platform = process.platform,
 } = {}) {

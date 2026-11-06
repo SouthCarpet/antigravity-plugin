@@ -22,7 +22,7 @@ const TAMPER_PRELOAD = pathToFileURL(
 const INSTALL_SKILLS = [
   'skills/cancel/SKILL.md', 'skills/doctor/SKILL.md', 'skills/rescue/SKILL.md',
   'skills/result/SKILL.md', 'skills/review/SKILL.md', 'skills/setup/SKILL.md',
-  'skills/status/SKILL.md', 'skills/task/SKILL.md', 'skills/vision/SKILL.md',
+  'skills/media/SKILL.md', 'skills/status/SKILL.md', 'skills/task/SKILL.md', 'skills/vision/SKILL.md',
 ];
 const SYSTEM32 = 'C:\\Windows\\System32';
 
@@ -92,8 +92,8 @@ function runScriptJson(args, extraEnv) {
   return report;
 }
 
-describe('pack-for-agy: prepared copy preserves npm files and adds only nine standard skills', () => {
-  it('the prepared file list equals the tarball list plus exactly the nine standard native skills', () => {
+describe('pack-for-agy: prepared copy preserves npm files and adds only ten standard skills', () => {
+  it('the prepared file list equals the tarball list plus exactly the ten standard native skills', () => {
     const report = runScriptJson([]);
 
     const extracted = listFilesRecursive(report.dir);
@@ -145,7 +145,7 @@ describe('pack-for-agy: works with bsdtar (Windows System32 tar) first on PATH',
   it('extracts successfully when System32 resolves before any other tar', { skip: process.platform !== 'win32' }, () => {
     const report = runScriptJson([], { PATH: `${SYSTEM32}${path.delimiter}${process.env.PATH ?? ''}` });
     assert.ok(fs.existsSync(path.join(report.dir, 'package.json')));
-    assert.equal(report.fileCount, dryRunPackFiles().length + 9);
+    assert.equal(report.fileCount, dryRunPackFiles().length + 10);
   });
 });
 

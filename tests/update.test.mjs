@@ -1214,7 +1214,7 @@ describe('update --apply: agy installs only the verified tarball', () => {
     const run = await applyAgy();
     assert.equal(run.exit, 0, run.out);
     assert.deepEqual(fs.readdirSync(path.join(work, 'antigravity', 'skills')).sort(), [
-      'cancel', 'doctor', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision',
+      'cancel', 'doctor', 'media', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision',
     ]);
     assert.deepEqual(run.calls, [
       { command: 'npm', args: packArgs('1.5.0', work), cwd: work, capture: true },
@@ -1253,7 +1253,7 @@ describe('update --apply: agy installs only the verified tarball', () => {
     ['the extracted package has another version', { step: { extracted: { version: '1.4.0' } } },
       ['npm', 'tar'], /the extracted package is @southcarpet\/antigravity-plugin@1\.4\.0, not/],
     ['the native doctor wrapper is missing', { step: { omitWrapper: true } },
-      ['npm', 'tar'], /agy-skills must contain exactly the nine public wrappers/],
+      ['npm', 'tar'], /agy-skills must contain exactly the ten public wrappers/],
   ]) {
     it(`stops before uninstall when ${name}`, async () => {
       const run = await applyAgy({ fetch: options.fetch?.(), step: options.step });

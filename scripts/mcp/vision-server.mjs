@@ -12,6 +12,10 @@
  * single `view_image` tool that reads an image file off disk and returns it
  * that way — verified live against agy 1.1.11 / gemini-3.6-flash-high.
  *
+ * Historical scope: the read_file limitation above describes agy 1.1.11.
+ * On agy 1.5.0, media uses read_file plus --add-dir for audio/video.
+ * This server remains the image channel; media does not use MCP.
+ *
  * Access is capability-scoped, not prompt-scoped. The parent vision command
  * passes the exact user-named absolute paths in a per-process environment
  * value. This server denies all access when that value is absent or invalid,

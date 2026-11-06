@@ -9,7 +9,7 @@
  * Pointing agy at a clean checkout still ships those extra trees into
  * `~/.gemini/config/plugins/antigravity/`. Pointing it at the *packed and
  * re-extracted* tarball preserves those files. A separate agy copy adds
- * the nine standard skills paths required by its native loader.
+ * the ten standard skills paths required by its native loader.
  *
  * This script never runs `agy` and never touches `~/.gemini`. It writes
  * only under one `fs.mkdtempSync` directory in `os.tmpdir()`, which it

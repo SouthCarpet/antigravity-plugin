@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { prepareAgyInstallCopy } from '../scripts/lib/agy-install-copy.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const VERBS = ['cancel', 'doctor', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision'];
+const VERBS = ['cancel', 'doctor', 'media', 'rescue', 'result', 'review', 'setup', 'status', 'task', 'vision'];
 
 function fixture(t) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-install-copy-test-'));
@@ -71,7 +71,7 @@ it('refuses a foreign manifest before creating a prepared copy', (t) => {
 it('refuses a missing wrapper before creating a prepared copy', (t) => {
   const { source, target } = fixture(t);
   fs.unlinkSync(path.join(source, 'agy-skills', 'doctor', 'SKILL.md'));
-  assert.throws(() => prepareAgyInstallCopy(source), /exactly the nine/);
+  assert.throws(() => prepareAgyInstallCopy(source), /exactly the ten/);
   assert.equal(fs.existsSync(target), false);
 });
 
@@ -79,7 +79,7 @@ it('refuses an extra wrapper before creating a prepared copy', (t) => {
   const { source, target } = fixture(t);
   fs.mkdirSync(path.join(source, 'agy-skills', 'extra'));
   fs.writeFileSync(path.join(source, 'agy-skills', 'extra', 'SKILL.md'), '---\nname: extra\n---');
-  assert.throws(() => prepareAgyInstallCopy(source), /exactly the nine/);
+  assert.throws(() => prepareAgyInstallCopy(source), /exactly the ten/);
   assert.equal(fs.existsSync(target), false);
 });
 

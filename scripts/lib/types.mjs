@@ -12,7 +12,7 @@
  */
 
 /**
- * @typedef {"review" | "rescue" | "task" | "vision"} JobKind
+ * @typedef {"review" | "rescue" | "task" | "vision" | "media"} JobKind
  */
 
 /**
@@ -93,7 +93,18 @@
  * The request payload persisted alongside a job (`state.mjs`'s per-job
  * `.json` file, `request` field) so a background worker can replay it.
  *
+ * @typedef {object} MediaProvenance
+ * @property {"local" | "youtube"} source
+ * @property {"audio" | "video" | "transcript"} mode
+ * @property {string | null} quality
+ * @property {string | null} videoId
+ * @property {number | null} bytes
+ * @property {string | null} ytDlpVersion
+ */
+
+/**
  * @typedef {object} JobRequest
+ * @property {MediaProvenance} [media]
  * @property {string} prompt
  * @property {"print" | "continue" | "conversation"} [mode]
  * @property {string} [conversationId]
@@ -174,7 +185,12 @@
  * @property {string | null} effort the resolved `--effort` value, including
  *   the `agy-default` sentinel; `null` for a verb with no effort flag
  *   (`review`, `vision`)
- * @property {"print" | "continue" | "conversation"} mode
+ * @property {"print" | "continue" | "conversation" | "audio" | "video" | "transcript"} mode
+ * @property {"local" | "youtube"} [source]
+ * @property {string | null} [quality]
+ * @property {string | null} [videoId]
+ * @property {number | null} [bytes]
+ * @property {string | null} [ytDlpVersion]
  * @property {number} addDirCount the count of `--add-dir` values only, never
  *   the paths themselves
  * @property {string} requestedAt ISO timestamp, the same instant as the
@@ -284,7 +300,7 @@
  *
  * @typedef {object} JsonEnvelopeV1
  * @property {1} schemaVersion
- * @property {"review" | "rescue" | "task" | "vision" | "status" | "result" | "cancel"} command
+ * @property {"review" | "rescue" | "task" | "vision" | "media" | "status" | "result" | "cancel"} command
  * @property {string} status
  * @property {string | null} jobId
  * @property {string | null} answer

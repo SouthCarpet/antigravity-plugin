@@ -6,6 +6,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-11-06
+
+- Allow 20 seconds for the agy version probe and retry a timed-out verb probe once under load.
+- Add media for local audio/video and one YouTube video, with quality, audio and transcript modes.
+- YouTube uses optional yt-dlp and ffmpeg tools.
+- Show media tools and the file size cap in doctor.
+
 ## [3.0.1] — 2026-10-16
 
 ### Changed
@@ -337,7 +344,8 @@ Initial release. Replaces [`gemini-plugin-cc`](https://github.com/sakibsadmansha
 
 - All ACP code, since agy does not support ACP, and live token streaming.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...v3.0.0
 [2.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.0.2...v2.1.0

@@ -64,6 +64,7 @@ export function createJsonEnvelope(command, fields = {}) {
  * the same change.
  */
 export const ERROR_CODES = Object.freeze([
+  "media_not_found", "media_unsupported_type", "media_too_large", "youtube_url_invalid", "yt_dlp_missing", "download_failed", "transcript_unavailable", "invalid_arguments",
   // no_agy, phase probe
   "agy_not_found",
   // failed, phase run

@@ -272,11 +272,12 @@ export function agyModeArgs(mode) {
  * for the four verbs that run agy.
  *
  * @param {string} kind verb name (`review`, `rescue`, `task`, `vision`)
- * @param {{ bin?: string, probe?: typeof probeAgy }} [opts]
+ * @param {{ bin?: string, probe?: typeof probeAgy, timeoutMs?: number }} [opts]
  * @returns {Promise<{ line: string | null, version: string | null }>}
  */
-export async function probeAgyForVerb(kind, { bin = resolveAgyBin(), probe = probeAgy } = {}) {
-  const result = await probe({ bin });
+export async function probeAgyForVerb(kind, { bin = resolveAgyBin(), probe = probeAgy, timeoutMs = 20000 } = {}) {
+  let result = await probe({ bin, timeoutMs });
+  if (!result.ok && result.reason === "timeout") result = await probe({ bin, timeoutMs });
   if (result.ok) return { line: null, version: result.version ?? null };
   return {
     line: `antigravity:${kind} — \`agy\` is not on PATH (${result.reason}). Run /antigravity:setup.`,
@@ -920,6 +921,7 @@ const VISION_DENIAL_REMEDY =
  */
 export function denialRemedy(action, verb) {
   if (verb === "vision") return VISION_DENIAL_REMEDY;
+  if (verb === "media" && READ_GRANTABLE_ACTIONS.has(action)) return "Media reads use --add-dir for only the file directory. Check that grant, then run media again.";
   if (READ_GRANTABLE_ACTIONS.has(action)) {
     return "Pass --add-dir <dir> to grant read access to that directory for this run.";
   }
@@ -1095,6 +1097,7 @@ function buildJobProvenance({ agyVersion, request, requestedAt }) {
     mode: request?.mode ?? "print",
     addDirCount: Array.isArray(request?.addDirs) ? request.addDirs.length : 0,
     requestedAt,
+    ...(request?.media ?? {}),
   };
 }
 
@@ -1210,6 +1213,7 @@ function stripDetail(patch) {
  * @returns {Promise<{ job: import('./types.mjs').JobRecord, result: import('./types.mjs').RuntimeResult }>}
  */
 export async function runForegroundJob({
+  existingJob,
   workspaceRoot,
   kind,
   title,
@@ -1230,7 +1234,7 @@ export async function runForegroundJob({
   onStderr,
   onText,
 } = {}) {
-  const job = await createTrackedJob({
+  const job = existingJob ?? await createTrackedJob({
     workspaceRoot,
     kind,
     title,
