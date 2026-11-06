@@ -158,7 +158,8 @@ measured matrix; see docs/COMPATIBILITY.md.`). Setup never refuses to run
 on an unmeasured or newer version; the line is advisory only.
 
 Exit status is 0 on success, 1 when vision configuration/removal or spawning
-fails, and 2 when the agy version probe cannot find or run agy. A nonzero exit
+fails, and 2 when the agy version probe cannot find or run agy. That probe
+waits up to 20 seconds and setup does not retry it. A nonzero exit
 from the interactive agy call is passed through unchanged. The standalone
 dispatcher can return 127 earlier when an explicit `AGY_BIN` path is missing.
 
@@ -677,9 +678,7 @@ Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp
 - `--expect`: same trimmed, repeatable transcription substring check as vision, at most 32 values, no exit-code change.
 - `--quality`: YouTube only; 360p default, 480p or 720p. A ceiling, not a promise that the source has that resolution. Needs ffmpeg when formats must merge.
 - `--audio`: YouTube m4a audio only. Conflicts with quality.
-Caption metadata uses `--skip-download --dump-single-json` and downloads nothing.
-
-- `--transcript`: captions only, manual before automatic, original language before English. Prints plain text without timestamps and no agy call. With prompt, sends the transcript as text to agy, with no add-dir. Conflicts with quality and audio. No captions: `transcript_unavailable`, try audio.
+- `--transcript`: captions only, manual before automatic, original language before English. Caption metadata uses `--skip-download --dump-single-json` and downloads nothing. Prints plain text without timestamps and no agy call. With prompt, sends the transcript as text to agy, with no add-dir. Conflicts with quality and audio. No captions: `transcript_unavailable`, try audio.
 - `--keep`: YouTube only; retain downloaded files and print the kept path (JSON: mediaPath). Otherwise remove the job download directory after success or failure. The kept transcript directory includes `media.info.json` with the selected language. On a failed kept download, `details.mediaPath` names the directory.
 - `--json`: common envelope with command media.
 - `--cwd`: resolve local input and workspace from this directory.

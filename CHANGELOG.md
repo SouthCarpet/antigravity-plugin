@@ -7,7 +7,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ## [Unreleased]
 
 - Allow 20 seconds for the agy version probe and retry a timed-out verb probe once under load.
-
 - Add media for local audio/video and one YouTube video, with quality, audio and transcript modes.
 - YouTube uses optional yt-dlp and ffmpeg tools.
 - Show media tools and the file size cap in doctor.
