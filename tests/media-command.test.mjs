@@ -50,7 +50,7 @@ test("local wav reaches agy with only its directory granted and measured details
   assert.equal(payload.details.bytes, 5);
   assert.equal(payload.details.expectationSummary, "all_found");
   assert.equal(payload.details.durationSeconds, 1);
-  assert.deepEqual(calls[0].addDirs, [fs.realpathSync(dir)]);
+  assert.deepEqual(calls[0].addDirs.map((dir) => fs.realpathSync.native(dir)), [fs.realpathSync.native(dir)]);
   assert.equal(calls[0].model, "gemini-3.8-flash-high");
   assert.match(calls[0].prompt, /read_file/);
   const job = readJobFile(dir, payload.jobId);
@@ -168,7 +168,10 @@ for (const mode of ["video", "audio", "transcript"])
     }
     assert.equal(code, 0, cap.err.join(""));
     const payload = JSON.parse(cap.out.join(""));
-    const directory = path.dirname(payload.details.mediaPath);
+    // Resolve the existing parent: the job directory has already been cleaned.
+    // macOS /var resolves to /private/var; Windows temp paths may use 8.3 names.
+    const directory = path.join(fs.realpathSync.native(path.join(dir, 'data')), 'state', 'media', payload.jobId);
+    assert.equal(path.dirname(payload.details.mediaPath), directory);
     assert.equal(calls.length, before + 1);
     assert.deepEqual(calls.at(-1).addDirs, mode === "transcript" ? [] : [directory]);
     assert.equal(fs.existsSync(directory), false);

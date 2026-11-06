@@ -287,7 +287,8 @@ test("doctor reports the installed fake downloader path and version", async (t) 
   const dir = tmp(t);
   const bin = writeFixtureYtDlp(dir);
   const result = mediaDoctor({ ...process.env, PATH: dir + path.delimiter + process.env.PATH });
-  assert.equal(result.ytDlp.path, bin);
+  // macOS /var resolves to /private/var; Windows temp paths may use 8.3 names.
+  assert.equal(fs.realpathSync.native(result.ytDlp.path), fs.realpathSync.native(bin));
   assert.equal(result.ytDlp.version, "2026.10.26");
 });
 test("download deadline terminates a sleeping downloader", async (t) => {

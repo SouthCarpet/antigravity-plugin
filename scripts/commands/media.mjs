@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { readCommandInput } from '../lib/args.mjs';
 import { runIfMain } from '../lib/cli-entry.mjs';
@@ -27,8 +27,9 @@ function mediaPrompt(media, userPrompt) {
 }
 
 async function prepareYoutube(media, job, workspaceRoot, options) {
-  const directory = join(resolveStateRoot().root, 'media', job.id);
+  let directory = join(resolveStateRoot().root, 'media', job.id);
   mkdirSync(directory, { recursive: true });
+  directory = realpathSync.native(directory);
   await patchJob(workspaceRoot, job.id, { status: 'running', phase: 'download', startedAt: new Date().toISOString() });
   try {
     const downloaded = await downloadMedia({ bin: media.ytDlpPath, videoId: media.videoId, mode: media.mode, quality: media.quality, directory });
