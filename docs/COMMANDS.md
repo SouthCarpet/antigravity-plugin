@@ -175,11 +175,12 @@ the network: it reads `process.version`, `package.json` `engines.node`,
 step writes, and the job-state root. There is no `--live` flag: `setup`
 already is this plugin's live probe, so a read-only verb stays read-only.
 
-Five checks, one line each in markdown mode:
+Six checks, one line each in markdown mode:
 
-1. **Node.** `process.version` compared against `package.json`'s
+1. **Media.** Local yt-dlp and ffmpeg paths, yt-dlp version, and the size cap.
+2. **Node.** `process.version` compared against `package.json`'s
    `engines.node` (`>=22.3.0`): `ok` or `incompatible`.
-2. **agy binary.** The resolved path (`resolveAgyBin`), whether it is
+3. **agy binary.** The resolved path (`resolveAgyBin`), whether it is
    spawnable, and its version (`agy --version`). The version is classified
    against this plugin's measured range (`scripts/lib/compat.mjs`):
    `verified` (a
@@ -187,14 +188,14 @@ Five checks, one line each in markdown mode:
    (newer than the newest measured row), `unmeasured` (inside the range but
    not a matrix row), `incompatible` (older than the oldest measured row),
    or `missing` (agy was not found).
-3. **Flags.** One `agy --help` call, checked once, for every flag this
+4. **Flags.** One `agy --help` call, checked once, for every flag this
    plugin forwards (`--add-dir`, `--model`, `--effort`, `--mode`,
    `--continue`, `--conversation`, `--print-timeout`,
    `--disable-slash-commands`, `--input-format`, `--output-format`,
    `--print`, `--json-schema`): `listed` when the flag's text appears in
    that output, `not_listed` otherwise. A `listed` flag is not a promise
    that the flag still works; the report header says so.
-4. **Vision configuration.** A read-only presence check of the
+5. **Vision configuration.** A read-only presence check of the
    plugin-owned entry in `~/.gemini/config/mcp_config.json`
    (`mcpServers.vision`) and the `mcp(vision/view_image)` permission in
    `~/.gemini/antigravity-cli/settings.json`
@@ -202,7 +203,7 @@ Five checks, one line each in markdown mode:
    `registered`, `absent` (normal before `setup` has run without
    `--skip-vision`), or `unreadable` (a file exists but could not be
    parsed).
-5. **Job-state root.** Which environment variable selected it
+6. **Job-state root.** Which environment variable selected it
    (`CLAUDE_PLUGIN_DATA`, `CODEX_PLUGIN_DATA`, `AGY_PLUGIN_DATA`, or the
    standalone temp default), the resulting workspace directory, whether it
    exists yet, and whether this workspace is still on an older ("legacy")
@@ -218,6 +219,13 @@ measuredRange: { min, newest } }`. `status` is `"ok"`, `"warnings"`, or
 problems. Exit status is 0 for `ok` or `warnings`, and 1 for `problems`
 (an incompatible or missing agy, an incompatible Node version, or a
 job-state root that could not be read).
+
+The `no_agy` probe uses a 20-second version deadline. Verbs retry once only
+on timeout, then report `no_agy`; missing binaries are not retried.
+
+### Doctor media tools
+
+Doctor adds details.media with ytDlp.path and ytDlp.version (or absent), ffmpeg.path (or absent), and sizeCapBytes. The text report prints these too. Probes are local, read-only, without a network request. Missing optional tools do not block local media.
 
 ## `review`
 
@@ -669,8 +677,10 @@ Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp
 - `--expect`: same trimmed, repeatable transcription substring check as vision, at most 32 values, no exit-code change.
 - `--quality`: YouTube only; 360p default, 480p or 720p. A ceiling, not a promise that the source has that resolution. Needs ffmpeg when formats must merge.
 - `--audio`: YouTube m4a audio only. Conflicts with quality.
+Caption metadata uses `--skip-download --dump-single-json` and downloads nothing.
+
 - `--transcript`: captions only, manual before automatic, original language before English. Prints plain text without timestamps and no agy call. With prompt, sends the transcript as text to agy, with no add-dir. Conflicts with quality and audio. No captions: `transcript_unavailable`, try audio.
-- `--keep`: YouTube only; retain downloaded files and print the kept path (JSON: mediaPath). Otherwise remove the job download directory after success or failure.
+- `--keep`: YouTube only; retain downloaded files and print the kept path (JSON: mediaPath). Otherwise remove the job download directory after success or failure. The kept transcript directory includes `media.info.json` with the selected language. On a failed kept download, `details.mediaPath` names the directory.
 - `--json`: common envelope with command media.
 - `--cwd`: resolve local input and workspace from this directory.
 
@@ -1166,7 +1176,3 @@ always runs from the update's temporary directory. A sibling directory whose
 name only starts like the root's name does not count as inside it.
 
 `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.
-
-### Doctor media tools
-
-Doctor adds details.media with ytDlp.path and ytDlp.version (or absent), ffmpeg.path (or absent), and sizeCapBytes. The text report prints these too. Probes are local, read-only, without a network request. Missing optional tools do not block local media.

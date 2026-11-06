@@ -104,7 +104,7 @@
   <rect x="90" y="436" width="340" height="80" rx="6" class="hiw-accent-tint"/>
   <rect x="90" y="436" width="340" height="80" rx="6" fill="none" class="hiw-accent-s" stroke-width="1.2"/>
   <text x="260" y="462" text-anchor="middle" class="hiw-name hiw-ink">Google</text>
-  <text x="260" y="480" text-anchor="middle" class="hiw-sub hiw-muted">prompt &#183; selected diff &#183; named image bytes</text>
+  <text x="260" y="480" text-anchor="middle" class="hiw-sub hiw-muted">prompt &#183; selected diff &#183; named image, audio and video bytes</text>
   <text x="260" y="494" text-anchor="middle" class="hiw-sub hiw-muted">nothing else leaves this machine</text>
 
   <!-- E: local MCP (vision) -->

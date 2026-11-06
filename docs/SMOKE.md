@@ -224,4 +224,4 @@ green smoke run for the verbs you ship.
 
 ## Media smoke
 
-Run `node bin/antigravity.mjs media ./speech.wav --expect pineapple --json`. No vision registration is needed. YouTube needs yt-dlp on PATH and ffmpeg for merged video. Install with `winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`. Check `doctor --json` for both tools.
+Follow [INSTALL Media smoke](./INSTALL.md#media-smoke).

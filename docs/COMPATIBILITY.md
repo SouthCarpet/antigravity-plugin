@@ -59,7 +59,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.2.12 | `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and smoke-only measurement. `review`, `rescue`, `vision`, and `cancel` were not run live on 1.2.12. See the [structured output flag](#structured-output-flag) probe. | 2026-09-27 |
 | 1.3.1 | Measured pass: `doctor`; `task` foreground, and background with `--wait`; `status` list and by job id; `result`; `cancel` of a running job; `review`, plain and with `--findings-json`; `setup --skip-vision`; `rescue` with a trivial prompt; `--add-dir`; `vision` with `gemini-3.8-flash-high` (5 of 5 runs, one with a path that holds a space, `#`, and `%`); `vision` with `gemini-3.6-flash-high` (3 of 5 runs); `agy plugin install`, `list`, `validate`, and `uninstall` in an isolated profile. Measured failure: `vision` with `gemini-3.6-flash-high` failed 2 of 5 runs with a 503 capacity error; `rescue` with a prompt that needs a shell command failed because agy headless mode denied the `command` tool (the plugin named the tool and gave the remedy); `cancel` of a job that had already finished returned `job_not_found`, exit 1; `setup --json` is not supported. Not measured: `setup` without `--skip-vision`, `setup --remove-vision`, `review --background`, `--show-result`, `--request-id`, `--prompt-file`, `--preview`, `--check-locations`, `--mode`, and resuming a conversation with `--continue` or `--conversation`. 1.2.13 to 1.3.0 were not run live. See the [agy 1.3.1 probes](#agy-131-probes) for the raw files. | 2026-10-08 |
 | 1.4.0 | Measured pass: native discovery of all nine exact aliases and one TUI `doctor --json`; `task` foreground and background; `status` and `result` for that background job; `cancel` of an observed running job; trivial foreground `rescue`; plain `review` detecting a subtraction regression; one synthetic `vision` image with `--expect`. Not measured: `setup`, the remaining flags/modes, and all nine verbs through native wrappers. See the [1.4.0 runtime probes](#agy-140-runtime-probes). | 2026-10-16 |
-| 1.5.0 | On 2026-11-04: setup --skip-vision, task foreground/background, status/result/cancel lifecycle, rescue, plain review and findings review, vision. The native doctor attempt was denied; its alternate skip-permission run is not a normal-wrapper pass. Evidence: A:/tmp/agy-update-check/probes/ (setup-skip-vision.txt, task-bg-wait.txt, cancel.txt, rescue.txt, review-plain.txt, review-findings.txt, vision.txt, native-doctor.txt, native-doctor-skip.txt). Media and doctor tool probes on 2026-11-06 are recorded below. | 2026-11-06 |
+| 1.5.0 | On 2026-11-04: setup --skip-vision, task foreground/background, status/result/cancel lifecycle, rescue, plain review and findings review, vision. The native doctor attempt was denied; its alternate skip-permission run is not a normal-wrapper pass. Probe ids dated 2026-11-04: (setup-skip-vision.txt, task-bg-wait.txt, cancel.txt, rescue.txt, review-plain.txt, review-findings.txt, vision.txt, native-doctor.txt, native-doctor-skip.txt). Media and doctor tool probes on 2026-11-06 are recorded below. | 2026-11-06 |
 | 1.5.1 | Media local and YouTube probes, near-cap file and doctor. Partial coverage and exact outcomes below. The installed binary reported 1.5.1 during these runs; 1.5.0 remains the separate controller measurement above. | 2026-11-06 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
@@ -220,7 +220,7 @@ Reinstall from a fresh prepared copy using [INSTALL.md](./INSTALL.md#agy-itself)
 then check `plugin list --json` and TUI `/skills` for the exact ten
 `antigravity:<verb>` names. Raw source validation can still report zero
 skills on 1.4.0; validate the prepared copy instead. Discovery checks do not
-establish live success of all nine native wrappers. The separate runtime
+establish live success of the nine native wrappers shipped in 1.4.0. The separate runtime
 checks are listed below.
 
 The prepared copy also passed an actual TUI check on 2026-10-16: `/skills`
@@ -1574,20 +1574,20 @@ called out when it affects observable output.
 
 Media uses agy read_file plus --add-dir for only the file directory. It does not use the vision MCP server. The historical read_file limitation in that server header describes agy 1.1.11. On agy 1.5.0 the earlier probes delivered real audio/video; these new command probes ran against the installed agy 1.5.1 binary. The default media model is gemini-3.8-flash-high, matching vision.
 
-The cap is 100,000,000 bytes (decimal 100 MB). A real 99,993,947-byte, approximately eight-minute 480p MP4 passed on 2026-11-06 with agy 1.5.1: the answer described the picture and repeated speech, including pineapple and 42. Measured usage was total=96509 in=91222 out=5287. The fixture joins four copies of the earlier 24,982,222-byte probe. No cap reduction was needed. Evidence: A:/tmp/150-p1-maker/probes/near-generation.txt, near-cap.out and near-cap.err. The cap is a local guard, not a promise about every codec or future upstream limit.
+The cap is 100,000,000 bytes (decimal 100 MB). A real 99,993,947-byte, approximately eight-minute 480p MP4 passed on 2026-11-06 with agy 1.5.1: the answer described the picture and repeated speech, including pineapple and 42. Measured usage was total=96509 in=91222 out=5287. The fixture joins four copies of the earlier 24,982,222-byte probe. No cap reduction was needed. Probe ids dated 2026-11-06: near-generation.txt, near-cap.out and near-cap.err. The cap is a local guard, not a promise about every codec or future upstream limit.
 
 yt-dlp 2026.10.26 was installed with winget. Video merges need ffmpeg; the installed yt-dlp FFmpeg package was N-127043-g5a54fcf75e-20260930. Both are optional for local files. Doctor reads their paths and yt-dlp version without network access. Subtitles use metadata to choose the original language and English, with manual captions before automatic captions in yt-dlp. Missing captions point to --audio; upstream download errors remain download_failed with a bounded, filtered diagnostic.
 
 ### Media probe evidence (2026-11-06)
 
-All files below are under A:/tmp/150-p1-maker/probes/. Exact commands, exit codes and output excerpts are in the maker report at A:/tmp/150-p1-maker/report.md. Native host discovery of the new tenth wrapper is covered by the fake-host tests, not a live install. No agy configuration or installed plugin copy was changed.
+The probe ids below are dated 2026-11-06. Native host discovery of the new tenth wrapper is covered by the fake-host tests, not a live install. No agy configuration or installed plugin copy was changed.
 
 | Probe | Exit | Result | Files |
 |---|---|---|---|
 | local-wav | 0 | completed / all_found | local-wav.out, local-wav.err |
 | local-mp4 | 0 | completed / all_found | local-mp4.out, local-mp4.err |
 | youtube-360 | 0 | completed | youtube-360.out, youtube-360.err |
-| youtube-720 | 0 | completed | youtube-720.out, youtube-720.err |
+| youtube-720 | 0 | completed; the source has no mp4 video stream above 320x240, so 720p was a ceiling only | youtube-720.out, youtube-720.err |
 | youtube-audio | 0 | completed | youtube-audio.out, youtube-audio.err |
 | youtube-transcript | 0 | completed | youtube-transcript.out, youtube-transcript.err |
 | youtube-summary | 0 | completed | youtube-summary.out, youtube-summary.err |
@@ -1601,3 +1601,7 @@ All files below are under A:/tmp/150-p1-maker/probes/. Exact commands, exit code
 | refuse-conflict | 1 | parser refusal | refuse-conflict.out, refuse-conflict.err |
 
 Earlier attempts are retained as *-attempt1.out/err. Initial local probes hit the existing five-second agy version-probe timeout under load. The first audio run hit a command-tool denial; the prompt now explicitly confines the model to read_file. The first subtitle attempt requested every language and failed; metadata-based selection passed on retry. These are not hidden passes.
+
+Version-probe load measurements (2026-11-04): `agy --version` took 0.9 to 1.4 seconds idle and 2.5 to 7.7 seconds during the suite. The default deadline is now 20 seconds, with one timeout-only retry for verbs (at most two deadlines plus termination). Doctor uses the same 20-second probe default.
+
+Load regression probes on 2026-11-06: `load-local` (`clip.mp4 --expect ZEBRA`) completed with `all_found`, and `load-transcript` (YouTube `jNQXAC9IVRw`, `--transcript --prompt "One sentence."`) completed. Each ran while `npm test` was active. Both used agy 1.5.1.

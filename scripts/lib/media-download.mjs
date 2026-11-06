@@ -3,7 +3,7 @@ import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { safeFailureReason } from './safe-reason.mjs';
 import { terminateProcessTree } from './process.mjs';
-import { ytDlpArgs, mediaError, localMedia, findTranscript, youtubeId } from './media.mjs';
+import { ytDlpArgs, captionMetadataArgs, mediaError, localMedia, findTranscript, youtubeId } from './media.mjs';
 
 async function runDownloader(bin, args, directory, deadline) {
   const child = spawn(bin, args, {
@@ -28,12 +28,12 @@ async function runDownloader(bin, args, directory, deadline) {
   return stdout;
 }
 
-export async function downloadMedia({ bin, videoId, mode, quality, directory }) {
+export async function downloadMedia({ bin, videoId, mode, quality, directory, budgetMs = 600_000 }) {
   youtubeId(`https://www.youtube.com/watch?v=${videoId}`);
-  const deadline = Date.now() + 600_000;
+  const deadline = Date.now() + budgetMs;
   let subtitleLanguage = 'en';
   if (mode === 'transcript') {
-    const metadata = await runDownloader(bin, ['--ignore-config', '--no-playlist', '--skip-download', '--dump-single-json', '--', `https://www.youtube.com/watch?v=${videoId}`], directory, deadline);
+    const metadata = await runDownloader(bin, captionMetadataArgs(videoId), directory, deadline);
     let info;
     try { info = JSON.parse(metadata); } catch { throw mediaError('download_failed', 'Could not read YouTube caption metadata.'); }
     if (/^[a-zA-Z0-9_-]+$/.test(info.language ?? '')) subtitleLanguage = info.language;

@@ -218,7 +218,7 @@ describe('bounded stdio draining', () => {
     autoExit = false;
     t.mock.timers.enable({ apis: ['setTimeout'] });
     try {
-      const pending = probeAgy({ bin: 'agy', terminateTree: async () => {} });
+      const pending = probeAgy({ bin: 'agy', timeoutMs: 5000, terminateTree: async () => {} });
       spawnCalls.at(-1).child.emit('exit', 0);
       t.mock.timers.tick(5000);
       assert.deepEqual(await pending, { ok: false, reason: 'timeout' });

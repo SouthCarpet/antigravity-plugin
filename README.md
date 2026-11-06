@@ -20,7 +20,7 @@ Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's 
 
 - Runs `agy --print` from the host you already use.
 - Gives Claude Code, Codex CLI, agy, and the standalone CLI the same ten verbs.
-- Reviews diffs, runs delegated prompts, analyzes named images, and manages background jobs.
+- Reviews diffs, runs delegated prompts, analyzes named images and media, and manages background jobs.
 
 ## Installation and quick start
 
@@ -130,7 +130,7 @@ npx @southcarpet/antigravity-plugin vision ./screenshot.png --prompt "Which text
 
 ## Media
 
-Send a local audio or video file with `media ./clip.mp4`. agy 1.5.0 opens the exact file with `read_file`, with `--add-dir` limited to its directory. Media bytes reach Google. For YouTube, yt-dlp downloads the file first, then that file reaches Google.
+Send a local audio or video file with `media ./clip.mp4`. agy 1.5.0 and 1.5.1 open the exact file with `read_file`, with `--add-dir` limited to its directory. The whole directory of the file is readable for the run; keep unrelated files out of it. Media bytes reach Google. For YouTube, yt-dlp downloads the file first, then that file reaches Google.
 
 YouTube needs yt-dlp on PATH (`winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`). Merging video formats needs ffmpeg. Default quality is 360p; use `--quality 480p`, `--quality 720p`, `--audio`, or `--transcript`. Transcript-only mode prints captions without a model call; add `--prompt` to ask about them. Downloads are deleted after the job unless `--keep`. Local files have a 100,000,000-byte cap. The default model matches vision: `gemini-3.8-flash-high`.
 

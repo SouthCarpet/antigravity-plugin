@@ -106,3 +106,8 @@ export function mediaDoctor(env = process.env) {
   return { ytDlp: path ? { path, version: version || 'absent' } : { path: 'absent', version: 'absent' },
     ffmpeg: { path: ffmpeg ?? 'absent' }, sizeCapBytes: MEDIA_MAX_BYTES };
 }
+
+export function captionMetadataArgs(videoId) {
+  return ['--ignore-config', '--no-playlist', '--skip-download', '--dump-single-json',
+    '--', `https://www.youtube.com/watch?v=${videoId}`];
+}
