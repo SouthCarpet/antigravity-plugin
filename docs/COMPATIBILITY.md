@@ -9,7 +9,7 @@ changes](#deprecation-and-compatibility-changes)). A behavior is public only
 when this document or the [commands reference](./COMMANDS.md) says it is
 promised.
 
-Plugin 3.0.1 is this package's version number. Measured versions of Google's
+Plugin 3.1.0 is this package's version number. Measured versions of Google's
 Antigravity CLI span 1.1.15 to 1.5.1; newest measured 1.5.1. Coverage differs
 by version. The 1.4.0 checks cover native discovery, `doctor`, `task`,
 `status`, `result`, running-job `cancel`, `rescue`, `review`, and one simple
@@ -279,7 +279,7 @@ touched the real `~/.gemini` store on agy 1.2.12: verified, transcript
 
 ### agy 1.4.0 runtime probes
 
-Plugin 3.0.1 was run on Windows with agy 1.4.0 and Node 25.8.1 on
+Plugin 3.1.0 was run on Windows with agy 1.4.0 and Node 25.8.1 on
 2026-10-16. Scratch repositories and a separate plugin state root kept the
 jobs isolated. Existing OAuth and the existing trusted vision server were
 used without changing host configuration.
