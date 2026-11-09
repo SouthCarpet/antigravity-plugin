@@ -435,7 +435,7 @@ has command-specific meanings, and this contract preserves that reality.
 | `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. `status --exit-status` uses 1 for a `failed` waited job. |
 | `2` | A cancelled agy outcome from `review`, `rescue`, `task`, `vision`, or `media`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. `status --exit-status` uses 2 for a `cancelled` waited job. It is therefore not a global “cancelled” code. |
 | `3` | `status <id> --wait --exit-status` only (added 2026-09): the wait's own deadline passed while the job was still `queued`/`running`. No other command uses this value. |
-| `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy. |
+| `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy, except `--preview` on review, task, rescue, vision and media. |
 | other nonzero | `setup` passes through the exit status of its interactive agy OAuth probe. No meaning beyond “setup failed” is promised for that upstream value. |
 
 For a failed foreground run, agy's own nonzero exit status is stored on the
@@ -924,7 +924,7 @@ These variables have direct semantics in the shipped code:
 
 | Variable | Contract |
 |---|---|
-| `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing; direct command-module invocation can fall back to normal discovery. |
+| `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing, except for `--preview` on review, task, rescue, vision and media; direct command-module invocation can fall back to normal discovery. |
 | `ANTIGRAVITY_AGY_TIMEOUT_MS` | Execution budget for foreground and background jobs, in milliseconds; defaults to 1800000 (30 minutes). A positive decimal safe integer up to 2147483647 overrides it; exactly `0` disables it. Invalid values are ignored with one stderr warning. Background jobs store the budget when queued and receive the full budget when the worker starts agy. |
 | `PATH` / `Path` | Searched for `agy`; Windows accepts its conventional `Path` casing when `PATH` is absent. |
 | `HOME` / `USERPROFILE` | Used, in that order, for the fallback `<home>/.local/bin/agy` search. Node's platform home directory also determines the `~/.gemini` paths used by vision setup. |

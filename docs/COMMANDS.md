@@ -306,6 +306,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   gains a "## Reviewer focus (caller instruction)" section immediately before
   "## Output", the job's stored `request.focus` carries the trimmed text, and
   the job title gets a ` focus: <first 40 characters>` suffix.
+- `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
 - `--preview` (additive) shows exactly what a real run would send, without
   calling agy: the included files (with their kind, `diff` or `untracked`,
   and byte size), the skipped files with their reasons, whether the diff was
@@ -1280,11 +1281,11 @@ For diff previews, see [review](#review). Vision and media retain their normal d
 
 The JSON envelope has status `preview`, jobId `null`, answer `null`, and these details keys:
 
-- `prompt`: the text sent over stdin. For YouTube, downloaded bytes and paths are unavailable, so placeholders mark them.
+- `prompt`: the text sent over stdin. A local vision or media preview includes the file path here because the real prompt names the file. No other field holds a path. For YouTube, downloaded bytes and paths are unavailable, so placeholders mark them.
 - `argv`: the shared runtime builder's ordered argv, including print timeout and the stream-json tail. Each add-dir value is the directory count as a string; an alias model value is `<unresolved alias>`.
 - `model`: an exact id or the normal default, or null for an unresolved alias or no model.
 - `modelAlias`: the requested alias, or null.
-- `modelResolution`: exact, default (no id selected), or unresolved.
+- `modelResolution`: `default` when no model id is sent (task or rescue without a model flag), `exact` when an id is sent (including the built-in default id for vision and media), or `unresolved` for an alias.
 - `modelResolutionNote`: states that the real run resolves an alias through agy models, or null.
 - `addDirCount`: number of additional readable directories. Paths are never listed as argv values.
 - Media `source`: local or youtube.

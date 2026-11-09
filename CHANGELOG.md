@@ -23,6 +23,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add `details.modelMismatch` when requested and reported models can be compared.
 - Add a stderr warning for a reported model mismatch. Exit codes stay unchanged.
 
+### Changed
+
+- `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
+
 ## [3.1.0] — 2026-11-06
 
 - Allow 20 seconds for the agy version probe and retry a timed-out verb probe once under load.

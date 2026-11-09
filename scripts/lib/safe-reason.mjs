@@ -166,8 +166,27 @@ export const OAUTH_URL_MARKER = "[oauth-url-removed]";
 // `accounts.google.com/signin/oauth...`, with any scheme (or none), user
 // info, port, query and fragment. No part matches whitespace, so a match
 // never spans a whitespace character.
+// Search the fixed host first. Optional unbounded prefixes in an unanchored
+// regex retry at every character of a non-URL token, causing quadratic work.
 const OAUTH_URL_PATTERN =
-  /(?:[a-z][a-z0-9+.-]*:)?(?:\/\/)?(?:[^\s/@"'<>`\\]*@)?accounts\.google\.com(?::\d*)?\/+(?:o\/oauth2|signin\/oauth)[^\s"'<>`\\]*/gi;
+  /accounts\.google\.com(?::\d*)?\/+(?:o\/oauth2|signin\/oauth)[^\s"'<>`\\]*/gi;
+
+/** Find the earliest optional user-info, slash and scheme prefix. */
+function oauthUrlStart(text, host, floor) {
+  let start = host;
+  if (start > floor && text[start - 1] === '@') {
+    start--;
+    while (start > floor && /[^\s/@"'<>`\\]/.test(text[start - 1])) start--;
+  }
+  if (start - 2 >= floor && text.slice(start - 2, start) === '//') start -= 2;
+  if (start > floor && text[start - 1] === ':') {
+    let scheme = start - 1;
+    while (scheme > floor && /[a-z0-9+.-]/i.test(text[scheme - 1])) scheme--;
+    while (scheme < start - 1 && !/[a-z]/i.test(text[scheme])) scheme++;
+    if (scheme < start - 1) start = scheme;
+  }
+  return start;
+}
 
 /**
  * Replace every Google OAuth URL in `text` with {@link OAUTH_URL_MARKER}.
@@ -179,7 +198,15 @@ const OAUTH_URL_PATTERN =
  * @returns {string}
  */
 export function removeOAuthUrls(text) {
-  return text.replace(OAUTH_URL_PATTERN, OAUTH_URL_MARKER);
+  const pieces = [];
+  let end = 0;
+  for (const match of text.matchAll(OAUTH_URL_PATTERN)) {
+    const start = oauthUrlStart(text, match.index, end);
+    pieces.push(text.slice(end, start), OAUTH_URL_MARKER);
+    end = match.index + match[0].length;
+  }
+  pieces.push(text.slice(end));
+  return pieces.join('');
 }
 
 /**

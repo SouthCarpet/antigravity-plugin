@@ -2232,7 +2232,7 @@ export function reportRunPreview(input) {
   const { kind, options } = input;
   const details = buildRunPreview(input);
   outputCommandResult(createJsonEnvelope(kind, { status: 'preview', jobId: null, answer: null, details }),
-    JSON.stringify(details, null, 2) + '\n', options.json);
+    JSON.stringify(details, null, 2).replace(/[\u007f-\u009f]/g, (char) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')) + '\n', options.json);
   return 0;
 }
 

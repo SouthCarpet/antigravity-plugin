@@ -14,6 +14,7 @@ const touch=path.join(root,'spawned');
 const fake=writeFakeAgy(root,'preview-agy',{versionOk:true,echoArgsStderr:true,touchFile:touch,
  modelsText:'flash-4-medium\tFlash\n',stdout:'{"event":"result","result":{"status":"SUCCESS","response":"ok"}}\n'});
 // Tool markers cover yt-dlp and ffmpeg even if preview accidentally reaches mediaDoctor.
+writeFakeAgy(root,'agy',{versionOk:true,touchFile:touch});
 writeFakeAgy(root,'yt-dlp',{versionOk:true,touchFile:touch});
 writeFakeAgy(root,'ffmpeg',{versionOk:true,touchFile:touch});
 let seq=0;
@@ -40,7 +41,7 @@ for(const kind of ['task','rescue','vision','media']) {
    assert.equal(preview.stdout.includes('private-workspace'),false);
    const text=run(kind,[...args,'--preview'],f);assert.equal(text.status,0,text.stderr);assert.equal(text.stdout.includes('private-workspace'),false);
    assert.equal(fs.existsSync(touch),false);assert.deepEqual(tree(f.data),before);
-   const status=run('status',['--json'],f);assert.equal(status.status,0,status.stderr);assert.equal(status.stdout.includes('Reply ok'),false);
+   const status=run('status',['--json'],f);assert.equal(status.status,0,status.stderr);const jobs=JSON.parse(status.stdout).details;assert.deepEqual(jobs.running,[]);assert.deepEqual(jobs.recent,[]);
    const real=run(kind,[...args,...(kind==='task'?['--foreground']:[]),'--json'],f);
    assert.equal(real.status,0,real.stderr);
    const jobId=JSON.parse(real.stdout).jobId;
@@ -94,3 +95,29 @@ for (const [kind,scenario] of [['vision','missing'],['vision','unsupported'],['v
   assert.equal(preview.stderr,real.stderr);assert.deepEqual(JSON.parse(preview.stdout),JSON.parse(real.stdout));
  });
 }
+
+// F1 oracle: only flags before -- may bypass the missing-AGY_BIN preflight.
+// Media has no positional prompt after its file and no dispatcher AGY_BIN preflight.
+for (const kind of ['task','rescue','vision']) {
+ it(`${kind} --preview after -- keeps preflight exit 127 and never calls agy`,()=>{
+  const f=fixture(kind);fs.rmSync(touch,{force:true});
+  const result=run(kind,[...(kind==='task'?[]:f.args),'--','--preview'],f,{...f.env,AGY_BIN:path.join(f.dir,'absent.exe')});
+  assert.equal(result.status,127,result.stderr);
+  assert.match(result.stderr,/not found at AGY_BIN=/);
+  assert.equal(fs.existsSync(touch),false);
+ });
+}
+it('text preview escapes DEL and all C1 controls in the prompt',()=>{
+ const f=fixture('task');const controls=String.fromCharCode(...Array.from({length:33},(_,i)=>127+i));
+ const result=run('task',['Reply '+controls,'--preview'],f);
+ assert.equal(result.status,0,result.stderr);assert.doesNotMatch(result.stdout,/[\u007f-\u009f]/);
+ const details=JSON.parse(result.stdout);assert.equal(details.prompt,'Reply '+controls);
+});
+it('512 KiB unbroken prompt file previews in full within two seconds',()=>{
+ const f=fixture('task');const file=path.join(f.dir,'prompt.txt');const prompt='a'.repeat(512*1024);
+ fs.writeFileSync(file,prompt);const started=performance.now();
+ const result=run('task',['--prompt-file',file,'--preview','--json'],f);
+ const elapsed=performance.now()-started;console.log('preview 512 KiB ms:',elapsed);
+ assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).details.prompt,prompt);
+ assert.ok(elapsed<2000,`preview took ${elapsed} ms`);
+});
