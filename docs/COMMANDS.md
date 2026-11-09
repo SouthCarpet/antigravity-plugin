@@ -241,10 +241,24 @@ Doctor adds details.media with ytDlp.path and ytDlp.version (or absent), ffmpeg.
 
 ### Doctor receipt
 
-`doctor --receipt` prints only a redacted compatibility receipt. Add `--json`
-to put it in `details.receipt`. It reuses existing checks, adds no spawn,
-network call or write, and keeps the doctor exit rule. Model families are
-`unknown`; job model facts live in provenance and the reported model.
+In text mode, `doctor --receipt` prints only a redacted compatibility
+receipt. With `--json` the output is the usual doctor envelope with the
+receipt added as `details.receipt`; the rest of that envelope still holds
+local paths (the agy path, the state directory, the yt-dlp and ffmpeg
+paths), so share only the `details.receipt` object. The flag reuses the
+existing checks, adds no spawn, network call or write, and keeps the doctor
+exit rule. Job model facts live in provenance and the reported model.
+
+- `details.receipt`: the receipt object, with exactly the five keys below.
+- `details.receipt.pluginVersion`: the running plugin version.
+- `details.receipt.agyVersion`: the probed agy version, or `null` when agy
+  is absent.
+- `details.receipt.classification`: the existing agy version
+  classification (`missing` when agy is absent).
+- `details.receipt.listedFlags`: each forwarded flag mapped to `listed` or
+  `not_listed`. A help listing, not proof that the flag works.
+- `details.receipt.modelFamilies`: always `unknown`. `doctor` never calls
+  `agy models`.
 
 ## `review`
 
@@ -967,13 +981,15 @@ distinct from `conversationId` (the same envelope's existing field), which
 is only the id the *caller* passed in via `--conversation`; `null` when agy
 never reported a conversation id, including on a legacy record.
 
-A job's `provenance` record (`pluginVersion`, `agyVersion`, `model`,
-`effort`, `mode`, `addDirCount`, `requestedAt`) is set once when the job is
+A job's `provenance` record (`pluginVersion`, `agyVersion`, `listedFlags`,
+`model`, `effort`, `mode`, `addDirCount`, `requestedAt`) is set once when the job is
 created and carried at `--json`'s `details.job.provenance` for `status <id>`
 and as a per-job `provenance` field in the all-jobs list (it lives on the
 index entry, so a list needs no per-job disk read for it). `status <id>`
 (single job) adds a "## Provenance" markdown section, one line per non-null
-field; a field is omitted, not shown as `null`. The Recent Jobs table adds
+field; a field is omitted, not shown as `null`. `listedFlags` (the forwarded
+flag help listing captured at job creation, or `null`) is carried in `--json`
+only; the markdown section does not print it. The Recent Jobs table adds
 `Model` and `Effort` columns only when at least one listed job's provenance
 names either one; otherwise the table is unchanged. `null`/absent on a
 legacy record written before this field existed.

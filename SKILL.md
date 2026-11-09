@@ -75,7 +75,10 @@ Claude Code, agy, and standalone hosts ignore the Codex-specific files and consu
 
 Task, rescue, vision and media accept `--preview` for local validation and a fresh foreground request display, without probes, downloads or state writes. Aliases remain unresolved. Task/rescue preview refuses background, wait, continuation, request-id and show-result flags; rescue also refuses resume. Rescue accepts `--prompt-file <path>` with task-compatible limits and standalone-only stdin (`-`). See [Run preview](docs/COMMANDS.md#run-preview).
 
-`doctor --receipt` prints only a redacted compatibility receipt. Add `--json`
-to put it in `details.receipt`. It reuses existing checks, adds no spawn,
-network call or write, and keeps the doctor exit rule. Model families are
-`unknown`; job model facts live in provenance and the reported model.
+In text mode, `doctor --receipt` prints only a redacted compatibility
+receipt. With `--json` the output is the usual doctor envelope with the
+receipt added as `details.receipt`; the rest of that envelope still holds
+local paths, so share only the `details.receipt` object. The flag reuses the
+existing checks, adds no spawn, network call or write, and keeps the doctor
+exit rule. Model families are `unknown`; job model facts live in provenance
+and the reported model.

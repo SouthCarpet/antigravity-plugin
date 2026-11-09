@@ -27,7 +27,10 @@ Output rules:
 Read-only note:
 - `doctor` never runs OAuth, never calls a model, never writes a file, and never opens the network. It never contacts Google.
 
-`doctor --receipt` prints only a redacted compatibility receipt. Add `--json`
-to put it in `details.receipt`. It reuses existing checks, adds no spawn,
-network call or write, and keeps the doctor exit rule. Model families are
-`unknown`; job model facts live in provenance and the reported model.
+In text mode, `doctor --receipt` prints only a redacted compatibility
+receipt. With `--json` the output is the usual doctor envelope with the
+receipt added as `details.receipt`; the rest of that envelope still holds
+local paths, so share only the `details.receipt` object. The flag reuses the
+existing checks, adds no spawn, network call or write, and keeps the doctor
+exit rule. Model families are `unknown`; job model facts live in provenance
+and the reported model.
