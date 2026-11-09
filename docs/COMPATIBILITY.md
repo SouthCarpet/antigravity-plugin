@@ -1666,10 +1666,10 @@ and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
   resolution.
 - JSON key `details.jobs[].status`: the leg's own run status; `"not_run"` for
   a leg that never ran.
-- JSON key `details.jobs[].findingsStatus`: `"valid"` or `"invalid"` once the
-  leg completed; `null` for a leg that did not complete.
+- JSON key `details.jobs[].findingsStatus`: `"valid"`, `"invalid"` or
+  `"missing"` once the leg completed; `null` for a leg that did not complete.
 - JSON key `details.jobs[].findingsError`: one line, only when that leg's
-  `findingsStatus` is `"invalid"`.
+  `findingsStatus` is `"invalid"` or `"missing"`.
 - JSON key `details.jobs[].locationCheck`: only with `--check-locations`
   and only on a completed leg, one check per leg, the same shape a
   single-model `--check-locations` run already carries.

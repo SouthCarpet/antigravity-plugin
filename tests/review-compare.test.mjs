@@ -203,7 +203,22 @@ describe('resolveModelsPair', () => {
     const probe = async () => ({ ok: true, text: SAME_LISTING });
     const result = await resolveModelsPair([`alias:${'z'.repeat(150)}`, 'gemini-b'], { probe });
     assert.equal(result.ok, false);
-    assert.ok(!result.reason.includes('z'.repeat(81)));
+    assert.equal(result.reason, `unknown model alias "${'z'.repeat(80)}"...`);
+  });
+
+  it('cuts a long alias name that holds backslashes and quotes before it escapes it', async () => {
+    const probe = async () => ({ ok: true, text: SAME_LISTING });
+    const result = await resolveModelsPair([`alias:${'x\\'.repeat(70)}`, 'gemini-b'], { probe });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, `unknown model alias "${'x\\\\'.repeat(40)}"...`);
+    const quoted = await resolveModelsPair([`alias:${'"'.repeat(150)}`, 'gemini-b'], { probe });
+    assert.equal(quoted.reason, `unknown model alias "${'\\"'.repeat(80)}"...`);
+  });
+
+  it('shows a short unknown alias whole, as before', async () => {
+    const probe = async () => ({ ok: true, text: SAME_LISTING });
+    const result = await resolveModelsPair(['alias:no\\such', 'gemini-b'], { probe });
+    assert.equal(result.reason, 'unknown model alias "no\\\\such"');
   });
 });
 

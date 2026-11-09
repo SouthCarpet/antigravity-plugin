@@ -106,16 +106,21 @@ export function parseModelsOption(raw) {
 }
 
 /**
- * Keep a long alias name out of a refusal: `selectAliasModel`'s reasons quote
- * the alias, so an alias over the shown length is replaced by its cut form.
+ * Keep a long alias name out of a refusal. Only the "unknown model alias"
+ * reason of `selectAliasModel` can hold a caller-chosen name (every other
+ * reason names an alias of the shipped table), and it quotes the name with
+ * `JSON.stringify`. Rebuild that one reason through {@link escapeForLine},
+ * so the name is cut before it is escaped: a text replace on the escaped
+ * reason misses a name that holds a backslash or a quote.
  *
  * @param {string} reason
  * @param {string} alias
  * @returns {string}
  */
-function cutAliasInReason(reason, alias) {
-  if (alias.length <= MAX_SHOWN_LENGTH) return reason;
-  return reason.split(alias).join(`${alias.slice(0, MAX_SHOWN_LENGTH)}...`);
+function boundAliasInReason(reason, alias) {
+  const unknownAlias = "unknown model alias ";
+  if (reason !== `${unknownAlias}${JSON.stringify(alias)}`) return reason;
+  return `${unknownAlias}${escapeForLine(alias)}`;
 }
 
 /**
@@ -138,7 +143,7 @@ function resolveModelToken(token, listing, effort) {
       "run setup or pass an exact model id" };
   }
   const selected = selectAliasModel(listing.rows, alias, effort);
-  if (!selected.ok) return { ok: false, reason: cutAliasInReason(selected.reason, alias) };
+  if (!selected.ok) return { ok: false, reason: boundAliasInReason(selected.reason, alias) };
   return { ok: true, model: selected.model, request: { requestedAlias: alias, resolvedModel: selected.model } };
 }
 

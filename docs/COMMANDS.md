@@ -447,10 +447,11 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
     resolution.
   - `details.jobs[].status`: the leg's own run status (`completed`,
     `failed`, `cancelled`, `timeout`, `auth_required`, or `not_run`).
-  - `details.jobs[].findingsStatus`: `"valid"` or `"invalid"` once the leg
-    completed; `null` for a leg that did not complete (including `not_run`).
+  - `details.jobs[].findingsStatus`: `"valid"`, `"invalid"` or `"missing"`
+    once the leg completed (`"missing"`: agy returned no structured
+    output); `null` for a leg that did not complete (including `not_run`).
   - `details.jobs[].findingsError`: one line, present only when
-    `findingsStatus` is `"invalid"`.
+    `findingsStatus` is `"invalid"` or `"missing"`.
   - `details.jobs[].locationCheck`: present only with `--check-locations`
     and only on a completed leg; one check per leg, exactly like a
     single-model run's.
@@ -462,10 +463,12 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
     `findingsStatus: "valid"`; otherwise `{ bothFlagged, onlyA, onlyB }`.
   - `details.comparison.bothFlagged`: findings both models reported; an
     array of `{ a, b }` pairs.
-  - `details.comparison.bothFlagged[].a` and `.b`: the finding as model A
-    and model B reported it, whole (so `severity` can differ).
-  - `details.comparison.onlyA` and `.onlyB`: findings only model A, or only
-    model B, reported.
+  - `details.comparison.bothFlagged[].a`: the finding as model A reported
+    it, whole.
+  - `details.comparison.bothFlagged[].b`: the same finding as model B
+    reported it, whole (so `severity` can differ from `a`).
+  - `details.comparison.onlyA`: findings only model A reported.
+  - `details.comparison.onlyB`: findings only model B reported.
   - `request.pairId` (on each leg's stored job record, not in the
     envelope): the same `pairId`; a single-model review stores none.
 
