@@ -49,6 +49,8 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
+    // The new help probe is unavailable in this unit fixture (ruling 4).
+    spawnSync: () => ({ error: new Error('help unavailable') }),
     spawn: () => {
       const child = Object.assign(new EventEmitter(), { pid: runtime.spawnPid, unref() {} });
       setImmediate(() => child.emit('spawn'));

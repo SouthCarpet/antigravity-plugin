@@ -10,7 +10,7 @@ when this document or the [commands reference](./COMMANDS.md) says it is
 promised.
 
 Plugin 3.1.0 is this package's version number. Measured versions of Google's
-Antigravity CLI span 1.1.15 to 1.5.1; newest measured 1.5.1. Coverage differs
+Antigravity CLI span 1.1.15 to 1.5.3; newest measured 1.5.3. Coverage differs
 by version. The 1.4.0 checks cover native discovery, `doctor`, `task`,
 `status`, `result`, running-job `cancel`, `rescue`, `review`, and one simple
 `vision` image. `setup` was not run on 1.4.0. See the
@@ -27,7 +27,7 @@ change the plugin version.
 | Public verbs | Ten: setup, review, rescue, task, vision, media, status, result, cancel, doctor. |
 | Optional YouTube tools | yt-dlp 2026.10.26; ffmpeg for video merges. Local media needs neither. |
 | Node.js | `>=22.3.0` |
-| Google Antigravity CLI | Measured versions span `agy` 1.1.15 to 1.5.1; newest measured 1.5.1. Coverage differs by version. See the [per-version table](#supported-matrix) for live results and limits. |
+| Google Antigravity CLI | Measured versions span `agy` 1.1.15 to 1.5.3; newest measured 1.5.3. Coverage differs by version. See the [per-version table](#supported-matrix) for live results and limits. |
 
 The standalone package-binary spelling (`antigravity-plugin`) is the CLI
 interface name after install. The published npm package is
@@ -61,6 +61,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.4.0 | Measured pass: native discovery of all nine exact aliases and one TUI `doctor --json`; `task` foreground and background; `status` and `result` for that background job; `cancel` of an observed running job; trivial foreground `rescue`; plain `review` detecting a subtraction regression; one synthetic `vision` image with `--expect`. Not measured: `setup`, the remaining flags/modes, and all nine verbs through native wrappers. See the [1.4.0 runtime probes](#agy-140-runtime-probes). | 2026-10-16 |
 | 1.5.0 | On 2026-11-04: setup --skip-vision, task foreground/background, status/result/cancel lifecycle, rescue, plain review and findings review, vision. The native doctor attempt was denied; its alternate skip-permission run is not a normal-wrapper pass. Probe ids dated 2026-11-04: (setup-skip-vision.txt, task-bg-wait.txt, cancel.txt, rescue.txt, review-plain.txt, review-findings.txt, vision.txt, native-doctor.txt, native-doctor-skip.txt). Media and doctor tool probes on 2026-11-06 are recorded below. | 2026-11-06 |
 | 1.5.1 | Media local and YouTube probes, near-cap file and doctor. Partial coverage and exact outcomes below. The installed binary reported 1.5.1 during these runs; 1.5.0 remains the separate controller measurement above. | 2026-11-06 |
+| 1.5.3 | Standalone measured pass: plugin version and review help; doctor receipt (warnings, exit 0); foreground task (OK, total=7880 in=7875 out=5); rescue (RESCUE, total=7906 in=7874 out=32); working-tree review (APPROVE, total=16895 in=15348 out=1547); vision using the existing registration (red, total=29403 in=27288 out=2115); local one-second red MP4 media (Red, total=16914 in=16353 out=561); YouTube jNQXAC9IVRw transcript-only (captions, no model or usage trailer); status list and result. Raw files in A:/tmp/153-pkg-d/: live-{agy-version,version,help,doctor,task,rescue,review-retry,vision,media,transcript,status,result}.out and corresponding .err where emitted. The first review command used unsupported --path and was refused before agy; the supported retry passed. Not run: setup, setup --remove-vision, hosts 2 to 4, agy 1.5.2, background/cancel and other optional flags. Coverage is partial. | 2026-11-09 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -71,7 +72,7 @@ job. The runs also covered headless auto-denial detection and the
 the same runtime paths and pass the fake-agy suite. They were not run live on
 1.1.24.
 
-The newest measured version is agy 1.5.1, on 2026-11-06. Each row states
+The newest measured version is agy 1.5.3, on 2026-11-09. Each row states
 what passed and what was not run. The historical 1.3.1 row retains its
 per-verb results from 2026-10-08. The agy
 changelogs for 1.2.13 to 1.3.0 were read, not measured. The previous smoke-only measurement is agy 1.2.12, on
@@ -1652,3 +1653,26 @@ and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
 - `--preview` now covers task, rescue, vision and media, alongside review. All five previews avoid agy spawns, downloads and state writes. Local input checks still apply. No preview resolves an alias or reads an alias cache. Missing agy does not block preview.
 - The four new previews expose the details keys listed in [Run preview](./COMMANDS.md#run-preview), using the real argv builder with add-dir values redacted. YouTube uses placeholders for data that needs a download.
 - `rescue --prompt-file <path>` adds task-compatible UTF-8 file and standalone stdin input, with the same limits and refusal codes.
+
+### Compatibility receipt and job flag listing (3.2.0)
+
+- `doctor --receipt`: optional redacted receipt, with no added spawn or write.
+- `details.receipt`: the receipt object when `--receipt --json` is used.
+- `pluginVersion`: the running plugin version.
+- `agyVersion`: the probed agy version, or `null` when absent.
+- `classification`: the existing agy version classification.
+- `listedFlags`: an object with each forwarded flag mapped to `listed` or `not_listed`. This is a help listing, not proof the flag works.
+- `modelFamilies`: always `unknown`. No model cache exists and doctor never calls `agy models`.
+- `provenance.listedFlags`: the same table captured once at job creation, including resumed and background jobs. A failed, empty, nonzero or timed-out probe stores `null` and does not fail the job. Old records without this field stay readable.
+
+Job creation adds one local `agy --help` spawn with a 1,000 ms timeout and a
+65,536-byte limit per stream. The probe uses a synchronous child because
+request-id creation runs inside a synchronous mutex callback. Model facts
+remain in `provenance.requestedAlias`, `provenance.resolvedModel`, and the
+reported model. Receipt text contains only its five named keys. Plain
+doctor output and its exit rule stay unchanged except for the measured ceiling
+updated by the 1.5.3 measurement. On this Windows host, ten fake-agy
+foreground tasks per tree took median 2717.27 ms / maximum 3292.15 ms on
+base 966559d, and median 2698.04 ms / maximum 3059.03 ms on package D.
+The median difference was -19.23 ms; process scheduling noise hides the
+small spawn cost in this sample. The failure-path probe budget is 1,000 ms.

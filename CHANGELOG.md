@@ -6,6 +6,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Measure standalone agy 1.5.3; retain per-verb coverage limits in the matrix.
+- Add `doctor --receipt` for a redacted compatibility receipt.
+- Store the forwarded flag help listing in job provenance; a failed probe stores null.
+
 - Add `--preview` to task, rescue, vision and media, with local checks and no probes, downloads or state writes.
 - Add preview details fields documented in [Run preview](docs/COMMANDS.md#run-preview), with shared runtime argv, redacted add-dir values and unresolved aliases.
 - Add fresh-call preview refusals for background, wait, continuation, request-id and show-result flags, plus rescue resume.

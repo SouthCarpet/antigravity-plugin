@@ -9,6 +9,7 @@
  * the `onText` callback) rather than as one final blob.
  */
 
+import { listedFlagsFromHelp } from "./compat.mjs";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,7 @@ import * as agentRuntime from "./agent-runtime.mjs";
 import { runAgyPrint, resolveAgyBin, probeAgy, probeAgyModels } from "./agent-runtime.mjs";
 import { createOAuthUrlFilter, removeOAuthUrlsDeep, safeFailureReason } from "./safe-reason.mjs";
 import { spawn } from "./process-adapter.mjs";
+import * as processAdapter from "./process-adapter.mjs";
 import {
   appendJobLog,
   claimRequestId,
@@ -1078,26 +1080,45 @@ export function deriveJobStatus(result, kind) {
   }
 }
 
+/** A synchronous probe also covers creation inside the request-id mutex.
+ * Kill the exact child after 1000 ms; never fail a job for missing help. */
+function probeListedFlags(env) {
+  const bin = resolveAgyBin(env);
+  try {
+    agentRuntime.assertAgyBinSpawnable(bin);
+    const result = processAdapter.spawnSync(bin, ["--help"], {
+      env, encoding: "utf8", timeout: 1000, killSignal: "SIGKILL",
+      maxBuffer: 65536, stdio: ["ignore", "pipe", "pipe"],
+    });
+    const help = (result.stdout ?? "") + (result.stderr ?? "");
+    if (result.error || result.status !== 0 || !help.trim()) return null;
+    return listedFlagsFromHelp(help);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build the `provenance` object every job record carries from creation
  * (plan 103 T2, "Senate R11", 2026-09): enough for a later reader to
  * reproduce the run's settings, and nothing the caller gave the model — no
  * prompt, workspace path, image path, `extraArgs` content, or tool list.
  * `pluginVersion` is this plugin's own running version
- * (`scripts/lib/update.mjs#readRunningVersion`); every other field is a
- * plain projection off the caller's already-built `request` (itself already
- * scrubbed of free text by the verb) or the `agyVersion` the caller's own
+ * (`scripts/lib/update.mjs#readRunningVersion`); `listedFlags` comes from
+ * the bounded help probe. Other fields are plain projections off the caller's
+ * already-built `request` (itself already scrubbed of free text by the verb) or the `agyVersion` the caller's own
  * {@link probeAgyForVerb} call already ran. `model`/`effort` are `null` for
  * a request that has none; `mode` defaults to `"print"` and
  * `addDirCount` to `0` when the request carries neither.
  *
  * @param {{ agyVersion: string | null, request: import('./types.mjs').JobRequest | null,
- *   requestedAt: string }} args
+ *   requestedAt: string, env: NodeJS.ProcessEnv }} args
  * @returns {import('./types.mjs').JobProvenance}
  */
-function buildJobProvenance({ agyVersion, request, requestedAt }) {
+function buildJobProvenance({ agyVersion, request, requestedAt, env }) {
   return {
     pluginVersion: readRunningVersion(),
+    listedFlags: probeListedFlags(env),
     agyVersion: agyVersion ?? null,
     model: request?.model ?? null,
     requestedAlias: request?.requestedAlias ?? null,
@@ -1185,7 +1206,7 @@ function buildTrackedJob({
     startedAt: null,
     completedAt: null,
     logFile: resolveJobLogFile(workspaceRoot, id),
-    provenance: buildJobProvenance({ agyVersion, request, requestedAt: now }),
+    provenance: buildJobProvenance({ agyVersion, request, requestedAt: now, env }),
   };
   return { job, detail: { ...job, request, result: null } };
 }

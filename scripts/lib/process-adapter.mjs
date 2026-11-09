@@ -11,7 +11,7 @@
  * args, options) -> ChildProcess`-shaped object — scoped to what these call
  * sites actually use.
  */
-import { spawn as nodeSpawn } from 'node:child_process';
+import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from 'node:child_process';
 
 /**
  * @type {typeof import('node:child_process').spawn}
@@ -22,4 +22,9 @@ import { spawn as nodeSpawn } from 'node:child_process';
  */
 export function spawn(command, args, options) {
   return nodeSpawn(command, args, options);
+}
+
+/** Bounded synchronous probes used inside the job-creation mutex. */
+export function spawnSync(command, args, options) {
+  return nodeSpawnSync(command, args, options);
 }

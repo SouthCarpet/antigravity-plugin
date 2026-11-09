@@ -177,7 +177,7 @@ including when no plugin-owned entries exist.
 ## `doctor`
 
 ```text
-doctor [--json] [--cwd <path>]
+doctor [--receipt] [--json] [--cwd <path>]
 ```
 
 Read-only environment and configuration check. Unlike `setup`, `doctor`
@@ -222,7 +222,7 @@ Six checks, one line each in markdown mode:
    leaf (see [job state and configuration
    locations](./COMPATIBILITY.md#job-state-and-configuration-locations)).
 
-Markdown output ends with `doctor: <n> ok, <m> warnings, <k> problems`.
+Without `--receipt`, Markdown output ends with `doctor: <n> ok, <m> warnings, <k> problems`.
 `--json` returns `command: "doctor"`, `jobId: null`, `answer: null`, and
 `details: { node, agy: { path, version, classification }, flags: [{ flag,
 state }], vision, media: { ytDlp: { path, version }, ffmpeg: { path }, sizeCapBytes }, stateRoot: { source, dir, exists, legacyLeaf },
@@ -238,6 +238,13 @@ on timeout, then report `no_agy`; missing binaries are not retried.
 ### Doctor media tools
 
 Doctor adds details.media with ytDlp.path and ytDlp.version (or absent), ffmpeg.path (or absent), and sizeCapBytes. The text report prints these too. Probes are local, read-only, without a network request. Missing optional tools do not block local media.
+
+### Doctor receipt
+
+`doctor --receipt` prints only a redacted compatibility receipt. Add `--json`
+to put it in `details.receipt`. It reuses existing checks, adds no spawn,
+network call or write, and keeps the doctor exit rule. Model families are
+`unknown`; job model facts live in provenance and the reported model.
 
 ## `review`
 

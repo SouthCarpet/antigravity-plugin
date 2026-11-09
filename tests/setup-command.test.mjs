@@ -180,7 +180,7 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
   });
 
   it('warns when the version is newer than the last measured version', async () => {
-    state.probe = { ok: true, version: '1.5.2' };
+    state.probe = { ok: true, version: '1.5.4' };
     const cap = captureStdio();
     try {
       await run(['--skip-vision'], {});
@@ -190,7 +190,7 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
     const text = cap.out.join('');
     assert.match(
       text,
-      /antigravity:setup — agy 1\.5\.2 is newer than the last measured version 1\.5\.1; see docs\/COMPATIBILITY\.md\.\n/,
+      /antigravity:setup — agy 1\.5\.4 is newer than the last measured version 1\.5\.3; see docs\/COMPATIBILITY\.md\.\n/,
     );
   });
 
@@ -207,7 +207,7 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
   });
 
   it('prints the warning line immediately after the "using <bin> v<version>" line', async () => {
-    state.probe = { ok: true, version: '1.5.2' };
+    state.probe = { ok: true, version: '1.5.4' };
     const cap = captureStdio();
     try {
       await run(['--skip-vision'], {});
@@ -215,8 +215,8 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
       cap.restore();
     }
     const lines = cap.out.join('').split('\n');
-    const usingIdx = lines.findIndex((l) => l.includes('using') && l.includes('v1.5.2'));
-    assert.ok(usingIdx >= 0, 'expected a "using ... v1.5.2" line');
+    const usingIdx = lines.findIndex((l) => l.includes('using') && l.includes('v1.5.4'));
+    assert.ok(usingIdx >= 0, 'expected a "using ... v1.5.4" line');
     assert.match(lines[usingIdx + 1], /is newer than the last measured version/);
   });
 });

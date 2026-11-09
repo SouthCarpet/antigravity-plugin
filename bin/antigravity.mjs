@@ -148,6 +148,7 @@ const COMMAND_HELP = {
     'antigravity-plugin doctor: read-only environment and configuration check.\n\n' +
     'Usage: antigravity-plugin doctor [flags]\n\n' +
     'Flags:\n' +
+    '  --receipt               print a redacted compatibility receipt\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory\n\n' +
     'Checks Node version, the agy binary and version, which forwarded flags\n' +

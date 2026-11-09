@@ -175,6 +175,7 @@
  * the model.
  *
  * @typedef {object} JobProvenance
+ * @property {Record<string, "listed" | "not_listed"> | null} [listedFlags] help listing at creation; null on unavailable help
  * @property {string | null} [requestedAlias] caller alias, separate from the exact model
  * @property {string | null} [resolvedModel] selected or replayed exact model id
  * @property {string} [replayedFromJobId] prior job used for replay

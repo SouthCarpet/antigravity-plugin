@@ -1,6 +1,6 @@
 ---
 description: Read-only environment and configuration check for this plugin
-argument-hint: '[--json]'
+argument-hint: '[--receipt] [--json]'
 disable-model-invocation: true
 allowed-tools: "Bash(node\t-e\t\"const\tp=require('node:path');const\tfs=require('node:fs');const\tos=require('node:os');const\th=os.homedir();const\troot=process.env.CLAUDE_PLUGIN_ROOT||p.join(h,'.gemini','config','plugins','antigravity');let\tn;try{n=JSON.parse(fs.readFileSync(p.join(root,'plugin.json'))).name}catch{n=0}if(n!=='antigravity'){console.error('antigravity-plugin:\t'+root+'\tis\tnot\tan\tantigravity\tplugin\ttree\t(plugin.json\tmissing\tor\tname\tmismatch).\tRun:\tnpx\t@southcarpet/antigravity-plugin\tdoctor');process.exit(1)}const\tm=p.join(root,'scripts','lib','host-bootstrap.cjs');if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){console.error('antigravity-plugin:\truntime\tnot\tfound\tat\t'+m+'.\tRun:\tnpx\t@southcarpet/antigravity-plugin\tdoctor');process.exit(1)}process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'doctor'));\"\t--:*)"
 ---
@@ -26,3 +26,8 @@ Output rules:
 
 Read-only note:
 - `doctor` never runs OAuth, never calls a model, never writes a file, and never opens the network. It never contacts Google.
+
+`doctor --receipt` prints only a redacted compatibility receipt. Add `--json`
+to put it in `details.receipt`. It reuses existing checks, adds no spawn,
+network call or write, and keeps the doctor exit rule. Model families are
+`unknown`; job model facts live in provenance and the reported model.

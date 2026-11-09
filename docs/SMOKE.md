@@ -14,7 +14,7 @@ treat an older number in a leftover note as the target.
 ## Prerequisites (do once)
 
 - [ ] `node --version` → ≥ 22.3.0
-- [ ] `agy --version` -> 1.1.15 to 1.4.0; newest measured 1.4.0. See
+- [ ] `agy --version` -> 1.1.15 to 1.5.3; newest measured 1.5.3. See
       [COMPATIBILITY.md](./COMPATIBILITY.md) for per-version coverage and
       limits. The 1.4.0 probes did not run `setup`.
 - [ ] Logged into a Google account that can use `agy` (run `agy --print 'hi'`

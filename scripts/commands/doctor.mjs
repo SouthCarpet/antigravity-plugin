@@ -9,7 +9,7 @@
  * that changes anything. It is the check a caller runs first, and as often
  * as they like, with no side effect to worry about.
  *
- * Flags: `--json` and `--cwd <path>` only. No `--live`: `setup` already is
+ * Flags: `--json`, `--receipt` and `--cwd <path>`. No `--live`: `setup` already is
  * this plugin's live probe; a read-only verb stays read-only.
  */
 import { readFileSync } from "node:fs";
@@ -31,35 +31,18 @@ import {
   MIN_AGY_VERSION,
   LAST_MEASURED_AGY_VERSION,
   classifyAgyVersion,
+  listedFlagsFromHelp,
 } from "../lib/compat.mjs";
 import { createJsonEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
+import { readRunningVersion } from "../lib/update.mjs";
 import { mediaDoctor } from "../lib/media.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = join(HERE, "..", "..");
 
-/**
- * Every flag the plugin forwards to agy across `review`, `rescue`, `task`,
- * and `vision`. `doctor` only checks whether each one is *listed* in
- * `agy --help`'s text, never whether it works. That distinction is in the
- * header line every text/JSON report carries.
- */
-export const FORWARDED_FLAGS = Object.freeze([
-  "--add-dir",
-  "--model",
-  "--effort",
-  "--mode",
-  "--continue",
-  "--conversation",
-  "--print-timeout",
-  "--disable-slash-commands",
-  "--input-format",
-  "--output-format",
-  "--print",
-  "--json-schema",
-]);
+export { FORWARDED_FLAGS } from "../lib/compat.mjs";
 
 /** Bucket → line count key, shared by every check below. */
 const BUCKET_KEYS = { ok: "ok", warning: "warnings", problem: "problems" };
@@ -128,8 +111,7 @@ async function checkAgy() {
 async function checkFlags(bin) {
   const probe = await probeAgyHelp({ bin });
   const help = probe.ok ? probe.help : "";
-  return FORWARDED_FLAGS.map((flag) => {
-    const state = help.includes(flag) ? "listed" : "not_listed";
+  return Object.entries(listedFlagsFromHelp(help)).map(([flag, state]) => {
     return {
       line: `Flag ${flag}: ${state} in --help; function not verified by this check`,
       bucket: state === "listed" ? "ok" : "warning",
@@ -198,7 +180,7 @@ function renderMarkdown(checks, counts) {
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["cwd"],
-    booleanOptions: ["json"],
+    booleanOptions: ["json", "receipt"],
   }, "doctor");
   if (!parsed) return 1;
   const { options } = parsed;
@@ -228,9 +210,18 @@ export async function run(argv = [], ctx = {}) {
     measuredRange: { min: MIN_AGY_VERSION, newest: LAST_MEASURED_AGY_VERSION },
   };
 
+  const receipt = options.receipt ? {
+    pluginVersion: readRunningVersion(),
+    agyVersion: agyCheck.details.version,
+    classification: agyCheck.details.classification,
+    listedFlags: Object.fromEntries(flagChecks.map(({ details }) => [details.flag, details.state])),
+    modelFamilies: "unknown",
+  } : null;
+  if (receipt) details.receipt = receipt;
+
   outputCommandResult(
     createJsonEnvelope("doctor", { status, jobId: null, answer: null, details }),
-    renderMarkdown(checks, counts),
+    receipt ? `${JSON.stringify(receipt, null, 2)}\n` : renderMarkdown(checks, counts),
     json,
   );
   return status === "problems" ? 1 : 0;

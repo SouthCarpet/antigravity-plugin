@@ -73,7 +73,7 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 - 3.0.0 changed one default: `vision` now uses `gemini-3.8-flash-high`. Pass `--model gemini-3.6-flash-high` to keep the old model. See [`CHANGELOG.md`](./CHANGELOG.md).
 - Plugin 3.1.0 is this package's version. agy is Google's Antigravity CLI, and its version moves separately.
-- Measured agy versions span 1.1.15 to 1.5.1, newest measured 1.5.1. Coverage differs by version; see [Compatibility](./docs/COMPATIBILITY.md).
+- Measured agy versions span 1.1.15 to 1.5.3, newest measured 1.5.3. Coverage differs by version; see [Compatibility](./docs/COMPATIBILITY.md).
 - The plugin does not update itself.
 - Version numbers: **Y** in `X.Y.Z` changes for new features and larger compatible updates. **Z** changes for fixes; **X** changes only for breaking changes.
 

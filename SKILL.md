@@ -74,3 +74,8 @@ Codex picks this plugin up via:
 Claude Code, agy, and standalone hosts ignore the Codex-specific files and consume `.claude-plugin/`, `plugin.json` (root), and `bin/antigravity.mjs` respectively. See [docs/INSTALL.md](./docs/INSTALL.md) for per-host install recipes.
 
 Task, rescue, vision and media accept `--preview` for local validation and a fresh foreground request display, without probes, downloads or state writes. Aliases remain unresolved. Task/rescue preview refuses background, wait, continuation, request-id and show-result flags; rescue also refuses resume. Rescue accepts `--prompt-file <path>` with task-compatible limits and standalone-only stdin (`-`). See [Run preview](docs/COMMANDS.md#run-preview).
+
+`doctor --receipt` prints only a redacted compatibility receipt. Add `--json`
+to put it in `details.receipt`. It reuses existing checks, adds no spawn,
+network call or write, and keeps the doctor exit rule. Model families are
+`unknown`; job model facts live in provenance and the reported model.
