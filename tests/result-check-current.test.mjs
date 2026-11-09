@@ -104,6 +104,9 @@ async function check(jobId, ...extra) {
   return { ...r, payload: r.out ? JSON.parse(r.out) : null };
 }
 
+// Workspace resolution runs git; nothing else may run.
+const nonGit = () => [...new Set(spawned.map((entry) => entry.command))].filter((command) => command !== 'git');
+
 const statusOf = async (jobId) => (await check(jobId)).payload.details.checkCurrent;
 
 function stateSnapshot() {
@@ -317,7 +320,7 @@ describe('unknown', () => {
     assert.equal(result.payload.status, 'state_error');
     assert.match(result.err, /is still running/);
     assert.equal('checkCurrent' in result.payload.details, false);
-    assert.equal(spawned.length, 0);
+    assert.deepEqual(nonGit(), []);
   });
 });
 
@@ -338,7 +341,7 @@ describe('job kinds', () => {
         message: `--check-current applies only to review jobs; job ${id} is a ${kind} job.`,
       });
       assert.equal(result.err, `antigravity:result — --check-current applies only to review jobs; job ${id} is a ${kind} job.\n`);
-      assert.equal(spawned.length, 0);
+      assert.deepEqual(nonGit(), []);
     });
   }
 });
