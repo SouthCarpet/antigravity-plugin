@@ -1665,14 +1665,16 @@ and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
 - `modelFamilies`: always `unknown`. No model cache exists and doctor never calls `agy models`.
 - `provenance.listedFlags`: the same table captured once at job creation, including resumed and background jobs. A failed, empty, nonzero or timed-out probe stores `null` and does not fail the job. Old records without this field stay readable.
 
-Job creation adds one local `agy --help` spawn with a 1,000 ms timeout and a
+Job creation adds one local `agy --help` spawn, including transcript-only
+media records (which still make no model call), with a 1,000 ms timeout and a
 65,536-byte limit per stream. The probe uses a synchronous child because
 request-id creation runs inside a synchronous mutex callback. Model facts
 remain in `provenance.requestedAlias`, `provenance.resolvedModel`, and the
 reported model. Receipt text contains only its five named keys. Plain
 doctor output and its exit rule stay unchanged except for the measured ceiling
-updated by the 1.5.3 measurement. On this Windows host, ten fake-agy
-foreground tasks per tree took median 2717.27 ms / maximum 3292.15 ms on
-base 966559d, and median 2698.04 ms / maximum 3059.03 ms on package D.
-The median difference was -19.23 ms; process scheduling noise hides the
-small spawn cost in this sample. The failure-path probe budget is 1,000 ms.
+updated by the 1.5.3 measurement. Under the exclusive suite slot on this
+Windows host, ten fake-agy foreground tasks per tree took median
+2624.97 ms / maximum 3512.27 ms on base 966559d, and median
+2646.26 ms / maximum 3876.15 ms on package D (7b32385).
+The median difference was 21.29 ms. This sample includes process
+scheduling noise. The failure-path probe budget is 1,000 ms.
