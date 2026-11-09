@@ -495,7 +495,7 @@ fields in envelope version 1:
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
 | `command` | One of `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`; `review --models` is `paired`, `jobId: null`, `answer: null`, representing TWO jobs under `details.jobs` instead of one (see [Package E additive paired-review surface](#package-e-additive-paired-review-surface-unreleased)). `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 3.x; consumers must tolerate additions, removals, and changes within it. |
@@ -1742,3 +1742,78 @@ Windows host, ten fake-agy foreground tasks per tree took median
 2646.26 ms / maximum 3876.15 ms on package D (7b32385).
 The median difference was 21.29 ms. This sample includes process
 scheduling noise. The failure-path probe budget is 1,000 ms.
+
+### Package E additive paired-review surface (Unreleased)
+
+- Flag `--models <a,b>` on `review`: two comma-separated, non-empty, distinct
+  model tokens, each an exact id or `alias:<name>`. Opt-in; never a default;
+  never changes a plain single-model review in any way. Foreground only.
+- Requires `--findings-json` on the same call.
+- Conflicts with `--model`, `--model-alias`, `--background`, `--wait`,
+  `--continue`, `--conversation`, `--show-result`, and `--preview`.
+- Status `"paired"`, `jobId: null`: the command's own third envelope shape
+  for a `--models` run, distinct from the single-job `"completed"` shape.
+- JSON field `details.pairId`: the hex id shared by both legs' job records.
+- JSON field `details.jobs`: one entry per leg, always both legs, in the
+  given order.
+- JSON key `details.jobs[].id`: the leg's job id; `null` for a leg that never
+  ran.
+- JSON key `details.jobs[].model`: the model id the leg used, after alias
+  resolution.
+- JSON key `details.jobs[].status`: the leg's own run status; `"not_run"` for
+  a leg that never ran.
+- JSON key `details.jobs[].findingsStatus`: `"valid"`, `"invalid"` or
+  `"missing"` once the leg completed; `null` for a leg that did not complete.
+- JSON key `details.jobs[].findingsError`: one line, only when that leg's
+  `findingsStatus` is `"invalid"` or `"missing"`.
+- JSON key `details.jobs[].locationCheck`: only with `--check-locations`
+  and only on a completed leg, one check per leg, the same shape a
+  single-model `--check-locations` run already carries.
+- JSON key `details.jobs[].deniedActions`: only on a leg whose run reported a
+  denied action, whatever its status; the same `{ action, displayName,
+  target, remedy }` list a single-model review reports. A leg denied with an
+  empty answer is a `failed` leg with `findingsStatus: null`.
+- JSON field `details.comparison`: `{ bothFlagged, onlyA, onlyB }`, or `null`
+  unless both legs completed with `findingsStatus: "valid"`.
+- JSON key `details.comparison.bothFlagged`: array of `{ a, b }` pairs of
+  findings that name the same file and fall in the same hunk.
+- JSON key `details.comparison.bothFlagged[].a`: the finding as model A
+  reported it.
+- JSON key `details.comparison.bothFlagged[].b`: the finding as model B
+  reported it.
+- JSON key `details.comparison.onlyA`: findings only model A reported.
+- JSON key `details.comparison.onlyB`: findings only model B reported.
+- Job record field `request.pairId`: present on both legs of a `--models`
+  run, absent on every single-model review (JSON key `request.pairId`).
+- Stderr line: the two-model-calls cost notice, printed once before either
+  leg dispatches.
+- Stderr refusal: `--models` without `--findings-json`.
+- Stderr refusal: a malformed `--models` value (not exactly two
+  comma-separated, non-empty, distinct tokens), checked before the diff is
+  read. A valid call on an empty diff returns `no_changes` with no agy call.
+- Stderr refusal: a token with a control character (C0, DEL, C1) or over 200
+  characters. Every refusal shows a token JSON-escaped and cut to 80
+  characters, so one refusal is one line.
+- Stderr refusal: two tokens that resolve to one model id (names both tokens
+  and the id). An unknown alias and this refusal use the existing
+  model-resolution refusal, which under `--json` is the existing
+  `model_alias_unavailable` error envelope.
+- Stderr line per denied action of a leg: `antigravity:review — "<model>"
+  denied "<action>" ...: <remedy>`, escaped and cut to 80 characters per
+  field.
+- New file `scripts/lib/review-compare.mjs`: the value parser, the two-token
+  model resolver, and the findings comparison.
+
+The second leg still runs after the first leg's own run or findings
+failure; it does not run after the first leg reports `auth_required` (not
+model-specific, so the second leg would only hit it again), after `agy`
+itself is found absent, or after `--require-complete` refuses the shared
+input — all three are checked once, before either leg exists. The command's
+exit code is the first non-zero leg's exit code, or 0 when both legs
+completed. The text output shows comparison counts only; `--json` carries
+the matched findings. Paths are compared as written and case-sensitively.
+The feature does not promise that two models find more than one. See
+[`--models`](COMMANDS.md#review) for the full match rule and output
+contract. The feature's own bounded-value check (whether two models
+find materially more than one, on real diffs) is recorded as the owner's
+post-ship validation, not a gate this release's implementation waited on.
