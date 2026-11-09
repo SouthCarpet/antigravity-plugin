@@ -17,6 +17,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add setup warnings for an absent default and for an unavailable default check.
 - Add `details.modelMismatch` when requested and reported models can be compared.
 - Add a stderr warning for a reported model mismatch. Exit codes stay unchanged.
+- Add `review --models <a,b>` to run the same review against two agy models and compare their structured findings (needs `--findings-json`).
+- Add the `status: "paired"` review envelope (`details.pairId`, `details.jobs`, `details.comparison`).
+- Add `request.pairId` linking the two job records of a `--models` run.
+- Add a stderr notice before dispatch for the two agy calls a `--models` run makes.
+- Add a stderr refusal for `--models` without `--findings-json`, and for a malformed `--models` value.
 
 ## [3.1.0] — 2026-11-06
 

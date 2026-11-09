@@ -494,7 +494,7 @@ fields in envelope version 1:
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
 | `command` | One of `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`. `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`; `review --models` is `paired`, `jobId: null`, `answer: null`, representing TWO jobs under `details.jobs` instead of one (see [Package E additive paired-review surface](#package-e-additive-paired-review-surface-unreleased)). `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 3.x; consumers must tolerate additions, removals, and changes within it. |
@@ -1646,3 +1646,45 @@ output is refused with reason "listing too large". `details.modelAlias` appears
 in foreground and awaited `--show-result` output. Queued background envelopes
 and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
 `details.provenance`.
+
+### Package E additive paired-review surface (Unreleased)
+
+- Flag `--models <a,b>` on `review`: two comma-separated, non-empty, distinct
+  model tokens, each an exact id or `alias:<name>`. Opt-in; never a default;
+  never changes a plain single-model review in any way. Foreground only.
+- Requires `--findings-json` on the same call.
+- Conflicts with `--model`, `--model-alias`, `--background`, `--wait`,
+  `--continue`, `--conversation`, `--show-result`, and `--preview`.
+- Status `"paired"`, `jobId: null`: the command's own third envelope shape
+  for a `--models` run, distinct from the single-job `"completed"` shape.
+- JSON field `details.pairId`: the hex id shared by both legs' job records.
+- JSON field `details.jobs`: `[{ id, model, status, findingsStatus }, ...]`,
+  one entry per leg, always present even for a leg that never ran
+  (`status: "not_run"`, `id: null`).
+- JSON key `details.jobs[].findingsError`: one line, only when that leg's
+  `findingsStatus` is not `"valid"`.
+- JSON key `details.jobs[].locationCheck`: only with `--check-locations`,
+  one check per leg, the same shape a single-model `--check-locations` run
+  already carries.
+- JSON field `details.comparison`: `{ bothFlagged, onlyA, onlyB }`, or `null`
+  unless both legs completed with `findingsStatus: "valid"`.
+- Job record field `request.pairId`: present on both legs of a `--models`
+  run, absent on every single-model review.
+- Stderr line: the two-model-calls cost notice, printed once before either
+  leg dispatches.
+- Stderr refusal: `--models` without `--findings-json`.
+- Stderr refusal: a malformed `--models` value (not exactly two
+  comma-separated, non-empty, distinct tokens).
+- New file `scripts/lib/review-compare.mjs`: the value parser, the two-token
+  model resolver, and the findings comparison.
+
+The second leg still runs after the first leg's own run or findings
+failure; it does not run after the first leg reports `auth_required` (not
+model-specific, so the second leg would only hit it again), after `agy`
+itself is found absent, or after `--require-complete` refuses the shared
+input — all three are checked once, before either leg exists. The command's
+exit code is the first non-zero leg's exit code, or 0 when both legs
+completed. See [`--models`](COMMANDS.md#review) for the full match rule and
+output contract. The feature's own bounded-value check (whether two models
+find materially more than one, on real diffs) is recorded as the owner's
+post-ship validation, not a gate this release's implementation waited on.

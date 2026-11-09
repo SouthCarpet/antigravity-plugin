@@ -57,6 +57,11 @@ const COMMAND_HELP = {
     '  --check-locations       heuristically check each path:line citation the\n' +
     '                          answer names against the sent diff\'s own hunks;\n' +
     '                          local only, adds nothing to the agy call\n' +
+    '  --models <a,b>          run the same review against two different models\n' +
+    '                          and compare their findings (needs --findings-json;\n' +
+    '                          conflicts with --model, --model-alias, --background,\n' +
+    '                          --wait, --continue, --conversation, --show-result,\n' +
+    '                          --preview)\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:

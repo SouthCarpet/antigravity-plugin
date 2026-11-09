@@ -248,6 +248,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
        [--background] [--wait] [--show-result]
        [--continue | --conversation <id>]
        [--model <id> | --model-alias <alias>] [--effort <low|medium|high|agy-default>]
+       [--models <a,b>]
        [--focus <text>]
        [--preview] [--require-complete]
        [--findings-json]
@@ -382,6 +383,82 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   check later, from the stored answer and hunks, and works even on a job
   reviewed without this flag. See [Heuristic location
   check](./COMPATIBILITY.md#heuristic-location-check).
+- `--models <a,b>` (additive, opt-in) runs the SAME review twice, once
+  against each of two different agy models, and compares their structured
+  findings. The value is exactly two comma-separated, non-empty, distinct
+  tokens: each token is either an exact agy model id (never looked up, same
+  rule as a bare `--model`) or `alias:<name>` (resolved through the account's
+  model listing the same way `--model-alias` is, one listing call for the
+  whole pair, never one per alias token). `--models` requires
+  `--findings-json` on the same call; without it the call is refused with
+  `antigravity:review — --models needs --findings-json to compare structured
+  findings` (stderr only, exit 1, no agy probe). `--models` conflicts with
+  `--model`, `--model-alias`, `--background`, `--wait`, `--continue`,
+  `--conversation`, `--show-result`, and `--preview`: each leg is its own
+  fresh conversation, dispatched in the foreground only.
+
+  One stderr line is printed before either leg dispatches:
+  `antigravity:review — two model calls will run (two agy calls, two
+  quotas).` No prompt, no confirmation.
+
+  Both legs send the exact same diff (one `buildReviewInput` call, so both
+  jobs share `inputHash`, `scope`, `base`, and `hunks`), differing only in
+  `model`. Both legs' job records additionally store the same
+  `request.pairId`, so the two can be found together later; a plain
+  single-model review stores no `pairId` field at all.
+
+  The two legs run in the given order. The second leg still runs after the
+  first leg fails, as long as that failure is a per-model run or findings
+  failure (an agy run that failed, was cancelled, or returned findings that
+  did not validate). The second leg does NOT run when the first leg's result
+  is `auth_required`: a sign-in failure is not model-specific, so the second
+  leg would only hit it again. `agy` being entirely absent, and
+  `--require-complete`'s own refusal, are both checked once before either
+  leg exists, so neither ever lets a leg spawn either.
+
+  The command's own output (not one stored job, since two exist) is a third
+  envelope shape, `status: "paired"`, `jobId: null`:
+  ```json
+  {
+    "status": "paired",
+    "jobId": null,
+    "answer": null,
+    "details": {
+      "pairId": "<hex>",
+      "jobs": [
+        { "id": "<job-id-a>", "model": "<model-a>", "status": "completed", "findingsStatus": "valid" },
+        { "id": "<job-id-b>", "model": "<model-b>", "status": "completed", "findingsStatus": "valid" }
+      ],
+      "comparison": { "bothFlagged": [ { "a": "<finding>", "b": "<finding>" } ], "onlyA": [], "onlyB": [] }
+    }
+  }
+  ```
+  Every `jobs[]` entry always carries `id` (`null` for a leg that never ran,
+  `status: "not_run"`), `model`, and the leg's own run `status`. Once a leg
+  completed, it also carries `findingsStatus` (plus `findingsError` when not
+  `"valid"`, and, with `--check-locations` also given, that leg's own
+  `locationCheck` — one check per leg, exactly like a single-model run's). A
+  leg's full findings stay on its own stored job record, retrievable with
+  `result <job-id>`; the paired envelope itself never repeats them.
+
+  `comparison` is `null` unless BOTH legs completed with `findingsStatus:
+  "valid"`. When both did, two findings count as the same finding when they
+  name the same `file` and their `line` falls inside the same hunk of the
+  diff both legs were sent (`request.hunks`); a finding with `line: null`
+  matches only another `line: null` finding of the same file — there is no
+  hunk to share. `severity` is reported on both sides of a match and is
+  never part of the match; `description`/`recommendation` text is never
+  compared (the shipped findings schema has no `rule` field to match on). A
+  finding matches at most one finding of the other model, chosen in order,
+  so a duplicate on one side becomes an extra `onlyA`/`onlyB` entry rather
+  than matching the same finding twice.
+
+  The command's exit code is the first non-zero leg exit code (`cancelled`
+  is 2, any other non-completed status is 1), or 0 if both legs completed.
+
+  A malformed value (not exactly two comma-separated, non-empty, distinct
+  tokens) and an unknown `alias:<name>` are both refused the same way as the
+  requirement above: stderr only, exit 1, before any leg spawns.
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
