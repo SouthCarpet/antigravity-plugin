@@ -24,6 +24,7 @@
  */
 
 import path from "node:path";
+import { recordWorkerFatal } from "../lib/worker-failure.mjs";
 
 import { appendJobLog, readJobFile, resolveJobLogFile } from "../lib/state.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
@@ -298,7 +299,10 @@ async function main() {
   return persistWorkerResult(workspaceRoot, jobId, stored, outcome.result);
 }
 
-main().then((code) => process.exit(code)).catch((err) => {
-  process.stderr.write(`worker: fatal: ${err?.message ?? err}\n`);
+main().then((code) => process.exit(code)).catch(async (err) => {
+  const [jobId, rootArg] = process.argv.slice(2);
+  const workspaceRoot = typeof rootArg === "string" && path.isAbsolute(rootArg)
+    ? rootArg : resolveWorkspaceRoot(process.cwd());
+  await recordWorkerFatal(workspaceRoot, jobId, err).catch(() => {});
   process.exit(1);
 });

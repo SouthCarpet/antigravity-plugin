@@ -579,7 +579,7 @@ describe('background worker acknowledgement', () => {
         return child;
       },
     });
-    assert.deepEqual(capturedArgs, [resolveWorkerPath(), job.id, workspaceRoot]);
+    assert.deepEqual(capturedArgs, ["--import", new URL("../scripts/lib/worker-diagnostics.mjs", import.meta.url).href, resolveWorkerPath(), job.id, workspaceRoot]);
     assert.equal(capturedOptions.cwd, workspaceRoot);
   });
 

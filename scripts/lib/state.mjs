@@ -546,15 +546,17 @@ function upsertJobUnlocked(cwd, job) {
 /**
  * @param {string} cwd the resolved workspace root
  * @param {string} jobId
- * @returns {import('./types.mjs').JobRecord | null} null when the file is missing or unreadable
+ * @param {{ strict?: boolean }} [options] writers reject read errors other than ENOENT
+ * @returns {import('./types.mjs').JobRecord | null} null when missing (or unreadable in default mode)
  * @throws {UnsafeStateDirError} when a directory on the way fails the trust check
  */
-export function readJobFile(cwd, jobId) {
+export function readJobFile(cwd, jobId, { strict = false } = {}) {
   assertReadableStateDir(resolveStateDir(cwd));
   const filePath = resolveJobFile(cwd, jobId);
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
+  } catch (error) {
+    if (strict && error?.code !== "ENOENT") throw error;
     return null;
   }
 }
@@ -612,7 +614,7 @@ export async function patchJobState(cwd, jobId, detailPatch, indexPatch = detail
  * @returns {import('./types.mjs').JobRecord}
  */
 export function patchJobStateUnlocked(cwd, jobId, detailPatch, indexPatch = detailPatch) {
-  const existing = readJobFile(cwd, jobId) ?? { id: jobId };
+  const existing = readJobFile(cwd, jobId, { strict: true }) ?? { id: jobId };
   const merged = { ...existing, ...detailPatch, id: jobId, updatedAt: new Date().toISOString() };
   writeJobFileUnlocked(cwd, jobId, merged);
   upsertJobUnlocked(cwd, { ...jobIndexProjection(merged), ...indexPatch, id: jobId, status: merged.status });

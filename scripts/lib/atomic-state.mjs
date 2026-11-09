@@ -121,7 +121,16 @@ export function writeJsonAtomic(targetPath, value) {
   }
 
   try {
-    fs.renameSync(tmp, targetPath);
+    // Five attempts, with four 50 ms waits (200 ms total backoff).
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fs.renameSync(tmp, targetPath);
+        break;
+      } catch (error) {
+        if (attempt >= 4 || !["EPERM", "EACCES", "EBUSY"].includes(error?.code)) throw error;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      }
+    }
   } catch (error) {
     try {
       fs.unlinkSync(tmp);

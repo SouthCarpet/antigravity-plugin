@@ -23,6 +23,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add `details.modelMismatch` when requested and reported models can be compared.
 - Add a stderr warning for a reported model mismatch. Exit codes stay unchanged.
 
+### Fixed
+
+- Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
+- State saves retry brief Windows file locks instead of failing on the first rename.
+- A waiter no longer replaces a finished job with a missing-worker failure.
+- Process start-time reads retry once so cancellation can confirm the process under load.
+- A failed job-file read stops a patch instead of dropping existing fields.
+
 ### Changed
 
 - `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).

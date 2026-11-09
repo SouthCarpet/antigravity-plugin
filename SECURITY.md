@@ -452,6 +452,14 @@ installed copy is then the published artifact, not the whole working tree.
 The script itself never runs `agy` and never writes under `~/.gemini`; it
 only reads the checkout and writes to a temporary directory.
 
+### Worker diagnostics
+
+Runtime stderr captured before the worker module loads uses the existing
+safe-reason and OAuth filters, plus bypass-flag redaction. Capture is limited
+to 64 KiB per worker in its job log. Both redactors also run after text
+normalization. Fatal recovery uses the same redaction.
+Model output keeps its existing job log handling.
+
 ## Threat boundaries this plugin does **not** close
 
 - agy is a general tool-using agent. `rescue` and `task` can change the

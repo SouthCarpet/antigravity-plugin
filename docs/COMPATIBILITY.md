@@ -1450,7 +1450,20 @@ meaning:
   read failed, absent on a job record from an older version. The job record
   validator accepts records with and without it.
 - `agyProcessStartedAt` (additive, 2026-10): the same for `agyPid`, read
-  right after agy started.
+  right after agy started. Launch-time reads retry once after a failed query;
+  two PowerShell queries have a combined 10-second timeout bound. A failed
+  second read still stores `null` and never permits an unconfirmed signal.
+- **Worker diagnostics**: detached workers capture runtime stderr before the
+  worker module loads. Safe, redacted diagnostic lines use a 64 KiB limit
+  per worker. The final error handler also appends a safe reason and records failure
+  when storage is available and the job is still active. Parents can exit
+  while the worker runs; no console or parent pipe is attached.
+- **State saves**: atomic rename retries only EPERM, EACCES and EBUSY, up to
+  five attempts with four 50 ms waits (200 ms total backoff). Other errors
+  surface immediately. Failed patches preserve the old job on read errors.
+- **Vanished-worker decision**: the waiter reads and probes again under the
+  state lock. It writes failure only for an active record with the same
+  worker PID. Finished records and records naming another worker stay intact.
 - **Vanished-worker cleanup checks process identity** (2026-10): when a
   background wait finds that the worker is gone, it signals the recorded
   `agyPid` only when `agyProcessStartedAt` matches the current start time
