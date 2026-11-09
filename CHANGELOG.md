@@ -11,6 +11,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add fresh-call preview refusals for background, wait, continuation, request-id and show-result flags, plus rescue resume.
 - Add `rescue --prompt-file` with the existing file/stdin limits, title rules and refusal codes.
 
+- Add `media --transcript --timestamps` (`[HH:MM:SS]` before each caption line) and `details.timestamped`.
+- Add `media --output <path>`: save the answer text of a finished run to a new file. It never overwrites, converts nothing, adds the `Saved:` line and `details.output` (`path`, `bytes`), and uses the error code `output_target_unwritable`. A write failure after a completed run keeps stdout and the job and exits 1.
+- Add `result --check-current` for `review` jobs: `details.checkCurrent` (`match`, `changed` or `unknown`, with a reason), one stderr line, and the error code `check_current_unsupported_kind`. It is a snapshot, not a lock. It reads git only.
+- Add `result --export <path>`: write the stored record (the plain `--json` text) to a new file. It never overwrites, adds `details.exported` (`path`, `bytes`) and uses the error code `export_target_unwritable`.
+- These four flags have no measured demand yet.
 - Add `--model-alias` on task, rescue, review, vision, and media.
 - Add literal flash, argon, pro, sonnet, opus, and gpt-oss account-family selection.
 - Add `details.modelAlias` (requestedAlias, resolvedModel, listingSource).

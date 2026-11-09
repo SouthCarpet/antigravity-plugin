@@ -1,6 +1,6 @@
 ---
 description: Show the stored final output for a finished Antigravity job in this repository
-argument-hint: '[job-id] [--head <n>] [--tail <n>] [--check-locations] [--json]'
+argument-hint: '[job-id] [--head <n>] [--tail <n>] [--check-locations] [--check-current] [--export <path>] [--json]'
 disable-model-invocation: true
 allowed-tools: "Bash(node\t-e\t\"const\tp=require('node:path');const\tfs=require('node:fs');const\tos=require('node:os');const\th=os.homedir();const\troot=process.env.CLAUDE_PLUGIN_ROOT||p.join(h,'.gemini','config','plugins','antigravity');let\tn;try{n=JSON.parse(fs.readFileSync(p.join(root,'plugin.json'))).name}catch{n=0}if(n!=='antigravity'){console.error('antigravity-plugin:\t'+root+'\tis\tnot\tan\tantigravity\tplugin\ttree\t(plugin.json\tmissing\tor\tname\tmismatch).\tRun:\tnpx\t@southcarpet/antigravity-plugin\tresult');process.exit(1)}const\tm=p.join(root,'scripts','lib','host-bootstrap.cjs');if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){console.error('antigravity-plugin:\truntime\tnot\tfound\tat\t'+m+'.\tRun:\tnpx\t@southcarpet/antigravity-plugin\tresult');process.exit(1)}process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'result'));\"\t--:*)"
 ---

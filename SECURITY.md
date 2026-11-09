@@ -148,6 +148,10 @@ diagnostic or in the job's stored `provenance`: a refusal names the byte cap
 and the actual size, or a fixed reason, never the path or the content that
 triggered it.
 
+### `result --export` and `media --output` (local file writes)
+
+`result --export <path>` and `media --output <path>` each write one new local file at a path the caller chooses, and never overwrite: the target must not exist (a file, a directory or a link, checked without following a link), its parent directory must exist, the file is created exclusively, and a partial file is removed after a failed write. The export holds the stored record in its safe, redacted shape; `--output` holds the answer text with OAuth URLs removed. A path with a control character or beyond the platform limit is refused, and a message shows the path on one line with control characters escaped. Nothing is sent anywhere.
+
 ### `review` context sent to agy
 
 An untracked file whose basename looks like a secret (`.env` and its

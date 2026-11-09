@@ -1189,7 +1189,9 @@ meaning:
   "Input hash: sha256:..." in the "## Provenance" markdown section and at
   `details.job.request.inputHash` (`status <id> --json`) /
   `details.inputHash` (`result <id> --json`). See `docs/COMMANDS.md`
-  `review` for the exact flag/envelope shapes.
+  `review` for the exact flag/envelope shapes. `result <id> --check-current`
+  (3.2.0) compares this stored hash with the hash of the input built now; see
+  [Currentness check](#currentness-check).
 - Job state leaf keyed by the resolved (realpath) workspace path. The
   legacy logical-path leaf is still read while the realpath leaf does not
   exist. The background worker receives the caller's exact workspace
@@ -1401,6 +1403,52 @@ meaning:
   heuristic, not a truth check: a citation the diff never touched is not by
   itself a model error. Reviewers legitimately cite context lines and
   related files outside the diff.
+- **`media --timestamps`** (additive, 3.2.0): `[HH:MM:SS] ` before each kept
+  caption line of `media --transcript`, from the start of the line's cue. Valid
+  only with `--transcript`; alone it is refused with `--timestamps requires
+  --transcript`. Without it the transcript output is unchanged byte for byte.
+  See [`media`](./COMMANDS.md#media).
+- `details.timestamped` (additive, 3.2.0): `true` on a `media` run started with
+  `--timestamps`; absent without the flag.
+- **`media --output <path>`** (additive, 3.2.0): saves the answer text of a
+  finished run to a new file; plain text, no conversion, never overwrites. A
+  late write failure keeps stdout and the job record and exits 1. See
+  [`media`](./COMMANDS.md#media).
+- `details.output` (additive, 3.2.0): `{ path, bytes }` on a `media` run that
+  saved its answer with `--output`; absent without the flag. Text mode prints
+  one last line `Saved: <path>`. `media --preview --output <path>` shows the
+  resolved target as `output` in the preview details and writes nothing.
+- Error code `output_target_unwritable` (additive, 3.2.0): `invalid_input`
+  (exit 1) for a bad `media --output` target, before any spawn, download or
+  job. Cases: empty path, control character in the path, path longer than the
+  platform limit, target exists as a file, directory or link, target directory
+  missing or not a directory, target cannot be checked or written. After a
+  completed run the same code appears only in the stderr line `antigravity:media:
+  output not saved (output_target_unwritable): <message>` and the exit code
+  is 1.
+- **`result --check-current`** (additive, 3.2.0): compares the `review` input
+  built now with the stored `request.inputHash`, using the job's stored scope,
+  base, focus and findings flag. Read-only, offline, git only. It is a snapshot,
+  not a lock. See [Currentness check](#currentness-check) and
+  [`result`](./COMMANDS.md#result).
+- `details.checkCurrent` (additive, 3.2.0): `{ status: "match" | "changed" | "unknown",
+  reason?, checkedAt }` on `result <job-id> --check-current`; absent without the
+  flag. `reason` is set only with `unknown`: `legacy_record`, `base_not_found`,
+  `default_base_not_found` or `collection_failed`. One stderr line, also appended
+  to the markdown: `antigravity:result — currentness check (snapshot): <status>.`
+- Error code `check_current_unsupported_kind` (additive, 3.2.0): `invalid_input`
+  (exit 1) when `result --check-current` addresses a job that is not a `review`
+  job.
+- **`result --export <path>`** (additive, 3.2.0): writes the job's stored record,
+  exactly the `result <job-id> --json` text with no other flag, to a new file.
+  The file is never cut by `--head`/`--tail` and never carries a check result.
+  Never overwrites.
+- `details.exported` (additive, 3.2.0): `{ path, bytes }` on `result --export`;
+  absent without the flag. `path` goes through the display sanitizer. Text mode
+  ends with one line `Exported: <path>`.
+- Error code `export_target_unwritable` (additive, 3.2.0): `invalid_input`
+  (exit 1) for a bad `result --export` target. Cases as for
+  `output_target_unwritable`. Nothing is written and nothing else is printed.
 - **Trust checks on state reads** (2026-10): `status`, `result` and
   `cancel` refuse to read job state from a state root, workspace directory
   or `jobs` directory that is not a private directory owned by the user (the
@@ -1484,6 +1532,22 @@ exit code was 0. `result.response`, which becomes `answer`, was JSON text,
 not prose, and it carried keys the schema did not allow. So under
 `--findings-json`, `answer` is JSON text rather than the Markdown review. The
 plugin reads only `structured_output` and never parses `response`.
+
+### Currentness check
+
+`result <job-id> --check-current` answers one question: is the review input of
+this finished `review` job the same as the one built from the repository now?
+It calls `collectReviewContext` and `buildReviewInput` with the stored
+`request.scope`, `request.base`, `request.focus` and `request.findingsJson`, and
+compares the new `inputHash` with `request.inputHash` (see the `inputHash`
+entry above). No hash rule is written a second time. `request.scope` is stored
+resolved (`working-tree` or `branch`). A `branch` review stored with `base: null`
+means the default base was used, so it is resolved again today: local `main`,
+then `master`. The check is a snapshot of one moment, not a lock. It spawns only
+git, never writes job state and never calls agy. A record from before
+`inputHash` was stored gives `unknown` with reason `legacy_record`. A record
+with extra request fields (such as `request.pairId`) is a review job like any
+other. The flag has no measured demand yet.
 
 ### Heuristic location check
 

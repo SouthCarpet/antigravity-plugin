@@ -28,7 +28,7 @@ const PREVIEW_HELP = '\n  --preview               show a fresh request; no probe
   '                          Aliases stay unresolved. Refuses background, wait,\n' +
   '                          continuation, request-id and show-result flags.\n';
 const COMMAND_HELP = {
-  media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]',
+  media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript [--timestamps]] [--keep] [--output <path>] [--json] [--cwd <path>]',
   setup:
     'antigravity-plugin setup — one-time OAuth wizard.\n\n' +
     'Usage: antigravity-plugin setup [--skip-vision|--remove-vision] [--json]\n\n' +
@@ -136,6 +136,11 @@ const COMMAND_HELP = {
     '                         stored answer names against the job\'s own stored\n' +
     '                         request.hunks; works on a job reviewed without\n' +
     '                         the flag\n' +
+    '  --check-current        tell whether a review job\'s input still matches\n' +
+    '                         the repository now (match, changed or unknown);\n' +
+    '                         a snapshot, read-only, git only, review jobs only\n' +
+    '  --export <path>        write the stored record (the plain --json text)\n' +
+    '                         to a NEW file; never overwrites\n' +
     '  --json                 emit JSON instead of markdown\n' +
     '  --cwd <path>           override working directory\n' +
     'Both --head and --tail may be given; markdown output notes a cut.\n' +
