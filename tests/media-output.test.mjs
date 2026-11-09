@@ -112,7 +112,8 @@ describe('what is written', () => {
     const withFlag = JSON.parse((await go([wav, '--json', '--output', 'out.txt'])).out);
     assert.deepEqual(withFlag.details.output, { path: file('out.txt'), bytes: bytesOf('out.txt').length });
     assert.equal(withFlag.details.output.bytes, Buffer.byteLength(`${ANSWER}\n`));
-    const { output, ...rest } = withFlag.details;
+    const { output: saved, ...rest } = withFlag.details;
+    assert.equal(saved.path, file('out.txt'));
     assert.deepEqual(Object.keys(rest), Object.keys(plain.details));
     assert.equal(withFlag.answer, plain.answer);
     assert.equal(withFlag.status, plain.status);
