@@ -24,6 +24,9 @@ const KNOWN = ['media', 'setup', 'review', 'rescue', 'task', 'vision', 'status',
 const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
+const PREVIEW_HELP = '\n  --preview               show a fresh request; no probe, download or state write.\n' +
+  '                          Aliases stay unresolved. Refuses background, wait,\n' +
+  '                          continuation, request-id and show-result flags.\n';
 const COMMAND_HELP = {
   media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]',
   setup:
@@ -166,6 +169,9 @@ const COMMAND_HELP = {
     'Env: ANTIGRAVITY_NO_UPDATE_CHECK=1 skips the registry call.',
 };
 
+for (const kind of ['task', 'rescue', 'vision', 'media']) COMMAND_HELP[kind] += PREVIEW_HELP;
+COMMAND_HELP.rescue += '\n  --prompt-file <path>     UTF-8 file, 512 KiB max; - is standalone stdin.\n                          No positional prompt; preview also refuses --resume.\n';
+
 const [, , raw, ...rest] = process.argv;
 const arg0 = (raw || '').toLowerCase();
 
@@ -218,7 +224,8 @@ if (rest.includes('--help') || rest.includes('-h')) {
 
 // Friendly preflight: AGY_BIN set but missing → install URL + exit 127.
 const removingVision = arg0 === 'setup' && rest.includes('--remove-vision');
-if (AGY_REQUIRED.has(arg0) && !removingVision && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
+const previewOnly = ['review', 'task', 'rescue', 'vision', 'media'].includes(arg0) && rest.slice(0, rest.indexOf('--') < 0 ? rest.length : rest.indexOf('--')).includes('--preview');
+if (AGY_REQUIRED.has(arg0) && !previewOnly && !removingVision && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
   process.stderr.write(
     `antigravity-plugin: \`agy\` not found at AGY_BIN=${process.env.AGY_BIN}.\n` +
     `Install Google Antigravity CLI from ${INSTALL_URL} or unset AGY_BIN.\n`,

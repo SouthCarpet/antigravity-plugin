@@ -6,7 +6,7 @@ import { resolveWorkspaceRoot } from '../lib/workspace.mjs';
 import { resolveStateRoot } from '../lib/state.mjs';
 import { MEDIA_SCHEMA, youtubeId, localMedia, mediaError, validateLocalOptions, mediaDoctor, cleanupMedia } from '../lib/media.mjs';
 import { downloadMedia } from '../lib/media-download.mjs';
-import { resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, createTrackedJob, patchJob, runForegroundJob, finishForeground, buildStoredResult } from '../lib/job-helpers.mjs';
+import { reportRunPreview, resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, createTrackedJob, patchJob, runForegroundJob, finishForeground, buildStoredResult } from '../lib/job-helpers.mjs';
 import { checkVisionExpectations, formatExpectationsMarkdown } from '../lib/vision-expect.mjs';
 import { createErrorEnvelope, outputCommandResult } from '../lib/render.mjs';
 
@@ -72,17 +72,13 @@ export async function run(argv = [], ctx = {}) {
   if (!parsed) return 1;
   const { options, positionals } = parsed;
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
-  const workspaceRoot = resolveWorkspaceRoot(cwd);
+  const workspaceRoot = options.preview ? cwd : resolveWorkspaceRoot(cwd);
   let media, job;
   try {
     if (positionals.length !== 1) throw mediaError('invalid_arguments', 'Usage: media <file-path | youtube-url> [flags]');
     media = inputSource(positionals[0], options, cwd);
-    if (media.source === 'youtube') {
-      const tools = mediaDoctor();
-      if (tools.ytDlp.path === 'absent') throw mediaError('yt_dlp_missing', 'Install: winget install yt-dlp.yt-dlp or py -m pip install --user yt-dlp');
-      media.ytDlpPath = tools.ytDlp.path;
-      media.ytDlpVersion = tools.ytDlp.version;
-    }
+    if (options.preview) return reportMediaPreview(media, options);
+    checkYoutubeTools(media);
     const transcriptOnly = media.mode === 'transcript' && !options.prompt;
     if (!transcriptOnly) {
       const selection = await resolveMediaModel(options);
@@ -123,4 +119,25 @@ function resolveMediaModel(options) {
 
 async function rememberMediaVersion(workspaceRoot, version, transcriptOnly) {
   if (!transcriptOnly) await rememberAgyVersion(workspaceRoot, version);
+}
+
+function reportMediaPreview(media, options) {
+  const transcriptOnly = media.mode === 'transcript' && !options.prompt;
+  const pending = media.source === 'youtube';
+  const prompt = transcriptOnly ? null : mediaPrompt(pending
+    ? { ...media, mediaPath: '<downloaded media>', text: '<downloaded transcript>' } : media,
+    options.prompt ?? 'Describe the content and transcribe speech.');
+  return reportRunPreview({ kind: 'media', prompt, options,
+    defaultModel: transcriptOnly ? null : 'gemini-3.8-flash-high',
+    addDirs: media.mode === 'transcript' ? [] : [pending ? '<download directory>' : dirname(media.mediaPath)],
+    details: { source: media.source, mode: media.mode, quality: media.quality, videoId: media.videoId ?? null,
+      agyCall: !transcriptOnly, ...(transcriptOnly ? { argv: [], model: null } : {}) } });
+}
+
+function checkYoutubeTools(media) {
+  if (media.source !== 'youtube') return;
+  const tools = mediaDoctor();
+  if (tools.ytDlp.path === 'absent') throw mediaError('yt_dlp_missing', 'Install: winget install yt-dlp.yt-dlp or py -m pip install --user yt-dlp');
+  media.ytDlpPath = tools.ytDlp.path;
+  media.ytDlpVersion = tools.ytDlp.version;
 }

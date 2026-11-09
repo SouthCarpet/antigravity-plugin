@@ -32,6 +32,8 @@ import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildRescuePrompt } from "../lib/prompt-templates.mjs";
 import {
+  reportRunPreview,
+  previewConflicts,
   AGY_MODES,
   EFFORT_CHOICES,
   agyModeArgs,
@@ -51,6 +53,8 @@ import {
   waitAndReport,
   waitForJob,
 } from "../lib/job-helpers.mjs";
+import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
+import { resolvePromptFileSource, titleFromPromptText, validatePromptFileOption } from "../lib/prompt-source.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import { validateRequestIdOption } from "../lib/request-id.mjs";
 
@@ -120,11 +124,12 @@ async function runRescueBackground({ workspaceRoot, title, prompt, mode, convers
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "model", "model-alias", "cwd", "add-dir", "mode", "effort", "request-id"],
-    booleanOptions: ["background", "wait", "resume", "continue", "fresh", "json", "show-result"],
+    valueOptions: ["conversation", "model", "model-alias", "cwd", "add-dir", "mode", "effort", "request-id", "prompt-file"],
+    booleanOptions: ["preview", "background", "wait", "resume", "continue", "fresh", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
+      ...previewConflicts(["background", "wait", "continue", "conversation", "request-id", "show-result", "resume"]),
       ["model", "model-alias"],
       ["continue", "conversation"],
       ["resume", "conversation"],
@@ -135,32 +140,32 @@ export async function run(argv = [], ctx = {}) {
     validate: (options) => validateRequestIdOption(options, "rescue"),
   }, "rescue");
   if (!parsed) return 1;
-  const { options, positionals } = parsed;
+  const { options } = parsed;
+
+  const promptFileError = validatePromptFileOption(parsed, ctx);
+  if (promptFileError) return reportArgsValidationError("rescue", promptFileError);
 
   const showResultError = validateShowResultDependency(options, "rescue");
   if (showResultError) return reportArgsValidationError("rescue", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
-  const workspaceRoot = resolveWorkspaceRoot(cwd);
-
-  const userPrompt = positionals.join(" ").trim();
-  if (!userPrompt && !options.resume && !options.continue && !options.conversation) {
-    return reportMissingTaskText("rescue", Boolean(options.json));
-  }
+  const workspaceRoot = options.preview ? cwd : resolveWorkspaceRoot(cwd);
 
   const { mode, conversationId } = resolveRescueMode(options);
+  const resolved = await resolveRescuePromptAndTitle(parsed, cwd, conversationId, Boolean(options.json));
+  if (!resolved.ok) return 1;
+  const { userPrompt, title } = resolved;
 
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
+  const prompt = buildRescuePrompt(userPrompt || "(continue)");
+  if (options.preview) return reportRunPreview({ kind: "rescue", prompt, options, addDirs, extraArgs });
   const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"],
     effort: options.effort, workspaceRoot, kind: "rescue", mode, conversationId });
   if (!selection.ok) return reportModelResolutionFailure("rescue", selection, options.json);
   const model = selection.model;
   const modelRequest = selection.request;
   const effort = resolveRequestEffort(options.effort, model);
-
-  const prompt = buildRescuePrompt(userPrompt || "(continue)");
-  const title = userPrompt ? truncate(userPrompt, 80) : `resume ${conversationId ?? "last"}`;
 
   const probed = await probeAgyForVerb("rescue");
   if (probed.line) return reportAgyUnavailable("rescue", probed.line, options.json);
@@ -182,3 +187,22 @@ function truncate(s, n) {
 export default run;
 
 runIfMain(import.meta.url, run);
+
+async function resolveRescuePromptAndTitle({ options, positionals }, cwd, conversationId, json) {
+  const source = await resolvePromptFileSource(options, cwd);
+  if (source) {
+    if (!source.ok) {
+      process.stderr.write('antigravity:rescue — ' + source.message + '\n');
+      outputCommandResult(createErrorEnvelope('rescue', { status: 'invalid_input',
+        error: { code: source.code, phase: 'validate', message: source.message } }), '', json);
+      return { ok: false };
+    }
+    return { ok: true, userPrompt: source.text, title: titleFromPromptText(source.text) };
+  }
+  const userPrompt = positionals.join(' ').trim();
+  if (!userPrompt && !options.resume && !options.continue && !options.conversation) {
+    reportMissingTaskText('rescue', json);
+    return { ok: false };
+  }
+  return { ok: true, userPrompt, title: userPrompt ? truncate(userPrompt, 80) : 'resume ' + (conversationId ?? 'last') };
+}

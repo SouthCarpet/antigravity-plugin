@@ -6,6 +6,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Add `--preview` to task, rescue, vision and media, with local checks and no probes, downloads or state writes.
+- Add preview details fields documented in [Run preview](docs/COMMANDS.md#run-preview), with shared runtime argv, redacted add-dir values and unresolved aliases.
+- Add fresh-call preview refusals for background, wait, continuation, request-id and show-result flags, plus rescue resume.
+- Add `rescue --prompt-file` with the existing file/stdin limits, title rules and refusal codes.
+
 - Add `--model-alias` on task, rescue, review, vision, and media.
 - Add literal flash, argon, pro, sonnet, opus, and gpt-oss account-family selection.
 - Add `details.modelAlias` (requestedAlias, resolvedModel, listingSource).

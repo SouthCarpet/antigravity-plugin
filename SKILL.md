@@ -72,3 +72,5 @@ Codex picks this plugin up via:
 - `agents/openai.yaml` — implicit-invocation interface (the `$antigravity` shortcut).
 
 Claude Code, agy, and standalone hosts ignore the Codex-specific files and consume `.claude-plugin/`, `plugin.json` (root), and `bin/antigravity.mjs` respectively. See [docs/INSTALL.md](./docs/INSTALL.md) for per-host install recipes.
+
+Task, rescue, vision and media accept `--preview` for local validation and a fresh foreground request display, without probes, downloads or state writes. Aliases remain unresolved. Task/rescue preview refuses background, wait, continuation, request-id and show-result flags; rescue also refuses resume. Rescue accepts `--prompt-file <path>` with task-compatible limits and standalone-only stdin (`-`). See [Run preview](docs/COMMANDS.md#run-preview).

@@ -411,6 +411,10 @@ of an empty stdout body; the stderr line is unchanged either way.
 
 ## `rescue`
 
+- `--preview`: see [Run preview](#run-preview). Refused with `--background`, `--wait`, `--continue`, `--conversation`, `--request-id`, `--show-result`, or `--resume`.
+
+- `--prompt-file <path>`: see [Rescue prompt files](#rescue-prompt-files).
+
 `--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
 
 ```text
@@ -506,6 +510,8 @@ of an empty stdout body; the stderr line is unchanged either way. A
 background job whose worker never started reports the same way.
 
 ## `task`
+
+- `--preview`: see [Run preview](#run-preview). Refused with `--background`, `--wait`, `--continue`, `--conversation`, `--request-id`, `--show-result`.
 
 `--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
 
@@ -689,6 +695,8 @@ is unchanged and the job record has no request id fields.
 
 ## media
 
+- `--preview`: see [Run preview](#run-preview). Foreground only; background and continuation flags remain unsupported.
+
 `--model-alias <alias>` selects an account model when a prompt reaches agy.
 
 `media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]`
@@ -712,6 +720,8 @@ Exit 0: completed; 1: validation, download or run failure; 2: cancelled agy run.
 Errors: media_not_found, media_unsupported_type, media_too_large, youtube_url_invalid, yt_dlp_missing, download_failed, transcript_unavailable, invalid_arguments, plus the existing agy denial, spawn and run errors. yt_dlp_missing names the winget and pip installation commands. A merge failure names ffmpeg and suggests quality 360p or audio. A denied read uses the existing remedy path and explains the directory grant.
 
 ## `vision`
+
+- `--preview`: see [Run preview](#run-preview). Foreground only; background and continuation flags remain unsupported.
 
 `--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
 
@@ -1262,3 +1272,32 @@ Completed or failed runs with a mismatch print one stderr line:
 The exit code does not change. If either value is missing, the field and
 warning are absent. The reported model comes only from agy's result event
 `model` field. Versions measured before this release did not supply it.
+
+## Run preview
+
+On task, rescue, vision and media, `--preview` validates local input and shows a fresh foreground request without an agy probe, model listing, download or state write. It works without agy. It returns 0 on valid input; validation failures keep their normal exit codes. Alias values stay unresolved until a real run calls `agy models`. `--add-dir` values are redacted; only their count is shown.
+For diff previews, see [review](#review). Vision and media retain their normal default model. Task and rescue retain their normal effort selection.
+
+The JSON envelope has status `preview`, jobId `null`, answer `null`, and these details keys:
+
+- `prompt`: the text sent over stdin. For YouTube, downloaded bytes and paths are unavailable, so placeholders mark them.
+- `argv`: the shared runtime builder's ordered argv, including print timeout and the stream-json tail. Each add-dir value is the directory count as a string; an alias model value is `<unresolved alias>`.
+- `model`: an exact id or the normal default, or null for an unresolved alias or no model.
+- `modelAlias`: the requested alias, or null.
+- `modelResolution`: exact, default (no id selected), or unresolved.
+- `modelResolutionNote`: states that the real run resolves an alias through agy models, or null.
+- `addDirCount`: number of additional readable directories. Paths are never listed as argv values.
+- Media `source`: local or youtube.
+- Media `mode`: video, audio or transcript.
+- Media `quality`: selected quality, or null.
+- Media `videoId`: parsed YouTube id, or null.
+- Media `agyCall`: false for transcript-only output, true otherwise. Transcript-only preview has empty argv and null prompt because it has no model call.
+
+Each preview conflict uses the parser's existing `cannot combine --preview and --<flag>` refusal (exit 1). Unsupported flags on vision/media keep their existing refusal (exit 1).
+
+### Rescue prompt files
+
+- `rescue --prompt-file <path>` reads UTF-8 text with the same 512 KiB cap as task. It also accepts --resume, --continue and --conversation to supply a new turn.
+- `rescue --prompt-file -` reads stdin in the standalone CLI only. Host wrappers refuse it with `--prompt-file - (stdin) is available in the standalone CLI only`.
+- A positional prompt is refused with `cannot combine --prompt-file with a positional prompt`.
+- Content failures keep `prompt_file_too_large`, `prompt_file_unreadable` and `prompt_file_empty` (exit 1). The first non-empty line becomes the title, capped at 80 characters.

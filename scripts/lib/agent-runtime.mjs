@@ -956,7 +956,7 @@ export function printTimeoutArg(timeoutMs) {
  *   timeoutMs: number }} options
  * @returns {string[]}
  */
-function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, jsonSchemaPath, timeoutMs }) {
+export function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, jsonSchemaPath, timeoutMs }) {
   const args = [];
   if (mode === 'continue') args.push('--continue');
   if (mode === 'conversation') {

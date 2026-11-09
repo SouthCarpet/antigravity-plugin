@@ -13,6 +13,7 @@ import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
+import * as agentRuntime from "./agent-runtime.mjs";
 import { runAgyPrint, resolveAgyBin, probeAgy, probeAgyModels } from "./agent-runtime.mjs";
 import { createOAuthUrlFilter, removeOAuthUrlsDeep, safeFailureReason } from "./safe-reason.mjs";
 import { spawn } from "./process-adapter.mjs";
@@ -2209,4 +2210,32 @@ export function reportedModelMismatchLine(kind, result, provenance) {
   const requested = provenance.resolvedModel ?? provenance.model;
   return `antigravity:${kind} — warning: agy reported model ${JSON.stringify(result.reportedModel)}, ` +
     `requested ${JSON.stringify(requested)}.`;
+}
+
+/** Build a display copy of the runtime argv, without resolving aliases or writing state. */
+export function buildRunPreview({ kind, prompt, options, addDirs = [], extraArgs = [], defaultModel, details = {} }) {
+  const alias = options['model-alias'] ?? null;
+  const model = alias ? '<unresolved alias>' : options.model ?? defaultModel ?? null;
+  const effort = kind === 'task' || kind === 'rescue'
+    ? agyEffortArg(resolveRequestEffort(options.effort, model)) : undefined;
+  const argv = agentRuntime.buildAgyArgs({ mode: 'print', addDirs, model, effort, extraArgs, timeoutMs: agyTimeoutMs() });
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--add-dir') argv[++i] = String(addDirs.length);
+  }
+  return { prompt, argv, model: alias ? null : model, modelAlias: alias,
+    modelResolution: alias ? 'unresolved' : model ? 'exact' : 'default',
+    modelResolutionNote: alias ? 'The real run resolves this alias through agy models.' : null,
+    addDirCount: addDirs.length, ...details };
+}
+
+export function reportRunPreview(input) {
+  const { kind, options } = input;
+  const details = buildRunPreview(input);
+  outputCommandResult(createJsonEnvelope(kind, { status: 'preview', jobId: null, answer: null, details }),
+    JSON.stringify(details, null, 2) + '\n', options.json);
+  return 0;
+}
+
+export function previewConflicts(flags) {
+  return flags.map((flag) => ['preview', flag]);
 }

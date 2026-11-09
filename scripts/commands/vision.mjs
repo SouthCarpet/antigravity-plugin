@@ -32,7 +32,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { reportRunPreview, resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
 import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
@@ -155,7 +155,7 @@ export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["prompt", "model", "model-alias", "cwd"],
     conflicts: [["model", "model-alias"]],
-    booleanOptions: ["json"],
+    booleanOptions: ["json", "preview"],
     repeatableOptions: ["expect"],
     validate: validateExpectOption,
   }, "vision");
@@ -163,7 +163,7 @@ export async function run(argv = [], ctx = {}) {
   const { options, positionals } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
-  const workspaceRoot = resolveWorkspaceRoot(cwd);
+  const workspaceRoot = options.preview ? cwd : resolveWorkspaceRoot(cwd);
 
   if (positionals.length === 0) {
     return reportVisionValidationFailure(
@@ -182,6 +182,9 @@ export async function run(argv = [], ctx = {}) {
     if (problem) return reportVisionValidationFailure(problem.code, problem.message, Boolean(options.json));
   }
 
+  const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
+  const prompt = buildVisionPrompt({ imagePaths, userPrompt });
+  if (options.preview) return reportRunPreview({ kind: "vision", prompt, options, defaultModel: DEFAULT_MODEL });
   const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"] });
   if (!selection.ok) return reportModelResolutionFailure("vision", selection, options.json);
   const model = selection.model ?? DEFAULT_MODEL;
@@ -189,8 +192,6 @@ export async function run(argv = [], ctx = {}) {
   if (probed.line) return reportAgyUnavailable("vision", probed.line, options.json);
   await rememberAgyVersion(workspaceRoot, probed.version);
 
-  const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
-  const prompt = buildVisionPrompt({ imagePaths, userPrompt });
   const title = `vision: ${imagePaths.map((p) => basename(p)).join(", ")}`;
   // Record each image twice: in the lexical absolute form the prompt names
   // (the MCP server authorizes a request by that form before it touches the

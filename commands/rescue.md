@@ -1,6 +1,6 @@
 ---
 description: Delegate a task to Google Antigravity (agy) for debugging, implementation, or deeper investigation
-argument-hint: '[--background] [--wait] [--show-result] [--request-id <id>] [--resume|--fresh] [--continue] [--conversation <id>] [--add-dir <path>] [--model <id> | --model-alias <alias>] [--effort <low|medium|high>] [what Antigravity should investigate, solve, or continue]'
+argument-hint: '[--preview] [--prompt-file <path>] [--background] [--wait] [--show-result] [--request-id <id>] [--resume|--fresh] [--continue] [--conversation <id>] [--add-dir <path>] [--model <id> | --model-alias <alias>] [--effort <low|medium|high>] [what Antigravity should investigate, solve, or continue]'
 disable-model-invocation: true
 allowed-tools: "Bash(node\t-e\t\"const\tp=require('node:path');const\tfs=require('node:fs');const\tos=require('node:os');const\th=os.homedir();const\troot=process.env.CLAUDE_PLUGIN_ROOT||p.join(h,'.gemini','config','plugins','antigravity');let\tn;try{n=JSON.parse(fs.readFileSync(p.join(root,'plugin.json'))).name}catch{n=0}if(n!=='antigravity'){console.error('antigravity-plugin:\t'+root+'\tis\tnot\tan\tantigravity\tplugin\ttree\t(plugin.json\tmissing\tor\tname\tmismatch).\tRun:\tnpx\t@southcarpet/antigravity-plugin\trescue');process.exit(1)}const\tm=p.join(root,'scripts','lib','host-bootstrap.cjs');if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){console.error('antigravity-plugin:\truntime\tnot\tfound\tat\t'+m+'.\tRun:\tnpx\t@southcarpet/antigravity-plugin\trescue');process.exit(1)}process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'rescue'));\"\t--:*), AskUserQuestion"
 ---
@@ -47,3 +47,7 @@ Model aliases: `--model-alias <alias>` selects from `agy models` for this accoun
 Aliases are `flash`, `argon`, `pro`, `sonnet`, `opus`, and `gpt-oss`.
 Each alias matches only its own family token. It conflicts with `--model`.
 See [Model aliases](../docs/COMMANDS.md#model-aliases) for refusals and resume behavior.
+
+- `--preview` validates local input and shows a fresh foreground request without an agy probe, model listing, download or state write. It works without agy. It returns 0 on valid input; validation failures keep their normal exit codes. Alias values stay unresolved until a real run calls `agy models`. `--add-dir` values are redacted; only their count is shown.
+- Preview refuses `--background`, `--wait`, `--continue`, `--conversation`, `--request-id` and `--show-result`, plus `--resume`.
+- `--prompt-file <path>` reads UTF-8 text (512 KiB cap), cannot combine with positional text, and can supply a new turn with `--resume`, `--continue` or `--conversation`. `-` reads stdin in the standalone CLI only. The first non-empty line supplies the title (80 characters max).

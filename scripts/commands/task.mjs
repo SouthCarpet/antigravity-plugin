@@ -37,6 +37,8 @@ import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import { buildTaskPrompt } from "../lib/prompt-templates.mjs";
 import {
+  reportRunPreview,
+  previewConflicts,
   AGY_MODES,
   EFFORT_CHOICES,
   agyModeArgs,
@@ -183,10 +185,11 @@ async function resolveTaskPromptAndTitle({ options, positionals }, cwd, conversa
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
     valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "model-alias", "effort", "request-id", "prompt-file"],
-    booleanOptions: ["wait", "foreground", "background", "continue", "json", "show-result"],
+    booleanOptions: ["preview", "wait", "foreground", "background", "continue", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
+      ...previewConflicts(["background", "wait", "continue", "conversation", "request-id", "show-result"]),
       ["model", "model-alias"],
       ["foreground", "background"],
       ["continue", "conversation"],
@@ -203,7 +206,7 @@ export async function run(argv = [], ctx = {}) {
   if (showResultError) return reportArgsValidationError("task", showResultError);
 
   const cwd = resolveCliCwd(options, ctx);
-  const workspaceRoot = resolveWorkspaceRoot(cwd);
+  const workspaceRoot = options.preview ? cwd : resolveWorkspaceRoot(cwd);
 
   const { mode, conversationId } = resolveTaskMode(options);
 
@@ -213,14 +216,14 @@ export async function run(argv = [], ctx = {}) {
 
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
+  const prompt = buildTaskPrompt(userPrompt || "(continue)");
+  if (options.preview) return reportRunPreview({ kind: "task", prompt, options, addDirs, extraArgs });
   const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"],
     effort: options.effort, workspaceRoot, kind: "task", mode, conversationId });
   if (!selection.ok) return reportModelResolutionFailure("task", selection, options.json);
   const model = selection.model;
   const modelRequest = selection.request;
   const effort = resolveRequestEffort(options.effort, model);
-
-  const prompt = buildTaskPrompt(userPrompt || "(continue)");
 
   const probed = await probeAgyForVerb("task");
   if (probed.line) return reportAgyUnavailable("task", probed.line, options.json);

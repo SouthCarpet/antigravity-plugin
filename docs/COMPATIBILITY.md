@@ -1646,3 +1646,9 @@ output is refused with reason "listing too large". `details.modelAlias` appears
 in foreground and awaited `--show-result` output. Queued background envelopes
 and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
 `details.provenance`.
+
+### Additive run preview and rescue prompt files
+
+- `--preview` now covers task, rescue, vision and media, alongside review. All five previews avoid agy spawns, downloads and state writes. Local input checks still apply. No preview resolves an alias or reads an alias cache. Missing agy does not block preview.
+- The four new previews expose the details keys listed in [Run preview](./COMMANDS.md#run-preview), using the real argv builder with add-dir values redacted. YouTube uses placeholders for data that needs a download.
+- `rescue --prompt-file <path>` adds task-compatible UTF-8 file and standalone stdin input, with the same limits and refusal codes.
