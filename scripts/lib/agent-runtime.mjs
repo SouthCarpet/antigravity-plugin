@@ -308,6 +308,59 @@ export async function probeAgyHelp({
   }
 }
 
+/** Fetch the model table without starting a model run. */
+export async function probeAgyModels({
+  bin = resolveAgyBin(),
+  timeoutMs = 20000,
+  terminateTree = terminateProcessTree,
+} = {}) {
+  try {
+    assertAgyBinSpawnable(bin);
+  } catch (err) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
+  let timer;
+  try {
+    return await new Promise((resolve) => {
+      const child = spawnAgy(bin, ['models'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      // Parse only stdout. agy 1.5.3 writes its fetch notice to stderr;
+      // an authentication notice there makes the listing unavailable.
+      let text = '';
+      let stderr = '';
+      let overflow = false;
+      const appendListing = (chunk) => {
+        if (text.length + chunk.length > MAX_HELP_BYTES) overflow = true;
+        if (text.length < MAX_HELP_BYTES) text += chunk.toString('utf8').slice(0, MAX_HELP_BYTES - text.length);
+      };
+      const abandon = (reason) => {
+        terminateTree(child.pid).catch(() => {});
+        child.stdout.destroy?.();
+        child.stderr.destroy?.();
+        child.unref?.();
+        resolve({ ok: false, reason });
+      };
+      timer = setTimeout(() => abandon('timeout'), timeoutMs);
+      child.stdout.on('data', appendListing);
+      child.stderr.on('data', (c) => { stderr += c.toString('utf8').slice(0, 4096 - stderr.length); });
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        resolve({ ok: false, reason: e.code === 'ENOENT' ? 'not-installed' : e.message });
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) return resolve({ ok: false, reason: `exit ${code}` });
+        if (overflow) return resolve({ ok: false, reason: 'listing too large' });
+        if (/auth.*required|sign.?in|log.?in|oauth/i.test(stderr)) {
+          return resolve({ ok: false, reason: 'authentication required' });
+        }
+        resolve({ ok: true, text });
+      });
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Build the single NDJSON line agy expects on stdin in stream-json mode.
  *
@@ -441,6 +494,7 @@ function resultEventSnapshot(r, stepTargets) {
     response: typeof r.response === 'string' ? r.response : null,
     usage: r.usage ?? null,
     durationSeconds: r.duration_seconds ?? null,
+    reportedModel: typeof r.model === "string" ? r.model : null,
     conversationId: r.conversation_id ?? null,
     resultStatus: r.status ?? null,
     resultError: typeof r.error === 'string' && r.error ? r.error : null,
@@ -1413,6 +1467,7 @@ function classifyRunResult({ session, exitCode }) {
     rawStdout: session.stdout,
     usage: parsed.usage ?? null,
     durationSeconds: parsed.durationSeconds ?? null,
+    reportedModel: parsed.reportedModel ?? null,
     agyConversationId: parsed.conversationId ?? null,
     warnings: session.warnings,
     denial: finalized.denial,

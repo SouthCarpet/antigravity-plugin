@@ -30,7 +30,7 @@ const BIN = path.join(REPO_ROOT, 'bin', 'antigravity.mjs');
 const PACKAGE_VERSION = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).version;
 const TMPROOT = portableTmpRoot();
 
-const PROVENANCE_KEYS = ['pluginVersion', 'agyVersion', 'model', 'effort', 'mode', 'addDirCount', 'requestedAt'].sort();
+const PROVENANCE_KEYS = ['pluginVersion', 'agyVersion', 'model', 'effort', 'mode', 'addDirCount', 'requestedAt', 'requestedAlias', 'resolvedModel'].sort();
 
 let stubDir;
 let successNoUsage;

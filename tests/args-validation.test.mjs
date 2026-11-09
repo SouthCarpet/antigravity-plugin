@@ -30,6 +30,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
     },
     resolveAgyBin: () => 'agy',
     assertAgyBinSpawnable: () => {},
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },

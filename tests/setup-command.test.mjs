@@ -13,6 +13,7 @@ import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
 
 const state = {
+  models: { ok: false, reason: 'unavailable' },
   probe: { ok: true, version: '1.1.11' },
   spawnExitCode: 0,
   ensureVisionCalls: [],
@@ -24,6 +25,7 @@ const state = {
 mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => state.models,
     probeAgy: async () => state.probe,
     assertAgyBinSpawnable: () => {},
   },
@@ -216,3 +218,21 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
     assert.match(lines[usingIdx + 1], /is newer than the last measured version/);
   });
 });
+
+// Oracle: plan 153 A2. Only a valid listing can prove the pinned id absent.
+for (const [expected, models] of Object.entries({
+  present: { ok: true, text: 'gemini-3.8-flash-high\tPinned' },
+  absent: { ok: true, text: 'gemini-4-flash-medium\tNew' },
+  unknown: { ok: false, reason: 'timeout' },
+})) {
+  it(`setup --skip-vision --json reports ${expected} after OAuth without changing exit 0 (A2)`, async () => {
+    state.models = models;
+    const cap = captureStdio();
+    try {
+      assert.equal(await run(['--skip-vision', '--json']), 0);
+      assert.equal(JSON.parse(cap.out.join('')).details.defaultModelCheck, expected);
+      assert.equal(state.ensureVisionCalls.length, 0);
+      if (expected === 'unknown') assert.doesNotMatch(cap.err.join(''), /is absent/);
+    } finally { cap.restore(); }
+  });
+}

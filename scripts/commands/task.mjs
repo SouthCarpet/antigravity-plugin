@@ -47,6 +47,8 @@ import {
   reportMissingTaskText,
   reportBackgroundStart,
   resolveRequestEffort,
+  resolveRequestModel,
+  reportModelResolutionFailure,
   runForegroundJob,
   runForegroundWithRetryPrompt,
   startBackgroundJob,
@@ -69,7 +71,7 @@ function resolveTaskMode(options) {
   return { mode: "print", conversationId: undefined };
 }
 
-async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, json }) {
+async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, modelRequest, effort, agyVersion, json }) {
   const runOnce = (retryConversationId) => runForegroundJob({
     workspaceRoot,
     kind: "task",
@@ -83,14 +85,14 @@ async function runTaskForeground({ workspaceRoot, title, prompt, mode, conversat
     extraArgs,
     cwd: workspaceRoot,
     agyVersion,
-    request: { prompt, mode: retryConversationId ? "conversation" : mode, addDirs, model, effort },
+    request: { prompt, mode: retryConversationId ? "conversation" : mode, addDirs, model, ...modelRequest, effort },
     onText: (delta) => process.stderr.write(delta),
   });
 
   return runForegroundWithRetryPrompt("task", runOnce, { json });
 }
 
-async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion, options, ctx }) {
+async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, modelRequest, effort, agyVersion, options, ctx }) {
   const start = ctx.startBackgroundJob ?? startBackgroundJob;
   const wait = ctx.waitForJob ?? waitForJob;
   const started = await start({
@@ -104,7 +106,7 @@ async function runTaskBackground({ workspaceRoot, title, prompt, mode, conversat
     extraArgs,
     cwd: workspaceRoot,
     agyVersion,
-    request: { mode, addDirs, model, effort },
+    request: { mode, addDirs, model, ...modelRequest, effort },
     requestId: options["request-id"] ?? null,
   });
   const { exit, jobId } = reportBackgroundStart("task", started, options);
@@ -180,11 +182,12 @@ async function resolveTaskPromptAndTitle({ options, positionals }, cwd, conversa
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "effort", "request-id", "prompt-file"],
+    valueOptions: ["conversation", "cwd", "add-dir", "mode", "model", "model-alias", "effort", "request-id", "prompt-file"],
     booleanOptions: ["wait", "foreground", "background", "continue", "json", "show-result"],
     repeatableOptions: ["add-dir"],
     valueChoices: { mode: AGY_MODES, effort: EFFORT_CHOICES },
     conflicts: [
+      ["model", "model-alias"],
       ["foreground", "background"],
       ["continue", "conversation"],
     ],
@@ -210,7 +213,11 @@ export async function run(argv = [], ctx = {}) {
 
   const addDirs = options["add-dir"] ? options["add-dir"].map(String) : [];
   const extraArgs = agyModeArgs(options.mode);
-  const model = options.model ? String(options.model) : undefined;
+  const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"],
+    effort: options.effort, workspaceRoot, kind: "task", mode, conversationId });
+  if (!selection.ok) return reportModelResolutionFailure("task", selection, options.json);
+  const model = selection.model;
+  const modelRequest = selection.request;
   const effort = resolveRequestEffort(options.effort, model);
 
   const prompt = buildTaskPrompt(userPrompt || "(continue)");
@@ -219,7 +226,7 @@ export async function run(argv = [], ctx = {}) {
   if (probed.line) return reportAgyUnavailable("task", probed.line, options.json);
   await rememberAgyVersion(workspaceRoot, probed.version);
 
-  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, effort, agyVersion: probed.version };
+  const runArgs = { workspaceRoot, title, prompt, mode, conversationId, addDirs, extraArgs, model, modelRequest, effort, agyVersion: probed.version };
 
   if (options.foreground) {
     return runTaskForeground({ ...runArgs, json: options.json });

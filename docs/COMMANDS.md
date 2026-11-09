@@ -134,7 +134,7 @@ exactly once; a second denial is reported the same way and the plugin stops
 ## `setup`
 
 ```text
-setup [--skip-vision] [--remove-vision]
+setup [--skip-vision] [--remove-vision] [--json]
 ```
 
 - `--skip-vision` runs the agy OAuth probe but leaves all vision configuration
@@ -162,6 +162,13 @@ fails, and 2 when the agy version probe cannot find or run agy. That probe
 waits up to 20 seconds and setup does not retry it. A nonzero exit
 from the interactive agy call is passed through unchanged. The standalone
 dispatcher can return 127 earlier when an explicit `AGY_BIN` path is missing.
+
+After successful OAuth, setup checks the pinned vision/media default
+`gemini-3.8-flash-high` with `agy models`. A valid listing without that id
+prints a warning. A failed or malformed listing prints "could not check
+whether the default model is still available". This check does not change
+exit codes. `--json` adds `details.defaultModelCheck` with `present`,
+`absent`, or `unknown`. Removal skips this check.
 
 ## `doctor`
 
@@ -230,11 +237,13 @@ Doctor adds details.media with ytDlp.path and ytDlp.version (or absent), ffmpeg.
 
 ## `review`
 
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
+
 ```text
 review [--base <ref>] [--scope <auto|working-tree|branch>]
        [--background] [--wait] [--show-result]
        [--continue | --conversation <id>]
-       [--model <id>] [--effort <low|medium|high|agy-default>]
+       [--model <id> | --model-alias <alias>] [--effort <low|medium|high|agy-default>]
        [--focus <text>]
        [--preview] [--require-complete]
        [--findings-json]
@@ -271,6 +280,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   `Background review started: <job-id>` moves to stderr instead, in text mode
   and under `--json` alike. See [`--show-result`](#--show-result-all-three-verbs)
   below for the shared completion contract.
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy on both the foreground and the background path, exactly as `rescue`'s
   `--model` already was.
@@ -397,12 +407,14 @@ of an empty stdout body; the stderr line is unchanged either way.
 
 ## `rescue`
 
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
+
 ```text
 rescue <prompt...>
        [--background] [--wait] [--show-result] [--request-id <id>]
        [--resume] [--continue] [--fresh] [--conversation <id>]
        [--add-dir <path>]... [--mode <plan|accept-edits>]
-       [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
+       [--model <id> | --model-alias <alias>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -438,6 +450,7 @@ characters.
   for this run (`plan`: propose without editing; `accept-edits`: apply file
   edits without a prompt). Any other value is an argument error (exit 1)
   and agy is not started.
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy exactly as `vision`'s `--model` already was.
 - `--effort <low|medium|high|agy-default>` (additive) selects agy's reasoning
@@ -490,12 +503,14 @@ background job whose worker never started reports the same way.
 
 ## `task`
 
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
+
 ```text
 task <prompt...>
      [--background | --foreground] [--wait] [--show-result] [--request-id <id>]
      [--continue | --conversation <id>] [--prompt-file <path>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
-     [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
+     [--model <id> | --model-alias <alias>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -547,6 +562,7 @@ required unless `--continue` or `--conversation` is supplied.
   and in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access).
 - `--mode <plan|accept-edits>` is forwarded to agy on both paths, as under
   `rescue`. Any other value is an argument error.
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model <id>` (additive) is forwarded to agy on both paths, as under
   `rescue` and `vision`.
 - `--effort <low|medium|high|agy-default>` (additive) follows the same rule
@@ -669,7 +685,9 @@ is unchanged and the job record has no request id fields.
 
 ## media
 
-`media <file-path | youtube-url> [--prompt <text>] [--model <id>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]`
+`--model-alias <alias>` selects an account model when a prompt reaches agy.
+
+`media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]`
 
 Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp3 (audio/mpeg), m4a (audio/mp4), aac (audio/aac), flac (audio/flac), ogg (audio/ogg), opus (audio/opus). Video: mp4 and m4v (video/mp4), mov (video/quicktime), webm (video/webm), mkv (video/x-matroska). Images use `vision`. Files must be regular files at most 100,000,000 bytes. Paths resolve from `--cwd` or the caller directory and then through realpath. agy opens exactly that path with `read_file`; only its directory is granted through `--add-dir`.
 
@@ -691,6 +709,8 @@ Errors: media_not_found, media_unsupported_type, media_too_large, youtube_url_in
 
 ## `vision`
 
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
+
 `agy --print` has no native image input. Its `read_file` tool sends file bytes
 as text, and `@file` does not create image parts. The CLI has no attachment
 flag, and the internal send-message request uses `media=0`.
@@ -702,7 +722,7 @@ named image.
 ```text
 vision <image-path> [<image-path>...]
        [--prompt <text>]
-       [--model <id>]
+       [--model <id> | --model-alias <alias>]
        [--expect <text>]...
        [--json] [--cwd <path>]
 ```
@@ -712,6 +732,7 @@ current directory and must name existing regular files.
 
 - `--prompt` defaults to: “Describe this image in concrete, specific detail:
   layout, elements, colors, text, and anything unusual.”
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model` defaults to `gemini-3.8-flash-high` and is forwarded to agy.
   Before 3.0.0 the default was `gemini-3.6-flash-high`; pass
   `--model gemini-3.6-flash-high` to keep it.
@@ -1175,3 +1196,59 @@ always runs from the update's temporary directory. A sibling directory whose
 name only starts like the root's name does not count as inside it.
 
 `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.
+
+## Model aliases
+
+`task`, `rescue`, `review`, `vision`, and `media` accept `--model-alias <alias>`.
+This flag conflicts with `--model`. Exact `--model <id>` is passed unchanged,
+without a listing or validation. Existing defaults apply when neither flag is given.
+
+| Alias | Case-insensitive token in the listed id |
+|---|---|
+| `flash` | `flash` |
+| `argon` | `argon` |
+| `pro` | `pro` |
+| `sonnet` | `sonnet` |
+| `opus` | `opus` |
+| `gpt-oss` | `gpt-oss` |
+
+Alias names are case-sensitive. Model-id token matching is case-insensitive.
+One `agy models` call fetches the account listing. Each nonblank row must be
+`id<TAB>name`, with exactly two nonempty fields. Duplicate ids keep the first
+name. Row order has no effect. The first numeric version in the id is compared
+component by component (dots and hyphens separate components). The newest
+version wins before effort selection. Explicit `--effort` selects its suffix;
+otherwise `-medium` wins, or the only available row. No arbitrary variant is picked.
+`agy-default` also uses this default selection but sends no effort flag.
+Vision and media do not accept `--effort`.
+
+Refusals return exit 1 before a model call. Family absent prints the alias,
+its token list, and the full listing. An effort mismatch prints the alias and
+the requested effort. An unknown alias is refused. Failed, empty, malformed,
+auth-required, or timed-out listings use "model-alias listing unavailable"
+and the remedy "run setup or pass --model <id>". JSON refusals use
+`details.error.code: model_alias_unavailable`. Conflicting flags use the
+existing argument error. There is no separate agy version floor or ceiling.
+Review preview and empty reviews do not resolve aliases. Transcript-only media
+without a prompt does not resolve an alias because it sends nothing to agy.
+
+Alias runs add `details.modelAlias` with `requestedAlias`, `resolvedModel`, and
+`listingSource: "agy models"`. Jobs keep `provenance.requestedAlias` and
+`provenance.resolvedModel` separately from `result.reportedModel`.
+The new provenance fields are null on exact-id or default runs.
+Task `--continue`/`--conversation` and rescue `--resume`/`--continue`/`--conversation`
+replay the matched job's exact resolved id (or its older `provenance.model`)
+without a listing, and record `provenance.replayedFromJobId`. A missing job or
+stored id keeps the old resume behavior. Plain continuation uses the newest
+same-kind job in the current session. Explicit conversations match the stored
+caller id or agy conversation id. Explicit new model choices override replay.
+Resume copies only the model id. Effort follows the current call's normal rules;
+it is not copied from the older job. Review continuation does not replay a stored model.
+
+For all five verbs, when both a requested model and agy's reported model are
+available, `details.modelMismatch` is true or false after trim and case folding.
+Completed or failed runs with a mismatch print one stderr line:
+`antigravity:<verb> — warning: agy reported model "<reported>", requested "<requested>".`
+The exit code does not change. If either value is missing, the field and
+warning are absent. The reported model comes only from agy's result event
+`model` field. Versions measured before this release did not supply it.

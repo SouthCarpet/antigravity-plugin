@@ -115,6 +115,9 @@
  *   legacy records without it fall back to `DEFAULT_AGY_TIMEOUT_MS`.
  * @property {string} [model] agy model id (076-T7 R3, additive on `task` and
  *   `rescue`; `vision` already had this field)
+ * @property {string} [requestedAlias] caller's literal family alias
+ * @property {string} [resolvedModel] selected or replayed exact id
+ * @property {string} [replayedFromJobId] previous job used for model replay
  * @property {string} [effort] agy reasoning effort: one of `AGY_EFFORTS`, or
  *   the `AGY_DEFAULT_EFFORT` sentinel meaning "send no `--effort` flag"
  *   (`job-helpers.mjs`) (plan 085 T3, additive on `task` and `rescue`; plan
@@ -172,6 +175,9 @@
  * the model.
  *
  * @typedef {object} JobProvenance
+ * @property {string | null} [requestedAlias] caller alias, separate from the exact model
+ * @property {string | null} [resolvedModel] selected or replayed exact model id
+ * @property {string} [replayedFromJobId] prior job used for replay
  * @property {string | null} pluginVersion this plugin's own running version
  *   (`scripts/lib/update.mjs#readRunningVersion`); `null` only when the
  *   plugin's own `package.json` could not be read
@@ -179,12 +185,11 @@
  *   `agy --version` probe reported (`job-helpers.mjs#probeAgyForVerb`);
  *   `null` when the probe failed (the verb would already have exited before
  *   creating the job) or was never run
- * @property {string | null} model the resolved `--model` value, including
- *   the `agy-default` sentinel where applicable; `null` for a verb with no
- *   model concept (`review`)
+ * @property {string | null} model the exact requested, selected, or replayed
+ *   model id; `null` when the request has no model
  * @property {string | null} effort the resolved `--effort` value, including
  *   the `agy-default` sentinel; `null` for a verb with no effort flag
- *   (`review`, `vision`)
+ *   (`vision`, `media`)
  * @property {"print" | "continue" | "conversation" | "audio" | "video" | "transcript"} mode
  * @property {"local" | "youtube"} [source]
  * @property {string | null} [quality]
@@ -280,6 +285,7 @@
  * @property {AgyUsage | null} usage
  * @property {number | null} durationSeconds
  * @property {string | null} agyConversationId
+ * @property {string | null} [reportedModel] only the model in agy's result event
  * @property {string[]} warnings
  * @property {{ tool: string, line: string } | null} [denial]
  * @property {DeniedAction[] | null} [deniedActions] additive (plan 085 T2);
@@ -300,7 +306,7 @@
  *
  * @typedef {object} JsonEnvelopeV1
  * @property {1} schemaVersion
- * @property {"review" | "rescue" | "task" | "vision" | "media" | "status" | "result" | "cancel"} command
+ * @property {"setup" | "review" | "rescue" | "task" | "vision" | "media" | "status" | "result" | "cancel"} command
  * @property {string} status
  * @property {string | null} jobId
  * @property {string | null} answer

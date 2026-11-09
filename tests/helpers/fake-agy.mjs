@@ -45,7 +45,7 @@ class Program {
     static int Main(string[] args) {
         string exePath = Process.GetCurrentProcess().MainModule.FileName;
         string controlPath = exePath + ".control.txt";
-        string stdout = "", stderr = "", touchFile = "", helpText = "";
+        string stdout = "", stderr = "", touchFile = "", helpText = "", modelsText = "";
         int exitCode = 0, delayMs = 0;
         bool echoArgs = false, echoArgsStderr = false, versionOk = false, readStdin = false;
         if (File.Exists(controlPath)) {
@@ -64,6 +64,7 @@ class Program {
                     case "STDOUT_B64": stdout = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "STDERR_B64": stderr = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "TOUCH_FILE": touchFile = val; break;
+                    case "MODELSTEXT_B64": modelsText = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "HELPTEXT_B64": helpText = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                 }
             }
@@ -78,6 +79,10 @@ class Program {
         }
         if (helpText.Length > 0 && args.Length == 1 && args[0] == "--help") {
             Console.Out.Write(helpText);
+            return 0;
+        }
+        if (modelsText.Length > 0 && args.Length == 1 && args[0] == "models") {
+            Console.Out.Write(modelsText);
             return 0;
         }
         if (echoArgs) {
@@ -162,7 +167,7 @@ function ensureTemplateExe() {
   return exePath;
 }
 
-function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin }) {
+function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, modelsText, readStdin }) {
   const template = ensureTemplateExe();
   const exePath = path.join(dir, `${name}.exe`);
   fs.copyFileSync(template, exePath);
@@ -176,6 +181,7 @@ function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoAr
     `STDOUT_B64=${Buffer.from(stdout, "utf8").toString("base64")}`,
     `STDERR_B64=${Buffer.from(stderr, "utf8").toString("base64")}`,
     `TOUCH_FILE=${touchFile}`,
+    `MODELSTEXT_B64=${Buffer.from(modelsText, "utf8").toString("base64")}`,
     `HELPTEXT_B64=${Buffer.from(helpText, "utf8").toString("base64")}`,
   ];
   fs.writeFileSync(`${exePath}.control.txt`, `${lines.join("\n")}\n`, "utf8");
@@ -187,7 +193,7 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin }) {
+function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, modelsText, readStdin }) {
   const lines = ["#!/bin/sh"];
   // Written on every invocation, before anything else: a test proves "agy
   // was never spawned" by pointing this at a scratch path and asserting the
@@ -198,6 +204,9 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
   }
   if (helpText) {
     lines.push(`if [ "$#" -eq 1 ] && [ "$1" = "--help" ]; then printf '%s' ${shQuote(helpText)}; exit 0; fi`);
+  }
+  if (modelsText) {
+    lines.push(`if [ "$#" -eq 1 ] && [ "$1" = "models" ]; then printf '%s' ${shQuote(modelsText)}; exit 0; fi`);
   }
   if (echoArgs) {
     lines.push('for a in "$@"; do echo arg=$a; done');
@@ -249,9 +258,9 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
 export function writeFakeAgy(dir, name, opts = {}) {
   const {
     stdout = "", stderr = "", exitCode = 0, delayMs = 0, echoArgs = false, echoArgsStderr = false,
-    versionOk = false, touchFile = "", helpText = "", readStdin = false,
+    versionOk = false, touchFile = "", helpText = "", modelsText = "", readStdin = false,
   } = opts;
-  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin };
+  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, modelsText, readStdin };
   return process.platform === "win32"
     ? writeWindowsStub(dir, name, normalized)
     : writePosixStub(dir, name, normalized);

@@ -61,6 +61,8 @@ import {
   reportInvalidFocus,
   reportQueuedJob,
   resolveReviewEffort,
+  resolveRequestModel,
+  reportModelResolutionFailure,
   resolveReviewFocus,
   runForegroundJob,
   runForegroundWithRetryPrompt,
@@ -106,12 +108,13 @@ function resolveReviewMode(options) {
  *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput> }} args
  * @returns {object}
  */
-function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, findingsJson, input }) {
+function buildReviewRequestFields({ envelope, base, mode, model, modelRequest, effort, focus, findingsJson, input }) {
   return {
     scope: envelope.scope,
     base: base ?? null,
     mode,
     model,
+    ...modelRequest,
     effort,
     focus,
     inputHash: input.inputHash,
@@ -122,7 +125,7 @@ function buildReviewRequestFields({ envelope, base, mode, model, effort, focus, 
   };
 }
 
-async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus, findingsJson, input, options, ctx }) {
+async function runReviewBackground({ workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, modelRequest, effort, focus, findingsJson, input, options, ctx }) {
   const { job } = await (ctx.startBackgroundJob ?? startBackgroundJob)({
     workspaceRoot,
     kind: "review",
@@ -132,7 +135,7 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
     conversationId,
     cwd: workspaceRoot,
     agyVersion,
-    request: buildReviewRequestFields({ envelope, base, mode, model, effort, focus, findingsJson, input }),
+    request: buildReviewRequestFields({ envelope, base, mode, model, modelRequest, effort, focus, findingsJson, input }),
   });
   const queuedExit = reportQueuedJob("review", job, options);
   if (queuedExit !== null) return queuedExit;
@@ -175,7 +178,7 @@ function reviewFinishOptions({ findingsJson, checkLocations, hunks }) {
 }
 
 async function runReviewForeground({
-  workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, effort, focus,
+  workspaceRoot, title, prompt, mode, conversationId, envelope, base, agyVersion, model, modelRequest, effort, focus,
   findingsJson, checkLocations, input, json,
 }) {
   const runOnce = (retryConversationId) => runForegroundJob({
@@ -195,6 +198,7 @@ async function runReviewForeground({
       base,
       mode: retryConversationId ? "conversation" : mode,
       model,
+      modelRequest,
       effort,
       focus,
       findingsJson,
@@ -323,13 +327,14 @@ function reportReviewPreview(input, json) {
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["base", "scope", "conversation", "cwd", "model", "effort", "focus"],
+    valueOptions: ["base", "scope", "conversation", "cwd", "model", "model-alias", "effort", "focus"],
     booleanOptions: [
       "background", "wait", "continue", "json", "preview", "require-complete", "show-result", "findings-json",
       "check-locations",
     ],
     valueChoices: { effort: EFFORT_CHOICES },
     conflicts: [
+      ["model", "model-alias"],
       ["continue", "conversation"],
       ["preview", "background"],
       ["preview", "wait"],
@@ -348,7 +353,7 @@ export async function run(argv = [], ctx = {}) {
   const scope = (options.scope ? String(options.scope) : "auto");
   const base = options.base ? String(options.base) : undefined;
 
-  const { model, effort, focus, focusError } = resolveReviewFlagOptions(options);
+  let { model, effort, focus, focusError } = resolveReviewFlagOptions(options);
   if (focusError) return reportInvalidFocus(focusError, Boolean(options.json));
 
   let envelope;
@@ -380,6 +385,12 @@ export async function run(argv = [], ctx = {}) {
   if (incomplete && options["require-complete"]) return reportInputIncomplete(input, json);
   if (incomplete) printIncompleteInputWarning(input);
 
+  const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"],
+    effort: options.effort });
+  if (!selection.ok) return reportModelResolutionFailure("review", selection, json);
+  model = selection.model;
+  effort = resolveReviewEffort(options.effort);
+  const modelRequest = selection.request;
   const probed = await probeAgyForVerb("review");
   if (probed.line) return reportAgyUnavailable("review", probed.line, json);
   await rememberAgyVersion(workspaceRoot, probed.version);
@@ -391,7 +402,7 @@ export async function run(argv = [], ctx = {}) {
   const checkLocations = Boolean(options["check-locations"]);
   const runArgs = {
     workspaceRoot, title, prompt: input.prompt, mode, conversationId, envelope, base,
-    agyVersion: probed.version, model, effort, focus, findingsJson, checkLocations, input,
+    agyVersion: probed.version, model, modelRequest, effort, focus, findingsJson, checkLocations, input,
   };
 
   if (options.background) {

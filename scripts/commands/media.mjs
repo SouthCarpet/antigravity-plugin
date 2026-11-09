@@ -6,7 +6,7 @@ import { resolveWorkspaceRoot } from '../lib/workspace.mjs';
 import { resolveStateRoot } from '../lib/state.mjs';
 import { MEDIA_SCHEMA, youtubeId, localMedia, mediaError, validateLocalOptions, mediaDoctor, cleanupMedia } from '../lib/media.mjs';
 import { downloadMedia } from '../lib/media-download.mjs';
-import { probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, createTrackedJob, patchJob, runForegroundJob, finishForeground, buildStoredResult } from '../lib/job-helpers.mjs';
+import { resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, createTrackedJob, patchJob, runForegroundJob, finishForeground, buildStoredResult } from '../lib/job-helpers.mjs';
 import { checkVisionExpectations, formatExpectationsMarkdown } from '../lib/vision-expect.mjs';
 import { createErrorEnvelope, outputCommandResult } from '../lib/render.mjs';
 
@@ -43,9 +43,9 @@ async function prepareYoutube(media, job, workspaceRoot, options) {
 async function runPrepared(media, job, workspaceRoot, options, agyVersion) {
   const model = media.mode === 'transcript' && !options.prompt ? null : options.model ?? 'gemini-3.8-flash-high';
   const addDirs = media.mode === 'transcript' ? [] : [dirname(media.mediaPath)];
-  const request = { model, mode: 'print', addDirs, media: Object.fromEntries(
+  const request = { model, ...options.modelRequest, mode: 'print', addDirs, media: Object.fromEntries(
     ['source', 'mode', 'quality', 'videoId', 'bytes', 'ytDlpVersion'].map((key) => [key, media[key] ?? null])) };
-  await patchJob(workspaceRoot, job.id, { request, provenance: { ...job.provenance, ...request.media, model, addDirCount: addDirs.length } });
+  job = await patchJob(workspaceRoot, job.id, { request, provenance: { ...job.provenance, ...request.media, ...options.modelRequest, model, addDirCount: addDirs.length } });
   if (media.mode === 'transcript' && !options.prompt) {
     const result = { status: 'completed', stdout: media.text, stderr: '', exitCode: 0, usage: null, durationSeconds: null };
     await patchJob(workspaceRoot, job.id, { status: 'completed', phase: 'completed', completedAt: new Date().toISOString(), result: buildStoredResult(result) });
@@ -84,9 +84,15 @@ export async function run(argv = [], ctx = {}) {
       media.ytDlpVersion = tools.ytDlp.version;
     }
     const transcriptOnly = media.mode === 'transcript' && !options.prompt;
+    if (!transcriptOnly) {
+      const selection = await resolveMediaModel(options);
+      if (!selection.ok) return reportModelResolutionFailure('media', selection, options.json);
+      options.model = selection.model;
+      options.modelRequest = selection.request;
+    }
     const probed = transcriptOnly ? { version: null } : await probeAgyForVerb('media');
     if (probed.line) return reportAgyUnavailable('media', probed.line, options.json);
-    if (!transcriptOnly) await rememberAgyVersion(workspaceRoot, probed.version);
+    await rememberMediaVersion(workspaceRoot, probed.version, transcriptOnly);
     job = await createTrackedJob({ workspaceRoot, kind: 'media', title: 'media', agyVersion: probed.version, request: { media: { source: media.source, mode: media.mode, quality: media.quality, videoId: media.videoId ?? null, ytDlpVersion: media.ytDlpVersion ?? null, bytes: media.bytes ?? null } } });
     if (media.source === 'youtube') media = await prepareYoutube(media, job, workspaceRoot, options);
     const completed = await runPrepared(media, job, workspaceRoot, options, probed.version);
@@ -110,3 +116,11 @@ async function reportFailure(error, job, workspaceRoot, options) {
 
 export default run;
 runIfMain(import.meta.url, run);
+
+function resolveMediaModel(options) {
+  return resolveRequestModel({ modelOption: options.model, aliasOption: options['model-alias'] });
+}
+
+async function rememberMediaVersion(workspaceRoot, version, transcriptOnly) {
+  if (!transcriptOnly) await rememberAgyVersion(workspaceRoot, version);
+}

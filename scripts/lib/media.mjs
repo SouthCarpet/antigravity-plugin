@@ -12,10 +12,10 @@ export const MEDIA_MIME = Object.freeze({
   '.mkv': 'video/x-matroska', '.m4v': 'video/mp4',
 });
 export const MEDIA_SCHEMA = {
-  valueOptions: ['prompt', 'model', 'cwd', 'quality'],
+  valueOptions: ['prompt', 'model', 'model-alias', 'cwd', 'quality'],
   booleanOptions: ['json', 'audio', 'transcript', 'keep'], repeatableOptions: ['expect'],
   valueChoices: { quality: ['360p', '480p', '720p'] },
-  conflicts: [['audio', 'quality'], ['transcript', 'quality'], ['transcript', 'audio']],
+  conflicts: [['model', 'model-alias'], ['audio', 'quality'], ['transcript', 'quality'], ['transcript', 'audio']],
   validate: validateExpectOption,
 };
 

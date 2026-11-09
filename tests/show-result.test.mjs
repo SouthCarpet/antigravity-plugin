@@ -32,6 +32,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       throw new Error('runAgyPrint must not be called: startBackgroundJob/waitForJob are overridden');
     },
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },

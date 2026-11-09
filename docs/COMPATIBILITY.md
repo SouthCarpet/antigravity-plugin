@@ -1605,3 +1605,32 @@ Earlier attempts are retained as *-attempt1.out/err. Initial local probes hit th
 Version-probe load measurements (2026-11-04): `agy --version` took 0.9 to 1.4 seconds idle and 2.5 to 7.7 seconds during the suite. The default deadline is now 20 seconds, with one timeout-only retry for verbs (at most two deadlines plus termination). Doctor uses the same 20-second probe default.
 
 Load regression probes on 2026-11-06: `load-local` (`clip.mp4 --expect ZEBRA`) completed with `all_found`, and `load-transcript` (YouTube `jNQXAC9IVRw`, `--transcript --prompt "One sentence."`) completed. Each ran while `npm test` was active. Both used agy 1.5.1.
+
+### Package A additive model selection surface (Unreleased)
+
+- Flag `--model-alias <alias>` on task, rescue, review, vision, and media.
+- Setup flag `--json` reports the best-effort check after OAuth.
+- JSON field `details.modelAlias`: requestedAlias, resolvedModel, listingSource.
+- JSON field `details.defaultModelCheck`: present, absent, unknown.
+- JSON field `details.modelMismatch`: comparison only when both models exist.
+- Job field `provenance.requestedAlias`: alias or null.
+- Job field `provenance.resolvedModel`: resolved/replayed id or null.
+- Job field `provenance.replayedFromJobId`: replay source, absent otherwise.
+- Error code `model_alias_unavailable` with exit 1 for alias resolution failures.
+- Stderr refusal: family absent, including the complete listing.
+- Stderr refusal: listing unavailable, with setup/exact-id remedy.
+- Stderr refusal: effort mismatch or unknown alias.
+- Stderr warning: setup found the pinned default absent.
+- Stderr warning: setup could not check the pinned default (unknown).
+- Stderr warning: agy reported a different model, with no exit-code change.
+- Module `scripts/lib/model-alias.mjs` contains parsing and numeric selection.
+
+The measured listing is agy 1.5.3 on one account: 13 `id<TAB>name` rows.
+The fixture is `tests/fixtures/models-agy-1.5.3.txt`. This proves the shape,
+not every account, future listing format, or model availability. Each alias
+matches its literal family token; `pro` never maps to `argon`. Newer agy
+versions with this shape use the same path, without a version ceiling.
+Malformed or failed listings refuse aliases; setup reports unknown.
+Exact ids never need a listing. Legacy jobs without a stored model still
+resume without a lock or lookup. Review resume replay is outside this release.
+See [Model aliases](COMMANDS.md#model-aliases) for the full selection and output contract.

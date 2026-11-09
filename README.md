@@ -228,3 +228,8 @@ All previously tracked items are fixed. New items use the [`known issue` label](
 - A maintained fork of [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin), which replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
 - MIT License. See [`LICENSE`](./LICENSE).
 - Antigravity and Gemini are Google's trademarks, Claude Code is Anthropic's, and Codex is OpenAI's. This project is not affiliated with or endorsed by them.
+
+Model choice also supports `--model-alias flash|argon|pro|sonnet|opus|gpt-oss`
+on task, rescue, review, vision, and media. It selects from this account's
+`agy models` listing. Exact `--model` remains unchanged.
+See [Model aliases](docs/COMMANDS.md#model-aliases).

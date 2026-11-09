@@ -37,6 +37,18 @@ export function filterJobsForCurrentSession(jobs, env = process.env) {
   return jobs.filter((j) => j.sessionId === sessionId);
 }
 
+/** Find a prior plugin job. An external conversation is a valid no-match. */
+export function findResumedJob(workspaceRoot, { kind, conversationId, env = process.env }) {
+  let jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
+  if (!conversationId) jobs = filterJobsForCurrentSession(jobs, env).filter((job) => job.kind === kind);
+  for (const entry of jobs) {
+    const job = readJobFile(workspaceRoot, entry.id) ?? entry;
+    if (!conversationId || job.conversationId === conversationId ||
+        job.result?.agyConversationId === conversationId) return job;
+  }
+  return null;
+}
+
 function matchJobReference(jobs, reference, filter) {
   const candidates = filter ? jobs.filter(filter) : jobs;
   if (!reference) return candidates[0] ?? null;

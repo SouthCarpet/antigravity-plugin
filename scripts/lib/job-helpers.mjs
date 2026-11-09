@@ -13,7 +13,7 @@ import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
-import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
+import { runAgyPrint, resolveAgyBin, probeAgy, probeAgyModels } from "./agent-runtime.mjs";
 import { createOAuthUrlFilter, removeOAuthUrlsDeep, safeFailureReason } from "./safe-reason.mjs";
 import { spawn } from "./process-adapter.mjs";
 import {
@@ -27,7 +27,8 @@ import {
   setConfig,
 } from "./state.mjs";
 import { requestFingerprint } from "./request-id.mjs";
-import { SESSION_ID_ENV } from "./job-control.mjs";
+import { parseModelsListing, selectAliasModel } from "./model-alias.mjs";
+import { SESSION_ID_ENV, findResumedJob } from "./job-control.mjs";
 import {
   checkProcessIdentity,
   isProcessAlive as processIsAlive,
@@ -744,13 +745,14 @@ function buildShowResultEnvelope(kind, jobId, final) {
       status: "completed",
       jobId: final.id,
       answer: typeof final.result?.rawOutput === "string" ? final.result.rawOutput : null,
-      details: buildShowResultCompletedDetails(final),
+      details: { ...buildShowResultCompletedDetails(final), ...modelSelectionDetails(final, final.result ?? {}) },
     });
   }
   if (final.status === "failed" || final.status === "cancelled") {
     return createErrorEnvelope(kind, {
       status: final.status,
       jobId: final.id,
+      details: modelSelectionDetails(final, final.result ?? {}),
       error: {
         code: final.status === "cancelled" ? "job_cancelled" : "job_failed",
         phase: "run",
@@ -817,6 +819,10 @@ function reportShowResultText(kind, final) {
  * @returns {number}
  */
 function reportShowResultOutcome(kind, jobId, final, json) {
+  if (final && ["completed", "failed"].includes(final.status)) {
+    const line = reportedModelMismatchLine(kind, final.result ?? {}, final.provenance);
+    if (line) process.stderr.write(`${line}\n`);
+  }
   if (final?.status === "completed") {
     printMeasuredUsageTrailer(final.result?.usage ?? null);
     reportFindingsWarning(kind, storedFindingsDetails(final));
@@ -1081,7 +1087,7 @@ export function deriveJobStatus(result, kind) {
  * plain projection off the caller's already-built `request` (itself already
  * scrubbed of free text by the verb) or the `agyVersion` the caller's own
  * {@link probeAgyForVerb} call already ran. `model`/`effort` are `null` for
- * a verb that has none (`review`); `mode` defaults to `"print"` and
+ * a request that has none; `mode` defaults to `"print"` and
  * `addDirCount` to `0` when the request carries neither.
  *
  * @param {{ agyVersion: string | null, request: import('./types.mjs').JobRequest | null,
@@ -1093,6 +1099,9 @@ function buildJobProvenance({ agyVersion, request, requestedAt }) {
     pluginVersion: readRunningVersion(),
     agyVersion: agyVersion ?? null,
     model: request?.model ?? null,
+    requestedAlias: request?.requestedAlias ?? null,
+    resolvedModel: request?.resolvedModel ?? null,
+    ...(request?.replayedFromJobId ? { replayedFromJobId: request.replayedFromJobId } : {}),
     effort: request?.effort ?? null,
     mode: request?.mode ?? "print",
     addDirCount: Array.isArray(request?.addDirs) ? request.addDirs.length : 0,
@@ -1559,7 +1568,7 @@ function emitForegroundErrorEnvelope(kind, job, result, json) {
         phase: "run",
         message: foregroundErrorMessage(kind, result),
       },
-      details: foregroundErrorDetails(kind, result),
+      details: { ...foregroundErrorDetails(kind, result), ...modelSelectionDetails(job, result) },
     }),
     "",
     Boolean(json),
@@ -1625,6 +1634,9 @@ function finishForegroundFailure(kind, job, result, json) {
 export function finishForeground(kind, job, result, {
   json, extraDetails = {}, extraFields = {}, beforeAnswer, resultDetails, extraStderrLines, renderedSuffix,
 } = {}) {
+  const mismatchLine = reportedModelMismatchLine(kind, result, job.provenance);
+  if (mismatchLine && ["completed", "failed"].includes(result.status)) process.stderr.write(`${mismatchLine}\n`);
+  extraDetails = { ...extraDetails, ...modelSelectionDetails(job, result) };
   if (result.status === "auth_required") return finishForegroundAuthRequired(kind, job, result, json);
   if (result.status !== "completed") return finishForegroundFailure(kind, job, result, json);
 
@@ -2145,3 +2157,56 @@ export function storedErrorMessage(result, failed) {
 
 /** Re-export so command modules can pull everything from one place. */
 export { runAgyPrint, resolveAgyBin };
+
+/** Resolve explicit choices before replaying any stored choice. Exact ids never probe. */
+export async function resolveRequestModel({ modelOption, aliasOption, effort, probe = probeAgyModels,
+  workspaceRoot, kind, mode, conversationId, env }) {
+  if (modelOption && aliasOption) return { ok: false, reason: "cannot combine --model and --model-alias" };
+  if (modelOption) return { ok: true, model: String(modelOption), request: {} };
+  if (aliasOption) {
+    const alias = String(aliasOption);
+    const listing = await probe();
+    const parsed = listing.ok ? parseModelsListing(listing.text) : listing;
+    if (!parsed.ok) return { ok: false, reason: `model-alias listing unavailable (${parsed.reason}); ` +
+      "run setup or pass --model <id>" };
+    const selected = selectAliasModel(parsed.rows, alias, effort);
+    if (!selected.ok) return selected;
+    return { ok: true, model: selected.model,
+      request: { requestedAlias: alias, resolvedModel: selected.model } };
+  }
+  if (workspaceRoot && ["task", "rescue"].includes(kind) && ["continue", "conversation"].includes(mode)) {
+    const job = findResumedJob(workspaceRoot, { kind, conversationId, env });
+    // Old jobs need no lock or listing; replay only a stored, non-empty id.
+    const stored = job?.provenance?.resolvedModel ?? job?.provenance?.model;
+    if (typeof stored === "string" && stored.trim()) {
+      return { ok: true, model: stored, request: { resolvedModel: stored, replayedFromJobId: job.id } };
+    }
+  }
+  return { ok: true, model: undefined, request: {} };
+}
+
+export function reportModelResolutionFailure(kind, resolution, json) {
+  process.stderr.write(`antigravity:${kind}: ${resolution.reason}\n`);
+  outputCommandResult(createErrorEnvelope(kind, { status: "invalid_input",
+    error: { code: "model_alias_unavailable", phase: "validate", message: resolution.reason } }), "", Boolean(json));
+  return 1;
+}
+
+export function modelSelectionDetails(job, result) {
+  const provenance = job.provenance ?? {};
+  const details = provenance.requestedAlias ? { modelAlias: {
+    requestedAlias: provenance.requestedAlias, resolvedModel: provenance.resolvedModel, listingSource: "agy models",
+  } } : {};
+  const requested = provenance.resolvedModel ?? provenance.model;
+  if (typeof requested === "string" && typeof result.reportedModel === "string") {
+    details.modelMismatch = requested.trim().toLowerCase() !== result.reportedModel.trim().toLowerCase();
+  }
+  return details;
+}
+
+export function reportedModelMismatchLine(kind, result, provenance) {
+  if (!modelSelectionDetails({ provenance }, result).modelMismatch) return null;
+  const requested = provenance.resolvedModel ?? provenance.model;
+  return `antigravity:${kind} — warning: agy reported model ${JSON.stringify(result.reportedModel)}, ` +
+    `requested ${JSON.stringify(requested)}.`;
+}

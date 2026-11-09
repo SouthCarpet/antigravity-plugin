@@ -32,7 +32,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
 import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
@@ -153,7 +153,8 @@ function writeExpectationsBlock(json, answer, expectationResult) {
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["prompt", "model", "cwd"],
+    valueOptions: ["prompt", "model", "model-alias", "cwd"],
+    conflicts: [["model", "model-alias"]],
     booleanOptions: ["json"],
     repeatableOptions: ["expect"],
     validate: validateExpectOption,
@@ -181,12 +182,14 @@ export async function run(argv = [], ctx = {}) {
     if (problem) return reportVisionValidationFailure(problem.code, problem.message, Boolean(options.json));
   }
 
+  const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"] });
+  if (!selection.ok) return reportModelResolutionFailure("vision", selection, options.json);
+  const model = selection.model ?? DEFAULT_MODEL;
   const probed = await probeAgyForVerb("vision");
   if (probed.line) return reportAgyUnavailable("vision", probed.line, options.json);
   await rememberAgyVersion(workspaceRoot, probed.version);
 
   const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
-  const model = options.model ? String(options.model) : DEFAULT_MODEL;
   const prompt = buildVisionPrompt({ imagePaths, userPrompt });
   const title = `vision: ${imagePaths.map((p) => basename(p)).join(", ")}`;
   // Record each image twice: in the lexical absolute form the prompt names
@@ -219,7 +222,7 @@ export async function run(argv = [], ctx = {}) {
     cwd: workspaceRoot,
     env,
     agyVersion: probed.version,
-    request: { imagePaths, model, userPrompt },
+    request: { imagePaths, model, ...selection.request, userPrompt },
     onText: (delta) => process.stderr.write(delta),
   });
 

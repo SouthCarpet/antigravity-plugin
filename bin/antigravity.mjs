@@ -25,10 +25,10 @@ const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
 const COMMAND_HELP = {
-  media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]',
+  media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]',
   setup:
     'antigravity-plugin setup — one-time OAuth wizard.\n\n' +
-    'Usage: antigravity-plugin setup [--skip-vision|--remove-vision]\n\n' +
+    'Usage: antigravity-plugin setup [--skip-vision|--remove-vision] [--json]\n\n' +
     'Runs `agy --print` once so the OAuth URL surfaces. Idempotent.\n' +
     'Also registers the vision MCP server + one exact permission (skip with --skip-vision).\n' +
     '--remove-vision removes only persistent entries this plugin added.\n' +
@@ -43,6 +43,7 @@ const COMMAND_HELP = {
     '  --wait                  block until the job finishes\n' +
     '  --continue              resume the last review conversation\n' +
     '  --conversation <id>     resume a specific conversation\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high|agy-default>  agy reasoning effort for this run\n' +
     "  --focus <text>          narrow the review's attention (max 500 chars)\n" +
@@ -66,6 +67,7 @@ const COMMAND_HELP = {
     '  --conversation <id>     resume a specific conversation\n' +
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --show-result           after --wait, print the finished job instead of\n' +
@@ -83,6 +85,7 @@ const COMMAND_HELP = {
     '  --conversation <id>     resume a specific conversation\n' +
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --show-result           after a background --wait, print the finished\n' +
@@ -100,6 +103,7 @@ const COMMAND_HELP = {
     'Usage: antigravity-plugin vision <image-path> [<image-path>...] [flags]\n\n' +
     'Flags:\n' +
     '  --prompt <text>         question to ask about the image(s)\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id (default gemini-3.8-flash-high)\n' +
     '  --expect <text>         repeatable; check this text against the answer\'s\n' +
     '                          `## Transcription` section after a completed run\n' +
@@ -214,7 +218,9 @@ if (rest.includes('--help') || rest.includes('-h')) {
 
 // Friendly preflight: AGY_BIN set but missing → install URL + exit 127.
 const removingVision = arg0 === 'setup' && rest.includes('--remove-vision');
-if (AGY_REQUIRED.has(arg0) && !removingVision && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
+const resolvingAlias = rest.slice(0, rest.indexOf('--') < 0 ? rest.length : rest.indexOf('--'))
+  .includes('--model-alias');
+if (AGY_REQUIRED.has(arg0) && !removingVision && !resolvingAlias && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
   process.stderr.write(
     `antigravity-plugin: \`agy\` not found at AGY_BIN=${process.env.AGY_BIN}.\n` +
     `Install Google Antigravity CLI from ${INSTALL_URL} or unset AGY_BIN.\n`,

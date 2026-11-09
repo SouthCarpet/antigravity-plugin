@@ -37,6 +37,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       return { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };
     },
     resolveAgyBin: real.resolveAgyBin,
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => {
       runtime.probeCalls += 1;
       return runtime.probe;
