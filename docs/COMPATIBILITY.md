@@ -1663,11 +1663,11 @@ and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
 - `classification`: the existing agy version classification.
 - `listedFlags`: an object with each forwarded flag mapped to `listed` or `not_listed`. This is a help listing, not proof the flag works.
 - `modelFamilies`: always `unknown`. No model cache exists and doctor never calls `agy models`.
-- `provenance.listedFlags`: the same table captured once at job creation, including resumed and background jobs. A failed, empty, nonzero or timed-out probe stores `null` and does not fail the job. Old records without this field stay readable.
+- `provenance.listedFlags`: the same table captured once at job creation, including resumed and background jobs. A failed, empty, nonzero or timed-out probe stores `null` and does not fail the job. A job that does not use agy (a transcript-only `media` job, which has `provenance.agyVersion: null`) runs no probe and stores `null`. Old records without this field stay readable.
 
-Job creation adds one local `agy --help` spawn, including transcript-only
-media records (which still make no model call), with a 1,000 ms timeout and a
-65,536-byte limit per stream. The probe uses a synchronous child because
+Creation of a job that uses agy adds one local `agy --help` spawn, with a
+1,000 ms timeout and a 65,536-byte limit per stream. A transcript-only
+`media` job starts no agy process. The probe uses a synchronous child because
 request-id creation runs inside a synchronous mutex callback. Model facts
 remain in `provenance.requestedAlias`, `provenance.resolvedModel`, and the
 reported model. Receipt text contains only its five named keys. Plain

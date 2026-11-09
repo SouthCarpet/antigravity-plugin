@@ -82,7 +82,7 @@ it('absent agy gives null version, missing classification and all flags not list
 });
 it('every job gets exactly one bounded help probe and the shared flag states (rulings 3 and 4)', async () => {
   calls.length=0;
-  const job = await createTrackedJob({workspaceRoot:root,kind:'task'});
+  const job = await createTrackedJob({workspaceRoot:root,kind:'task',agyVersion:'1.5.1'});
   assert.deepEqual(calls,[['--help']]);
   assert.deepEqual(readJobFile(root,job.id).provenance.listedFlags,expectedFlags);
 });
@@ -94,7 +94,7 @@ for (const [name,result] of [
 ]) {
   it(`${name} help stores null and still creates a queued job (ruling 4)`, async () => {
     probe=result;
-    const job = await createTrackedJob({workspaceRoot:root,kind:'task'});
+    const job = await createTrackedJob({workspaceRoot:root,kind:'task',agyVersion:'1.5.1'});
     assert.equal(job.status,'queued');
     assert.equal(readJobFile(root,job.id).provenance.listedFlags,null);
   });
@@ -110,7 +110,7 @@ for (const kind of ['task','rescue','vision','media','review']) {
 }
 it('resumed creation captures a new listing once (ruling 4)', async () => {
   probe={status:0,stdout:'--model --print',stderr:''}; calls.length=0;
-  const job=await createTrackedJob({workspaceRoot:root,kind:'task',request:{mode:'conversation',replayedFromJobId:'old-job'}});
+  const job=await createTrackedJob({workspaceRoot:root,kind:'task',agyVersion:'1.5.1',request:{mode:'conversation',replayedFromJobId:'old-job'}});
   assert.deepEqual(job.provenance.listedFlags,expectedFlags);
   assert.deepEqual(calls,[['--help']]);
 });

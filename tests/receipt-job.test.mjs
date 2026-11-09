@@ -32,3 +32,17 @@ for(const [name,value] of [['real timeout','real'],['spawn error',{error:new Err
   try{assert.equal(readJobFile(root,payload.jobId).provenance.listedFlags,null);}finally{if(prior===undefined)delete process.env.CLAUDE_PLUGIN_DATA;else process.env.CLAUDE_PLUGIN_DATA=prior;}
  });
 }
+it('a job with no agy version runs no help probe and stores a null listing; a job with one runs exactly one',async()=>{
+ result={status:0,stdout:'--model --effort'};helpCalls=0;
+ const savedBin=process.env.AGY_BIN,savedData=process.env.CLAUDE_PLUGIN_DATA;
+ process.env.AGY_BIN=fake;process.env.CLAUDE_PLUGIN_DATA=path.join(root,'state');
+ try{
+  const {createTrackedJob}=await import('../scripts/lib/job-helpers.mjs');
+  const without=await createTrackedJob({workspaceRoot:root,kind:'media',title:'media',agyVersion:null,request:{mode:'print'}});
+  assert.equal(helpCalls,0);
+  assert.equal(readJobFile(root,without.id).provenance.listedFlags,null);
+  const withAgy=await createTrackedJob({workspaceRoot:root,kind:'task',title:'task',agyVersion:'1.5.3',request:{mode:'print'}});
+  assert.equal(helpCalls,1);
+  assert.equal(readJobFile(root,withAgy.id).provenance.listedFlags['--model'],'listed');
+ }finally{if(savedBin===undefined)delete process.env.AGY_BIN;else process.env.AGY_BIN=savedBin;if(savedData===undefined)delete process.env.CLAUDE_PLUGIN_DATA;else process.env.CLAUDE_PLUGIN_DATA=savedData;}
+});

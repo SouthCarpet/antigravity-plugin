@@ -1118,7 +1118,9 @@ function probeListedFlags(env) {
 function buildJobProvenance({ agyVersion, request, requestedAt, env }) {
   return {
     pluginVersion: readRunningVersion(),
-    listedFlags: probeListedFlags(env),
+    // A job whose verb did not probe agy (a transcript-only media job) does
+    // not use agy, so it starts no agy process at all.
+    listedFlags: agyVersion ? probeListedFlags(env) : null,
     agyVersion: agyVersion ?? null,
     model: request?.model ?? null,
     requestedAlias: request?.requestedAlias ?? null,
