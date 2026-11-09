@@ -126,14 +126,14 @@ function resolveCsc() {
   return "csc"; // last resort: hope it's on PATH
 }
 
-let cachedTemplatePath = null;
+const cachedTemplatePaths = new Map();
 
 /**
  * Compile (or reuse a cached compile of) the fake-agy template exe.
  *
  * `node --test` runs each test file in its own process, so the four test
  * files that call `writeFakeAgy` each load a fresh copy of this module: the
- * `cachedTemplatePath` variable above is not shared between them. Without
+ * `cachedTemplatePaths` map above is not shared between them. Without
  * care, several of those processes race to compile the SAME content-hashed
  * output path at once, and `csc.exe` refuses a concurrent writer with
  * `error CS0016: Could not write to output file '...' -- 'The process
@@ -146,15 +146,22 @@ let cachedTemplatePath = null;
  * the shared cache name with an atomic rename. If another process already
  * won that promotion, this process's compile is simply discarded. The
  * shared cache still ends up with one valid, complete exe either way.
+ *
+ * Exported so that another Windows stand-in (tests/helpers/slow-powershell.mjs)
+ * compiles its own C# source through the same cache.
+ *
+ * @param {string} source C# source of one console program
+ * @returns {string} path of the compiled, cached exe
  */
-function ensureTemplateExe() {
+export function compileCsharpExe(source) {
+  const cachedTemplatePath = cachedTemplatePaths.get(source);
   if (cachedTemplatePath && fs.existsSync(cachedTemplatePath)) return cachedTemplatePath;
 
-  const hash = createHash("sha256").update(CSHARP_SOURCE).digest("hex").slice(0, 16);
+  const hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
   const cacheDir = path.join(os.tmpdir(), "antigravity-fake-agy-template");
   const exePath = path.join(cacheDir, `template-${hash}.exe`);
   if (fs.existsSync(exePath)) {
-    cachedTemplatePath = exePath;
+    cachedTemplatePaths.set(source, exePath);
     return exePath;
   }
 
@@ -162,7 +169,7 @@ function ensureTemplateExe() {
   const unique = `${process.pid}-${randomBytes(4).toString("hex")}`;
   const srcPath = path.join(cacheDir, `template-${hash}-${unique}.cs`);
   const tmpExePath = path.join(cacheDir, `template-${hash}-${unique}.exe`);
-  fs.writeFileSync(srcPath, CSHARP_SOURCE, "utf8");
+  fs.writeFileSync(srcPath, source, "utf8");
   execFileSync(resolveCsc(), ["/nologo", `/out:${tmpExePath}`, srcPath], { stdio: "pipe" });
 
   if (!fs.existsSync(exePath)) {
@@ -175,12 +182,12 @@ function ensureTemplateExe() {
   fs.rmSync(srcPath, { force: true });
   fs.rmSync(tmpExePath, { force: true });
 
-  cachedTemplatePath = exePath;
+  cachedTemplatePaths.set(source, exePath);
   return exePath;
 }
 
 function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, modelsText, readStdin, consoleReportFile }) {
-  const template = ensureTemplateExe();
+  const template = compileCsharpExe(CSHARP_SOURCE);
   const exePath = path.join(dir, `${name}.exe`);
   fs.copyFileSync(template, exePath);
   const lines = [
