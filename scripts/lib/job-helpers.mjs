@@ -2177,7 +2177,7 @@ export async function resolveRequestModel({ modelOption, aliasOption, effort, pr
   if (workspaceRoot && ["task", "rescue"].includes(kind) && ["continue", "conversation"].includes(mode)) {
     const job = findResumedJob(workspaceRoot, { kind, conversationId, env });
     // Old jobs need no lock or listing; replay only a stored, non-empty id.
-    const stored = job?.provenance?.resolvedModel ?? job?.provenance?.model;
+    const stored = job?.provenance?.resolvedModel;
     if (typeof stored === "string" && stored.trim()) {
       return { ok: true, model: stored, request: { resolvedModel: stored, replayedFromJobId: job.id } };
     }

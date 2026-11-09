@@ -47,7 +47,8 @@ mock.module('../scripts/lib/vision-config.mjs', {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
-    spawn: () => {
+    spawn: (_bin, _args, options) => {
+      if (state.oauthUrl) options.stdio[1].write(state.oauthUrl);
       const child = new EventEmitter();
       queueMicrotask(() => child.emit('exit', state.spawnExitCode));
       return child;
@@ -85,6 +86,7 @@ function captureStdio() {
 beforeEach(() => {
   state.probe = { ok: true, version: '1.1.11' };
   state.spawnExitCode = 0;
+  state.oauthUrl = null;
   state.ensureVisionCalls = [];
   state.removeVisionCalls = [];
   state.removeVisionResult = { ok: true, summary: ['removed'] };
@@ -232,7 +234,31 @@ for (const [expected, models] of Object.entries({
       assert.equal(await run(['--skip-vision', '--json']), 0);
       assert.equal(JSON.parse(cap.out.join('')).details.defaultModelCheck, expected);
       assert.equal(state.ensureVisionCalls.length, 0);
-      if (expected === 'unknown') assert.doesNotMatch(cap.err.join(''), /is absent/);
+      if (expected === 'unknown') assert.equal(cap.err.join(''),
+        'antigravity:setup: could not check whether the default model is still available.\n');
+      if (expected === 'absent') assert.equal(cap.err.join(''),
+        'antigravity:setup: warning: default model "gemini-3.8-flash-high" is absent.\n');
+    } finally { cap.restore(); }
+  });
+}
+
+it('setup JSON forwards sign-in stdout to stderr and emits only its envelope', async () => {
+  state.oauthUrl = 'https://example.test/sign-in\n';
+  state.models = { ok: true, text: 'gemini-3.8-flash-high\tPinned' };
+  const cap = captureStdio();
+  try {
+    assert.equal(await run(['--skip-vision', '--json']), 0);
+    assert.equal(JSON.parse(cap.out.join('')).details.defaultModelCheck, 'present');
+    assert.equal(cap.err.join(''), 'https://example.test/sign-in\n');
+  } finally { cap.restore(); }
+});
+for (const summary of [['removed'], ['no plugin-owned entries']]) {
+  it(`setup removal JSON reports ${summary[0]}`, async () => {
+    state.removeVisionResult = { ok: true, summary };
+    const cap = captureStdio();
+    try {
+      assert.equal(await run(['--remove-vision', '--json']), 0);
+      assert.equal(JSON.parse(cap.out.join('')).answer, summary.join('\n'));
     } finally { cap.restore(); }
   });
 }

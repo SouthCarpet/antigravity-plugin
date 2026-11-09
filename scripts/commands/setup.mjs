@@ -60,6 +60,9 @@ export async function run(argv = [], ctx = {}) {
     );
     const result = removeVisionConfig();
     for (const line of result.summary) progress(`  - ${line}\n`);
+    if (options.json) outputCommandResult(createJsonEnvelope('setup', {
+      status: result.ok === false ? 'failed' : 'completed', answer: result.summary.join('\n'),
+    }), '', true);
     return result.ok === false ? 1 : 0;
   }
 
@@ -85,7 +88,7 @@ export async function run(argv = [], ctx = {}) {
   progress(`Triggering an authenticated probe. Complete the OAuth flow in your browser if prompted.\n\n`);
 
   const child = spawn(bin, ['--print', 'Reply with the word OK and nothing else.'], {
-    stdio: ['inherit', options.json ? 'ignore' : 'inherit', 'inherit'],
+    stdio: ['inherit', options.json ? process.stderr : 'inherit', 'inherit'],
     cwd: ctx.cwd ?? process.cwd(),
     env: process.env,
   });

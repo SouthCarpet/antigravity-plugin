@@ -12,6 +12,7 @@ export function parseModelsListing(text) {
       return { ok: false, reason: "unparsable listing" };
     }
     const [id, name] = fields.map((field) => field.trim());
+    if (id.startsWith("-")) return { ok: false, reason: "unparsable listing" };
     if (!rows.has(id)) rows.set(id, { id, name });
   }
   return rows.size ? { ok: true, rows: [...rows.values()] } : { ok: false, reason: "empty listing" };

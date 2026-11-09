@@ -218,9 +218,7 @@ if (rest.includes('--help') || rest.includes('-h')) {
 
 // Friendly preflight: AGY_BIN set but missing → install URL + exit 127.
 const removingVision = arg0 === 'setup' && rest.includes('--remove-vision');
-const resolvingAlias = rest.slice(0, rest.indexOf('--') < 0 ? rest.length : rest.indexOf('--'))
-  .includes('--model-alias');
-if (AGY_REQUIRED.has(arg0) && !removingVision && !resolvingAlias && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
+if (AGY_REQUIRED.has(arg0) && !removingVision && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
   process.stderr.write(
     `antigravity-plugin: \`agy\` not found at AGY_BIN=${process.env.AGY_BIN}.\n` +
     `Install Google Antigravity CLI from ${INSTALL_URL} or unset AGY_BIN.\n`,

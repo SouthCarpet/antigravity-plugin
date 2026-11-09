@@ -1637,6 +1637,12 @@ not every account, future listing format, or model availability. Each alias
 matches its literal family token; `pro` never maps to `argon`. Newer agy
 versions with this shape use the same path, without a version ceiling.
 Malformed or failed listings refuse aliases; setup reports unknown.
-Exact ids never need a listing. Legacy jobs without a stored model still
+Exact ids never need a listing. Legacy jobs without a stored resolved id still
 resume without a lock or lookup. Review resume replay is outside this release.
 See [Model aliases](COMMANDS.md#model-aliases) for the full selection and output contract.
+
+Model listings have a 20 second deadline and a 65 536 character cap. Larger
+output is refused with reason "listing too large". `details.modelAlias` appears
+in foreground and awaited `--show-result` output. Queued background envelopes
+and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
+`details.provenance`.

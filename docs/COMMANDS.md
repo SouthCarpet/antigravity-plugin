@@ -170,6 +170,10 @@ whether the default model is still available". This check does not change
 exit codes. `--json` adds `details.defaultModelCheck` with `present`,
 `absent`, or `unknown`. Removal skips this check.
 
+Setup JSON mode forwards sign-in probe stdout to stderr, so sign-in URLs remain visible.
+`setup --remove-vision --json` returns one envelope with `answer` describing removal,
+including when no plugin-owned entries exist.
+
 ## `doctor`
 
 ```text
@@ -1199,6 +1203,12 @@ name only starts like the root's name does not count as inside it.
 
 ## Model aliases
 
+The listing deadline is 20 seconds. Output is capped at 65 536 characters;
+larger output is refused with reason "listing too large".
+`details.modelAlias` appears in foreground and awaited `--show-result` output.
+Queued background envelopes and `result <id> --json` carry the alias in
+`details.provenance` (`requestedAlias`, `resolvedModel`).
+
 `task`, `rescue`, `review`, `vision`, and `media` accept `--model-alias <alias>`.
 This flag conflicts with `--model`. Exact `--model <id>` is passed unchanged,
 without a listing or validation. Existing defaults apply when neither flag is given.
@@ -1232,12 +1242,12 @@ existing argument error. There is no separate agy version floor or ceiling.
 Review preview and empty reviews do not resolve aliases. Transcript-only media
 without a prompt does not resolve an alias because it sends nothing to agy.
 
-Alias runs add `details.modelAlias` with `requestedAlias`, `resolvedModel`, and
+Foreground and awaited alias runs add `details.modelAlias` with `requestedAlias`, `resolvedModel`, and
 `listingSource: "agy models"`. Jobs keep `provenance.requestedAlias` and
 `provenance.resolvedModel` separately from `result.reportedModel`.
 The new provenance fields are null on exact-id or default runs.
 Task `--continue`/`--conversation` and rescue `--resume`/`--continue`/`--conversation`
-replay the matched job's exact resolved id (or its older `provenance.model`)
+replay only the matched job's non-empty `provenance.resolvedModel`
 without a listing, and record `provenance.replayedFromJobId`. A missing job or
 stored id keeps the old resume behavior. Plain continuation uses the newest
 same-kind job in the current session. Explicit conversations match the stored

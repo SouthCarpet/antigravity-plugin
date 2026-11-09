@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseModelsListing, selectAliasModel, compareModelVersions } from '../scripts/lib/model-alias.mjs';
 import { probeAgyModels } from '../scripts/lib/agent-runtime.mjs';
@@ -35,7 +35,7 @@ it('captured table and reversed CRLF rows select medium for all six literal fami
     assert.match(select('pro', undefined, input).reason, /family absent \(pro\)/);
   }
 });
-for (const text of ['', 'id name', 'id\tname\textra', 'id\t', '\u0000\tname', 'Please sign in']) {
+for (const text of ['', 'id name', 'id\tname\textra', 'id\t', '\u0000\tname', 'Please sign in', '--flash-medium\tBad']) {
   it(`parser refuses malformed or empty input ${JSON.stringify(text)} as a whole (A1)`, () => {
     assert.equal(parseModelsListing(text).ok, false);
   });
@@ -91,7 +91,11 @@ it('resume replays ids, keeps old/external jobs unlocked, and permits overrides 
     const legacy = await createTrackedJob({ workspaceRoot: work, kind: 'task', env });
     assert.deepEqual(await resolveRequestModel(base), { ok: true, model: undefined, request: {} });
     await patchJob(work, legacy.id, { provenance: { model: 'old-exact-id' } });
-    assert.equal((await resolveRequestModel(base)).model, 'old-exact-id');
+    assert.equal((await resolveRequestModel(base)).model, undefined);
+    for (const resolvedModel of [null, '', 42]) {
+      await patchJob(work, legacy.id, { provenance: { model: 'old-exact-id', resolvedModel } });
+      assert.deepEqual(await resolveRequestModel(base), { ok: true, model: undefined, request: {} });
+    }
     await patchJob(work, legacy.id, { provenance: { model: 'old-exact-id', resolvedModel: 'flash-4-high' },
       result: { agyConversationId: 'native-conversation' } });
     const replay = await resolveRequestModel({ ...base, mode: 'conversation', conversationId: 'native-conversation' });
@@ -134,7 +138,7 @@ for (const kind of ['task', 'rescue', 'review', 'vision', 'media']) {
 const bin = fileURLToPath(new URL('../bin/antigravity.mjs', import.meta.url));
 function cli(args, env, cwd) {
   return spawnSync(process.execPath, [bin, ...args],
-    { cwd, env, encoding: 'utf8', timeout: 30000 });
+    { cwd, env, encoding: 'utf8', timeout: 90000 });
 }
 function argvOf(stderr) {
   return stderr.split(/\r?\n/).map((line) => line.replace(/^\uFEFF/, ''))
@@ -163,11 +167,24 @@ it('all five verbs resolve the captured alias through the real CLI and store sep
     assert.equal(stored.details.provenance.requestedAlias, 'flash');
     assert.equal(stored.details.provenance.resolvedModel, 'gemini-3.8-flash-medium');
     assert.equal(stored.details.result.reportedModel, 'reported');
+    assert.deepEqual(argvOf(stored.details.result.stderr), [
+      ...(args[0] === 'media' ? ['--add-dir', work] : []), '--model', 'gemini-3.8-flash-medium', '--print-timeout', '1860s', '--disable-slash-commands',
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '']);
+    const exactRun = cli([...args, '--model', 'unlisted', '--json'], env, work);
+    assert.equal(exactRun.status, 0, exactRun.stderr);
+    const exactRecord = JSON.parse(cli(['result', JSON.parse(exactRun.stdout).jobId, '--json'], env, work).stdout);
+    assert.deepEqual(argvOf(exactRecord.details.result.stderr), [
+      ...(args[0] === 'media' ? ['--add-dir', work] : []), '--model', 'unlisted', '--print-timeout', '1860s', '--disable-slash-commands',
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '']);
     const conflict = cli([...args, '--model', 'exact', '--model-alias', 'flash'], env, work);
     assert.equal(conflict.status, 1);
     assert.match(conflict.stderr, /cannot combine/);
   }
-  const exact = cli(['rescue', 'ok', '--model', 'unlisted', '--json'], env, work);
+  const background = cli(['task', 'ok', '--wait', '--show-result', '--model-alias', 'flash', '--json'], env, work);
+  assert.equal(background.status, 0, background.stderr);
+  assert.equal(JSON.parse(background.stdout).details.modelAlias.resolvedModel, 'gemini-3.8-flash-medium');
+  assert.match(background.stderr, /warning: agy reported model "reported", requested "gemini-3.8-flash-medium"/);
+  const exact = cli(['rescue' , 'ok', '--model', 'unlisted', '--json'], env, work);
   assert.equal(exact.status, 0, exact.stderr);
   const exactJob = JSON.parse(exact.stdout);
   const exactStored = JSON.parse(cli(['result', exactJob.jobId, '--json'], env, work).stdout);
@@ -182,7 +199,7 @@ for (const kind of ['task', 'rescue']) {
     const work = path.join(root, `resume-${kind}`); fs.mkdirSync(work);
     const env = { ANTIGRAVITY_PLUGIN_SESSION_ID: `resume-${kind}` };
     const job = await createTrackedJob({ workspaceRoot: work, kind, env, conversationId: 'caller-id',
-      request: { model: 'exact-old-model' } });
+      request: { model: 'exact-old-model', resolvedModel: 'exact-old-model' } });
     await patchJob(work, job.id, { result: { agyConversationId: 'native-id' } });
     for (const conversationId of [undefined, 'caller-id', 'native-id']) {
       const resumed = await resolveRequestModel({ workspaceRoot: work, kind, env,
@@ -192,3 +209,75 @@ for (const kind of ['task', 'rescue']) {
     }
   });
 }
+
+// A print marker distinguishes listing probes from forbidden model calls.
+function failureStub(name, marker) {
+  const dir = path.join(root, `failure-${name}`); fs.mkdirSync(dir);
+  if (process.platform === 'win32') {
+    const source = path.join(dir, 'stub.cs');
+    fs.writeFileSync(source, `using System; using System.IO; using System.Threading;
+class Stub { static int Main(string[] args) {
+ if (Array.IndexOf(args, "--print") >= 0) { File.WriteAllText(@"${marker}", "spawned"); return 0; }
+ if (args[0] == "--version") { Console.WriteLine("1.5.3"); return 0; }
+ switch ("${name}") {
+ case "exit": return 3;
+ case "timeout": Thread.Sleep(25000); break;
+ case "auth": Console.Error.WriteLine("Authentication required"); break;
+ case "malformed": Console.WriteLine("not a table"); break;
+ case "large": Console.Write(new string('x', 65537)); break;
+ } return 0;
+} }`);
+    const exe = path.join(dir, 'agy.exe');
+    execFileSync(path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'),
+      ['/nologo', `/out:${exe}`, source]);
+    return exe;
+  }
+  const stub = path.join(dir, 'agy');
+  fs.writeFileSync(stub, `#!/bin/sh
+case " $* " in *" --print "*) touch '${marker}'; exit 0;; esac
+[ "$1" = --version ] && { echo 1.5.3; exit 0; }
+case '${name}' in
+exit) exit 3;; timeout) sleep 25;; auth) echo 'Authentication required' >&2;;
+malformed) echo 'not a table';; large) head -c 65537 /dev/zero | tr '\\0' x;; esac
+`, { mode: 0o755 });
+  return stub;
+}
+for (const name of ['missing', 'exit', 'timeout', 'auth', 'empty', 'malformed', 'large']) {
+  it(`CLI listing ${name} refuses without spawning a model call`, () => {
+    const marker = path.join(root, `print-${name}`);
+    const fake = name === 'missing' ? path.join(root, 'not-installed') : failureStub(name, marker);
+    const res = cli(['task', 'ok', '--foreground', '--model-alias', 'flash', '--json'],
+      { ...process.env, AGY_BIN: fake, ANTIGRAVITY_NO_UPDATE_CHECK: '1' }, root);
+    assert.equal(res.status, name === 'missing' ? 127 : 1, res.stderr);
+    assert.equal(fs.existsSync(marker), false);
+    assert.match(res.stderr, name === 'missing' ? /not found at AGY_BIN/ : /listing unavailable/);
+  });
+}
+it('missing AGY_BIN has identical complete preflight output with alias, exact id, and flag text after --', () => {
+  const missing = path.join(root, 'missing-preflight');
+  const env = { ...process.env, AGY_BIN: missing };
+  for (const args of [['--model', 'exact'], ['--model-alias', 'flash'], ['--', '--model-alias']]) {
+    const res = cli(['task', '--foreground', ...args], env, root);
+    assert.equal(res.status, 127);
+    assert.equal(res.stdout, '');
+    assert.equal(res.stderr, `antigravity-plugin: \`agy\` not found at AGY_BIN=${missing}.\n` +
+      'Install Google Antigravity CLI from https://antigravity.google/download or unset AGY_BIN.\n');
+  }
+});
+
+it('unset AGY_BIN uses the PATH binary and setup JSON keeps its sign-in URL on stderr', () => {
+  const dir = path.join(root, 'path-bin'); fs.mkdirSync(dir);
+  const fake = writeFakeAgy(dir, 'agy', { versionOk: true, modelsText: table,
+    stdout: 'https://example.test/oauth\n' });
+  const env = { ...process.env, PATH: dir + path.delimiter + process.env.PATH,
+    ANTIGRAVITY_NO_UPDATE_CHECK: '1' };
+  delete env.AGY_BIN;
+  const res = cli(['setup', '--skip-vision', '--json'], env, root);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).details.defaultModelCheck, 'present');
+  assert.match(res.stderr, /https:\/\/example.test\/oauth/);
+  const explicit = cli(['setup', '--skip-vision', '--json'], { ...env, AGY_BIN: fake }, root);
+  assert.equal(explicit.status, 0, explicit.stderr);
+  assert.equal(JSON.parse(explicit.stdout).details.defaultModelCheck, 'present');
+  assert.match(explicit.stderr, /https:\/\/example.test\/oauth/);
+});

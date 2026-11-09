@@ -10,7 +10,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add literal flash, argon, pro, sonnet, opus, and gpt-oss account-family selection.
 - Add `details.modelAlias` (requestedAlias, resolvedModel, listingSource).
 - Add job provenance fields requestedAlias, resolvedModel, and replayedFromJobId.
-- Replay stored task/rescue model ids on continuation without a model listing.
+- A resumed task/rescue job started with `--model-alias` keeps its resolved id without a model listing.
 - Add alias refusal lines for absent families, unavailable listings, and effort mismatches (exit 1).
 - Add `model_alias_unavailable` JSON error code and unknown-alias refusal.
 - Add setup `--json` and `details.defaultModelCheck` (present, absent, unknown).
