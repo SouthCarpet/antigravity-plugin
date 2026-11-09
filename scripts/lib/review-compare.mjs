@@ -28,14 +28,66 @@ import { probeAgyModels } from "./agent-runtime.mjs";
 import { parseModelsListing, selectAliasModel } from "./model-alias.mjs";
 
 const ALIAS_PREFIX = "alias:";
+const MAX_TOKEN_LENGTH = 200;
+const MAX_SHOWN_LENGTH = 80;
+// C0, DEL, C1, plus the two Unicode line separators `JSON.stringify` keeps.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+const CONTROL_CHARS_GLOBAL = new RegExp(CONTROL_CHARS.source, "g");
+
+/**
+ * Write every control character (C0, DEL, C1, the Unicode line separators)
+ * of `text` as a `\uXXXX` escape, so the result stays on one line.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function escapeControls(text) {
+  return String(text).replace(
+    CONTROL_CHARS_GLOBAL,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+/**
+ * Show caller-controlled text (a `--models` token, a model label, a denied
+ * action target) on ONE line: cut to `maxLength` characters, JSON-escaped
+ * (quotes included), with every remaining control character escaped by
+ * {@link escapeControls}. A cut value ends in `...` after the closing quote.
+ *
+ * @param {unknown} value
+ * @param {number} [maxLength]
+ * @returns {string}
+ */
+export function escapeForLine(value, maxLength = MAX_SHOWN_LENGTH) {
+  const text = String(value);
+  const cut = text.length > maxLength ? text.slice(0, maxLength) : text;
+  const escaped = escapeControls(JSON.stringify(cut));
+  return cut === text ? escaped : `${escaped}...`;
+}
+
+/**
+ * Refuse one raw token that is too long or holds a control character.
+ *
+ * @param {string} token
+ * @returns {string | null} the refusal reason, or `null` when the token is fine
+ */
+function tokenShapeProblem(token) {
+  if (token.length > MAX_TOKEN_LENGTH) {
+    return `--models token ${escapeForLine(token)} is longer than ${MAX_TOKEN_LENGTH} characters`;
+  }
+  if (CONTROL_CHARS.test(token)) return `--models token ${escapeForLine(token)} holds a control character`;
+  return null;
+}
 
 /**
  * Parse `--models <value>`'s raw string into its two tokens: exactly two
- * comma-separated, non-empty, distinct tokens. Each token is taken
+ * comma-separated, non-empty, distinct tokens, each at most 200 characters
+ * and free of control characters (C0, DEL, C1). Each token is taken
  * verbatim here — whether it is an exact model id or an `alias:<name>`
  * form is only decided at resolution time ({@link resolveModelsPair}), so
  * a malformed alias name (an unknown family, or `alias:` with nothing
- * after it) is never a parse-time refusal.
+ * after it) is never a parse-time refusal. Every refusal shows a token
+ * through {@link escapeForLine}, so one refusal is always one line.
  *
  * @param {string} raw
  * @returns {{ ok: true, tokens: [string, string] } | { ok: false, reason: string }}
@@ -46,9 +98,24 @@ export function parseModelsOption(raw) {
     return { ok: false, reason: `--models needs exactly two comma-separated tokens, got ${parts.length}` };
   }
   const [a, b] = parts;
+  const problem = tokenShapeProblem(a) ?? tokenShapeProblem(b);
+  if (problem) return { ok: false, reason: problem };
   if (!a.trim() || !b.trim()) return { ok: false, reason: "--models token must not be empty" };
-  if (a === b) return { ok: false, reason: `--models needs two distinct tokens, got "${a}" twice` };
+  if (a === b) return { ok: false, reason: `--models needs two distinct tokens, got ${escapeForLine(a)} twice` };
   return { ok: true, tokens: [a, b] };
+}
+
+/**
+ * Keep a long alias name out of a refusal: `selectAliasModel`'s reasons quote
+ * the alias, so an alias over the shown length is replaced by its cut form.
+ *
+ * @param {string} reason
+ * @param {string} alias
+ * @returns {string}
+ */
+function cutAliasInReason(reason, alias) {
+  if (alias.length <= MAX_SHOWN_LENGTH) return reason;
+  return reason.split(alias).join(`${alias.slice(0, MAX_SHOWN_LENGTH)}...`);
 }
 
 /**
@@ -71,7 +138,7 @@ function resolveModelToken(token, listing, effort) {
       "run setup or pass an exact model id" };
   }
   const selected = selectAliasModel(listing.rows, alias, effort);
-  if (!selected.ok) return selected;
+  if (!selected.ok) return { ok: false, reason: cutAliasInReason(selected.reason, alias) };
   return { ok: true, model: selected.model, request: { requestedAlias: alias, resolvedModel: selected.model } };
 }
 
@@ -95,6 +162,10 @@ export async function resolveModelsPair([tokenA, tokenB], { effort, probe = prob
   if (!a.ok) return a;
   const b = resolveModelToken(tokenB, listing, effort);
   if (!b.ok) return b;
+  if (a.model === b.model) {
+    return { ok: false, reason: `--models tokens ${escapeForLine(tokenA)} and ${escapeForLine(tokenB)} ` +
+      `both resolve to the model ${escapeForLine(a.model)}; pick two different models` };
+  }
   return { ok: true, resolved: [
     { model: a.model, request: a.request },
     { model: b.model, request: b.request },

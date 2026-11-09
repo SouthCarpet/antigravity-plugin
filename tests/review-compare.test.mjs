@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 
 import {
   compareReviewFindings,
+  escapeControls,
+  escapeForLine,
   parseModelsOption,
   resolveModelsPair,
 } from '../scripts/lib/review-compare.mjs';
@@ -65,6 +67,58 @@ describe('parseModelsOption', () => {
     assert.equal(result.ok, false);
     assert.match(result.reason, /distinct/);
   });
+
+  // Control characters (C0, DEL, C1) and over-long tokens are refused, and a
+  // refusal is always ONE line that shows the token escaped and cut to 80.
+  const CONTROL_TOKENS = [
+    ['a newline', 'x' + String.fromCharCode(10) + 'INJECTED'],
+    ['a carriage return', 'x' + String.fromCharCode(13) + 'INJECTED'],
+    ['a tab', 'x' + String.fromCharCode(9) + 'y'],
+    ['an ESC', 'x' + String.fromCharCode(27) + '[2J'],
+    ['a DEL', 'x' + String.fromCharCode(127) + 'y'],
+    ['a C1 control', 'x' + String.fromCharCode(0x85) + 'y'],
+    ['a Unicode line separator', 'x' + String.fromCharCode(0x2028) + 'y'],
+  ];
+  const ANY_CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+  for (const [label, token] of CONTROL_TOKENS) {
+    for (const position of ['first', 'second']) {
+      it(`refuses ${label} in the ${position} token, on one line`, () => {
+        const result = parseModelsOption(position === 'first' ? `${token},ok` : `ok,${token}`);
+        assert.equal(result.ok, false);
+        assert.match(result.reason, /control character/);
+        assert.doesNotMatch(result.reason, ANY_CONTROL);
+      });
+    }
+  }
+
+  it('refuses a duplicate token holding a newline without splitting the refusal', () => {
+    const token = 'x' + String.fromCharCode(10) + 'INJECTED';
+    const result = parseModelsOption(`${token},${token}`);
+    assert.equal(result.ok, false);
+    assert.doesNotMatch(result.reason, ANY_CONTROL);
+  });
+
+  it('refuses a token of 201 characters and accepts 200', () => {
+    const refused = parseModelsOption(`${'x'.repeat(201)},ok`);
+    assert.equal(refused.ok, false);
+    assert.match(refused.reason, /longer than 200 characters/);
+    assert.ok(!refused.reason.includes('x'.repeat(81)), 'the refusal shows at most 80 characters of the token');
+    assert.equal(parseModelsOption(`${'x'.repeat(200)},ok`).ok, true);
+  });
+
+  it('shows a long duplicate token cut to 80 characters', () => {
+    const token = 'y'.repeat(150);
+    const result = parseModelsOption(`${token},${token}`);
+    assert.equal(result.ok, false);
+    assert.ok(result.reason.includes('"' + 'y'.repeat(80) + '"...'));
+    assert.ok(!result.reason.includes('y'.repeat(81)));
+  });
+
+  for (const token of ['a b', 'models/gemini-x', 'gemini-3.8-flash', 'vendor:model']) {
+    it(`still accepts ${JSON.stringify(token)} as an exact id`, () => {
+      assert.deepEqual(parseModelsOption(`${token},other`), { ok: true, tokens: [token, 'other'] });
+    });
+  }
 });
 
 describe('resolveModelsPair', () => {
@@ -119,6 +173,58 @@ describe('resolveModelsPair', () => {
     const result = await resolveModelsPair(['alias:flash', 'gemini-exact'], { probe });
     assert.equal(result.ok, false);
     assert.match(result.reason, /listing unavailable/);
+  });
+
+  const SAME_LISTING = 'gemini-flash-3.8-medium\tFlash\ngemini-argon-2-medium\tArgon\n';
+
+  it('refuses alias:flash together with the exact id it resolves to, naming both tokens and the id', async () => {
+    const probe = async () => ({ ok: true, text: SAME_LISTING });
+    const result = await resolveModelsPair(['alias:flash', 'gemini-flash-3.8-medium'], { probe, effort: 'medium' });
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /"alias:flash"/);
+    assert.match(result.reason, /"gemini-flash-3.8-medium" both resolve to the model "gemini-flash-3.8-medium"/);
+  });
+
+  it('refuses two aliases that resolve to one id', async () => {
+    const probe = async () => ({ ok: true, text: 'gemini-4-flash-argon-medium\tBoth\n' });
+    const result = await resolveModelsPair(['alias:flash', 'alias:argon'], { probe, effort: 'medium' });
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /both resolve to the model "gemini-4-flash-argon-medium"/);
+  });
+
+  it('allows two different exact ids and two aliases that resolve to different ids', async () => {
+    const probe = async () => ({ ok: true, text: SAME_LISTING });
+    assert.equal((await resolveModelsPair(['gemini-a', 'gemini-b'], { probe })).ok, true);
+    const aliases = await resolveModelsPair(['alias:flash', 'alias:argon'], { probe, effort: 'medium' });
+    assert.equal(aliases.ok, true);
+  });
+
+  it('cuts a long alias name out of an alias refusal', async () => {
+    const probe = async () => ({ ok: true, text: SAME_LISTING });
+    const result = await resolveModelsPair([`alias:${'z'.repeat(150)}`, 'gemini-b'], { probe });
+    assert.equal(result.ok, false);
+    assert.ok(!result.reason.includes('z'.repeat(81)));
+  });
+});
+
+describe('escapeForLine and escapeControls', () => {
+  it('quotes plain text and keeps it unchanged', () => {
+    assert.equal(escapeForLine('gemini-a'), '"gemini-a"');
+  });
+
+  it('escapes newline, ESC, DEL, C1 and the Unicode line separator', () => {
+    const text = 'a' + String.fromCharCode(10, 27, 127, 0x85, 0x2028) + 'b';
+    assert.equal(escapeForLine(text), '"a\\n\\u001b\\u007f\\u0085\\u2028b"');
+  });
+
+  it('cuts at 80 characters and marks the cut after the closing quote', () => {
+    assert.equal(escapeForLine('x'.repeat(81)), `"${'x'.repeat(80)}"...`);
+    assert.equal(escapeForLine('x'.repeat(80)), `"${'x'.repeat(80)}"`);
+  });
+
+  it('escapeControls leaves printable text alone and escapes controls without quotes', () => {
+    assert.equal(escapeControls('plain text'), 'plain text');
+    assert.equal(escapeControls('a' + String.fromCharCode(27) + 'b'), 'a\\u001bb');
   });
 });
 

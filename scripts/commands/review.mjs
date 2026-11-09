@@ -60,10 +60,13 @@ import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewInput } from "../lib/review-input.mjs";
 import { REVIEW_FINDINGS_SCHEMA_PATH, reviewFindingsDetails } from "../lib/review-findings.mjs";
 import { checkReviewLocations, locationCheckReportLine } from "../lib/review-locations.mjs";
-import { compareReviewFindings, parseModelsOption, resolveModelsPair } from "../lib/review-compare.mjs";
+import {
+  compareReviewFindings, escapeControls, escapeForLine, parseModelsOption, resolveModelsPair,
+} from "../lib/review-compare.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   EFFORT_CHOICES,
+  deniedActionsWithRemedy,
   probeAgyForVerb,
   rememberAgyVersion,
   reportAgyUnavailable,
@@ -81,7 +84,9 @@ import {
   waitAndReport,
   waitForJob,
 } from "../lib/job-helpers.mjs";
-import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderReviewPreview } from "../lib/render.mjs";
+import {
+  createErrorEnvelope, createJsonEnvelope, outputCommandResult, redactBypassFlag, renderReviewPreview,
+} from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -251,7 +256,9 @@ function pairedLegExitCode(status) {
  * lists both legs with their status"), and, only once the leg completed,
  * `findingsStatus` (plus a one-line `findingsError` when it is not
  * `"valid"`, and `locationCheck` when `--check-locations` was given — "one
- * check per leg, results under each leg"). The full findings array is kept
+ * check per leg, results under each leg"). `deniedActions` (with remedy, the
+ * shape a single-model `--json` review reports) is present on any leg whose
+ * run reported a denied action, whatever its status. The full findings array is kept
  * only on the internal record ({@link runReviewPairedCommand}'s `legs`),
  * never duplicated into this envelope entry: a caller who wants the full
  * list for one leg already has its job `id` for `/antigravity:result`.
@@ -262,10 +269,13 @@ function pairedLegExitCode(status) {
  * @param {boolean} checkLocations
  * @param {Array<{ path: string, newStart: number, newEnd: number }>} hunks
  * @returns {{ id: string, model: string, status: string, findingsStatus: string | null, findings?: object | null,
- *   findingsError?: string, locationCheck?: object | null }}
+ *   findingsError?: string, locationCheck?: object | null,
+ *   deniedActions?: import('../lib/types.mjs').DeniedActionWithRemedy[] }}
  */
 function buildPairedLeg(model, job, result, checkLocations, hunks) {
   const entry = { id: job.id, model, status: result.status, findingsStatus: null };
+  const deniedActions = deniedActionsWithRemedy(result.deniedActions, "review");
+  if (deniedActions) entry.deniedActions = deniedActions;
   if (result.status !== "completed") return entry;
   const findingsDetails = reviewFindingsDetails(result.structured);
   entry.findingsStatus = findingsDetails.findingsStatus;
@@ -307,6 +317,35 @@ function computePairedComparison([legA, legB], hunks) {
 }
 
 /**
+ * One denied action on one line, for stderr and the markdown summary: the
+ * action, its display name and its target (model-chosen text) are each cut
+ * and JSON-escaped by {@link escapeForLine}; the remedy sentence is
+ * escaped by {@link escapeControls}. The result is never longer than one line.
+ *
+ * @param {{ action: string, displayName?: string | null, target?: string | null, remedy: string }} entry
+ * @returns {string}
+ */
+function pairedDenialText({ action, displayName, target, remedy }) {
+  const name = displayName ? ` (${escapeForLine(displayName)})` : "";
+  const where = target ? ` for ${escapeForLine(target)}` : "";
+  return `denied ${escapeForLine(action)}${name}${where}: ${escapeControls(remedy)}`;
+}
+
+/**
+ * Echo a leg's denied actions to stderr, one redacted line each, as a
+ * single-model review does (`reportDeniedActionHints`), with the model named
+ * because two legs share one stderr.
+ *
+ * @param {ReturnType<typeof buildPairedLeg>} leg
+ * @returns {void}
+ */
+function reportPairedDenials(leg) {
+  for (const entry of leg.deniedActions ?? []) {
+    process.stderr.write(redactBypassFlag(`antigravity:review — ${escapeForLine(leg.model)} ${pairedDenialText(entry)}\n`));
+  }
+}
+
+/**
  * The markdown rendering for `--models`' paired envelope: one line per leg,
  * then the comparison counts or a note that comparison is unavailable.
  * Kept local to this module (package E owns only `review.mjs` and
@@ -318,8 +357,10 @@ function computePairedComparison([legA, legB], hunks) {
 function renderReviewPairedMarkdown(details) {
   const lines = [`# antigravity review — paired (${details.pairId})`, ""];
   for (const job of details.jobs) {
-    const jobLine = job.id ? `${job.model}: ${job.status} (job ${job.id})` : `${job.model}: ${job.status}`;
+    const label = escapeForLine(job.model);
+    const jobLine = job.id ? `${label}: ${job.status} (job ${job.id})` : `${label}: ${job.status}`;
     lines.push(`- ${jobLine}${job.findingsStatus ? `, findings ${job.findingsStatus}` : ""}`);
+    for (const entry of job.deniedActions ?? []) lines.push(`  - ${redactBypassFlag(pairedDenialText(entry))}`);
   }
   lines.push("");
   lines.push(details.comparison
@@ -339,6 +380,7 @@ function renderReviewPairedMarkdown(details) {
  * @returns {number}
  */
 function reportReviewPaired({ pairId, legs, hunks, json }) {
+  for (const leg of legs) reportPairedDenials(leg);
   const comparison = computePairedComparison(legs, hunks);
   const details = { pairId, jobs: legs.map(stripPairedLegFindings), comparison };
   outputCommandResult(
@@ -347,6 +389,26 @@ function reportReviewPaired({ pairId, legs, hunks, json }) {
     json,
   );
   return legs.map((leg) => pairedLegExitCode(leg.status)).find((code) => code !== 0) ?? 0;
+}
+
+/**
+ * The `--models` checks that need no diff and no agy: `--findings-json` is
+ * required, and the value must be two distinct, well-formed tokens
+ * ({@link parseModelsOption}). Run before the empty-diff early return, so a
+ * malformed call is refused whatever the diff holds. Refused with
+ * {@link reportArgsValidationError} (no `--json` envelope, matching every
+ * other "flag A requires flag B"/malformed-value refusal this verb has).
+ *
+ * @param {Record<string, string | boolean | string[]>} options parsed CLI options
+ * @returns {{ code: number } | { tokens: [string, string] }}
+ */
+function checkPairedOptions(options) {
+  if (!options["findings-json"]) {
+    return { code: reportArgsValidationError("review", "--models needs --findings-json to compare structured findings") };
+  }
+  const parsedModels = parseModelsOption(String(options.models));
+  if (!parsedModels.ok) return { code: reportArgsValidationError("review", parsedModels.reason) };
+  return { tokens: parsedModels.tokens };
 }
 
 /**
@@ -360,35 +422,27 @@ function reportReviewPaired({ pairId, legs, hunks, json }) {
  * the second leg run.
  *
  * `--findings-json`'s own requirement and `--models`' value shape are
- * refused here, before any agy probe, with
- * {@link reportArgsValidationError} (no `--json` envelope, matching every
- * other "flag A requires flag B"/malformed-value refusal this verb
- * already has). A model-resolution failure (unknown alias, listing
+ * refused earlier, in {@link checkPairedOptions}, before the diff is read.
+ * A model-resolution failure (unknown alias, listing
  * unavailable) also refuses before either leg exists, through the same
  * {@link reportModelResolutionFailure} a single-model `--model-alias`
  * failure already uses — there is nothing "paired" to report yet.
  *
  * @param {{ workspaceRoot: string, envelope: object, base: string | undefined,
  *   effort: string | undefined, focus: string | undefined,
- *   findingsJson: boolean, checkLocations: boolean, modelsValue: string,
+ *   checkLocations: boolean, tokens: [string, string],
  *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput>, json: boolean }} args
  * @returns {Promise<number>}
  */
 async function runReviewPairedCommand({
-  workspaceRoot, envelope, base, effort, focus, findingsJson, checkLocations, modelsValue, input, json,
+  workspaceRoot, envelope, base, effort, focus, checkLocations, tokens, input, json,
 }) {
-  if (!findingsJson) {
-    return reportArgsValidationError("review", "--models needs --findings-json to compare structured findings");
-  }
-  const parsedModels = parseModelsOption(modelsValue);
-  if (!parsedModels.ok) return reportArgsValidationError("review", parsedModels.reason);
-
   const probed = await probeAgyForVerb("review");
   if (probed.line) return reportAgyUnavailable("review", probed.line, json);
   await rememberAgyVersion(workspaceRoot, probed.version);
   const agyVersion = probed.version;
 
-  const pairResolution = await resolveModelsPair(parsedModels.tokens, { effort });
+  const pairResolution = await resolveModelsPair(tokens, { effort });
   if (!pairResolution.ok) return reportModelResolutionFailure("review", pairResolution, json);
 
   printModelsCostNotice();
@@ -647,6 +701,9 @@ export async function run(argv = [], ctx = {}) {
   const showResultError = validateShowResultDependency(options, "review");
   if (showResultError) return reportArgsValidationError("review", showResultError);
 
+  const pairedCheck = options.models === undefined ? null : checkPairedOptions(options);
+  if (pairedCheck && "code" in pairedCheck) return pairedCheck.code;
+
   const cwd = resolveCliCwd(options, ctx);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const scope = (options.scope ? String(options.scope) : "auto");
@@ -686,10 +743,9 @@ export async function run(argv = [], ctx = {}) {
 
   const checkLocations = Boolean(options["check-locations"]);
 
-  if (options.models) {
+  if (pairedCheck) {
     return runReviewPairedCommand({
-      workspaceRoot, envelope, base, effort, focus, findingsJson, checkLocations,
-      modelsValue: String(options.models), input, json,
+      workspaceRoot, envelope, base, effort, focus, checkLocations, tokens: pairedCheck.tokens, input, json,
     });
   }
 
