@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { writeJsonAtomic } from '../scripts/lib/atomic-state.mjs';
+import { withWorkspaceMutexSync, writeJsonAtomic } from '../scripts/lib/atomic-state.mjs';
 import { recordProcessStartTime } from '../scripts/lib/process.mjs';
 import { waitForJob, patchJob } from '../scripts/lib/job-helpers.mjs';
-import { resolveJobFile, readJobFile } from '../scripts/lib/state.mjs';
+import { appendJobLog, resolveStateDir, resolveJobLogFile, resolveJobFile, readJobFile } from '../scripts/lib/state.mjs';
 const roots=[];
 const savedData=process.env.CLAUDE_PLUGIN_DATA;
 afterEach(()=>{if(savedData===undefined)delete process.env.CLAUDE_PLUGIN_DATA;else process.env.CLAUDE_PLUGIN_DATA=savedData;for(const p of roots.splice(0))removeTestDir(p);});
@@ -30,9 +30,9 @@ test('disk full is not retried',()=>{
  fs.renameSync=()=>{calls++;throw Object.assign(new Error('full'),{code:'ENOSPC'});};
  try{assert.throws(()=>writeJsonAtomic(path.join(root,'value.json'),{}),/full/);assert.equal(calls,1);assert.deepEqual(fs.readdirSync(root),[]);}finally{fs.renameSync=rename;}
 });
-test('launch retries one failed start-time query',()=>{let calls=0;assert.equal(recordProcessStartTime(4242,()=>++calls===1?null:1000),'1970-01-01T00:00:01.000Z');assert.equal(calls,2);});
-test('launch stops after two failed start-time queries',()=>{let calls=0;assert.equal(recordProcessStartTime(4242,()=>{calls++;return null;}),null);assert.equal(calls,2);});
-for(const replacement of [{id:'abcdefabcdef',status:'completed',workerPid:4242,result:{stdout:'real answer'}},{id:'abcdefabcdef',status:'failed',workerPid:4242,errorMessage:'real error'},{id:'abcdefabcdef',status:'cancelled',workerPid:4242},{id:'abcdefabcdef',status:'running',workerPid:4343}])test(`vanish probe preserves the fresh ${replacement.status} record`,async()=>{
+test('launch retries one failed start-time query',()=>{let calls=0;assert.equal(recordProcessStartTime(4242,()=>++calls===1?null:1000,()=>true),'1970-01-01T00:00:01.000Z');assert.equal(calls,2);});
+test('launch stops after two failed start-time queries',()=>{let calls=0;assert.equal(recordProcessStartTime(4242,()=>{calls++;return null;},()=>true),null);assert.equal(calls,2);});
+for(const replacement of [{id:'abcdefabcdef',status:'completed',workerPid:4242,result:{stdout:'real answer'}},{id:'abcdefabcdef',status:'failed',workerPid:4242,errorMessage:'real error'},{id:'abcdefabcdef',status:'cancelled',workerPid:4242}])test(`vanish probe preserves the fresh ${replacement.status} record`,async()=>{
  const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',workerPid:4242});const file=resolveJobFile(root,'abcdefabcdef');const expected=JSON.stringify(replacement);let calls=0;
  const actual=await waitForJob(root,'abcdefabcdef',{isProcessAlive:()=>{if(++calls===1)fs.writeFileSync(file,expected);return false;},terminateTree:async()=>{assert.fail('must not signal');}});
  assert.deepEqual(actual,replacement);assert.equal(fs.readFileSync(file,'utf8'),expected);
@@ -129,4 +129,65 @@ test('two failed launch queries leave the fake agy alive and log that it was not
   child.stdin.end();
   await exited;
  }
+});
+
+// Oracle: fix-round controller rulings F1, F2, F3 and 4b.
+test('gone launch process gets no second identity query',()=>{
+ let queries=0;assert.equal(recordProcessStartTime(4242,()=>{queries++;return null;},()=>false),null);assert.equal(queries,1);
+});
+for(const code of ['EBUSY','EPERM','EACCES'])test('strict read retries '+code+' and keeps the full record',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',request:{prompt:'keep'}});
+ const file=resolveJobFile(root,'abcdefabcdef');const read=fs.readFileSync;let calls=0;
+ fs.readFileSync=(p,...args)=>{if(p===file&&++calls===1)throw Object.assign(new Error('busy'),{code});return read(p,...args);};
+ try{await patchJob(root,'abcdefabcdef',{phase:'working'});assert.equal(calls,2);}finally{fs.readFileSync=read;}
+ assert.deepEqual(readJobFile(root,'abcdefabcdef').request,{prompt:'keep'});
+});
+for(const [code,strict,count] of [['EPERM',true,5],['EIO',true,1],['ENOENT',true,1],['EBUSY',false,1]])test('read error '+code+' strict='+strict+' has bounded attempts',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running'});const file=resolveJobFile(root,'abcdefabcdef');const bytes=fs.readFileSync(file);const read=fs.readFileSync;let calls=0;
+ fs.readFileSync=(p,...args)=>{if(p===file){calls++;throw Object.assign(new Error('read fault'),{code});}return read(p,...args);};
+ try{if(strict&&code!=='ENOENT')assert.throws(()=>readJobFile(root,'abcdefabcdef',{strict}),/read fault/);else assert.equal(readJobFile(root,'abcdefabcdef',{strict}),null);assert.equal(calls,count);}finally{fs.readFileSync=read;}
+ assert.deepEqual(fs.readFileSync(file),bytes);
+});
+test('strict parse error throws after one read',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{});const file=resolveJobFile(root,'abcdefabcdef');fs.writeFileSync(file,'{');const read=fs.readFileSync;let calls=0;
+ fs.readFileSync=(p,...args)=>{if(p===file)calls++;return read(p,...args);};
+ try{assert.throws(()=>readJobFile(root,'abcdefabcdef',{strict:true}),SyntaxError);assert.equal(calls,1);}finally{fs.readFileSync=read;}
+});
+test('identity and slow termination leave the mutex free for another writer',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',workerPid:4242,agyPid:4343,agyProcessStartedAt:new Date(1000).toISOString()});
+ const final=await waitForJob(root,'abcdefabcdef',{isProcessAlive:pid=>pid===4343,readStartTime:()=>{withWorkspaceMutexSync(resolveStateDir(root),()=>{});return 1000;},terminateTree:async()=>{await patchJob(root,'bbbbbbbbbbbb',{status:'completed'});}});
+ assert.equal(final.phase,'worker_missing');assert.equal(readJobFile(root,'bbbbbbbbbbbb').status,'completed');
+});
+for(const replacement of [{status:'cancelled',workerPid:4242},{status:'running',workerPid:4444}])test('termination preserves a concurrent '+replacement.status+' record',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',workerPid:4242,agyPid:4343,agyProcessStartedAt:new Date(1000).toISOString()});const file=resolveJobFile(root,'abcdefabcdef');appendJobLog(root,'abcdefabcdef','[test] initial');let bytes;let time=0;
+ const final=await waitForJob(root,'abcdefabcdef',{timeoutMs:1,now:()=>time++,isProcessAlive:pid=>pid!==4242,readStartTime:()=>1000,terminateTree:async()=>{await patchJob(root,'abcdefabcdef',replacement);bytes=fs.readFileSync(file);},sleep:async()=>{throw new Error('unexpected poll');}});
+ assert.equal(final.status,replacement.status);assert.deepEqual(fs.readFileSync(file),bytes);assert.doesNotMatch(fs.readFileSync(resolveJobLogFile(root,'abcdefabcdef'),'utf8'),/vanished; marked/);
+});
+for(const identity of [null,new Date(9000).toISOString()])test('unconfirmed identity '+identity+' is never signalled',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',workerPid:4242,agyPid:4343,agyProcessStartedAt:identity});
+ const final=await waitForJob(root,'abcdefabcdef',{isProcessAlive:pid=>pid===4343,readStartTime:()=>1000,terminateTree:async()=>assert.fail('unconfirmed signal')});assert.equal(final.phase,'worker_missing');assert.equal(fs.readFileSync(resolveJobLogFile(root,'abcdefabcdef'),'utf8').match(/not signalled/g).length,1);
+});
+test('changed worker stays in the poll loop until completion',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',workerPid:4242});let probes=0;let sleeps=0;
+ const final=await waitForJob(root,'abcdefabcdef',{isProcessAlive:()=>{if(++probes===1)fs.writeFileSync(resolveJobFile(root,'abcdefabcdef'),JSON.stringify({id:'abcdefabcdef',status:'running',workerPid:4343}));return false;},sleep:async()=>{sleeps++;await patchJob(root,'abcdefabcdef',{status:'completed',result:{stdout:'done'}});}});
+ assert.equal(final.status,'completed');assert.equal(sleeps,1);
+});
+test('worker alive at second probe waits until deadline',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',workerPid:4242});let probes=0;let time=0;let sleeps=0;
+ const final=await waitForJob(root,'abcdefabcdef',{timeoutMs:10,now:()=>time,isProcessAlive:()=>++probes>1,sleep:async()=>{sleeps++;time=10;}});assert.equal(final.status,'running');assert.equal(sleeps,1);
+});
+test('deleted launch record reports launch failure without creating state',async()=>{
+ const {EventEmitter}=await import('node:events');const {startBackgroundJob,reportQueuedJob}=await import('../scripts/lib/job-helpers.mjs');const root=fixture();let file;
+ const launched=await startBackgroundJob({workspaceRoot:root,kind:'task',prompt:'go',readStartTime:()=>1000,spawnWorker:()=>{const child=Object.assign(new EventEmitter(),{pid:4242,unref(){}});queueMicrotask(()=>child.emit('spawn'));return child;},terminateTree:async()=>({outcome:'not_found'}),persistWorkerPid:async(cwd,id)=>{file=resolveJobFile(cwd,id);fs.unlinkSync(file);throw new Error('index unavailable');}});
+ assert.equal(launched.job.status,'failed');assert.equal(launched.job.errorMessage,'Worker launch failed: index unavailable');assert.equal(fs.existsSync(file),false);
+ const writeOut=process.stdout.write;const writeErr=process.stderr.write;let out='';let err='';process.stdout.write=text=>{out+=text;return true;};process.stderr.write=text=>{err+=text;return true;};
+ try{assert.equal(reportQueuedJob('task',launched.job,{json:true}),1);}finally{process.stdout.write=writeOut;process.stderr.write=writeErr;}
+ assert.equal(JSON.parse(out).details.error.code,'worker_start_failed');assert.match(err,/Worker launch failed: index unavailable/);
+});
+
+test('two waiters return the same terminal record after confirmed cleanup',async()=>{
+ const root=fixture();await patchJob(root,'abcdefabcdef',{status:'running',workerPid:4242,agyPid:4343,agyProcessStartedAt:new Date(1000).toISOString()});
+ let signals=0;const options={isProcessAlive:pid=>pid===4343,readStartTime:()=>1000,terminateTree:async()=>{signals++;}};
+ const [first,second]=await Promise.all([waitForJob(root,'abcdefabcdef',options),waitForJob(root,'abcdefabcdef',options)]);
+ assert.deepEqual(first,second);assert.equal(first.phase,'worker_missing');assert.ok(signals>=1&&signals<=2);
 });

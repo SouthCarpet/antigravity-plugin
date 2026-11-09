@@ -169,10 +169,10 @@ export function readProcessStartTime(pid, {
  * @param {typeof readProcessStartTime} [readStartTime]
  * @returns {string | null}
  */
-export function recordProcessStartTime(pid, readStartTime = readProcessStartTime) {
+export function recordProcessStartTime(pid, readStartTime = readProcessStartTime, alive = isProcessAlive) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
   // Retry only at launch. Each OS read has the existing five-second bound.
-  const startedAt = readStartTime(pid) ?? readStartTime(pid);
+  const startedAt = readStartTime(pid) ?? (alive(pid) ? readStartTime(pid) : null);
   return startedAt === null ? null : new Date(startedAt).toISOString();
 }
 

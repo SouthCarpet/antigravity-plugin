@@ -17,7 +17,7 @@ function capture(text, flush = false) {
   const reason = normalized === null ? null : redactBypassFlag(removeOAuthUrlsDeep(normalized));
   pending = '';
   if (!reason) return;
-  const line = Buffer.from(`[worker] stderr: ${reason}\n`);
+  const line = Buffer.from(`[${new Date().toISOString()}] [worker] stderr: ${reason}\n`);
   const output = line.subarray(0, MAX_DIAGNOSTIC_BYTES - written);
   try {
     // A retained descriptor also avoids following a later replacement of the log path.

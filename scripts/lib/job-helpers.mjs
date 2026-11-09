@@ -2001,7 +2001,8 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
         healthStatus: "failed",
       });
     });
-    return { job: failed, pid: null };
+    // The file may have been removed during launch. Report the failure without recreating it.
+    return { job: failed ?? { ...job, status: "failed", errorMessage: `Worker launch failed: ${error.message}` }, pid: null };
   }
   appendJobLog(workspaceRoot, job.id, `[job] dispatched worker pid=${child.pid}`);
   return { job, pid: child.pid ?? null };
@@ -2062,19 +2063,27 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
 async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime }) {
-  return withWorkspaceMutex(resolveStateDir(workspaceRoot), async () => {
-    job = readJobFile(workspaceRoot, jobId, { strict: true });
-    if (!job || Number(job.workerPid ?? job.pid) !== workerPid ||
-        !isWorkerVanished(job, workerPid, isProcessAlive)) return job;
-    const agyPid = Number(job.agyPid);
-    if (Number.isInteger(agyPid) && agyPid > 0) {
-      const identity = checkProcessIdentity(agyPid, job.agyProcessStartedAt, { isProcessAlive, readStartTime });
-      if (identity === "match") {
-        await terminateTree(agyPid).catch(() => {});
-      } else if (identity !== "gone") {
-        appendJobLog(workspaceRoot, jobId, `[wait] agy pid=${agyPid} not signalled: not confirmed as this job's process`);
-      }
+  const decision = await withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+    const fresh = readJobFile(workspaceRoot, jobId, { strict: true });
+    const vanished = Boolean(fresh && Number(fresh.workerPid ?? fresh.pid) === workerPid &&
+      isWorkerVanished(fresh, workerPid, isProcessAlive));
+    return { fresh, vanished };
+  });
+  if (!decision.vanished) return decision.fresh;
+  job = decision.fresh;
+  const agyPid = Number(job.agyPid);
+  if (Number.isInteger(agyPid) && agyPid > 0) {
+    const identity = checkProcessIdentity(agyPid, job.agyProcessStartedAt, { isProcessAlive, readStartTime });
+    if (identity === "match") {
+      await terminateTree(agyPid).catch(() => {});
+    } else if (identity !== "gone") {
+      appendJobLog(workspaceRoot, jobId, `[wait] agy pid=${agyPid} not signalled: not confirmed as this job's process`);
     }
+  }
+  return withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+    const fresh = readJobFile(workspaceRoot, jobId, { strict: true });
+    if (!fresh || !['running', 'queued'].includes(fresh.status) ||
+        Number(fresh.workerPid ?? fresh.pid) !== workerPid) return fresh;
     const failed = patchJobStateUnlocked(workspaceRoot, jobId, {
       status: "failed",
       phase: "worker_missing",
@@ -2105,11 +2114,12 @@ export async function waitForJob(
   const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
   const TERMINAL = new Set(["completed", "failed", "cancelled"]);
   while (true) {
-    const job = readJobFile(workspaceRoot, jobId);
+    let job = readJobFile(workspaceRoot, jobId);
     if (!job || TERMINAL.has(job.status)) return job;
-    const workerPid = Number(job?.workerPid ?? job?.pid);
+    const workerPid = Number(job.workerPid ?? job.pid);
     if (isWorkerVanished(job, workerPid, isProcessAlive)) {
-      return markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
+      job = await markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
+      if (!job || TERMINAL.has(job.status)) return job;
     }
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);

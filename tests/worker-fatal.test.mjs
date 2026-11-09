@@ -17,7 +17,7 @@ test('runtime stderr is bounded and redacts OAuth URLs and bypass flags',async()
  const message='failure https://accounts.google.com/o/oauth2/auth?code=secret --dangerously-skip-permissions accounts.google.com/o/oauth2 --ｄａｎｇｅｒｏｕｓｌｙ-ｓｋｉｐ-ｐｅｒｍｉｓｓｉｏｎｓ ａｃｃｏｕｎｔｓ.google.com/o/oauth2\n';
  fs.writeFileSync(entry,'for(let n=0;n<10000;n++)process.stderr.write('+JSON.stringify(message)+');');
  const result=spawnSync(process.execPath,['--import',new URL('../scripts/lib/worker-diagnostics.mjs',import.meta.url).href,entry,'abcdefabcdef',root],{encoding:'utf8',timeout:10000});
- assert.equal(result.status,0);const log=fs.readFileSync(resolveJobLogFile(root,'abcdefabcdef'),'utf8');assert.match(log,/failure/);assert.doesNotMatch(log,/secret|--dangerously-skip-permissions|accounts\.google/);assert.ok(Buffer.byteLength(log)<=65536);assert.ok(Buffer.byteLength(log)>64000);
+ assert.equal(result.status,0);const log=fs.readFileSync(resolveJobLogFile(root,'abcdefabcdef'),'utf8');assert.match(log,/^\[\d{4}-.*Z\] \[worker\] stderr:/m);assert.match(log,/failure/);assert.doesNotMatch(log,/secret|--dangerously-skip-permissions|accounts\.google/);assert.ok(Buffer.byteLength(log)<=65536);assert.ok(Buffer.byteLength(log)>64000);
 });
 test('a module import failure reaches the job log before worker handlers load',async()=>{
  await fixture();const entry=path.join(root,'broken.mjs');fs.writeFileSync(entry,"import './missing-worker-module.mjs';");
@@ -66,7 +66,7 @@ test('fatal recovery redacts OAuth URLs and bypass flags in the stored reason',a
  assert.equal(stored.status,'failed');
  assert.equal(stored.errorMessage,'fatal at [oauth-url-removed] [flag redacted]');
  const log=fs.readFileSync(resolveJobLogFile(root,'abcdefabcdef'),'utf8');
- assert.doesNotMatch(log,/secret|accounts\.google|--dangerously-skip-permissions/);
+ assert.match(log,/^\[\d{4}-.*Z\] \[worker\] fatal:/m);assert.doesNotMatch(log,/secret|accounts\.google|--dangerously-skip-permissions/);
 });
 
 test('fatal recovery redacts a bypass flag exposed by text normalization',async()=>{

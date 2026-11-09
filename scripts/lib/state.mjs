@@ -17,7 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { recoverWorkspaceMutex, withWorkspaceMutex, withWorkspaceMutexSync, writeJsonAtomic } from "./atomic-state.mjs";
+import { retryStateFileOperation, recoverWorkspaceMutex, withWorkspaceMutex, withWorkspaceMutexSync, writeJsonAtomic } from "./atomic-state.mjs";
 import { assertPrivateDir, UnsafeStateDirError } from "./fs.mjs";
 
 const STATE_VERSION = 1;
@@ -554,7 +554,8 @@ export function readJobFile(cwd, jobId, { strict = false } = {}) {
   assertReadableStateDir(resolveStateDir(cwd));
   const filePath = resolveJobFile(cwd, jobId);
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const read = () => fs.readFileSync(filePath, "utf8");
+    return JSON.parse(strict ? retryStateFileOperation(read) : read());
   } catch (error) {
     if (strict && error?.code !== "ENOENT") throw error;
     return null;
