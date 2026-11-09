@@ -39,6 +39,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add `details.jobs[].deniedActions` and one stderr line per denied action for a `--models` leg, as single-model review reports them.
 - Add refusals for `--models` tokens that resolve to one model, hold a control character or exceed 200 characters.
 
+### Fixed
+
+- Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
+- State saves retry brief Windows file locks instead of failing on the first rename.
+- A waiter no longer replaces a finished job with a missing-worker failure.
+- Process start-time reads retry once so cancellation can confirm the process under load.
+- A failed job-file read stops a patch instead of dropping existing fields.
+
 ### Changed
 
 - `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).

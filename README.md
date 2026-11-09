@@ -83,7 +83,7 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 - **Clear failures.** Denied actions are reported with a remedy. An empty answer with a denied action fails.
 - **Real image input.** `vision` sends pixels to agy, and `--expect` checks the transcription for text you name.
 - **Reviews you can check.** `review` can preview its input, return schema-checked findings, and check cited lines against the diff.
-- **Background jobs.** `status`, `result`, and `cancel` manage them, and `--request-id` prevents double dispatch.
+- **Background jobs.** `status`, `result`, and `cancel` manage them, and `--request-id` prevents double dispatch. Worker crashes leave a safe diagnostic in the job log.
 - **Predictable runs.** `task` and `rescue` have a default effort and a time budget, and every job records its provenance.
 - **Script-friendly.** `--json` writes one envelope, also for expected failures.
 - **Small.** No runtime dependencies, a read-only `doctor`, CI on three systems, and releases with npm provenance and signed tags.

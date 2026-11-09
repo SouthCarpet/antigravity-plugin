@@ -23,12 +23,14 @@ import {
   appendJobLog,
   claimRequestId,
   resolveJobLogFile,
+  resolveStateDir,
   patchJobState,
   patchJobStateUnlocked,
   readJobFile,
   getConfig,
   setConfig,
 } from "./state.mjs";
+import { withWorkspaceMutex } from "./atomic-state.mjs";
 import { requestFingerprint } from "./request-id.mjs";
 import { parseModelsListing, selectAliasModel } from "./model-alias.mjs";
 import { SESSION_ID_ENV, findResumedJob } from "./job-control.mjs";
@@ -1988,7 +1990,7 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
   let child;
   let spawned = false;
   try {
-    child = spawnWorker(process.execPath, [workerPath, job.id, workspaceRoot], {
+    child = spawnWorker(process.execPath, ["--import", new URL("./worker-diagnostics.mjs", import.meta.url).href, workerPath, job.id, workspaceRoot], {
       cwd: workspaceRoot,
       detached: true,
       stdio: ["ignore", "ignore", "ignore"],
@@ -2009,14 +2011,21 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
   } catch (error) {
     if (spawned) await terminateTree(child.pid);
     child?.unref?.();
-    const failed = await patchJob(workspaceRoot, job.id, {
-      status: "failed",
-      phase: "failed",
-      completedAt: new Date().toISOString(),
-      errorMessage: `Worker launch failed: ${error.message}`,
-      healthStatus: "failed",
+    const failed = await withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+      const fresh = readJobFile(workspaceRoot, job.id, { strict: true });
+      const freshPid = Number(fresh?.workerPid ?? fresh?.pid);
+      if (!fresh || !['running', 'queued'].includes(fresh.status) ||
+          (freshPid > 0 && freshPid !== child?.pid)) return fresh;
+      return patchJobStateUnlocked(workspaceRoot, job.id, {
+        status: "failed",
+        phase: "failed",
+        completedAt: new Date().toISOString(),
+        errorMessage: `Worker launch failed: ${error.message}`,
+        healthStatus: "failed",
+      });
     });
-    return { job: failed, pid: null };
+    // The file may have been removed during launch. Report the failure without recreating it.
+    return { job: failed ?? { ...job, status: "failed", errorMessage: `Worker launch failed: ${error.message}` }, pid: null };
   }
   appendJobLog(workspaceRoot, job.id, `[job] dispatched worker pid=${child.pid}`);
   return { job, pid: child.pid ?? null };
@@ -2077,6 +2086,14 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
 async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime }) {
+  const decision = await withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+    const fresh = readJobFile(workspaceRoot, jobId, { strict: true });
+    const vanished = Boolean(fresh && Number(fresh.workerPid ?? fresh.pid) === workerPid &&
+      isWorkerVanished(fresh, workerPid, isProcessAlive));
+    return { fresh, vanished };
+  });
+  if (!decision.vanished) return decision.fresh;
+  job = decision.fresh;
   const agyPid = Number(job.agyPid);
   if (Number.isInteger(agyPid) && agyPid > 0) {
     const identity = checkProcessIdentity(agyPid, job.agyProcessStartedAt, { isProcessAlive, readStartTime });
@@ -2086,17 +2103,22 @@ async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { termin
       appendJobLog(workspaceRoot, jobId, `[wait] agy pid=${agyPid} not signalled: not confirmed as this job's process`);
     }
   }
-  const failed = await patchJob(workspaceRoot, jobId, {
-    status: "failed",
-    phase: "worker_missing",
-    completedAt: new Date().toISOString(),
-    healthStatus: "worker_missing",
-    healthMessage: `Worker process ${workerPid} vanished before recording a terminal result.`,
-    recommendedAction: "Inspect the job log, then retry the task.",
-    errorMessage: `Background worker process ${workerPid} is no longer running.`,
+  return withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+    const fresh = readJobFile(workspaceRoot, jobId, { strict: true });
+    if (!fresh || !['running', 'queued'].includes(fresh.status) ||
+        Number(fresh.workerPid ?? fresh.pid) !== workerPid) return fresh;
+    const failed = patchJobStateUnlocked(workspaceRoot, jobId, {
+      status: "failed",
+      phase: "worker_missing",
+      completedAt: new Date().toISOString(),
+      healthStatus: "worker_missing",
+      healthMessage: `Worker process ${workerPid} vanished before recording a terminal result.`,
+      recommendedAction: "Inspect the job log, then retry the task.",
+      errorMessage: `Background worker process ${workerPid} is no longer running.`,
+    });
+    appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
+    return failed;
   });
-  appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
-  return failed;
 }
 
 export async function waitForJob(
@@ -2115,11 +2137,12 @@ export async function waitForJob(
   const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
   const TERMINAL = new Set(["completed", "failed", "cancelled"]);
   while (true) {
-    const job = readJobFile(workspaceRoot, jobId);
+    let job = readJobFile(workspaceRoot, jobId);
     if (!job || TERMINAL.has(job.status)) return job;
-    const workerPid = Number(job?.workerPid ?? job?.pid);
+    const workerPid = Number(job.workerPid ?? job.pid);
     if (isWorkerVanished(job, workerPid, isProcessAlive)) {
-      return markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
+      job = await markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
+      if (!job || TERMINAL.has(job.status)) return job;
     }
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);

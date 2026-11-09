@@ -161,15 +161,18 @@ export function readProcessStartTime(pid, {
 
 /**
  * The start time to store with a PID the plugin has just spawned, as an
- * ISO string, or null when it cannot be read. A job record writes it once,
+ * ISO string, or null after two failed reads (at most two five-second OS queries).
+ * A job record writes it once,
  * next to the PID, and never updates it.
  *
  * @param {number | null | undefined} pid
  * @param {typeof readProcessStartTime} [readStartTime]
  * @returns {string | null}
  */
-export function recordProcessStartTime(pid, readStartTime = readProcessStartTime) {
-  const startedAt = Number.isInteger(pid) && pid > 0 ? readStartTime(pid) : null;
+export function recordProcessStartTime(pid, readStartTime = readProcessStartTime, alive = isProcessAlive) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  // Retry only at launch. Each OS read has the existing five-second bound.
+  const startedAt = readStartTime(pid) ?? (alive(pid) ? readStartTime(pid) : null);
   return startedAt === null ? null : new Date(startedAt).toISOString();
 }
 

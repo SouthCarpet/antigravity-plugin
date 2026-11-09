@@ -121,7 +121,7 @@ export function writeJsonAtomic(targetPath, value) {
   }
 
   try {
-    fs.renameSync(tmp, targetPath);
+    retryStateFileOperation(() => fs.renameSync(tmp, targetPath));
   } catch (error) {
     try {
       fs.unlinkSync(tmp);
@@ -129,5 +129,19 @@ export function writeJsonAtomic(targetPath, value) {
       // Best-effort cleanup.
     }
     throw error;
+  }
+}
+
+/** Retry transient state-file locks: five attempts and at most 200 ms backoff.
+ * @template T
+ * @param {() => T} operation
+ * @returns {T}
+ */
+export function retryStateFileOperation(operation) {
+  for (let attempt = 0; ; attempt++) {
+    try { return operation(); } catch (error) {
+      if (attempt >= 4 || !['EPERM', 'EACCES', 'EBUSY'].includes(error?.code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
   }
 }
