@@ -113,11 +113,13 @@ it('text preview escapes DEL and all C1 controls in the prompt',()=>{
  assert.equal(result.status,0,result.stderr);assert.doesNotMatch(result.stdout,/[\u007f-\u009f]/);
  const details=JSON.parse(result.stdout);assert.equal(details.prompt,'Reply '+controls);
 });
-it('512 KiB unbroken prompt file previews in full within two seconds',()=>{
+// The quadratic redaction needed minutes for this input. The bound is wide so that a slow or
+// loaded CI runner does not fail it: process start and a 512 KiB envelope took 1.8 s under load.
+it('512 KiB unbroken prompt file previews in full within thirty seconds',()=>{
  const f=fixture('task');const file=path.join(f.dir,'prompt.txt');const prompt='a'.repeat(512*1024);
  fs.writeFileSync(file,prompt);const started=performance.now();
  const result=run('task',['--prompt-file',file,'--preview','--json'],f);
  const elapsed=performance.now()-started;console.log('preview 512 KiB ms:',elapsed);
  assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).details.prompt,prompt);
- assert.ok(elapsed<2000,`preview took ${elapsed} ms`);
+ assert.ok(elapsed<30000,`preview took ${elapsed} ms`);
 });
