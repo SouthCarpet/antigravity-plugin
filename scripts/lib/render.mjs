@@ -786,6 +786,18 @@ export function appendRenderedLines(text, lines) {
 }
 
 /**
+ * The exact text `--json` prints for `payload`: every Google OAuth URL
+ * removed, two-space indent, one trailing newline. `result --export` writes
+ * this same text to its file.
+ *
+ * @param {import('./types.mjs').JsonEnvelopeV1} payload
+ * @returns {string}
+ */
+export function jsonEnvelopeText(payload) {
+  return `${JSON.stringify(removeOAuthUrlsDeep(payload), null, 2)}\n`;
+}
+
+/**
  * Output either JSON or rendered markdown based on the --json flag. Every
  * Google OAuth URL is removed first, so stored text from any plugin version
  * (an answer, `rawOutput`, a job's messages) is printed without one.
@@ -797,7 +809,7 @@ export function appendRenderedLines(text, lines) {
  */
 export function outputCommandResult(payload, rendered, json) {
   if (json) {
-    process.stdout.write(`${JSON.stringify(removeOAuthUrlsDeep(payload), null, 2)}\n`);
+    process.stdout.write(jsonEnvelopeText(payload));
   } else {
     process.stdout.write(removeOAuthUrls(rendered));
   }

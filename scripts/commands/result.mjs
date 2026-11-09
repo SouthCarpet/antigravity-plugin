@@ -11,6 +11,14 @@
  *                       works on a job reviewed without the flag, since
  *                       hunks are stored on every review job; `null` on a
  *                       job stored before this feature shipped
+ *   --check-current     compare the review input of a finished `review` job
+ *                       with the input built from the repository now, using
+ *                       the job's own stored scope, base and focus; prints
+ *                       `match`, `changed` or `unknown`. A snapshot, not a
+ *                       lock. Never calls agy, never writes job state.
+ *   --export <path>     write the job's stored record (the safe, redacted
+ *                       JSON `--json` prints, never cut by --head/--tail) to
+ *                       a NEW file. Never overwrites.
  *   --json              emit JSON
  *
  * Exit codes:
@@ -22,10 +30,12 @@
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { mergeJobDetail, resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile, validateJobRecord } from "../lib/state.mjs";
-import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
+import { createErrorEnvelope, createJsonEnvelope, jsonEnvelopeText, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
 import { classifyStateError, exitCodeForJobStatus, deniedActionsWithRemedy, printMeasuredUsageTrailer } from "../lib/job-helpers.mjs";
 import { buildResultDetails } from "../lib/job-result.mjs";
 import { checkReviewLocations, locationCheckReportLine } from "../lib/review-locations.mjs";
+import { checkReviewCurrentness, currentnessReportLine } from "../lib/review-currentness.mjs";
+import { OutputTargetError, assertNewFileTarget, displayTargetPath, resolveOutputPath, writeNewTextFile } from "../lib/output-file.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
@@ -225,7 +235,7 @@ function resultLocationCheckFields(stored, checkLocations) {
  * @param {{ head?: number, tail?: number, checkLocations?: boolean }} options
  * @returns {{ rendered: string, payload: object }}
  */
-function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLocations }) {
+function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLocations, checkCurrent }) {
   const rendered = renderResultOutput(workspaceRoot, job, stored);
   const { cut, renderedOut } = applyAnswerCut(stored, rendered, { head, tail });
 
@@ -255,12 +265,15 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
   // summary/unavailable line after the findings line.
   const { locationCheck, lines: locationLines } = resultLocationCheckFields(stored, checkLocations);
   const withLocationCheck = appendSectionLines(withFindings, locationLines);
+  // 3.2.0 (C2): `--check-current` appends one snapshot line after the
+  // location-check line. `checkCurrent` is computed by `run`, read-only.
+  const withCurrentCheck = appendSectionLines(withLocationCheck, checkCurrent ? [currentnessReportLine(checkCurrent)] : []);
   // Senate R11 (2026-09): the "## Provenance" section is appended last,
   // after the answer text and every other appended section — never folded
   // into the opaque `answer`/`rendered` text above. `job` already carries
   // `stored`'s own `provenance` value (`mergeJobDetail`, job-control.mjs).
   const finalRendered = appendSectionLines(
-    withLocationCheck,
+    withCurrentCheck,
     renderProvenanceLines(job.provenance ?? null, job.request?.inputHash ?? null),
   );
   const payload = createJsonEnvelope("result", {
@@ -273,6 +286,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
       ...(deniedList ? { deniedActions: deniedList } : {}),
       ...(agyPrintTimeout ? { agyPrintTimeout } : {}),
       ...(checkLocations ? { locationCheck } : {}),
+      ...(checkCurrent ? { checkCurrent } : {}),
       ...failedJobErrorDetail(job),
     },
   });
@@ -302,6 +316,69 @@ function failedJobErrorDetail(job) {
 }
 
 /**
+ * Report a refused flag combination or value (3.2.0): one stderr line plus
+ * one `invalid_input` envelope under `--json`, exit code 1, nothing written.
+ *
+ * @param {string | null} jobId
+ * @param {string} code
+ * @param {string} message
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportInvalidInput(jobId, code, message, json) {
+  process.stderr.write(`antigravity:result — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("result", { status: "invalid_input", jobId, error: { code, phase: "validate", message } }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * Resolve the `--export` target and refuse a bad one before any output is
+ * built. `null` when the flag was not given.
+ *
+ * @param {string | boolean | string[] | undefined} value
+ * @param {string} cwd
+ * @returns {string | null}
+ */
+function resolveExportTarget(value, cwd) {
+  if (value === undefined) return null;
+  const target = resolveOutputPath(value, cwd, { noun: "Export" });
+  assertNewFileTarget(target, { noun: "Export" });
+  return target;
+}
+
+/**
+ * Write the plain `result --json` envelope of this job to the export target:
+ * the same text `--json` prints with no other flag, never cut by
+ * `--head`/`--tail` and never carrying a check result.
+ *
+ * @param {Parameters<typeof buildResultOutput>[0]} resolved
+ * @param {string} target
+ * @returns {{ path: string, bytes: number }}
+ */
+function exportJobRecord(resolved, target) {
+  const { payload } = buildResultOutput(resolved, {});
+  const { bytes } = writeNewTextFile(target, jsonEnvelopeText(payload), { noun: "Export" });
+  return { path: displayTargetPath(target), bytes };
+}
+
+/**
+ * Refuse flags that cannot apply to this job: `--check-current` needs a
+ * `review` job. `null` when nothing is refused.
+ *
+ * @param {{ id: string, kind?: string }} job
+ * @param {boolean} checkCurrent
+ * @returns {string | null} the refusal message
+ */
+function unsupportedKindMessage(job, checkCurrent) {
+  if (!checkCurrent || job.kind === "review") return null;
+  return `--check-current applies only to review jobs; job ${job.id} is a ${job.kind ?? "unknown"} job.`;
+}
+
+/**
  * @param {string[]} [argv] CLI arguments after the verb (a job reference and flags)
  * @param {{ cwd?: string, resolveResultJob?: typeof resolveResultJob,
  *   readJobFile?: typeof readJobFile }} [ctx] dependency overrides for tests, plus `cwd`
@@ -309,8 +386,8 @@ function failedJobErrorDetail(job) {
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["cwd", "head", "tail"],
-    booleanOptions: ["json", "check-locations"],
+    valueOptions: ["cwd", "head", "tail", "export"],
+    booleanOptions: ["json", "check-locations", "check-current"],
   }, "result");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
@@ -333,11 +410,26 @@ export async function run(argv = [], ctx = {}) {
   const resolved = resolveJobAndStored(cwd, reference, ctx, json);
   if (!resolved) return 1;
 
+  const checkCurrentFlag = Boolean(options["check-current"]);
+  const kindMessage = unsupportedKindMessage(resolved.job, checkCurrentFlag);
+  if (kindMessage) return reportInvalidInput(resolved.job.id, "check_current_unsupported_kind", kindMessage, json);
+  let exported = null;
+  try {
+    const target = resolveExportTarget(options.export, cwd);
+    exported = target ? exportJobRecord(resolved, target) : null;
+  } catch (error) {
+    if (!(error instanceof OutputTargetError)) throw error;
+    return reportInvalidInput(resolved.job.id, "export_target_unwritable", error.message, json);
+  }
+
   printMeasuredUsageTrailer(resolved.stored?.result?.usage ?? null);
   const checkLocations = Boolean(options["check-locations"]);
-  const { rendered, payload } = buildResultOutput(resolved, { head: head.value, tail: tail.value, checkLocations });
+  const checkCurrent = checkCurrentFlag ? checkReviewCurrentness(resolved.workspaceRoot, resolved.stored) : null;
+  const { rendered, payload } = buildResultOutput(resolved, { head: head.value, tail: tail.value, checkLocations, checkCurrent });
   if (checkLocations) process.stderr.write(`${locationCheckReportLine("result", payload.details.locationCheck)}\n`);
-  outputCommandResult(payload, rendered, json);
+  if (checkCurrent) process.stderr.write(`${currentnessReportLine(checkCurrent)}\n`);
+  if (exported) payload.details.exported = exported;
+  outputCommandResult(payload, exported ? `${rendered}Exported: ${exported.path}\n` : rendered, json);
 
   return exitCodeForJobStatus(resolved.job.status);
 }

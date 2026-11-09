@@ -137,7 +137,7 @@ npx @southcarpet/antigravity-plugin vision ./screenshot.png --prompt "Which text
 
 Send a local audio or video file with `media ./clip.mp4`. agy 1.5.0 and 1.5.1 open the exact file with `read_file`, with `--add-dir` limited to its directory. The whole directory of the file is readable for the run; keep unrelated files out of it. Media bytes reach Google. For YouTube, yt-dlp downloads the file first, then that file reaches Google.
 
-YouTube needs yt-dlp on PATH (`winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`). Merging video formats needs ffmpeg. Default quality is 360p; use `--quality 480p`, `--quality 720p`, `--audio`, or `--transcript`. Transcript-only mode prints captions without a model call; add `--prompt` to ask about them. Downloads are deleted after the job unless `--keep`. Local files have a 100,000,000-byte cap. The default model matches vision: `gemini-3.8-flash-high`.
+YouTube needs yt-dlp on PATH (`winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`). Merging video formats needs ffmpeg. Default quality is 360p; use `--quality 480p`, `--quality 720p`, `--audio`, or `--transcript`. Transcript-only mode prints captions without a model call; add `--timestamps` for `[HH:MM:SS]` prefixes, or `--prompt` to ask about them. `--output <path>` saves the answer text to a new file and never overwrites. Downloads are deleted after the job unless `--keep`. Local files have a 100,000,000-byte cap. The default model matches vision: `gemini-3.8-flash-high`.
 
 `media ./speech.wav --expect pineapple --json`
 

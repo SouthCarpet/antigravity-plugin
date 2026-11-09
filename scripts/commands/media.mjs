@@ -9,6 +9,8 @@ import { downloadMedia } from '../lib/media-download.mjs';
 import { reportRunPreview, resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, createTrackedJob, patchJob, runForegroundJob, finishForeground, buildStoredResult } from '../lib/job-helpers.mjs';
 import { checkVisionExpectations, formatExpectationsMarkdown } from '../lib/vision-expect.mjs';
 import { createErrorEnvelope, outputCommandResult } from '../lib/render.mjs';
+import { OutputTargetError, assertNewFileTarget, displayTargetPath, resolveOutputPath, writeNewTextFile } from '../lib/output-file.mjs';
+import { removeOAuthUrls } from '../lib/safe-reason.mjs';
 
 function inputSource(input, options, cwd) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
@@ -32,7 +34,7 @@ async function prepareYoutube(media, job, workspaceRoot, options) {
   directory = realpathSync.native(directory);
   await patchJob(workspaceRoot, job.id, { status: 'running', phase: 'download', startedAt: new Date().toISOString() });
   try {
-    const downloaded = await downloadMedia({ bin: media.ytDlpPath, videoId: media.videoId, mode: media.mode, quality: media.quality, directory });
+    const downloaded = await downloadMedia({ bin: media.ytDlpPath, videoId: media.videoId, mode: media.mode, quality: media.quality, directory, timestamps: Boolean(options.timestamps) });
     return { ...media, ...downloaded, directory };
   } catch (error) {
     if (options.keep) error.keptPath = directory;
@@ -56,15 +58,50 @@ async function runPrepared(media, job, workspaceRoot, options, agyVersion) {
     addDirs, cwd: workspaceRoot, request, agyVersion, onText: (delta) => process.stderr.write(delta) });
 }
 
-function finish(media, job, result, options) {
+// The file holds the answer text as stdout prints it (OAuth URLs removed), with a final newline.
+function saveAnswer(target, answer) {
+  const printed = removeOAuthUrls(answer);
+  try {
+    const { bytes } = writeNewTextFile(target, printed.endsWith('\n') ? printed : `${printed}\n`, { noun: 'Output' });
+    return { output: { path: displayTargetPath(target), bytes } };
+  } catch (error) {
+    if (error instanceof OutputTargetError) return { failure: error };
+    throw error;
+  }
+}
+
+// Text mode only: the expectations block, the `Kept:` line, then the `Saved:` line, in that order.
+function writeTextTrailers(media, result, options, { expectations, saved }) {
+  let lineEnded = result.stdout.endsWith('\n');
+  if (expectations) { process.stdout.write(`\n${formatExpectationsMarkdown(expectations)}`); lineEnded = true; }
+  if (options.keep && media.source === 'youtube') { process.stdout.write(`\nKept: ${media.mediaPath}\n`); lineEnded = true; }
+  if (saved?.output) process.stdout.write(`${lineEnded ? '' : '\n'}Saved: ${saved.output.path}\n`);
+}
+
+function finish(media, job, result, options, target) {
   const expectations = options.expect && result.status === 'completed' ? checkVisionExpectations(result.stdout, options.expect) : null;
+  const saved = target && result.status === 'completed' ? saveAnswer(target, result.stdout) : null;
   const details = Object.fromEntries(['source', 'mode', 'quality', 'mediaPath', 'mimeType', 'bytes', 'videoId', 'ytDlpVersion'].map((key) => [key, media[key] ?? null]));
   const exit = finishForeground('media', job, result, { json: options.json, extraDetails: {
     ...details, usage: result.usage ?? null, durationSeconds: result.durationSeconds ?? null, ...expectations,
+    ...(options.timestamps ? { timestamped: true } : {}), ...(saved?.output ? { output: saved.output } : {}),
   } });
-  if (!options.json && expectations) process.stdout.write(`\n${formatExpectationsMarkdown(expectations)}`);
-  if (!options.json && options.keep && media.source === 'youtube') process.stdout.write(`\nKept: ${media.mediaPath}\n`);
-  return exit;
+  if (!options.json) writeTextTrailers(media, result, options, { expectations, saved });
+  if (!saved?.failure) return exit;
+  process.stderr.write(`antigravity:media: output not saved (output_target_unwritable): ${saved.failure.message}\n`);
+  return 1;
+}
+
+// Shape and file checks for `--output`; a refusal carries the public code.
+function resolveOutputTarget(options, cwd) {
+  if (options.output === undefined) return null;
+  try {
+    const target = resolveOutputPath(options.output, cwd, { noun: 'Output' });
+    if (!options.preview) assertNewFileTarget(target, { noun: 'Output' });
+    return target;
+  } catch (error) {
+    throw error instanceof OutputTargetError ? mediaError('output_target_unwritable', error.message) : error;
+  }
 }
 
 export async function run(argv = [], ctx = {}) {
@@ -77,7 +114,8 @@ export async function run(argv = [], ctx = {}) {
   try {
     if (positionals.length !== 1) throw mediaError('invalid_arguments', 'Usage: media <file-path | youtube-url> [flags]');
     media = inputSource(positionals[0], options, cwd);
-    if (options.preview) return reportMediaPreview(media, options);
+    const target = resolveOutputTarget(options, cwd);
+    if (options.preview) return reportMediaPreview(media, options, target);
     checkYoutubeTools(media);
     const transcriptOnly = media.mode === 'transcript' && !options.prompt;
     if (!transcriptOnly) {
@@ -92,7 +130,7 @@ export async function run(argv = [], ctx = {}) {
     job = await createTrackedJob({ workspaceRoot, kind: 'media', title: 'media', agyVersion: probed.version, request: { media: { source: media.source, mode: media.mode, quality: media.quality, videoId: media.videoId ?? null, ytDlpVersion: media.ytDlpVersion ?? null, bytes: media.bytes ?? null } } });
     if (media.source === 'youtube') media = await prepareYoutube(media, job, workspaceRoot, options);
     const completed = await runPrepared(media, job, workspaceRoot, options, probed.version);
-    return finish(media, completed.job, completed.result, options);
+    return finish(media, completed.job, completed.result, options, target);
   } catch (error) {
     return reportFailure(error, job, workspaceRoot, options);
   } finally { cleanupMedia(media?.directory, options.keep); }
@@ -121,7 +159,7 @@ async function rememberMediaVersion(workspaceRoot, version, transcriptOnly) {
   if (!transcriptOnly) await rememberAgyVersion(workspaceRoot, version);
 }
 
-function reportMediaPreview(media, options) {
+function reportMediaPreview(media, options, target) {
   const transcriptOnly = media.mode === 'transcript' && !options.prompt;
   const pending = media.source === 'youtube';
   const prompt = transcriptOnly ? null : mediaPrompt(pending
@@ -131,7 +169,8 @@ function reportMediaPreview(media, options) {
     defaultModel: transcriptOnly ? null : 'gemini-3.8-flash-high',
     addDirs: media.mode === 'transcript' ? [] : [pending ? '<download directory>' : dirname(media.mediaPath)],
     details: { source: media.source, mode: media.mode, quality: media.quality, videoId: media.videoId ?? null,
-      agyCall: !transcriptOnly, ...(transcriptOnly ? { argv: [], model: null } : {}) } });
+      agyCall: !transcriptOnly, ...(transcriptOnly ? { argv: [], model: null } : {}),
+      ...(options.timestamps ? { timestamps: true } : {}), ...(target ? { output: displayTargetPath(target) } : {}) } });
 }
 
 function checkYoutubeTools(media) {

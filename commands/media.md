@@ -1,6 +1,6 @@
 ---
 description: Ask Google Antigravity (agy) to analyze local audio/video or one YouTube video with read_file
-argument-hint: '[--preview] <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]'
+argument-hint: '[--preview] <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript [--timestamps]] [--keep] [--output <path>] [--json] [--cwd <path>]'
 disable-model-invocation: true
 allowed-tools: "Bash(node\t-e\t\"const\tp=require('node:path');const\tfs=require('node:fs');const\tos=require('node:os');const\th=os.homedir();const\troot=process.env.CLAUDE_PLUGIN_ROOT||p.join(h,'.gemini','config','plugins','antigravity');let\tn;try{n=JSON.parse(fs.readFileSync(p.join(root,'plugin.json'))).name}catch{n=0}if(n!=='antigravity'){console.error('antigravity-plugin:\t'+root+'\tis\tnot\tan\tantigravity\tplugin\ttree\t(plugin.json\tmissing\tor\tname\tmismatch).\tRun:\tnpx\t@southcarpet/antigravity-plugin\tmedia');process.exit(1)}const\tm=p.join(root,'scripts','lib','host-bootstrap.cjs');if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){console.error('antigravity-plugin:\truntime\tnot\tfound\tat\t'+m+'.\tRun:\tnpx\t@southcarpet/antigravity-plugin\tmedia');process.exit(1)}process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'media'));\"\t--:*), AskUserQuestion"
 ---

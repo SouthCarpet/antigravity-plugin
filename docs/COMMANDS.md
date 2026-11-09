@@ -721,7 +721,7 @@ is unchanged and the job record has no request id fields.
 
 `--model-alias <alias>` selects an account model when a prompt reaches agy.
 
-`media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]`
+`media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript [--timestamps]] [--keep] [--output <path>] [--json] [--cwd <path>]`
 
 Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp3 (audio/mpeg), m4a (audio/mp4), aac (audio/aac), flac (audio/flac), ogg (audio/ogg), opus (audio/opus). Video: mp4 and m4v (video/mp4), mov (video/quicktime), webm (video/webm), mkv (video/x-matroska). Images use `vision`. Files must be regular files at most 100,000,000 bytes. Paths resolve from `--cwd` or the caller directory and then through realpath. agy opens exactly that path with `read_file`; only its directory is granted through `--add-dir`.
 
@@ -731,6 +731,8 @@ Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp
 - `--quality`: YouTube only; 360p default, 480p or 720p. A ceiling, not a promise that the source has that resolution. Needs ffmpeg when formats must merge.
 - `--audio`: YouTube m4a audio only. Conflicts with quality.
 - `--transcript`: captions only, manual before automatic, original language before English. Caption metadata uses `--skip-download --dump-single-json` and downloads nothing. Prints plain text without timestamps and no agy call (no model call and no `agy --help` probe; the job record stores `provenance.listedFlags: null`). With prompt, sends the transcript as text to agy, with no add-dir. Conflicts with quality and audio. No captions: `transcript_unavailable`, try audio.
+- `--timestamps` (additive, 3.2.0): needs `--transcript`; without it the call is refused with `--timestamps requires --transcript` (exit 1, stderr only, like every parser error). Puts `[HH:MM:SS] ` before each kept caption line. The time is the start of the cue that holds the line, cut down to whole seconds; hours use at least two digits. A line that repeats the line before it is dropped, and the first time stays. Lines are selected and cleaned by the same code as the plain transcript, so removing the prefixes gives the plain text. A line with no known cue time is marked `[--:--:--]`: speech before the first cue, or a cue time that is malformed, has minutes or seconds above 59, or has hours above 99. Such a cue line is not printed and never produces `NaN`. With `--prompt`, the model receives the timestamped transcript. `--json` adds `details.timestamped: true`; the key is absent without the flag. No agy call is added. Without the flag the output is byte for byte what it was in 3.1.0. This flag has no measured demand yet.
+- `--output <path>` (additive, 3.2.0): save the answer text of a finished run to a NEW file. The file holds exactly the text stdout prints for the answer (the transcript in transcript-only mode, with the `[HH:MM:SS]` prefixes when `--timestamps` is given; the model answer otherwise), with Google OAuth URLs removed, as plain UTF-8 without a byte order mark and with one final newline. It does not hold the expectations block, the `Kept:` line, the usage trailer or any status line. The plugin saves plain text and converts nothing: the extension you choose (`.txt`, `.md`) changes nothing in the content. It works for local files and for YouTube. The path resolves against `--cwd` or the caller directory. The plugin never overwrites: the target must not exist (a file, a directory or a link, none of them followed), its parent directory must exist, and the file is created exclusively. A partial file is removed if the write fails. The target is checked before the version probe, before any download and before any agy call, so a refused target costs no quota and no download, and creates no job. A failed, cancelled or timed-out run writes no file. Refusals are `invalid_input` with code `output_target_unwritable` and a message that names the case: empty path, control character in the path (shown escaped), path longer than the platform limit (259 characters on Windows, 4095 elsewhere), target exists as a file, directory or link, target directory missing or not a directory, target cannot be checked, target cannot be written. `--output` without a value is a parser error. If the target appears after the early check, or the write fails, the run is not undone: stdout and the job record (status `completed`) stay as they are, one stderr line `antigravity:media: output not saved (output_target_unwritable): <message>` reports it, and the exit code is 1. On success, text mode prints one last line `Saved: <path>` (after any `Kept:` line) and `--json` adds `details.output: { path, bytes }`; both are absent without the flag, and without the flag every output is byte for byte what it was in 3.1.0. `--preview --output <path>` checks only the shape of the value, shows the resolved target as `output` in the preview details, and writes nothing. This flag has no measured demand yet.
 - `--keep`: YouTube only; retain downloaded files and print the kept path (JSON: mediaPath). Otherwise remove the job download directory after success or failure. The kept transcript directory includes `media.info.json` with the selected language. On a failed kept download, `details.mediaPath` names the directory.
 - `--json`: common envelope with command media.
 - `--cwd`: resolve local input and workspace from this directory.
@@ -739,7 +741,7 @@ YouTube hosts: youtube.com, www.youtube.com, m.youtube.com, music.youtube.com an
 
 Exit 0: completed; 1: validation, download or run failure; 2: cancelled agy run. Parser errors are stderr only. Expected input errors have an invalid_input envelope; failures after job creation use failed. Details: source (local/youtube), mode (video/audio/transcript), quality (or null), mediaPath, mimeType, bytes, videoId and ytDlpVersion (null for local), usage, durationSeconds, and expectations/expectationSummary when requested on a completed run. Provenance adds source, mode (the media mode), quality, videoId, bytes and ytDlpVersion; no secrets.
 
-Errors: media_not_found, media_unsupported_type, media_too_large, youtube_url_invalid, yt_dlp_missing, download_failed, transcript_unavailable, invalid_arguments, plus the existing agy denial, spawn and run errors. yt_dlp_missing names the winget and pip installation commands. A merge failure names ffmpeg and suggests quality 360p or audio. A denied read uses the existing remedy path and explains the directory grant.
+Errors: media_not_found, media_unsupported_type, media_too_large, youtube_url_invalid, yt_dlp_missing, download_failed, transcript_unavailable, invalid_arguments, output_target_unwritable, plus the existing agy denial, spawn and run errors. yt_dlp_missing names the winget and pip installation commands. A merge failure names ffmpeg and suggests quality 360p or audio. A denied read uses the existing remedy path and explains the directory grant.
 
 ## `vision`
 
@@ -1009,7 +1011,8 @@ selection (a non-`review` job, or a `no_changes` run).
 ## `result`
 
 ```text
-result [<job-reference>] [--head <n>] [--tail <n>] [--json] [--cwd <path>]
+result [<job-reference>] [--head <n>] [--tail <n>] [--check-locations] [--check-current]
+       [--export <path>] [--json] [--cwd <path>]
 ```
 
 The reference accepts the same exact-id, unique-substring, and 1-based-index
@@ -1104,6 +1107,57 @@ line when the check ran, or `antigravity:result — location check
 unavailable: this job predates hunk storage.` when it could not. Without the
 flag, `details` carries no `locationCheck` key. See [Heuristic location
 check](./COMPATIBILITY.md#heuristic-location-check).
+
+`result <job-id> --check-current` (additive, 3.2.0) tells whether the review
+input built from the repository now is the same as the input a finished
+`review` job sent. It runs the same two functions `review` ran
+(`collectReviewContext`, then `buildReviewInput`) with the scope, base, focus
+and findings flag stored on the job, so every hash rule of the review (line
+endings, the diff size cap, skipped files, untracked content) applies
+unchanged. It reads git only: no agy call, no probe, no network, no write to
+the job record or any state file, and it works with agy absent. `--json` adds
+`details.checkCurrent: { status, reason?, checkedAt }`. `status` is `match`
+(the new `inputHash` equals the stored one), `changed` (both hashes exist and
+differ) or `unknown` (the check could not run; `reason` is `legacy_record`,
+`base_not_found`, `default_base_not_found` or `collection_failed`). One line,
+`antigravity:result — currentness check (snapshot): <status>.` (with
+` (<reason>)` before the full stop when there is a reason), goes to stderr and
+is appended to the markdown output after the location-check line. The check is
+a snapshot of the moment of the call and not a lock: the repository can change
+the next second. The stored `scope` is the resolved one. A stored `base` of
+`null` on a `branch` review means the review compared against the default
+base, so the check resolves it again today by the same rule (local `main`,
+then `master`); if neither resolves the status is `unknown`. A CRLF-only
+change of a file is a change of the input and gives `changed`. A job of any
+other kind is refused: `invalid_input`, code `check_current_unsupported_kind`,
+exit 1, nothing computed. A job that is still running is refused like
+`result` refuses it. A record that only carries more request fields than
+this version knows (for example `request.pairId`) is checked like any other.
+Without the flag, `details` carries no `checkCurrent` key. This flag has no
+measured demand yet.
+
+`result <job-id> --export <path>` (additive, 3.2.0) writes the job's stored
+record to a NEW local file: exactly the JSON that `result <job-id> --json`
+prints with no other flag (the safe, redacted shape, Google OAuth URLs
+removed, two-space indent, one final newline). `--head`, `--tail`,
+`--check-locations` and `--check-current` change only what the call prints:
+the file is never cut and never carries `truncated`, `locationCheck`,
+`checkCurrent` or `exported`. It works for every job kind, only for a finished
+job (the rule `result` uses to show a job), and never includes the original
+prompt, which the job record does not store. The path resolves against
+`--cwd` or the caller directory. The plugin never overwrites: the target must
+not exist (a file, a directory or a link, none of them followed), its parent
+directory must exist, and the file is created exclusively; a partial file is
+removed if the write fails. Every refusal is `invalid_input` with code
+`export_target_unwritable`, exit 1, nothing written and nothing else printed;
+the message names the case (empty path, control character in the path shown
+escaped, path longer than the platform limit, target exists as a file,
+directory or link, target directory missing or not a directory, target cannot
+be checked, target cannot be written). `--export` without a value is a parser
+error. On success `--json` adds `details.exported: { path, bytes }` (the path
+through the display sanitizer) and text mode ends with one line
+`Exported: <path>`; both are absent without the flag. There is no overwrite
+flag and no launch command in the file. This flag has no measured demand yet.
 
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is
@@ -1316,6 +1370,8 @@ The JSON envelope has status `preview`, jobId `null`, answer `null`, and these d
 - Media `quality`: selected quality, or null.
 - Media `videoId`: parsed YouTube id, or null.
 - Media `agyCall`: false for transcript-only output, true otherwise. Transcript-only preview has empty argv and null prompt because it has no model call.
+- Media `timestamps` (3.2.0): `true` only when `--timestamps` was given; absent otherwise.
+- Media `output` (3.2.0): the resolved target of `--output`, through the display sanitizer; absent without the flag. The preview checks only the shape of the value (not empty, no control character, not beyond the platform limit) and never touches the file system for it.
 
 Each preview conflict uses the parser's existing `cannot combine --preview and --<flag>` refusal (exit 1). Unsupported flags on vision/media keep their existing refusal (exit 1).
 
