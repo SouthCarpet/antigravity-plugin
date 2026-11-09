@@ -21,7 +21,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add the `status: "paired"` review envelope (`details.pairId`, `details.jobs`, `details.comparison`).
 - Add `request.pairId` linking the two job records of a `--models` run.
 - Add a stderr notice before dispatch for the two agy calls a `--models` run makes.
-- Add a stderr refusal for `--models` without `--findings-json`, and for a malformed `--models` value.
+- Add a stderr refusal for `--models` without `--findings-json`, and for a malformed `--models` value. Both are checked before the diff is read.
+- Add `details.jobs[].deniedActions` and one stderr line per denied action for a `--models` leg, as single-model review reports them.
+- Add refusals for `--models` tokens that resolve to one model, hold a control character or exceed 200 characters.
 
 ## [3.1.0] — 2026-11-06
 

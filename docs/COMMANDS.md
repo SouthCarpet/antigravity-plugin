@@ -392,7 +392,10 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   whole pair, never one per alias token). `--models` requires
   `--findings-json` on the same call; without it the call is refused with
   `antigravity:review — --models needs --findings-json to compare structured
-  findings` (stderr only, exit 1, no agy probe). `--models` conflicts with
+  findings` (stderr only, exit 1, no agy probe, and checked before the diff
+  is read, so a malformed call is refused whatever the diff holds). A valid
+  `--models` call on an empty diff returns `no_changes` like any review: no
+  agy call, no cost notice, no job. `--models` conflicts with
   `--model`, `--model-alias`, `--background`, `--wait`, `--continue`,
   `--conversation`, `--show-result`, and `--preview`: each leg is its own
   fresh conversation, dispatched in the foreground only.
@@ -433,32 +436,94 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
     }
   }
   ```
-  Every `jobs[]` entry always carries `id` (`null` for a leg that never ran,
-  `status: "not_run"`), `model`, and the leg's own run `status`. Once a leg
-  completed, it also carries `findingsStatus` (plus `findingsError` when not
-  `"valid"`, and, with `--check-locations` also given, that leg's own
-  `locationCheck` — one check per leg, exactly like a single-model run's). A
-  leg's full findings stay on its own stored job record, retrievable with
-  `result <job-id>`; the paired envelope itself never repeats them.
+  Each key of the paired envelope:
+
+  - `details.pairId`: the hex id both legs' job records store as
+    `request.pairId`.
+  - `details.jobs`: one entry per leg, in the given order, always both legs.
+  - `details.jobs[].id`: the leg's job id, or `null` for a leg that never
+    ran (`status: "not_run"`).
+  - `details.jobs[].model`: the model id the leg used, after any alias
+    resolution.
+  - `details.jobs[].status`: the leg's own run status (`completed`,
+    `failed`, `cancelled`, `timeout`, `auth_required`, or `not_run`).
+  - `details.jobs[].findingsStatus`: `"valid"` or `"invalid"` once the leg
+    completed; `null` for a leg that did not complete (including `not_run`).
+  - `details.jobs[].findingsError`: one line, present only when
+    `findingsStatus` is `"invalid"`.
+  - `details.jobs[].locationCheck`: present only with `--check-locations`
+    and only on a completed leg; one check per leg, exactly like a
+    single-model run's.
+  - `details.jobs[].deniedActions`: present only on a leg whose run reported
+    a denied action, whatever the leg's status. The same list a single-model
+    review reports: `{ action, displayName, target, remedy }` per denied
+    action, `target` `null` when agy gave none.
+  - `details.comparison`: `null` unless both legs completed with
+    `findingsStatus: "valid"`; otherwise `{ bothFlagged, onlyA, onlyB }`.
+  - `details.comparison.bothFlagged`: findings both models reported; an
+    array of `{ a, b }` pairs.
+  - `details.comparison.bothFlagged[].a` and `.b`: the finding as model A
+    and model B reported it, whole (so `severity` can differ).
+  - `details.comparison.onlyA` and `.onlyB`: findings only model A, or only
+    model B, reported.
+  - `request.pairId` (on each leg's stored job record, not in the
+    envelope): the same `pairId`; a single-model review stores none.
+
+  A leg's full findings stay on its own stored job record, retrievable with
+  `result <job-id>`; the paired envelope itself carries the matched findings
+  only inside `comparison`. The text output shows counts only (how many both
+  flagged, how many only A, how many only B) and never the finding text;
+  `--json` carries the matched findings.
 
   `comparison` is `null` unless BOTH legs completed with `findingsStatus:
   "valid"`. When both did, two findings count as the same finding when they
   name the same `file` and their `line` falls inside the same hunk of the
   diff both legs were sent (`request.hunks`); a finding with `line: null`
-  matches only another `line: null` finding of the same file — there is no
-  hunk to share. `severity` is reported on both sides of a match and is
-  never part of the match; `description`/`recommendation` text is never
-  compared (the shipped findings schema has no `rule` field to match on). A
-  finding matches at most one finding of the other model, chosen in order,
-  so a duplicate on one side becomes an extra `onlyA`/`onlyB` entry rather
-  than matching the same finding twice.
+  matches only another `line: null` finding of the same file, because there
+  is no hunk to share. Paths are compared as written, after turning `\`
+  into `/` and removing a leading `./`, `a/` or `b/`, and they are
+  case-sensitive, also on Windows. `severity` is reported on both sides of a
+  match and is never part of the match; `description`/`recommendation` text
+  is never compared (the shipped findings schema has no `rule` field to
+  match on). A finding matches at most one finding of the other model,
+  chosen in order, so a duplicate on one side becomes an extra
+  `onlyA`/`onlyB` entry rather than matching the same finding twice. The
+  feature does not promise that two models find more than one: it shows
+  where they agree and where they differ.
+
+  A denied action is reported per leg as a single-model review reports it.
+  The leg's status and its exit code contribution follow the same rule as a
+  single-model run: a leg denied with an empty answer is a failed leg
+  (`status: "failed"`, `findingsStatus: null`, so `comparison` is `null`); a
+  leg that was denied but still returned valid findings stays `completed`
+  and stays in the comparison, with its `deniedActions` shown. Each denied
+  action also prints one stderr line (`antigravity:review — "<model>" denied
+  "<action>" ... : <remedy>`) and one line under the leg in the text output.
+  The action, display name, target and model label are JSON-escaped and cut
+  to 80 characters there, so one denied action is always one line. There is
+  no retry prompt for a paired leg.
 
   The command's exit code is the first non-zero leg exit code (`cancelled`
   is 2, any other non-completed status is 1), or 0 if both legs completed.
 
-  A malformed value (not exactly two comma-separated, non-empty, distinct
-  tokens) and an unknown `alias:<name>` are both refused the same way as the
-  requirement above: stderr only, exit 1, before any leg spawns.
+  Refusals, all before any leg spawns, with no cost notice:
+
+  - A malformed value (not exactly two comma-separated, non-empty, distinct
+    tokens) is refused on stderr only, exit 1, like the requirement above.
+  - A token with a control character (C0, DEL or C1, so a newline, tab or
+    escape too) or more than 200 characters is refused the same way. Spaces,
+    slashes, dots and colons are allowed in an exact id.
+  - Two tokens that resolve to the same model id (`alias:flash` together
+    with the exact id it resolves to, or two aliases that pick one id) are
+    refused with a message naming both tokens and the id: exit 1, no agy
+    call, no cost notice.
+  - An unknown `alias:<name>`, an alias whose listing is unavailable, and
+    the same-model refusal use the existing model-resolution refusal:
+    one stderr line, exit 1, and under `--json` the existing
+    `model_alias_unavailable` error envelope (`status: "invalid_input"`).
+
+  Every refusal that shows a token shows it JSON-escaped and cut to 80
+  characters, so one refusal is always one stderr line.
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling

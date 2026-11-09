@@ -1658,23 +1658,53 @@ and `result <id> --json` carry `requestedAlias` and `resolvedModel` in
 - Status `"paired"`, `jobId: null`: the command's own third envelope shape
   for a `--models` run, distinct from the single-job `"completed"` shape.
 - JSON field `details.pairId`: the hex id shared by both legs' job records.
-- JSON field `details.jobs`: `[{ id, model, status, findingsStatus }, ...]`,
-  one entry per leg, always present even for a leg that never ran
-  (`status: "not_run"`, `id: null`).
+- JSON field `details.jobs`: one entry per leg, always both legs, in the
+  given order.
+- JSON key `details.jobs[].id`: the leg's job id; `null` for a leg that never
+  ran.
+- JSON key `details.jobs[].model`: the model id the leg used, after alias
+  resolution.
+- JSON key `details.jobs[].status`: the leg's own run status; `"not_run"` for
+  a leg that never ran.
+- JSON key `details.jobs[].findingsStatus`: `"valid"` or `"invalid"` once the
+  leg completed; `null` for a leg that did not complete.
 - JSON key `details.jobs[].findingsError`: one line, only when that leg's
-  `findingsStatus` is not `"valid"`.
-- JSON key `details.jobs[].locationCheck`: only with `--check-locations`,
-  one check per leg, the same shape a single-model `--check-locations` run
-  already carries.
+  `findingsStatus` is `"invalid"`.
+- JSON key `details.jobs[].locationCheck`: only with `--check-locations`
+  and only on a completed leg, one check per leg, the same shape a
+  single-model `--check-locations` run already carries.
+- JSON key `details.jobs[].deniedActions`: only on a leg whose run reported a
+  denied action, whatever its status; the same `{ action, displayName,
+  target, remedy }` list a single-model review reports. A leg denied with an
+  empty answer is a `failed` leg with `findingsStatus: null`.
 - JSON field `details.comparison`: `{ bothFlagged, onlyA, onlyB }`, or `null`
   unless both legs completed with `findingsStatus: "valid"`.
+- JSON key `details.comparison.bothFlagged`: array of `{ a, b }` pairs of
+  findings that name the same file and fall in the same hunk.
+- JSON key `details.comparison.bothFlagged[].a`: the finding as model A
+  reported it.
+- JSON key `details.comparison.bothFlagged[].b`: the finding as model B
+  reported it.
+- JSON key `details.comparison.onlyA`: findings only model A reported.
+- JSON key `details.comparison.onlyB`: findings only model B reported.
 - Job record field `request.pairId`: present on both legs of a `--models`
-  run, absent on every single-model review.
+  run, absent on every single-model review (JSON key `request.pairId`).
 - Stderr line: the two-model-calls cost notice, printed once before either
   leg dispatches.
 - Stderr refusal: `--models` without `--findings-json`.
 - Stderr refusal: a malformed `--models` value (not exactly two
-  comma-separated, non-empty, distinct tokens).
+  comma-separated, non-empty, distinct tokens), checked before the diff is
+  read. A valid call on an empty diff returns `no_changes` with no agy call.
+- Stderr refusal: a token with a control character (C0, DEL, C1) or over 200
+  characters. Every refusal shows a token JSON-escaped and cut to 80
+  characters, so one refusal is one line.
+- Stderr refusal: two tokens that resolve to one model id (names both tokens
+  and the id). An unknown alias and this refusal use the existing
+  model-resolution refusal, which under `--json` is the existing
+  `model_alias_unavailable` error envelope.
+- Stderr line per denied action of a leg: `antigravity:review — "<model>"
+  denied "<action>" ...: <remedy>`, escaped and cut to 80 characters per
+  field.
 - New file `scripts/lib/review-compare.mjs`: the value parser, the two-token
   model resolver, and the findings comparison.
 
@@ -1684,7 +1714,10 @@ model-specific, so the second leg would only hit it again), after `agy`
 itself is found absent, or after `--require-complete` refuses the shared
 input — all three are checked once, before either leg exists. The command's
 exit code is the first non-zero leg's exit code, or 0 when both legs
-completed. See [`--models`](COMMANDS.md#review) for the full match rule and
-output contract. The feature's own bounded-value check (whether two models
+completed. The text output shows comparison counts only; `--json` carries
+the matched findings. Paths are compared as written and case-sensitively.
+The feature does not promise that two models find more than one. See
+[`--models`](COMMANDS.md#review) for the full match rule and output
+contract. The feature's own bounded-value check (whether two models
 find materially more than one, on real diffs) is recorded as the owner's
 post-ship validation, not a gate this release's implementation waited on.
