@@ -1610,12 +1610,18 @@ Load regression probes on 2026-11-06: `load-local` (`clip.mp4 --expect ZEBRA`) c
 
 - Flag `--model-alias <alias>` on task, rescue, review, vision, and media.
 - Setup flag `--json` reports the best-effort check after OAuth.
-- JSON field `details.modelAlias`: requestedAlias, resolvedModel, listingSource.
+- JSON field `details.modelAlias`: alias resolution metadata.
+- JSON key `details.modelAlias.requestedAlias`: the caller's alias.
+- JSON key `details.modelAlias.resolvedModel`: the selected exact id.
+- JSON key `details.modelAlias.listingSource`: the literal `agy models`.
 - JSON field `details.defaultModelCheck`: present, absent, unknown.
 - JSON field `details.modelMismatch`: comparison only when both models exist.
 - Job field `provenance.requestedAlias`: alias or null.
 - Job field `provenance.resolvedModel`: resolved/replayed id or null.
 - Job field `provenance.replayedFromJobId`: replay source, absent otherwise.
+- Stored request key `request.requestedAlias`: alias metadata used to build provenance.
+- Stored request key `request.resolvedModel`: selected or replayed id used to build provenance.
+- Stored request key `request.replayedFromJobId`: replay metadata used to build provenance.
 - Error code `model_alias_unavailable` with exit 1 for alias resolution failures.
 - Stderr refusal: family absent, including the complete listing.
 - Stderr refusal: listing unavailable, with setup/exact-id remedy.
