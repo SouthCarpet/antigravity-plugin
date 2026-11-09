@@ -34,6 +34,13 @@
  *                     answer names against the sent diff's own hunks
  *                     (Task 14, "Senate R8", 2026-09); local only, adds
  *                     nothing to the agy call; see `review-locations.mjs`
+ *   --models <a,b>    run the SAME review twice, against two different agy
+ *                     models, and compare their structured findings (plan
+ *                     153 p2, "E1"); each token is an exact model id or
+ *                     `alias:<name>`; requires --findings-json; conflicts
+ *                     with --model, --model-alias, --background, --wait,
+ *                     --continue, --conversation, --show-result, --preview;
+ *                     see `review-compare.mjs` for the match rule
  *   --json            output JSON instead of markdown
  *
  * The diff is collected first. An empty one answers `no_changes` with exit 0
@@ -46,11 +53,14 @@
  * for `--preview`, and never when `--require-complete` refuses first.
  */
 
+import { randomBytes } from "node:crypto";
+
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { collectReviewContext } from "../lib/git.mjs";
 import { buildReviewInput } from "../lib/review-input.mjs";
 import { REVIEW_FINDINGS_SCHEMA_PATH, reviewFindingsDetails } from "../lib/review-findings.mjs";
 import { checkReviewLocations, locationCheckReportLine } from "../lib/review-locations.mjs";
+import { compareReviewFindings, parseModelsOption, resolveModelsPair } from "../lib/review-compare.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
 import {
   EFFORT_CHOICES,
@@ -175,6 +185,242 @@ function reviewFinishOptions({ findingsJson, checkLocations, hunks }) {
   if (!checkLocations) return { resultDetails };
   const locationLines = (result, ownDetails) => [locationCheckReportLine("review", ownDetails.locationCheck)];
   return { resultDetails, extraStderrLines: locationLines, renderedSuffix: locationLines };
+}
+
+/**
+ * The one stderr line `--models` prints before either leg dispatches
+ * (controller ruling, plan 153 p2 brief E1, "Cost"): no prompt, no
+ * confirmation, just the fact that two agy calls (two quotas) are about to
+ * run.
+ *
+ * @returns {void}
+ */
+function printModelsCostNotice() {
+  process.stderr.write("antigravity:review — two model calls will run (two agy calls, two quotas).\n");
+}
+
+/**
+ * The `request` fields one `--models` leg stores (plan 153 p2 brief E1,
+ * "Mechanics"): the same fields a single-model review stores
+ * ({@link buildReviewRequestFields}), always `mode: "print"` ("each leg is
+ * a fresh conversation"), always `findingsJson: true` (required by the
+ * conflict rule), plus the shared `pairId` linking both legs' job records.
+ *
+ * @param {{ envelope: object, base: string | undefined, model: string, modelRequest: object,
+ *   effort: string | undefined, focus: string | undefined,
+ *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput>, pairId: string }} args
+ * @returns {object}
+ */
+function buildPairedRequestFields({ envelope, base, model, modelRequest, effort, focus, input, pairId }) {
+  return {
+    scope: envelope.scope,
+    base: base ?? null,
+    mode: "print",
+    model,
+    ...modelRequest,
+    effort,
+    focus,
+    inputHash: input.inputHash,
+    inputCounts: input.counts,
+    headSha: input.headSha,
+    hunks: input.hunks,
+    findingsJson: true,
+    pairId,
+  };
+}
+
+/**
+ * The exit code one `--models` leg contributes (same mapping
+ * `finishForeground`'s non-completed branches already use: `cancelled` is
+ * 2, every other non-completed status is 1, `completed` is 0). A leg that
+ * never ran ("not_run", controller ruling 3's halt case) contributes 0: it
+ * can only ever follow a leg that already halted the pair with its own
+ * non-zero code, so it is never the first non-zero leg.
+ *
+ * @param {string} status
+ * @returns {0 | 1 | 2}
+ */
+function pairedLegExitCode(status) {
+  if (status === "completed" || status === "not_run") return 0;
+  return status === "cancelled" ? 2 : 1;
+}
+
+/**
+ * The `jobs[]` entry for one `--models` leg that actually ran: `id`,
+ * `model`, the run `status` (controller ruling 3: "the envelope always
+ * lists both legs with their status"), and, only once the leg completed,
+ * `findingsStatus` (plus a one-line `findingsError` when it is not
+ * `"valid"`, and `locationCheck` when `--check-locations` was given — "one
+ * check per leg, results under each leg"). The full findings array is kept
+ * only on the internal record ({@link runReviewPairedCommand}'s `legs`),
+ * never duplicated into this envelope entry: a caller who wants the full
+ * list for one leg already has its job `id` for `/antigravity:result`.
+ *
+ * @param {string} model
+ * @param {{ id: string }} job
+ * @param {import('../lib/types.mjs').RuntimeResult} result
+ * @param {boolean} checkLocations
+ * @param {Array<{ path: string, newStart: number, newEnd: number }>} hunks
+ * @returns {{ id: string, model: string, status: string, findingsStatus: string | null, findings?: object | null,
+ *   findingsError?: string, locationCheck?: object | null }}
+ */
+function buildPairedLeg(model, job, result, checkLocations, hunks) {
+  const entry = { id: job.id, model, status: result.status, findingsStatus: null };
+  if (result.status !== "completed") return entry;
+  const findingsDetails = reviewFindingsDetails(result.structured);
+  entry.findingsStatus = findingsDetails.findingsStatus;
+  entry.findings = findingsDetails.findings;
+  if (findingsDetails.findingsError) entry.findingsError = findingsDetails.findingsError;
+  if (checkLocations) entry.locationCheck = checkReviewLocations(result.stdout, hunks);
+  return entry;
+}
+
+/**
+ * `jobs[]` as the `--json`/markdown envelope reports it: every field
+ * {@link buildPairedLeg} computed except the full `findings` array, which
+ * stays internal (see that function's doc comment).
+ *
+ * @param {ReturnType<typeof buildPairedLeg>} leg
+ * @returns {object}
+ */
+function stripPairedLegFindings({ findings: _findings, ...rest }) {
+  return rest;
+}
+
+/**
+ * The `comparison` field (plan 153 p2 brief E1, "Output shape"): `null`
+ * unless both legs completed with valid findings (controller ruling 3),
+ * else {@link compareReviewFindings} against the diff's own hunks (shared
+ * identically by both legs, "Mechanics"). `leg.findings` is the WHOLE
+ * validated `review-findings.schema.json` document
+ * (`{verdict, summary, findings: [...]}`, see `review-findings.mjs`'s own
+ * `reviewFindingsDetails`), so the array to compare is its own `.findings`
+ * key, not `leg.findings` itself.
+ *
+ * @param {[ReturnType<typeof buildPairedLeg>, ReturnType<typeof buildPairedLeg>]} legs
+ * @param {Array<{ path: string, newStart: number, newEnd: number }>} hunks
+ * @returns {{ bothFlagged: Array<{a: object, b: object}>, onlyA: object[], onlyB: object[] } | null}
+ */
+function computePairedComparison([legA, legB], hunks) {
+  if (legA.findingsStatus !== "valid" || legB.findingsStatus !== "valid") return null;
+  return compareReviewFindings(legA.findings.findings, legB.findings.findings, hunks);
+}
+
+/**
+ * The markdown rendering for `--models`' paired envelope: one line per leg,
+ * then the comparison counts or a note that comparison is unavailable.
+ * Kept local to this module (package E owns only `review.mjs` and
+ * `review-compare.mjs`, not `render.mjs`).
+ *
+ * @param {{ pairId: string, jobs: object[], comparison: object | null }} details
+ * @returns {string}
+ */
+function renderReviewPairedMarkdown(details) {
+  const lines = [`# antigravity review — paired (${details.pairId})`, ""];
+  for (const job of details.jobs) {
+    const jobLine = job.id ? `${job.model}: ${job.status} (job ${job.id})` : `${job.model}: ${job.status}`;
+    lines.push(`- ${jobLine}${job.findingsStatus ? `, findings ${job.findingsStatus}` : ""}`);
+  }
+  lines.push("");
+  lines.push(details.comparison
+    ? `Comparison: ${details.comparison.bothFlagged.length} both flagged, ` +
+      `${details.comparison.onlyA.length} only model A, ${details.comparison.onlyB.length} only model B.`
+    : "Comparison: unavailable (one or both legs did not return valid findings).");
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Report `--models`' paired envelope and compute the command's exit code
+ * (controller ruling 3: "the command's exit code is the first non-zero leg
+ * exit code, else 0").
+ *
+ * @param {{ pairId: string, legs: Array<ReturnType<typeof buildPairedLeg>>,
+ *   hunks: Array<{ path: string, newStart: number, newEnd: number }>, json: boolean }} args
+ * @returns {number}
+ */
+function reportReviewPaired({ pairId, legs, hunks, json }) {
+  const comparison = computePairedComparison(legs, hunks);
+  const details = { pairId, jobs: legs.map(stripPairedLegFindings), comparison };
+  outputCommandResult(
+    createJsonEnvelope("review", { status: "paired", jobId: null, answer: null, details }),
+    renderReviewPairedMarkdown(details),
+    json,
+  );
+  return legs.map((leg) => pairedLegExitCode(leg.status)).find((code) => code !== 0) ?? 0;
+}
+
+/**
+ * `review --models <a,b>` (plan 153 p2, package E, "E1"): one shared
+ * `buildReviewInput` call already ran in `run()`; this resolves the two
+ * model tokens, prints the cost notice, then runs each leg's OWN fresh
+ * `runForegroundJob` call in order, halting before the second leg only
+ * when the first leg reports `auth_required` (controller ruling 3: a
+ * sign-in failure is not model-specific, so the second leg would only
+ * hit it again) — every other non-completed first-leg status still lets
+ * the second leg run.
+ *
+ * `--findings-json`'s own requirement and `--models`' value shape are
+ * refused here, before any agy probe, with
+ * {@link reportArgsValidationError} (no `--json` envelope, matching every
+ * other "flag A requires flag B"/malformed-value refusal this verb
+ * already has). A model-resolution failure (unknown alias, listing
+ * unavailable) also refuses before either leg exists, through the same
+ * {@link reportModelResolutionFailure} a single-model `--model-alias`
+ * failure already uses — there is nothing "paired" to report yet.
+ *
+ * @param {{ workspaceRoot: string, envelope: object, base: string | undefined,
+ *   effort: string | undefined, focus: string | undefined,
+ *   findingsJson: boolean, checkLocations: boolean, modelsValue: string,
+ *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput>, json: boolean }} args
+ * @returns {Promise<number>}
+ */
+async function runReviewPairedCommand({
+  workspaceRoot, envelope, base, effort, focus, findingsJson, checkLocations, modelsValue, input, json,
+}) {
+  if (!findingsJson) {
+    return reportArgsValidationError("review", "--models needs --findings-json to compare structured findings");
+  }
+  const parsedModels = parseModelsOption(modelsValue);
+  if (!parsedModels.ok) return reportArgsValidationError("review", parsedModels.reason);
+
+  const probed = await probeAgyForVerb("review");
+  if (probed.line) return reportAgyUnavailable("review", probed.line, json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
+  const agyVersion = probed.version;
+
+  const pairResolution = await resolveModelsPair(parsedModels.tokens, { effort });
+  if (!pairResolution.ok) return reportModelResolutionFailure("review", pairResolution, json);
+
+  printModelsCostNotice();
+
+  const pairId = randomBytes(6).toString("hex");
+  const legs = [];
+  let haltedEarly = false;
+  for (const [index, { model, request: modelRequest }] of pairResolution.resolved.entries()) {
+    if (haltedEarly) {
+      legs.push({ id: null, model, status: "not_run", findingsStatus: null });
+      continue;
+    }
+    const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""} (models pair ${index + 1}/2: ${model})`;
+    const { job, result } = await runForegroundJob({
+      workspaceRoot,
+      kind: "review",
+      title,
+      prompt: input.prompt,
+      mode: "print",
+      cwd: workspaceRoot,
+      agyVersion,
+      model,
+      effort,
+      jsonSchemaPath: REVIEW_FINDINGS_SCHEMA_PATH,
+      request: buildPairedRequestFields({ envelope, base, model, modelRequest, effort, focus, input, pairId }),
+      onText: (delta) => process.stderr.write(delta),
+    });
+    legs.push(buildPairedLeg(model, job, result, checkLocations, input.hunks));
+    if (result.status === "auth_required") haltedEarly = true;
+  }
+
+  return reportReviewPaired({ pairId, legs, hunks: input.hunks, json });
 }
 
 async function runReviewForeground({
@@ -320,6 +566,48 @@ function reportReviewPreview(input, json) {
 }
 
 /**
+ * The single-model dispatch tail of `run()` (resolve `--model`/
+ * `--model-alias`, probe agy, then background or foreground), split out so
+ * `run()` itself stays under the complexity ceiling: this function holds
+ * every decision point that belonged to this tail already, unchanged, plus
+ * none of `--models`' own (that path never reaches here at all).
+ *
+ * @param {{ options: Record<string, string | boolean | string[]>, ctx: object,
+ *   workspaceRoot: string, envelope: object, base: string | undefined,
+ *   focus: string | undefined, findingsJson: boolean, checkLocations: boolean,
+ *   input: ReturnType<import('../lib/review-input.mjs').buildReviewInput>, json: boolean }} args
+ * @returns {Promise<number>}
+ */
+async function runReviewSingleModel({
+  options, ctx, workspaceRoot, envelope, base, focus, findingsJson, checkLocations, input, json,
+}) {
+  const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"],
+    effort: options.effort });
+  if (!selection.ok) return reportModelResolutionFailure("review", selection, json);
+  const model = selection.model;
+  const effort = resolveReviewEffort(options.effort);
+  const modelRequest = selection.request;
+  const probed = await probeAgyForVerb("review");
+  if (probed.line) return reportAgyUnavailable("review", probed.line, json);
+  await rememberAgyVersion(workspaceRoot, probed.version);
+
+  const mode = resolveReviewMode(options);
+  const conversationId = options.conversation ? String(options.conversation) : undefined;
+  const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}${focus ? ` focus: ${focus.slice(0, 40)}` : ""}`;
+
+  const runArgs = {
+    workspaceRoot, title, prompt: input.prompt, mode, conversationId, envelope, base,
+    agyVersion: probed.version, model, modelRequest, effort, focus, findingsJson, checkLocations, input,
+  };
+
+  if (options.background) {
+    return runReviewBackground({ ...runArgs, options, ctx });
+  }
+
+  return runReviewForeground({ ...runArgs, json });
+}
+
+/**
  * @param {string[]} [argv] CLI arguments after the verb (flags only)
  * @param {{ cwd?: string, startBackgroundJob?: typeof startBackgroundJob,
  *   waitForJob?: typeof waitForJob }} [ctx] dependency overrides for tests, plus `cwd`
@@ -327,7 +615,7 @@ function reportReviewPreview(input, json) {
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["base", "scope", "conversation", "cwd", "model", "model-alias", "effort", "focus"],
+    valueOptions: ["base", "scope", "conversation", "cwd", "model", "model-alias", "effort", "focus", "models"],
     booleanOptions: [
       "background", "wait", "continue", "json", "preview", "require-complete", "show-result", "findings-json",
       "check-locations",
@@ -340,6 +628,17 @@ export async function run(argv = [], ctx = {}) {
       ["preview", "wait"],
       ["preview", "continue"],
       ["preview", "conversation"],
+      // --models (plan 153 p2, package E, "E1"): each leg is a fresh print
+      // conversation, built and dispatched by `runReviewPairedCommand`
+      // itself, so none of the single-model flags below apply to it.
+      ["models", "model"],
+      ["models", "model-alias"],
+      ["models", "background"],
+      ["models", "wait"],
+      ["models", "continue"],
+      ["models", "conversation"],
+      ["models", "show-result"],
+      ["models", "preview"],
     ],
   }, "review");
   if (!parsed) return 1;
@@ -353,7 +652,7 @@ export async function run(argv = [], ctx = {}) {
   const scope = (options.scope ? String(options.scope) : "auto");
   const base = options.base ? String(options.base) : undefined;
 
-  let { model, effort, focus, focusError } = resolveReviewFlagOptions(options);
+  const { effort, focus, focusError } = resolveReviewFlagOptions(options);
   if (focusError) return reportInvalidFocus(focusError, Boolean(options.json));
 
   let envelope;
@@ -385,31 +684,16 @@ export async function run(argv = [], ctx = {}) {
   if (incomplete && options["require-complete"]) return reportInputIncomplete(input, json);
   if (incomplete) printIncompleteInputWarning(input);
 
-  const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"],
-    effort: options.effort });
-  if (!selection.ok) return reportModelResolutionFailure("review", selection, json);
-  model = selection.model;
-  effort = resolveReviewEffort(options.effort);
-  const modelRequest = selection.request;
-  const probed = await probeAgyForVerb("review");
-  if (probed.line) return reportAgyUnavailable("review", probed.line, json);
-  await rememberAgyVersion(workspaceRoot, probed.version);
-
-  const mode = resolveReviewMode(options);
-  const conversationId = options.conversation ? String(options.conversation) : undefined;
-  const title = `review: ${envelope.scope}${base ? ` vs ${base}` : ""}${focus ? ` focus: ${focus.slice(0, 40)}` : ""}`;
-
   const checkLocations = Boolean(options["check-locations"]);
-  const runArgs = {
-    workspaceRoot, title, prompt: input.prompt, mode, conversationId, envelope, base,
-    agyVersion: probed.version, model, modelRequest, effort, focus, findingsJson, checkLocations, input,
-  };
 
-  if (options.background) {
-    return runReviewBackground({ ...runArgs, options, ctx });
+  if (options.models) {
+    return runReviewPairedCommand({
+      workspaceRoot, envelope, base, effort, focus, findingsJson, checkLocations,
+      modelsValue: String(options.models), input, json,
+    });
   }
 
-  return runReviewForeground({ ...runArgs, json });
+  return runReviewSingleModel({ options, ctx, workspaceRoot, envelope, base, focus, findingsJson, checkLocations, input, json });
 }
 
 /**
