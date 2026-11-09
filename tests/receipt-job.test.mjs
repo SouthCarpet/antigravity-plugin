@@ -12,7 +12,7 @@ const fake=writeFakeAgy(root,'job',{versionOk:true,stdout:'{"event":"result","re
 const slowFake=writeFakeAgy(root,'slow-job',{versionOk:true,delayMs:1500,stdout:'{"event":"result","result":{"status":"SUCCESS","response":"done"}}\n'});
 let result;
 let helpCalls=0;
-mock.module('../scripts/lib/process-adapter.mjs',{namedExports:{spawn:realSpawn,spawnSync:(bin,argv,options)=>{assert.deepEqual(argv,['--help']);helpCalls++;return result==='real' ? realSpawnSync(bin,argv,options) : result;}}});
+mock.module('../scripts/lib/process-adapter.mjs',{namedExports:{spawn:realSpawn,spawnSync:(bin,argv,options)=>{/* other tools (git, the start-time query) share the adapter and run for real */if(!(argv?.length===1&&argv[0]==='--help'))return realSpawnSync(bin,argv,options);helpCalls++;return result==='real' ? realSpawnSync(bin,argv,options) : result;}}});
 const {run}=await import('../scripts/commands/task.mjs');
 const {readJobFile}=await import('../scripts/lib/state.mjs');
 for(const [name,value] of [['real timeout','real'],['spawn error',{error:new Error('failed')}],['nonzero',{status:1,stdout:'--model'}],['empty',{status:0,stdout:''}],['timeout',{status:null,error:Object.assign(new Error('timeout'),{code:'ETIMEDOUT'})}]]){

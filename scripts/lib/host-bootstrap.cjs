@@ -121,6 +121,11 @@ function run(root, verb, argv = process.argv.slice(1)) {
   }
   const result = spawnSync(process.execPath, [script, ...argv], {
     stdio: "inherit",
+    // A CommonJS file cannot load process-adapter.mjs, so it sets the hide
+    // option itself (tests/spawn-inventory.test.mjs names this exception).
+    // With inherited stdio the verb stays in the caller's console; only a
+    // console that Windows would create for it is hidden.
+    windowsHide: true,
     // Every verb reached through this wrapper (Claude Code, the agy TUI —
     // both use the same protected `node -e` snippet) must never
     // offer the interactive denial prompt (plan 086 T5k F2), even when

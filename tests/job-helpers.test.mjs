@@ -50,7 +50,13 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
     // The new help probe is unavailable in this unit fixture (ruling 4).
-    spawnSync: () => ({ error: new Error('help unavailable') }),
+    // Other callers of the adapter (git, the start-time query) run for real,
+    // as they did when process.mjs imported node:child_process itself.
+    spawnSync: (bin, args, options) => (
+      args?.length === 1 && args[0] === '--help'
+        ? { error: new Error('help unavailable') }
+        : spawnSync(bin, args, options)
+    ),
     spawn: () => {
       const child = Object.assign(new EventEmitter(), { pid: runtime.spawnPid, unref() {} });
       setImmediate(() => child.emit('spawn'));
@@ -582,7 +588,11 @@ describe('background worker acknowledgement', () => {
       },
     });
     assert.deepEqual(capturedArgs, ["--import", new URL("../scripts/lib/worker-diagnostics.mjs", import.meta.url).href, resolveWorkerPath(), job.id, workspaceRoot]);
-    assert.equal(capturedOptions.cwd, workspaceRoot);
+    // Plan 153 package G: the complete launch options are the contract. The
+    // worker stays detached with every stream ignored, so the parent can exit.
+    const { env: workerEnv, ...launchOptions } = capturedOptions;
+    assert.deepEqual(launchOptions, { cwd: workspaceRoot, detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
+    assert.deepEqual(workerEnv, { ...process.env, ANTIGRAVITY_PLUGIN_SESSION_ID: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID ?? '' });
   });
 
   it('persists failed when an owned child emits error asynchronously', async () => {
