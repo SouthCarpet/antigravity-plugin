@@ -107,7 +107,7 @@ function missingRuntimeMessage(scriptPath, verb) {
  *   (the `node -e ... -- $ARGUMENTS` split leaves the user's arguments
  *   starting at index 1, not 2, because `-e` consumes no argv slot of its
  *   own)
- * @returns {number} the exit code the caller should pass to `process.exit`
+ * @returns {number} the exit code the caller should set as `process.exitCode`
  */
 function run(root, verb, argv = process.argv.slice(1)) {
   if (!isPluginRoot(root)) {
