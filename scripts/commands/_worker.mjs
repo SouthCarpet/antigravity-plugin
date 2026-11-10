@@ -188,7 +188,8 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
       cwd: request.cwd ?? workspaceRoot,
       timeoutMs: request.timeoutMs ?? DEFAULT_AGY_TIMEOUT_MS,
       onText,
-      onSpawn: async ({ pid }) => {
+      onSpawn: async ({ pid, isAlive }) => {
+        activity.setAgyIsAlive(isAlive);
         // Publish startup in one transaction after the child exists. The
         // previous pre-spawn patch made a just-started worker own the state
         // lock before it could log or launch agy, enlarging the exact window
@@ -201,6 +202,7 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
           workerPid: process.pid,
           agyPid: pid ?? null,
           agyProcessStartedAt: recordProcessStartTime(pid),
+          ...activity.agyAliveFields(),
         });
         appendJobLog(workspaceRoot, jobId, `[worker] agy spawned pid=${pid ?? "unknown"}`);
       },

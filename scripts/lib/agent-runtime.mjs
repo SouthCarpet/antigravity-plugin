@@ -1234,12 +1234,13 @@ function wireAgyStreams(child, session, { maxStdoutBytes, maxStderrBytes, onStdo
  * caller's promise rejects rather than resolving to a result.
  *
  * @param {{ child: import('node:child_process').ChildProcess, session: object,
- *   prompt: string, onSpawn?: (info: { pid: number | null, child: object }) => void | Promise<void> }} args
+ *   prompt: string, onSpawn?: (info: { pid: number | null, child: object, isAlive: () => boolean }) => void | Promise<void> }} args
  * @returns {Promise<number>}
  */
 async function writePromptAndAwaitExit({ child, session, prompt, onSpawn }) {
   try {
-    await onSpawn?.({ pid: child.pid ?? null, child });
+    await onSpawn?.({ pid: child.pid ?? null, child,
+      isAlive: () => Boolean(child.pid) && !session.exited && !session.settled && !session.spawnError });
   } catch (err) {
     session.initiateTermination('failed');
     await session.exitCodePromise;
