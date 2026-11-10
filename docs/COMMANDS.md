@@ -1552,3 +1552,11 @@ The Windows process adapter and worker diagnostics preload change process
 handling only. See Compatibility, sections "Windows console windows" and
 "Additive surface", for the hide rule, signal bridge, retry bounds and
 job-log diagnostics. No runtime dependency was added.
+
+The worker starts with a Node `--import` diagnostics preload. It appends
+bounded runtime diagnostics to the job log before normal worker handling.
+The process adapter uses `spawnInteractive` only for setup sign-in; it keeps
+that run interactive. The Windows bridge handles SIGINT, SIGTERM, SIGHUP
+and SIGBREAK. A cleanup query has a 15000 ms timeout. Remaining candidates
+are logged with `not signalled: cleanup time budget used`; each cleanup
+keeps the 60-second budget described in Compatibility.
