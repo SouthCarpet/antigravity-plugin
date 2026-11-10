@@ -738,7 +738,7 @@ describe('runAgyPrint — stdin stream-json transport', () => {
   });
 });
 
-// ───────────────────── D1 --print-timeout / D2 --disable-slash-commands ─────────────────────
+// ───────────────────── --print-timeout / --disable-slash-commands ─────────────────────
 
 describe('printTimeoutArg — budget-to-duration mapping', () => {
   const cases = [
