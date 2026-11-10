@@ -2,7 +2,7 @@
  * Process spawning and management utilities.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./process-adapter.mjs";
 import process from "node:process";
 
 export const GIT_TIMEOUT_MS = 120_000;

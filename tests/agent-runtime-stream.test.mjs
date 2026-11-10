@@ -17,6 +17,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import { terminateProcessTree } from '../scripts/lib/process.mjs';
 
 const spawnCalls = [];
@@ -49,6 +50,9 @@ function makeFakeChild() {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
+    // process.mjs and the other tool callers reach spawnSync through the same
+    // adapter; this fake replaces only the asynchronous agy spawn.
+    spawnSync,
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();
       spawnCalls.push({ bin, args, opts, child });
@@ -64,7 +68,7 @@ mock.module('../scripts/lib/process-adapter.mjs', {
   },
 });
 
-const { runAgyPrint, parseAgyStream, probeAgy, AUTH_LINE_PATTERNS, printTimeoutArg, PRINT_TIMEOUT_NO_DEADLINE } = await import(
+const { runAgyPrint, parseAgyStream, probeAgy, probeAgyHelp, probeAgyModels, AUTH_LINE_PATTERNS, printTimeoutArg, PRINT_TIMEOUT_NO_DEADLINE } = await import(
   '../scripts/lib/agent-runtime.mjs'
 );
 
@@ -262,12 +266,92 @@ describe('foreground cancellation on the detached path', () => {
     } finally { autoExit = true; }
   });
 
-  it('installs no handlers on win32, where the child stays in the console group', async () => {
-    const before = handlerCounts();
-    await runAgyPrint({ prompt: 'p', bin: 'agy', platform: 'win32' });
-    assert.equal(spawnCalls.at(-1).opts.detached, false);
-    assert.deepEqual(handlerCounts(), before);
+  it('installs no SIGBREAK handler outside win32', async () => {
+    autoExit = false;
+    const before = process.listenerCount('SIGBREAK');
+    try {
+      const pending = runAgyPrint({ prompt: 'p', bin: 'agy', platform: 'linux', terminateTree: async () => {} });
+      assert.equal(process.listenerCount('SIGBREAK'), before);
+      spawnCalls.at(-1).child.emit('exit', 0);
+      spawnCalls.at(-1).child.emit('close', 0);
+      await pending;
+    } finally { autoExit = true; }
   });
+
+  // Plan 153 package G: process-adapter.mjs starts agy with the hide option.
+  // With piped stdio the child then has a console of its own on Windows
+  // (measured), so a Ctrl+C, a Ctrl+Break or a closed terminal window in the
+  // caller's console does not reach it. The bridge is the only thing that
+  // still stops agy, so it is pinned for each of the three console events.
+  const WIN_SIGNALS = [...SIGNALS, 'SIGBREAK'];
+  const winHandlerCounts = () => WIN_SIGNALS.map((name) => process.listenerCount(name));
+  /** The one listener of `signal` that is not in `before`: the bridge of this run. */
+  const installedSince = (signal, before) => {
+    const added = process.listeners(signal).filter((fn) => !before.includes(fn));
+    assert.equal(added.length, 1, `one new ${signal} handler`);
+    return added[0];
+  };
+
+  for (const signal of ['SIGINT', 'SIGBREAK', 'SIGHUP']) {
+    it(`on win32 ${signal} stops agy through the bridge and the handlers are removed on settle`, async () => {
+      autoExit = false;
+      const before = winHandlerCounts();
+      const listenersBefore = process.listeners(signal);
+      try {
+        const terminated = [];
+        const pending = runAgyPrint({
+          prompt: 'p', bin: 'agy', platform: 'win32',
+          terminateTree: async (pid) => { terminated.push(pid); },
+        });
+        const child = spawnCalls.at(-1).child;
+        child.pid = 4242;
+        assert.equal(spawnCalls.at(-1).opts.detached, false, 'win32 agy is still not detached');
+        assert.deepEqual(winHandlerCounts(), before.map((count) => count + 1));
+
+        installedSince(signal, listenersBefore)();
+        assert.deepEqual(terminated, [4242]);
+
+        child.emit('exit', 1, null);
+        child.emit('close', 1, null);
+        const result = await pending;
+        assert.equal(result.status, 'cancelled');
+        assert.deepEqual(winHandlerCounts(), before);
+      } finally { autoExit = true; }
+    });
+  }
+
+  for (const [name, probe] of [['probeAgy', probeAgy], ['probeAgyHelp', probeAgyHelp], ['probeAgyModels', probeAgyModels]]) {
+    it(`on win32 ${name} is cancelled through the bridge and removes its handlers`, async () => {
+      autoExit = false;
+      const before = winHandlerCounts();
+      const listenersBefore = process.listeners('SIGINT');
+      try {
+        const terminated = [];
+        const pending = probe({ bin: 'agy', platform: 'win32', terminateTree: async (pid) => { terminated.push(pid); } });
+        spawnCalls.at(-1).child.pid = 4243;
+        assert.deepEqual(winHandlerCounts(), before.map((count) => count + 1));
+        installedSince('SIGINT', listenersBefore)();
+        assert.deepEqual(await pending, { ok: false, reason: 'cancelled' });
+        assert.deepEqual(terminated, [4243]);
+        assert.deepEqual(winHandlerCounts(), before);
+      } finally { autoExit = true; }
+    });
+  }
+
+  // Outside win32 the two short probes are not detached: the terminal's
+  // Ctrl+C reaches them directly, so they install no handler (unchanged).
+  for (const [name, probe] of [['probeAgyHelp', probeAgyHelp], ['probeAgyModels', probeAgyModels]]) {
+    it(`outside win32 ${name} installs no handler`, async () => {
+      autoExit = false;
+      const before = winHandlerCounts();
+      try {
+        const pending = probe({ bin: 'agy', platform: 'linux', terminateTree: async () => {} });
+        assert.deepEqual(winHandlerCounts(), before);
+        spawnCalls.at(-1).child.emit('close', 0);
+        assert.equal((await pending).ok, true);
+      } finally { autoExit = true; }
+    });
+  }
 
   it('removes the probe handlers once the probe settles', async () => {
     const before = handlerCounts();

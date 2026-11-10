@@ -22,6 +22,7 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 
 // Verbatim from agy 1.1.24 stderr (plan 068 probe A). Only `auto-denied`
 // and the quoted tool name are treated as stable; agy rewords the hints.
@@ -49,6 +50,9 @@ function makeFakeChild() {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
+    // process.mjs and the other tool callers reach spawnSync through the same
+    // adapter; this fake replaces only the asynchronous agy spawn.
+    spawnSync,
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();
       spawnCalls.push({ bin, args, opts, child });

@@ -12,7 +12,7 @@
  */
 import { parseModelsListing } from '../lib/model-alias.mjs';
 import { createJsonEnvelope, outputCommandResult } from '../lib/render.mjs';
-import { spawn } from '../lib/process-adapter.mjs';
+import { spawnInteractive } from '../lib/process-adapter.mjs';
 import { readCommandInput } from '../lib/args.mjs';
 import { resolveAgyBin, probeAgy, assertAgyBinSpawnable, probeAgyModels } from '../lib/agent-runtime.mjs';
 import { ensureVisionConfig, removeVisionConfig, VISION_PERMISSION } from '../lib/vision-config.mjs';
@@ -87,7 +87,9 @@ export async function run(argv = [], ctx = {}) {
   if (versionWarning) progress(`${versionWarning}\n`);
   progress(`Triggering an authenticated probe. Complete the OAuth flow in your browser if prompted.\n\n`);
 
-  const child = spawn(bin, ['--print', 'Reply with the word OK and nothing else.'], {
+  // Interactive sign-in: the one spawn that keeps the caller's console and
+  // window exactly as before (see spawnInteractive in process-adapter.mjs).
+  const child = spawnInteractive(bin, ['--print', 'Reply with the word OK and nothing else.'], {
     stdio: ['inherit', options.json ? process.stderr : 'inherit', 'inherit'],
     cwd: ctx.cwd ?? process.cwd(),
     env: process.env,

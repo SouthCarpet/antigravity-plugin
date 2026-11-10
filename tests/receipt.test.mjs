@@ -3,6 +3,7 @@ import { it, mock, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { spawnSync as realSpawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
@@ -25,7 +26,10 @@ mock.module('../scripts/lib/process-adapter.mjs', { namedExports: {
     });
     return child;
   },
-  spawnSync(_bin, argv, options) {
+  spawnSync(bin, argv, options) {
+    // Only the help probe is faked. Other tools (git, the start-time query)
+    // reach spawnSync through the same adapter and run for real.
+    if (!(argv?.length === 1 && argv[0] === '--help')) return realSpawnSync(bin, argv, options);
     calls.push(argv);
     assert.equal(options.timeout, 1000, 'ruling 4 bounds the probe');
     assert.equal(options.killSignal, 'SIGKILL');

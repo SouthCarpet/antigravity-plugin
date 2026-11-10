@@ -11,11 +11,13 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 
 const state = {
   models: { ok: false, reason: 'unavailable' },
   probe: { ok: true, version: '1.1.11' },
   spawnExitCode: 0,
+  interactiveCalls: [],
   ensureVisionCalls: [],
   ensureVisionSummary: ['mcp_config.json: already configured', 'settings.json: already configured'],
   removeVisionCalls: [],
@@ -47,12 +49,17 @@ mock.module('../scripts/lib/vision-config.mjs', {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
-    spawn: (_bin, _args, options) => {
+    // setup starts its sign-in run through spawnInteractive, the adapter's one
+    // entry that does not hide the window. A call to the hiding spawn fails.
+    spawnInteractive: (bin, args, options) => {
+      state.interactiveCalls.push({ bin, args, options });
       if (state.oauthUrl) options.stdio[1].write(state.oauthUrl);
       const child = new EventEmitter();
       queueMicrotask(() => child.emit('exit', state.spawnExitCode));
       return child;
     },
+    spawn: () => { throw new Error('setup must not start its sign-in run through the hiding spawn'); },
+    spawnSync,
   },
 });
 
@@ -87,6 +94,7 @@ beforeEach(() => {
   state.probe = { ok: true, version: '1.1.11' };
   state.spawnExitCode = 0;
   state.oauthUrl = null;
+  state.interactiveCalls = [];
   state.ensureVisionCalls = [];
   state.removeVisionCalls = [];
   state.removeVisionResult = { ok: true, summary: ['removed'] };
@@ -118,6 +126,23 @@ describe('/antigravity:setup — vision config wiring', () => {
     }
     assert.equal(exit, 3);
     assert.equal(state.ensureVisionCalls.length, 0);
+  });
+
+  // Plan 153 package G: the sign-in run is the one spawn that keeps the
+  // caller's console and window. The oracle is the whole call: one
+  // spawnInteractive call, the exact argv, and options with no hide option.
+  it('starts the sign-in run once, through spawnInteractive, with inherited stdio and no hide option', async () => {
+    const cap = captureStdio();
+    try {
+      assert.equal(await run(['--skip-vision'], { cwd: 'the-cwd' }), 0);
+    } finally {
+      cap.restore();
+    }
+    assert.deepEqual(state.interactiveCalls, [{
+      bin: 'agy',
+      args: ['--print', 'Reply with the word OK and nothing else.'],
+      options: { stdio: ['inherit', 'inherit', 'inherit'], cwd: 'the-cwd', env: process.env },
+    }]);
   });
 
   it('--skip-vision leaves vision config untouched and exits 0', async () => {

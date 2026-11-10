@@ -62,6 +62,11 @@ or a local process do something the plugin claims it will not do:
 
 ## What this plugin actually does on the machine
 
+Every process that the plugin starts goes through one module,
+`scripts/lib/process-adapter.mjs`. A test (`tests/spawn-inventory.test.mjs`)
+fails when another shipped file loads `child_process`. The one other file is
+`scripts/lib/host-bootstrap.cjs` (see the `node -e` section below).
+
 ### `setup` (persistent, user-wide)
 
 Successful `setup` without `--skip-vision` writes under `~/.gemini`:

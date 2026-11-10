@@ -28,7 +28,7 @@
  *   5. Print the prepared directory, the tarball integrity (sha512) and shasum
  *      (sha1), the file count, and the exact next command.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './lib/process-adapter.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';

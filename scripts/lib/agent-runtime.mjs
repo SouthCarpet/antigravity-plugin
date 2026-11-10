@@ -105,11 +105,11 @@ function spawnAgy(bin, args, opts) {
   return spawn(bin, args, opts);
 }
 
-/** Terminal signals a foreground run has to pass on to a detached child. */
+/** Terminal signals a foreground run has to pass on to its agy child. */
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /**
- * Bridge the terminal's interactive signals to `onSignal` while a detached
+ * Bridge the terminal's interactive signals to `onSignal` while an agy
  * child is alive; the returned function removes the handlers again.
  *
  * agy is spawned `detached` on POSIX so `terminateProcessTree` can signal the
@@ -120,14 +120,19 @@ const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
  * remove the handlers when the child settles, otherwise a later Ctrl+C would
  * no longer terminate the process.
  *
- * Only installed on the detached path — on win32 the child stays in the
- * console's process group and Ctrl+C reaches it as before.
+ * On win32 the child is not detached, but process-adapter.mjs starts it
+ * with `windowsHide: true` and piped stdio, which gives it a console of its
+ * own: a Ctrl+C, a Ctrl+Break (`SIGBREAK`) or a closing terminal window
+ * (`SIGHUP`) in the caller's console does not reach it. The bridge is
+ * therefore installed on every platform.
  *
  * @param {(signal: string) => void} onSignal
+ * @param {string} [platform]
  * @returns {() => void}
  */
-function forwardTerminationSignals(onSignal) {
-  const installed = FORWARDED_SIGNALS.map((name) => {
+function forwardTerminationSignals(onSignal, platform = process.platform) {
+  const signals = platform === 'win32' ? [...FORWARDED_SIGNALS, 'SIGBREAK'] : FORWARDED_SIGNALS;
+  const installed = signals.map((name) => {
     const handler = () => onSignal(name);
     process.on(name, handler);
     return [name, handler];
@@ -135,6 +140,20 @@ function forwardTerminationSignals(onSignal) {
   return () => {
     for (const [name, handler] of installed) process.off(name, handler);
   };
+}
+
+/**
+ * The bridge for the short `--help` and `models` probes. They are not
+ * detached, so on POSIX the terminal's Ctrl+C reaches them directly and no
+ * handler is installed. On win32 the hidden child has a console of its own,
+ * so the bridge is needed there.
+ *
+ * @param {(signal: string) => void} onSignal
+ * @param {string} platform
+ * @returns {(() => void) | null}
+ */
+function forwardHiddenChildSignals(onSignal, platform) {
+  return platform === 'win32' ? forwardTerminationSignals(onSignal, platform) : null;
 }
 
 /**
@@ -221,9 +240,10 @@ export async function probeAgy({
       };
       // The existing total probe deadline also bounds pipes inherited after exit.
       timer = setTimeout(() => abandon('timeout'), timeoutMs);
-      // A detached probe leaves the terminal's process group, so Ctrl+C has to
-      // be passed on explicitly (see forwardTerminationSignals).
-      if (detached) removeSignalHandlers = forwardTerminationSignals(() => abandon('cancelled'));
+      // Ctrl+C does not reach the probe by itself (detached on POSIX, a
+      // console of its own on win32), so it is passed on explicitly (see
+      // forwardTerminationSignals).
+      removeSignalHandlers = forwardTerminationSignals(() => abandon('cancelled'), platform);
       child.stdout.on('data', (c) => {
         // A version needs only its first token; drain the rest without retaining it.
         if (stdout.length < 4096) stdout += c.toString('utf8').slice(0, 4096 - stdout.length);
@@ -257,13 +277,15 @@ const MAX_HELP_BYTES = 65_536;
  * flag the plugin forwards is *listed* in that text, never whether it
  * *works*, which `--help` cannot prove.
  *
- * @param {{ bin?: string, timeoutMs?: number, terminateTree?: typeof terminateProcessTree }} [opts]
+ * @param {{ bin?: string, timeoutMs?: number, terminateTree?: typeof terminateProcessTree,
+ *   platform?: string }} [opts]
  * @returns {Promise<{ ok: boolean, help?: string, reason?: string }>}
  */
 export async function probeAgyHelp({
   bin = resolveAgyBin(),
   timeoutMs = 5000,
   terminateTree = terminateProcessTree,
+  platform = process.platform,
 } = {}) {
   try {
     assertAgyBinSpawnable(bin);
@@ -271,6 +293,7 @@ export async function probeAgyHelp({
     return { ok: false, reason: err?.message ?? String(err) };
   }
   let timer;
+  let removeSignalHandlers = null;
   try {
     return await new Promise((resolve) => {
       const child = spawnAgy(bin, ['--help'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -291,6 +314,7 @@ export async function probeAgyHelp({
         resolve({ ok: false, reason });
       };
       timer = setTimeout(() => abandon('timeout'), timeoutMs);
+      removeSignalHandlers = forwardHiddenChildSignals(() => abandon('cancelled'), platform);
       child.stdout.on('data', appendHelp);
       child.stderr.on('data', appendHelp);
       child.on('error', (e) => {
@@ -305,6 +329,7 @@ export async function probeAgyHelp({
     });
   } finally {
     clearTimeout(timer);
+    removeSignalHandlers?.();
   }
 }
 
@@ -313,6 +338,7 @@ export async function probeAgyModels({
   bin = resolveAgyBin(),
   timeoutMs = 20000,
   terminateTree = terminateProcessTree,
+  platform = process.platform,
 } = {}) {
   try {
     assertAgyBinSpawnable(bin);
@@ -320,6 +346,7 @@ export async function probeAgyModels({
     return { ok: false, reason: err?.message ?? String(err) };
   }
   let timer;
+  let removeSignalHandlers = null;
   try {
     return await new Promise((resolve) => {
       const child = spawnAgy(bin, ['models'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -340,6 +367,7 @@ export async function probeAgyModels({
         resolve({ ok: false, reason });
       };
       timer = setTimeout(() => abandon('timeout'), timeoutMs);
+      removeSignalHandlers = forwardHiddenChildSignals(() => abandon('cancelled'), platform);
       child.stdout.on('data', appendListing);
       child.stderr.on('data', (c) => { stderr += c.toString('utf8').slice(0, 4096 - stderr.length); });
       child.on('error', (e) => {
@@ -358,6 +386,7 @@ export async function probeAgyModels({
     });
   } finally {
     clearTimeout(timer);
+    removeSignalHandlers?.();
   }
 }
 
@@ -1524,10 +1553,11 @@ function classifyRunResult({ session, exitCode }) {
  * land before the always-on `--input-format`/`--output-format`/`--print` tail.
  *
  * Outside win32 the child is spawned `detached` (its own process group, so
- * `terminateProcessTree` can signal the group) and `SIGINT`/`SIGTERM`/`SIGHUP`
- * are forwarded to the same cancellation for as long as the child runs, so
- * Ctrl+C still takes agy and its children down. `platform` overrides the
- * detection for tests.
+ * `terminateProcessTree` can signal the group). On every platform
+ * `SIGINT`/`SIGTERM`/`SIGHUP` (and `SIGBREAK` on win32, where the hidden
+ * child has a console of its own) are forwarded to the same cancellation
+ * for as long as the child runs, so Ctrl+C still takes agy and its children
+ * down. `platform` overrides the detection for tests.
  *
  * `outputFormat` is accepted for backward compat but is now a no-op — agy
  * always runs in stream-json mode, which carries the same envelope fields
@@ -1668,12 +1698,13 @@ export async function runAgyPrint(rawOptions = {}) {
     }, timeoutMs)
     : null;
 
-  // A detached agy no longer dies with the terminal's foreground process
-  // group, so the interactive signals are forwarded to the same bounded
-  // cancellation an abort uses (see forwardTerminationSignals).
-  const removeSignalHandlers = detached
-    ? forwardTerminationSignals(() => session.initiateTermination('cancelled'))
-    : null;
+  // agy does not die with the terminal's foreground process group (detached
+  // on POSIX, a console of its own on win32), so the interactive signals are
+  // forwarded to the same bounded cancellation an abort uses (see
+  // forwardTerminationSignals).
+  const removeSignalHandlers = forwardTerminationSignals(
+    () => session.initiateTermination('cancelled'), platform,
+  );
 
   let abortListener;
   if (signal) {

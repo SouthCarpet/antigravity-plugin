@@ -510,10 +510,12 @@ describe('worker persisted-request findingsJson revalidation', () => {
       const data = path.join(workspace, 'data');
       const script = `
         import { mock } from 'node:test';
+        import { spawnSync } from 'node:child_process';
         const state = await import(${JSON.stringify(new URL('../scripts/lib/state.mjs', import.meta.url).href)});
         let spawns = 0;
         mock.module(${JSON.stringify(new URL('../scripts/lib/process-adapter.mjs', import.meta.url).href)}, {
-          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); } },
+          // Tools such as git reach spawnSync through the same adapter and run for real.
+          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); }, spawnSync },
         });
         const workspace = process.cwd();
         const jobId = 'stored-request';

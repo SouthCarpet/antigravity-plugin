@@ -1,6 +1,6 @@
 import { realpathSync, statSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './process-adapter.mjs';
 import { ArgsError } from './args.mjs';
 import { validateExpectOption } from './vision-expect.mjs';
 

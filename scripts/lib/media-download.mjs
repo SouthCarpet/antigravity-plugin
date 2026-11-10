@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn } from './process-adapter.mjs';
 import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { safeFailureReason } from './safe-reason.mjs';
