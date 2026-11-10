@@ -40,7 +40,8 @@ function walk(directory) {
 it('runtime files have no unapproved direct ending references', () => {
   // Development scripts (check-pack, check-manifests, generators) are outside these runtime roots.
   for (const file of ['bin', 'scripts/commands', 'scripts/lib'].flatMap(walk)) {
-    if (!allowed.has(file)) assert.deepEqual(exits(fs.readFileSync(path.join(root, file), 'utf8')), [], file);
+    // The two allowed sites use runtime.exit or generated string text, never a direct process reference.
+    assert.deepEqual(exits(fs.readFileSync(path.join(root, file), 'utf8')), [], `${file}: ${allowed.get(file) ?? 'no exception'}`);
   }
 });
 for (const source of ['process.exit(1)', 'process.reallyExit(1)', "process['exit'](1)",

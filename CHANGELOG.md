@@ -51,9 +51,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- Prevent large CLI output, including stored JSON answers, from being cut on Linux and macOS pipes.
+- Prevent stdout and stderr output from being cut before CLI exit. In 3.1.0 and earlier, output larger than the pipe buffer could be cut on Linux and macOS.
+- Host wrappers now print their refusal line whole before they end. The generated command text and the permission rule text in each command file changed with it.
 - Report a file used as an output target parent as `parent_not_directory` on POSIX.
-
 - On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed. Cleanup has a time budget and logs what remains; a tool started in the last seconds before the worker died is not confirmed.
 - Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
 - State saves retry brief Windows file locks instead of failing on the first rename.

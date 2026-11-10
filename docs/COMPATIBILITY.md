@@ -18,8 +18,6 @@ by version. The 1.4.0 checks cover native discovery, `doctor`, `task`,
 The two version lines advance independently. A new agy release does not
 change the plugin version.
 
-CLI exit waits for pending stdout and stderr writes, then terminates with the command's exit code so live child handles or timers cannot keep it open.
-
 ## Supported matrix
 
 | Surface | Supported in 3.x |
@@ -467,6 +465,8 @@ Markdown and `--json` output are unchanged by this flag in every case; only
 the exit code, and, on the timeout outcome, that one stderr line, differ
 from a call without it. See
 [`docs/COMMANDS.md`](./COMMANDS.md#status) for the full table.
+
+CLI exit waits for pending stdout and stderr writes, then terminates with the command's exit code so live child handles or timers cannot keep it open. The wait has no time limit. On every platform, a reader that keeps the pipe open and never reads keeps the call open. When the reader closes the pipe, the call ends with the command's exit code.
 
 ## Output contract
 

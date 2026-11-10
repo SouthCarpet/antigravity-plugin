@@ -21,4 +21,5 @@ function createProcessEnd(runtime = process) {
   };
 }
 
+// Modules imported more than once in one process need their own createProcessEnd().
 module.exports = { createProcessEnd, endProcess: createProcessEnd() };
