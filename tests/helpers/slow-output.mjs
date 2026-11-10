@@ -14,6 +14,8 @@ if (process.env.AGY_TEST_OUTPUT_REPORT) {
         setTimeout(() => real.write(chunk, encoding, callback), 25);
       },
     });
+    // The write callback forwards descriptor errors to slow; consume the duplicate real-stream event.
+    real.on('error', () => {});
     slow.isTTY = real.isTTY;
     slow.columns = real.columns;
     const write = slow.write.bind(slow);
@@ -28,7 +30,7 @@ if (process.env.AGY_TEST_OUTPUT_REPORT) {
     JSON.stringify({ code, pending })));
 }
 
-export async function runOutput(args, directory, extraEnv = {}, slow = true) {
+export async function runOutput(args, directory, extraEnv = {}, slow = true, { closeStdout = false } = {}) {
   const report = path.join(directory, 'pending.json');
   fs.rmSync(report, { force: true });
   const env = { ...process.env, ...extraEnv, AGY_BIN: path.join(directory, 'missing-agy'),
@@ -41,6 +43,7 @@ export async function runOutput(args, directory, extraEnv = {}, slow = true) {
   const stdout = []; const stderr = [];
   child.stdout.on('data', data => stdout.push(data));
   child.stderr.on('data', data => stderr.push(data));
+  if (closeStdout) child.stdout.destroy();
   try {
     const code = await new Promise((resolve, reject) => {
       child.once('error', reject);

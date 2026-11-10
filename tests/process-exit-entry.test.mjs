@@ -43,3 +43,19 @@ it('real dispatcher, direct command and worker drain slow stdout and stderr', as
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it('slow pipe double preserves pipe properties, callbacks and real EPIPE errors', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'exit-epipe-'));
+  try {
+    const source = `
+      if (process.stdout.isTTY !== undefined || process.stdout.columns !== undefined) throw Error('not pipe properties');
+      process.stdout.on('error', () => {});
+      process.stdout.write('payload', error => {
+        process.stderr.write(error?.code, () => { process.exitCode = error?.code === 'EPIPE' ? 0 : 1; });
+      });`;
+    const result = await runOutput(['-e', source], dir, {}, true, { closeStdout: true });
+    assertDrained(result, 'closed reader');
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, 'EPIPE');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
