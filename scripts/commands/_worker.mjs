@@ -24,7 +24,7 @@
  */
 
 import processExit from '../lib/process-exit.cjs';
-const { endProcess } = processExit;
+const endProcess = processExit.createProcessEnd();
 import path from "node:path";
 import { recordWorkerFatal } from "../lib/worker-failure.mjs";
 
