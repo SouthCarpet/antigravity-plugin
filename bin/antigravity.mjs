@@ -176,7 +176,7 @@ const COMMAND_HELP = {
     'changes an installed copy by itself.\n\n' +
     'Flags:\n' +
     "  --apply                 run each present host's update command, printing it first\n" +
-    '  --json                  emit JSON (a convenience; unstable in 1.x)\n' +
+    '  --json                  emit JSON (a convenience; unstable in 3.x)\n' +
     'Env: ANTIGRAVITY_NO_UPDATE_CHECK=1 skips the registry call.',
 };
 

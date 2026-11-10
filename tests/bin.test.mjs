@@ -88,6 +88,13 @@ describe('bin/antigravity.mjs', () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
+  // Fix brief P-7: update help must name the current major contract.
+  it('update --help describes JSON as unstable in 3.x', () => {
+    const res = run(['update', '--help']);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.stdout, /unstable in 3\.x/);
+  });
+
   it('--version prints plugin.json version and exits 0', () => {
     const res = run(['--version']);
     assert.equal(res.status, 0, res.stderr);
