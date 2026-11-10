@@ -14,8 +14,8 @@ it('waits for 2 MB and both streams, reuses a second call, and keeps the first e
   out.stream.write('x'.repeat(2 * 1024 * 1024)); err.stream.write('error');
   const end = createProcessEnd({ stdout: out.stream, stderr: err.stream, exitCode: 2, exit: code => codes.push(code) });
   const pending = end(); assert.equal(end(1), pending);
-  await Promise.resolve(); assert.deepEqual(codes, []);
-  out.finish(); await Promise.resolve(); assert.deepEqual(codes, []);
+  await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(codes, []);
+  out.finish(); await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(codes, []);
   err.finish(); await pending; assert.deepEqual(codes, [2]);
 });
 for (const code of ['EPIPE', 'EIO']) {
@@ -31,3 +31,20 @@ it('ends from an async callback with the explicit code instead of the previous c
   const end = createProcessEnd({ stdout: stream, stderr: stream, exitCode: 7, exit: c => codes.push(c) });
   await Promise.resolve().then(() => end(2)); assert.deepEqual(codes, [2]);
 });
+
+for (const pendingName of ['stdout', 'stderr']) {
+  it(`waits when only ${pendingName} has a pending write (package J flush contract)`, async () => {
+    const delayed = slowStream();
+    const idle = new Writable({ write(_c, _e, cb) { cb(); } });
+    const codes = [];
+    delayed.stream.write('pending');
+    const end = createProcessEnd({ stdout: idle, stderr: idle, [pendingName]: delayed.stream,
+      exit: code => codes.push(code) });
+    const pending = end(3);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(codes, [], `${pendingName} must finish before exit`);
+    delayed.finish();
+    await pending;
+    assert.deepEqual(codes, [3]);
+  });
+}
