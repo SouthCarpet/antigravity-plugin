@@ -171,6 +171,11 @@ it('all five verbs resolve the captured alias through the real CLI and store sep
     assert.equal(stored.details.provenance.requestedAlias, 'flash');
     assert.equal(stored.details.provenance.resolvedModel, 'gemini-3.8-flash-medium');
     assert.equal(stored.details.result.reportedModel, 'reported');
+    // Oracle: media forwards the physical workspace, not its junction/symlink spelling.
+    if (args[0] === 'media') {
+      const actual = argvOf(stored.details.result.stderr);
+      assert.equal(actual[actual.indexOf('--add-dir') + 1], fs.realpathSync.native(work));
+    }
     assert.deepEqual(canonicalArgv(argvOf(stored.details.result.stderr)), canonicalArgv([
       ...(args[0] === 'media' ? ['--add-dir', work] : []), '--model', 'gemini-3.8-flash-medium', '--print-timeout', '1860s', '--disable-slash-commands',
       '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '']));
