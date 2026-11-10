@@ -415,10 +415,10 @@ for (const fields of [{ workerPid: undefined, agyPid: undefined }, { workerPid: 
     assert.doesNotMatch(fs.readFileSync(resolveJobLogFile(root, job.id), 'utf8'), /reserved process id/);
   });
 }
-test('missing worker PID does not reserve a valid confirmed tool', async () => {
+for (const workerPid of [undefined, 'bad']) test(`worker PID ${workerPid} does not reserve a valid confirmed tool`, async () => {
   const root = await fixture();
   const deps = dependencies(root);
-  await cleanupConfirmedTools(root, { ...job, workerPid: 'bad' }, deps);
+  await cleanupConfirmedTools(root, { ...job, workerPid }, deps);
   assert.deepEqual(deps.signals, [600]);
 });
 
