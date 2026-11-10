@@ -51,7 +51,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- Top-level help now lists media and the flags shared by all verbs.
+- Top-level help now lists media and names `--json` as the common output flag.
 - Prevent stdout and stderr output from being cut before CLI exit. In 3.1.0 and earlier, output larger than the pipe buffer could be cut on Linux and macOS.
 - Host wrappers now print their refusal line whole before they end. The generated command text and the permission rule text in each command file changed with it.
 - Report a file used as an output target parent as `parent_not_directory` on POSIX.
