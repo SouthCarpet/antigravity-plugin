@@ -26,6 +26,14 @@ Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's 
 - Gives Claude Code, Codex CLI, agy, and the standalone CLI the same ten verbs.
 - Reviews diffs, runs delegated prompts, analyzes named images and media, and manages background jobs.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/SouthCarpet/antigravity-plugin/main/assets/demo/media-vision-dark.gif">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/SouthCarpet/antigravity-plugin/main/assets/demo/media-vision-light.gif">
+  <img src="https://raw.githubusercontent.com/SouthCarpet/antigravity-plugin/main/assets/demo/media-vision-light.gif" width="800" alt="The terminal reads text from an image, downloads a transcript, and answers a question about a video.">
+</picture>
+
+Output from real runs of the 3.2.0 release code. Waiting time is cut.
+
 ## Installation and quick start
 
 ### Claude Code
