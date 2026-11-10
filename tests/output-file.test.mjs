@@ -245,16 +245,27 @@ describe('writeNewTextFile', () => {
   });
 
   test('refuses a read-only directory when the platform enforces it', (t) => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) {
-      t.skip('directory modes are not enforced here');
+    if (process.platform === 'win32') {
+      t.skip('Windows does not enforce POSIX directory modes');
       return;
     }
     const locked = path.join(dir, 'locked');
     fs.mkdirSync(locked, { mode: 0o500 });
-    t.after(() => fs.chmodSync(locked, 0o700));
-    const error = refusal(() => writeNewTextFile(path.join(locked, 'out.txt'), 'x', { noun: 'Export' }));
-    assert.equal(error.reason, 'write_failed');
-    assert.match(error.message, /^Export target cannot be written \(EACCES\): /);
+    // Shared afterEach removes dir before t.after on Node 24. Restore first.
+    try {
+      const probe = path.join(locked, 'probe');
+      try {
+        fs.writeFileSync(probe, 'probe', { flag: 'wx' });
+        fs.unlinkSync(probe);
+        t.skip('process can write to a read-only directory (root or equivalent privileges)');
+        return;
+      } catch (error) { if (error.code !== 'EACCES') throw error; }
+      const error = refusal(() => writeNewTextFile(path.join(locked, 'out.txt'), 'x', { noun: 'Export' }));
+      assert.equal(error.reason, 'write_failed');
+      assert.match(error.message, /^Export target cannot be written \(EACCES\): /);
+    } finally {
+      if (fs.existsSync(locked)) fs.chmodSync(locked, 0o700);
+    }
   });
 
   test('an existing read-only file is refused and stays unchanged', () => {
