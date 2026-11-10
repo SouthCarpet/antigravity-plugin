@@ -243,6 +243,6 @@ All previously tracked items are fixed. New items use the [`known issue` label](
 
 ## Acknowledgements and license
 
-- Originally forked from [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin); now maintained independently by SouthCarpet, with 272 commits at release 3.2.0. The original project replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
+- Originally forked from [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin); now maintained independently by SouthCarpet, with more than 270 commits since the fork. The original project replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
 - MIT License. See [`LICENSE`](./LICENSE).
 - Antigravity and Gemini are Google's trademarks, Claude Code is Anthropic's, and Codex is OpenAI's. This project is not affiliated with or endorsed by them.
