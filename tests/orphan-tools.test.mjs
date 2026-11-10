@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { waitForJob, patchJob } from '../scripts/lib/job-helpers.mjs';
+import { waitForJob, patchJob, cleanupConfirmedTools } from '../scripts/lib/job-helpers.mjs';
 import { resolveJobLogFile, resolveStateDir } from '../scripts/lib/state.mjs';
 import { createHash } from 'node:crypto';
 import { canonicalComparePath, expandShortPath } from '../scripts/lib/paths.mjs';
@@ -382,4 +382,42 @@ test('unsupported creator query: safe reason and no signal', async () => {
   const lines = fs.readFileSync(resolveJobLogFile(root, job.id), 'utf8').split('\n')
     .filter(line => line.includes('creator query')).map(line => line.slice(line.indexOf('[wait]')));
   assert.deepEqual(lines, ['[wait] tools not signalled: creator query unsupported']);
+});
+
+// Oracle: fix-2 ruling 2. Reserved rows must not reach identity or termination.
+for (const pid of [process.pid, process.ppid, 400, 500, 0, 4]) {
+  test(`reserved pid ${pid}: no identity read or signal, valid sibling still stops`, async () => {
+    const root = await fixture();
+    const reads = [];
+    const deps = dependencies(root, [{ ...tool, pid }, tool]);
+    await cleanupConfirmedTools(root, job, { ...deps,
+      isProcessAlive: value => { reads.push(value); return true; },
+    });
+    assert.deepEqual(reads, [600]);
+    assert.deepEqual(deps.signals, [600]);
+    const lines = fs.readFileSync(resolveJobLogFile(root, job.id), 'utf8').split('\n')
+      .filter(line => line.includes('reserved process id'));
+    assert.equal(lines.length, 1);
+    assert.ok(lines[0].endsWith(`tool pid=${pid} of agy pid=500 not signalled: reserved process id`));
+  });
+}
+for (const fields of [{ workerPid: undefined, agyPid: undefined }, { workerPid: 'bad', agyPid: 'bad' }]) {
+  test(`invalid reserved record ${JSON.stringify(fields)}: valid candidate is checked`, async () => {
+    const root = await fixture();
+    const reads = [];
+    const deps = dependencies(root);
+    await cleanupConfirmedTools(root, { ...job, ...fields }, { ...deps,
+      isProcessAlive: pid => { reads.push(pid); return true; },
+    });
+    // Without a numeric creator the row is unconfirmed, not reserved.
+    assert.deepEqual(deps.signals, []);
+    assert.deepEqual(reads, []);
+    assert.doesNotMatch(fs.readFileSync(resolveJobLogFile(root, job.id), 'utf8'), /reserved process id/);
+  });
+}
+test('missing worker PID does not reserve a valid confirmed tool', async () => {
+  const root = await fixture();
+  const deps = dependencies(root);
+  await cleanupConfirmedTools(root, { ...job, workerPid: 'bad' }, deps);
+  assert.deepEqual(deps.signals, [600]);
 });

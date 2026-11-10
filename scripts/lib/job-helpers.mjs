@@ -2084,6 +2084,12 @@ function queryToolRows(pid, queryChildren, log) {
   return null;
 }
 
+// The one creator query cannot reveal a longer ancestry chain. The caller's
+// immediate parent is known without another query; never terminate its tree.
+function isReservedToolPid(pid, job) {
+  return pid <= 4 || [process.pid, process.ppid, Number(job.workerPid), Number(job.agyPid)].includes(pid);
+}
+
 /**
  * Stop bounded, identity-confirmed direct tools after the caller proved agy
  * gone. Call outside the workspace mutex. Outcomes go only to the job log.
@@ -2110,7 +2116,12 @@ export async function cleanupConfirmedTools(workspaceRoot, job, {
   // The worker sampled upper while its own child retained its Windows PID.
   // No tolerance widens this interval. A backwards clock change can invalidate
   // comparison of the OS creation time and the worker clock (documented limit).
-  for (const candidate of rows) {
+  const candidates = rows.filter(candidate => {
+    if (!isReservedToolPid(candidate?.pid, job)) return true;
+    log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: reserved process id`);
+    return false;
+  });
+  for (const candidate of candidates) {
     // Reserve the existing maximum termination time (two 10s calls + 1s grace)
     // and 5s for a complete identity read. Never shorten an identity check.
     const budgetUsed = () => log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: cleanup time budget used`);
