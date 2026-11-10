@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { FileLockTimeoutError, withFileLock } from "../scripts/lib/file-lock.mjs";
 import { createTrackedJob, patchJob, startBackgroundJob } from "../scripts/lib/job-helpers.mjs";
 import { canonicalComparePath, expandShortPath } from "../scripts/lib/paths.mjs";
-import { isProcessAlive, terminateProcessTree } from "../scripts/lib/process.mjs";
+import { isProcessAlive, readProcessStartTime, terminateProcessTree } from "../scripts/lib/process.mjs";
 import { appendJobLog, ensureStateDir, listJobs, readJobFile, readLogTail, resolveJobFile, resolveJobLogFile, resolveStateDir, resolveStateRoot, saveState } from "../scripts/lib/state.mjs";
 import { writeFakeAgy } from "./helpers/fake-agy.mjs";
 import { writeSlowPowerShell, withPathFirst } from "./helpers/slow-powershell.mjs";
@@ -260,11 +260,21 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         assert.ok(Number.isFinite(Date.parse(launched[field])), `${field} is a timestamp`);
       }
 
+      // Cancel reads the start time of each live target once, and refuses to
+      // signal a target whose read fails (by design; the user retries). On
+      // Windows one read is one PowerShell run capped at 5 s, and under full
+      // CPU load a run can be slower than that. This case is about the lock,
+      // not about the speed of that query, so each read gets one retry here,
+      // the same rule the product uses at launch. Both are real OS reads.
+      const readStartTimeWithRetry = (targetPid) =>
+        readProcessStartTime(targetPid) ?? readProcessStartTime(targetPid);
+      let cancelReport = null;
       const startedCancelAt = Date.now();
       const exitCode = await (await import("../scripts/commands/cancel.mjs")).run(
         [job.id, "--json"],
         {
           cwd: workspaceRoot,
+          readProcessStartTime: readStartTimeWithRetry,
           terminateProcessTree: async (targetPid) => {
             assert.ok(
               targetPid === pid || targetPid === agyPid,
@@ -290,17 +300,18 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
                 : `Process ${targetPid} is not running.`,
             };
           },
-          outputCommandResult: () => {},
+          outputCommandResult: (payload) => { cancelReport = payload; },
         },
       );
 
       // Cancel now reads the start time of each live target before it
-      // signals it (two queries here; on Windows each starts PowerShell and
-      // is capped at 5 s). The whole case took about 2.2 s alone, but the
-      // cancel took more than 5 s once under the full suite. 15 s stays well
+      // signals it (two targets here; on Windows each read starts PowerShell
+      // and is capped at 5 s, and this case allows one retry per target, so
+      // the worst case is 20 s). The whole case took about 2.2 s alone, but
+      // the cancel took more than 5 s once under the full suite. 25 s stays
       // under the 30 s state-lock timeout this bound guards against.
-      assert.ok(Date.now() - startedCancelAt < 15_000, "cancellation should stay bounded");
-      assert.equal(exitCode, 0);
+      assert.ok(Date.now() - startedCancelAt < 25_000, "cancellation should stay bounded");
+      assert.equal(exitCode, 0, `cancel failed: ${JSON.stringify(cancelReport)}`);
       assert.equal(readJobFile(workspaceRoot, job.id)?.status, "cancelled");
 
       // The preload exits the worker when cancellation reaps its lock. Wait
