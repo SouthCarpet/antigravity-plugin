@@ -1845,9 +1845,9 @@ Why: the background worker runs with no console. Before this change each
 console program that the worker started (agy, `taskkill`, git) got a new
 console window. With Windows Terminal as the default terminal application,
 Windows opened one terminal window for each of these programs. Measured on
-Windows 11 with Windows Terminal 1.24 and Node 25.8.1 on 2026-11-09: five of
-five programs opened a terminal window without the option, and none of five
-with it. With Windows Console Host as the default terminal the same five
+Windows 11 with Windows Terminal 1.24 and Node 25.8.1 on 2026-11-09 and
+2026-11-10: five of five programs opened a terminal window without the
+option, and none of five with it. With Windows Console Host as the default terminal the same five
 programs each showed a console window for a moment without the option, and
 none with it. A background job with the fake agy opened one terminal window
 before this change and none after it.
@@ -1869,9 +1869,10 @@ Consequences and limits:
   a Ctrl+Break or the close of the terminal window from the caller's
   console. The plugin now forwards these three events on Windows and stops
   the agy process tree, as it already did on Linux and macOS. The run ends
-  as `cancelled` with the existing exit code of a cancelled run. Before
-  this change Windows delivered the event to agy directly and the plugin
-  process ended at once.
+  as `cancelled` with exit code 2, the existing code of a cancelled run
+  (measured with a real Ctrl+C and the fake agy). Before this change
+  Windows delivered the event to agy directly and the plugin process ended
+  at once with the Windows Ctrl+C exit code and no output.
 - **Short tools.** git, `taskkill`, `where.exe`, `tar` and `npm pack` run
   synchronously with piped streams. A Ctrl+C during one of them takes
   effect when the tool ends or reaches its existing timeout. The steps of
