@@ -23,6 +23,8 @@
  * `step_update.text_delta`) — not the raw NDJSON event stream.
  */
 
+import processExit from '../lib/process-exit.cjs';
+const { endProcess } = processExit;
 import path from "node:path";
 import { recordWorkerFatal } from "../lib/worker-failure.mjs";
 
@@ -132,7 +134,7 @@ async function loadWorkerContext(jobId, workspaceRoot) {
   const stored = readJobFile(workspaceRoot, jobId);
   if (!stored) {
     process.stderr.write(`worker: no job file for ${jobId}\n`);
-    process.exit(2);
+    await endProcess(2);
   }
   const request = stored.request ?? {};
   const prompt = request.prompt;
@@ -144,7 +146,7 @@ async function loadWorkerContext(jobId, workspaceRoot) {
       errorMessage: "worker: missing prompt in job request",
       healthStatus: "failed",
     });
-    process.exit(1);
+    await endProcess(1);
   }
   return { stored, request, prompt };
 }
@@ -279,7 +281,7 @@ async function main() {
   const [jobId, rootArg] = process.argv.slice(2);
   if (!jobId) {
     process.stderr.write("worker: missing jobId\n");
-    process.exit(2);
+    await endProcess(2);
   }
 
   const workspaceRoot = typeof rootArg === "string" && rootArg !== "" && path.isAbsolute(rootArg)
@@ -301,10 +303,10 @@ async function main() {
   return persistWorkerResult(workspaceRoot, jobId, stored, outcome.result);
 }
 
-main().then((code) => process.exit(code)).catch(async (err) => {
+main().then((code) => endProcess(code)).catch(async (err) => {
   const [jobId, rootArg] = process.argv.slice(2);
   const workspaceRoot = typeof rootArg === "string" && path.isAbsolute(rootArg)
     ? rootArg : resolveWorkspaceRoot(process.cwd());
   await recordWorkerFatal(workspaceRoot, jobId, err).catch(() => {});
-  process.exit(1);
+  await endProcess(1);
 });

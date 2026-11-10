@@ -10,6 +10,8 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { captureStdio } from './helpers/capture-stdio.mjs';
@@ -251,4 +253,15 @@ describe('target refusals', () => {
     assert.equal(r.code, 1);
     assert.equal(fs.existsSync(file('job.json')), false);
   });
+});
+
+// Oracle: package J, a stored answer must arrive whole through a CLI pipe.
+test('result --json sends a 512 KiB stored answer through a pipe without cutting it', async () => {
+  const answer = 'z'.repeat(512 * 1024);
+  const id = await makeJob('task', { rawOutput: answer });
+  const result = spawnSync(process.execPath,
+    [fileURLToPath(new URL('../bin/antigravity.mjs', import.meta.url)), 'result', id, '--json'],
+    { cwd: dir, env: { ...process.env, AGY_BIN: path.join(dir, 'missing-agy') }, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 30000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).answer, answer + '\n');
 });

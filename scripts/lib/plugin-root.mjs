@@ -145,13 +145,13 @@ export function hostBootstrapSource(verb) {
   // No comma may follow a closing parenthesis outside a call: see
   // hostAllowedBashRule for why.
   return (
-    "const p=require('node:path');const fs=require('node:fs');const os=require('node:os');" +
+    "(()=>{const e=s=>process.stderr.write(s+'\\n',()=>process.exit(1));const p=require('node:path');const fs=require('node:fs');const os=require('node:os');" +
     `const h=os.homedir();const root=process.env.CLAUDE_PLUGIN_ROOT||p.join(h,${segments});` +
     `let n;try{n=JSON.parse(fs.readFileSync(p.join(root,'${PLUGIN_MANIFEST_FILE}'))).name}catch{n=0}` +
-    `if(n!=='${PLUGIN_MANIFEST_NAME}'){console.error(${refusal});process.exit(1)}` +
+    `if(n!=='${PLUGIN_MANIFEST_NAME}'){e(${refusal});return}` +
     `const m=p.join(root,'scripts','lib','host-bootstrap.cjs');` +
-    `if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){console.error(${moduleMissing});process.exit(1)}` +
-    `process.exit(require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'${verb}'));`
+    `if(!fs.existsSync(p.join(root,'scripts','lib','host-bootstrap.cjs'))){e(${moduleMissing});return}` +
+    `process.exitCode=require(p.join(root,'scripts','lib','host-bootstrap.cjs')).run(root,'${verb}');})();`
   );
 }
 

@@ -2,6 +2,8 @@
 // antigravity-plugin — standalone CLI: `npx @southcarpet/antigravity-plugin <command>`.
 // Dispatches to scripts/commands/<name>.mjs so behaviour is identical to
 // the Claude Code and Codex CLI hosts.
+import processExit from '../scripts/lib/process-exit.cjs';
+const { endProcess } = processExit;
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -188,7 +190,7 @@ const arg0 = (raw || '').toLowerCase();
 
 if (arg0 === '--version' || arg0 === '-v') {
   process.stdout.write(`${readVersion()}\n`);
-  process.exit(0);
+  await endProcess(0);
 }
 
 if (!arg0 || arg0 === '-h' || arg0 === '--help' || arg0 === 'help') {
@@ -196,14 +198,14 @@ if (!arg0 || arg0 === '-h' || arg0 === '--help' || arg0 === 'help') {
   if (arg0 === 'help' && sub) {
     if (COMMAND_HELP[sub]) {
       process.stdout.write(`${COMMAND_HELP[sub]}\n`);
-      process.exit(0);
+      await endProcess(0);
     }
     process.stderr.write(`antigravity-plugin: no help for '${rest[0]}'.\n`);
     suggest(sub);
-    process.exit(2);
+    await endProcess(2);
   }
   printHelp();
-  process.exit(0);
+  await endProcess(0);
 }
 
 // `update` is a dispatcher convenience like `help`/`--version`, not a ninth
@@ -211,26 +213,26 @@ if (!arg0 || arg0 === '-h' || arg0 === '--help' || arg0 === 'help') {
 if (arg0 === 'update') {
   if (rest.includes('--help') || rest.includes('-h')) {
     process.stdout.write(`${COMMAND_HELP.update}\n`);
-    process.exit(0);
+    await endProcess(0);
   }
   try {
     const { runUpdate } = await import('../scripts/lib/update.mjs');
-    process.exit(await runUpdate(rest, { cwd: process.cwd() }));
+    await endProcess(await runUpdate(rest, { cwd: process.cwd() }));
   } catch (err) {
     process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
-    process.exit(1);
+    await endProcess(1);
   }
 }
 
 if (!KNOWN.includes(arg0)) {
   process.stderr.write(`antigravity-plugin: unknown command '${raw}'.\n`);
   suggest(arg0);
-  process.exit(2);
+  await endProcess(2);
 }
 
 if (rest.includes('--help') || rest.includes('-h')) {
   process.stdout.write(`${COMMAND_HELP[arg0]}\n`);
-  process.exit(0);
+  await endProcess(0);
 }
 
 // Friendly preflight: AGY_BIN set but missing → install URL + exit 127.
@@ -241,18 +243,18 @@ if (AGY_REQUIRED.has(arg0) && !previewOnly && !removingVision && process.env.AGY
     `antigravity-plugin: \`agy\` not found at AGY_BIN=${process.env.AGY_BIN}.\n` +
     `Install Google Antigravity CLI from ${INSTALL_URL} or unset AGY_BIN.\n`,
   );
-  process.exit(127);
+  await endProcess(127);
 }
 
 if (SCRIPT_ROOT_OVERRIDE && !isPluginRoot(SCRIPT_ROOT_OVERRIDE)) {
   process.stderr.write(`${invalidPluginRootMessage(SCRIPT_ROOT_OVERRIDE, arg0)}\n`);
-  process.exit(1);
+  await endProcess(1);
 }
 
 const modPath = resolve(SCRIPT_ROOT, `${arg0}.mjs`);
 if (!existsSync(modPath)) {
   process.stderr.write(`antigravity-plugin: command module not found at ${modPath}.\n`);
-  process.exit(2);
+  await endProcess(2);
 }
 
 let cmd;
@@ -261,24 +263,24 @@ try {
 } catch (err) {
   if (err?.code === 'ERR_MODULE_NOT_FOUND') {
     process.stderr.write(`antigravity-plugin: command '${arg0}' is not implemented yet.\n`);
-    process.exit(2);
+    await endProcess(2);
   }
   process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
-  process.exit(1);
+  await endProcess(1);
 }
 
 const run = cmd.run ?? cmd.default;
 if (typeof run !== 'function') {
   process.stderr.write(`antigravity-plugin: command '${arg0}' has no exported run().\n`);
-  process.exit(2);
+  await endProcess(2);
 }
 
 try {
   const code = await run(rest, { host: 'standalone', cwd: process.cwd() });
-  process.exit(typeof code === 'number' ? code : 0);
+  await endProcess(typeof code === 'number' ? code : 0);
 } catch (err) {
   process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
-  process.exit(1);
+  await endProcess(1);
 }
 
 function readVersion() {
