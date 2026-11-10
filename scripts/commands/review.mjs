@@ -193,8 +193,7 @@ function reviewFinishOptions({ findingsJson, checkLocations, hunks }) {
 }
 
 /**
- * The one stderr line `--models` prints before either leg dispatches
- * (controller ruling, plan 153 p2 brief E1, "Cost"): no prompt, no
+ * The one stderr line `--models` prints before either leg dispatches: no prompt, no
  * confirmation, just the fact that two agy calls (two quotas) are about to
  * run.
  *
@@ -205,8 +204,7 @@ function printModelsCostNotice() {
 }
 
 /**
- * The `request` fields one `--models` leg stores (plan 153 p2 brief E1,
- * "Mechanics"): the same fields a single-model review stores
+ * The `request` fields one `--models` leg stores: the same fields a single-model review stores
  * ({@link buildReviewRequestFields}), always `mode: "print"` ("each leg is
  * a fresh conversation"), always `findingsJson: true` (required by the
  * conflict rule), plus the shared `pairId` linking both legs' job records.
@@ -238,7 +236,7 @@ function buildPairedRequestFields({ envelope, base, model, modelRequest, effort,
  * The exit code one `--models` leg contributes (same mapping
  * `finishForeground`'s non-completed branches already use: `cancelled` is
  * 2, every other non-completed status is 1, `completed` is 0). A leg that
- * never ran ("not_run", controller ruling 3's halt case) contributes 0: it
+ * never ran ("not_run", the authentication halt case) contributes 0: it
  * can only ever follow a leg that already halted the pair with its own
  * non-zero code, so it is never the first non-zero leg.
  *
@@ -252,8 +250,8 @@ function pairedLegExitCode(status) {
 
 /**
  * The `jobs[]` entry for one `--models` leg that actually ran: `id`,
- * `model`, the run `status` (controller ruling 3: "the envelope always
- * lists both legs with their status"), and, only once the leg completed,
+ * `model`, the run `status` (both legs are always listed),
+ * and, only once the leg completed,
  * `findingsStatus` (plus a one-line `findingsError` when it is not
  * `"valid"`, and `locationCheck` when `--check-locations` was given — "one
  * check per leg, results under each leg"). `deniedActions` (with remedy, the
@@ -298,8 +296,8 @@ function stripPairedLegFindings({ findings: _findings, ...rest }) {
 }
 
 /**
- * The `comparison` field (plan 153 p2 brief E1, "Output shape"): `null`
- * unless both legs completed with valid findings (controller ruling 3),
+ * The `comparison` field: `null`
+ * unless both legs completed with valid findings,
  * else {@link compareReviewFindings} against the diff's own hunks (shared
  * identically by both legs, "Mechanics"). `leg.findings` is the WHOLE
  * validated `review-findings.schema.json` document
@@ -348,8 +346,7 @@ function reportPairedDenials(leg) {
 /**
  * The markdown rendering for `--models`' paired envelope: one line per leg,
  * then the comparison counts or a note that comparison is unavailable.
- * Kept local to this module (package E owns only `review.mjs` and
- * `review-compare.mjs`, not `render.mjs`).
+ * Kept local because only paired reviews use this rendering.
  *
  * @param {{ pairId: string, jobs: object[], comparison: object | null }} details
  * @returns {string}
@@ -372,8 +369,7 @@ function renderReviewPairedMarkdown(details) {
 
 /**
  * Report `--models`' paired envelope and compute the command's exit code
- * (controller ruling 3: "the command's exit code is the first non-zero leg
- * exit code, else 0").
+ * (the first non-zero leg exit code, else 0).
  *
  * @param {{ pairId: string, legs: Array<ReturnType<typeof buildPairedLeg>>,
  *   hunks: Array<{ path: string, newStart: number, newEnd: number }>, json: boolean }} args
@@ -412,11 +408,11 @@ function checkPairedOptions(options) {
 }
 
 /**
- * `review --models <a,b>` (plan 153 p2, package E, "E1"): one shared
+ * `review --models <a,b>`: one shared
  * `buildReviewInput` call already ran in `run()`; this resolves the two
  * model tokens, prints the cost notice, then runs each leg's OWN fresh
  * `runForegroundJob` call in order, halting before the second leg only
- * when the first leg reports `auth_required` (controller ruling 3: a
+ * when the first leg reports `auth_required` (a
  * sign-in failure is not model-specific, so the second leg would only
  * hit it again) — every other non-completed first-leg status still lets
  * the second leg run.
@@ -682,7 +678,7 @@ export async function run(argv = [], ctx = {}) {
       ["preview", "wait"],
       ["preview", "continue"],
       ["preview", "conversation"],
-      // --models (plan 153 p2, package E, "E1"): each leg is a fresh print
+      // --models: each leg is a fresh print
       // conversation, built and dispatched by `runReviewPairedCommand`
       // itself, so none of the single-model flags below apply to it.
       ["models", "model"],
