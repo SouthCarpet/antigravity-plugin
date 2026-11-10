@@ -31,4 +31,3 @@ it('ends from an async callback with the explicit code instead of the previous c
   const end = createProcessEnd({ stdout: stream, stderr: stream, exitCode: 7, exit: c => codes.push(c) });
   await Promise.resolve().then(() => end(2)); assert.deepEqual(codes, [2]);
 });
-
