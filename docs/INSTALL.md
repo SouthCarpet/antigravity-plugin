@@ -73,7 +73,7 @@ under the `plugins[]` array, pointing `source.path` at your local clone:
 
 Then install it (`codex plugin add antigravity@personal` for the example
 name above) and restart Codex. The plugin is available under `$antigravity`.
-Verbs: `setup`, `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`,
+Verbs: `setup`, `review`, `rescue`, `task`, `media`, `vision`, `status`, `result`,
 `cancel`, `doctor`.
 
 ## agy itself

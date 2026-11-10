@@ -23,8 +23,8 @@ change the plugin version.
 | Surface | Supported in 3.x |
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via native skills in the prepared agy copy; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
-| Operating systems | Linux, Windows, and macOS. All three run the full CI suite. The release tree was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
-| Public verbs | Ten: setup, review, rescue, task, vision, media, status, result, cancel, doctor. |
+| Operating systems | Linux, Windows, and macOS. All three run the full CI suite on every pull request to `main` and on every push to `main` or a release branch. A dated example from an earlier release is CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
+| Public verbs | Ten: setup, review, rescue, task, media, vision, status, result, cancel, doctor. |
 | Optional YouTube tools | yt-dlp 2026.10.26; ffmpeg for video merges. Local media needs neither. |
 | Node.js | `>=22.3.0` |
 | Google Antigravity CLI | Measured versions span `agy` 1.1.15 to 1.5.3; newest measured 1.5.3. Coverage differs by version. See the [per-version table](#supported-matrix) for live results and limits. |
@@ -397,7 +397,7 @@ for a model, the plugin can add it after a probe shows it.
 
 The public verbs are exactly:
 
-`setup`, `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`,
+`setup`, `review`, `rescue`, `task`, `media`, `vision`, `status`, `result`, `cancel`,
 and `doctor`.
 
 Their positional arguments, flags, defaults, conflicts, and foreground versus
@@ -806,7 +806,7 @@ wildcard is not something this plugin writes. With no rule at all
 
 | Probe | Invocation | Result |
 |---|---|---|
-| P3 | `--add-dir A:\projects-vault`, read inside | granted |
+| P3 | `--add-dir <project root>`, read inside | granted |
 | P2 | `--add-dir <evidence dir>`, read inside | granted |
 | B2 | `--add-dir <evidence dir>`, read `STATE.md` outside it | denied |
 | B3 | `--add-dir <evidence dir>`, write inside it | denied, no file created |
@@ -1806,7 +1806,7 @@ doctor output and its exit rule stay unchanged except for the measured ceiling
 updated by the 1.5.3 measurement. In serial test runs on this
 Windows host, ten fake-agy foreground tasks per tree took median
 2624.97 ms / maximum 3512.27 ms on the baseline, and median
-2646.26 ms / maximum 3876.15 ms in the receipt checks.
+2646.26 ms / maximum 3876.15 ms on the tree with the doctor receipt.
 The median difference was 21.29 ms. This sample includes process
 scheduling noise. The failure-path probe budget is 1,000 ms.
 

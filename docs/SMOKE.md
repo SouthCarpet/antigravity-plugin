@@ -178,7 +178,7 @@ agy plugin install <the printed prepared antigravity directory>
 #   Uninstall, then install again after every upgrade — agy keeps its own copy.
 
 agy plugin list --json
-#   skills must list antigravity:<verb> for setup, review, rescue, task, vision, media, status, result, cancel, doctor
+#   skills must list antigravity:<verb> for setup, review, rescue, task, media, vision, status, result, cancel, doctor
 
 agy plugin validate <the printed prepared antigravity directory>
 #   Current expected result: skills 10; Validation passed
