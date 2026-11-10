@@ -26,6 +26,14 @@ Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's 
 - Gives Claude Code, Codex CLI, agy, and the standalone CLI the same ten verbs.
 - Reviews diffs, runs delegated prompts, analyzes named images and media, and manages background jobs.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/SouthCarpet/antigravity-plugin/main/assets/demo/media-vision-dark.gif">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/SouthCarpet/antigravity-plugin/main/assets/demo/media-vision-light.gif">
+  <img src="https://raw.githubusercontent.com/SouthCarpet/antigravity-plugin/main/assets/demo/media-vision-light.gif" width="800" alt="The terminal reads text from an image, downloads a transcript, and answers a question about a video.">
+</picture>
+
+Output from real runs of the 3.2.0 release code. Waiting time and some lines are cut.
+
 ## Installation and quick start
 
 ### Claude Code
@@ -70,13 +78,13 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 
 ## Status
 
-> **v3.1.0.** From 3.0.0, while the first number stays 3, an update
+> **v3.2.0.** From 3.0.0, while the first number stays 3, an update
 > does not break a command or output that already works. Removals are first
 > marked deprecated, stay for at least one more 3.x minor release, and happen
 > only in 4.0.0. See [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md).
 
 - 3.0.0 changed one default: `vision` now uses `gemini-3.8-flash-high`. Pass `--model gemini-3.6-flash-high` to keep the old model. See [`CHANGELOG.md`](./CHANGELOG.md).
-- Plugin 3.1.0 is this package's version. agy is Google's Antigravity CLI, and its version moves separately.
+- Plugin 3.2.0 is this package's version. agy is Google's Antigravity CLI, and its version moves separately.
 - Measured agy versions span 1.1.15 to 1.5.3, newest measured 1.5.3. Coverage differs by version; see [Compatibility](./docs/COMPATIBILITY.md).
 - The plugin does not update itself.
 - Version numbers: **Y** in `X.Y.Z` changes for new features and larger compatible updates. **Z** changes for fixes; **X** changes only for breaking changes.
@@ -190,6 +198,7 @@ What each verb sends:
 | `setup` | Google OAuth via `agy`. The plugin itself only writes `~/.gemini`. |
 | `review` | The collected git diff, untracked snippets, and review prompt go through `agy` to Google. |
 | `rescue` / `task` | Your prompt goes through `agy` to Google. agy can also read workspace files and `--add-dir` roots. |
+| `media` | `--preview` sends nothing. A transcript-only call with no `--prompt` never reaches agy. With `--transcript --prompt`, the captions and prompt go through agy to Google. Other model modes send the media file and prompt through agy to Google. |
 | `vision` | Your prompt and the bytes of the named images go through the local MCP server and `agy`. |
 | `status` / `result` / `cancel` | Nothing. These only read or signal local job state. |
 
@@ -234,6 +243,6 @@ All previously tracked items are fixed. New items use the [`known issue` label](
 
 ## Acknowledgements and license
 
-- A maintained fork of [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin), which replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
+- Originally forked from [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin); now maintained independently by SouthCarpet, with more than 270 commits since the fork. The original project replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
 - MIT License. See [`LICENSE`](./LICENSE).
 - Antigravity and Gemini are Google's trademarks, Claude Code is Anthropic's, and Codex is OpenAI's. This project is not affiliated with or endorsed by them.

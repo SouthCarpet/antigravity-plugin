@@ -820,7 +820,8 @@ it('first agy PID patch samples liveness and clock before any asynchronous gap',
   try {
     const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
       { encoding: 'utf8', timeout: 20000, windowsHide: true });
-    assert.equal(result.status, 0, result.stderr);
+    const log = fs.existsSync(root) ? fs.readdirSync(root, { recursive: true }).filter(name => String(name).endsWith('.log')).map(name => fs.readFileSync(path.join(root, name), 'utf8').slice(-8000)).join('\n') : '';
+    assert.equal(result.status, 0, [result.stderr, result.stdout, log].join('\n'));
   } finally {
     removeTestDir(root);
   }

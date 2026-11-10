@@ -42,7 +42,7 @@ commands:
   - name: status
     description: "Show current and recent agy jobs, including any pending OAuth URL. With a job id and --wait, --exit-status exits by that job's own outcome instead of the usual 0."
   - name: result
-    description: "Print the stored final output of a completed agy job by id, or part of it with --head / --tail. --check-locations runs the same heuristic path:line citation check `review` runs, from the stored answer, even on a job reviewed without that flag."
+    description: "Print the stored final output of a completed agy job by id, or part of it with --head / --tail. --check-locations runs the same heuristic path:line citation check `review` runs, from the stored answer, even on a job reviewed without that flag. --check-current compares a stored review input with git now (match, changed or unknown). --export <path> writes the full stored record to a new file and never overwrites."
   - name: cancel
     description: "Send SIGTERM to a running agy worker by job id."
   - name: doctor

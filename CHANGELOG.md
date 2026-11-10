@@ -6,6 +6,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [3.2.0] — 2026-11-10
+
+### Added
+
 - Add the optional worker-only `agyAliveAt` job record field for safe orphan-tool cleanup.
 - Measure standalone agy 1.5.3; retain per-verb coverage limits in the matrix.
 - Add `doctor --receipt` for a redacted compatibility receipt.
@@ -40,20 +44,22 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Add `details.jobs[].deniedActions` and one stderr line per denied action for a `--models` leg, as single-model review reports them.
 - Add refusals for `--models` tokens that resolve to one model, hold a control character or exceed 200 characters.
 
+### Changed
+
+- `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
+- Windows: Ctrl+C, Ctrl+Break or a closed terminal window during a foreground run now stops agy through the plugin, as on Linux and macOS, and the run ends with exit code 2 and a `cancelled` record. Before, the foreground CLI ended with the Windows Ctrl+C exit code (-1073741510, or 0xC000013A) and no result output.
+
 ### Fixed
 
-- On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed.
+- Top-level help now lists media and the flags shared by all verbs.
+
+- On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed. Cleanup has a time budget and logs what remains; a tool started in the last seconds before the worker died is not confirmed.
 - Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
 - State saves retry brief Windows file locks instead of failing on the first rename.
 - A waiter no longer replaces a finished job with a missing-worker failure.
 - Process start-time reads retry once so cancellation can confirm the process under load.
 - A failed job-file read stops a patch instead of dropping existing fields.
 - Windows: a background job no longer opens a console window for each program that it starts. Before, a terminal window opened for each of these programs, and on some machines the windows and their console processes stayed after the job ended.
-
-### Changed
-
-- `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
-- Windows: Ctrl+C, Ctrl+Break or a closed terminal window during a foreground run now stops agy through the plugin, as on Linux and macOS, and the run ends as cancelled.
 
 ## [3.1.0] — 2026-11-06
 
@@ -393,7 +399,8 @@ Initial release. Replaces [`gemini-plugin-cc`](https://github.com/sakibsadmansha
 
 - All ACP code, since agy does not support ACP, and live token streaming.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...v3.0.0

@@ -191,3 +191,25 @@ test('two waiters return the same terminal record after confirmed cleanup',async
  const [first,second]=await Promise.all([waitForJob(root,'abcdefabcdef',options),waitForJob(root,'abcdefabcdef',options)]);
  assert.deepEqual(first,second);assert.equal(first.phase,'worker_missing');assert.ok(signals>=1&&signals<=2);
 });
+
+// Oracle: package H verifier m7a. A finished job must not trigger identity queries or signals.
+test('terminal record before first vanish lock causes no identity query or termination', async () => {
+ const root = fixture(); const id = 'abcdefabcdef';
+ const terminal = { id, status: 'completed', workerPid: 4242, agyPid: 4343, agyProcessStartedAt: new Date(1000).toISOString() };
+ await patchJob(root, id, { ...terminal, status: 'running' });
+ let workerChecks = 0; let queries = 0; let kills = 0;
+ const result = await waitForJob(root, id, {
+  isProcessAlive: pid => {
+   if (pid === 4242) {
+    if (++workerChecks === 1) fs.writeFileSync(resolveJobFile(root, id), JSON.stringify(terminal));
+    return false;
+   }
+   return true;
+  },
+  readStartTime: () => { queries++; return 1000; },
+  terminateTree: async () => { kills++; },
+ });
+ assert.deepEqual(result, terminal);
+ assert.equal(queries, 0);
+ assert.equal(kills, 0);
+});
