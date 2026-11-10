@@ -120,3 +120,19 @@ describe('plugin-root.mjs: root resolution (unchanged by R5b)', () => {
     assert.equal(isPluginRoot(ROOT), true);
   });
 });
+
+// Oracle: package J wrapper refusal is one complete line, exit 1, with no pending stderr.
+import fs from 'node:fs';
+import os from 'node:os';
+import { runOutput, assertDrained } from './helpers/slow-output.mjs';
+it('generated wrapper flushes the whole refusal line through slow stderr', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrapper-flush-'));
+  try {
+    const wrong = path.join(dir, 'foreign');
+    const result = await runOutput(['-e', hostBootstrapSource('status')], dir, { CLAUDE_PLUGIN_ROOT: wrong });
+    assertDrained(result, 'hostBootstrapSource(status) refusal');
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, `antigravity-plugin: ${wrong} is not an antigravity plugin tree (plugin.json missing or name mismatch). Run: npx @southcarpet/antigravity-plugin status\n`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
