@@ -23,7 +23,7 @@ change the plugin version.
 | Surface | Supported in 3.x |
 |---|---|
 | Hosts | Claude Code (`/antigravity:<verb>`), Codex CLI (`$antigravity <verb>`), agy-native (install/list/validate; interactive TUI `/antigravity:<verb>` via native skills in the prepared agy copy; standalone CLI as the fallback that always works), and the standalone CLI (`npx @southcarpet/antigravity-plugin <verb>`, `antigravity-plugin <verb>` after install, or `node bin/antigravity.mjs <verb>`) |
-| Operating systems | Linux, Windows, and macOS. All three run the full CI suite. Release-tree commit `4f9b317` was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
+| Operating systems | Linux, Windows, and macOS. All three run the full CI suite. The release tree was tested in CI run 34289858536 (created 2026-09-08 23:16:08): six cells green, CodeQL run 34289858532 green. `macos-latest` used runner image `macos-26-arm64` (Node 22.3.x and Node 24: 886 tests, 873 passed, 13 skipped, 0 failed). `windows-latest` used `windows-2025-vs2026` (886 tests, 881 passed, 5 skipped, 0 failed). `ubuntu-latest` used `ubuntu-24.04` (886 tests, 873 passed, 13 skipped, 0 failed). Other Node platforms remain best-effort. Live `agy` runs (see the verbs-exercised-live tables below) have not happened on macOS; that coverage stays best-effort until they do. The Windows cells build a compiled `csc.exe` stand-in for `agy` (test-only, see `tests/helpers/fake-agy.mjs`); `node --test` runs each test file as its own process, so before 2026-09-26 those processes could race to compile the same cached output file and fail with `CS0016` (seen on `windows-latest` in CI runs on 2026-09-12 and 2026-09-25). Each compile now targets a unique temp path and is promoted into the shared cache, so no two processes write the same file. |
 | Public verbs | Ten: setup, review, rescue, task, vision, media, status, result, cancel, doctor. |
 | Optional YouTube tools | yt-dlp 2026.10.26; ffmpeg for video merges. Local media needs neither. |
 | Node.js | `>=22.3.0` |
@@ -61,7 +61,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.4.0 | Measured pass: native discovery of all nine exact aliases and one TUI `doctor --json`; `task` foreground and background; `status` and `result` for that background job; `cancel` of an observed running job; trivial foreground `rescue`; plain `review` detecting a subtraction regression; one synthetic `vision` image with `--expect`. Not measured: `setup`, the remaining flags/modes, and all nine verbs through native wrappers. See the [1.4.0 runtime probes](#agy-140-runtime-probes). | 2026-10-16 |
 | 1.5.0 | On 2026-11-04: setup --skip-vision, task foreground/background, status/result/cancel lifecycle, rescue, plain review and findings review, vision. The native doctor attempt was denied; its alternate skip-permission run is not a normal-wrapper pass. Probe ids dated 2026-11-04: (setup-skip-vision.txt, task-bg-wait.txt, cancel.txt, rescue.txt, review-plain.txt, review-findings.txt, vision.txt, native-doctor.txt, native-doctor-skip.txt). Media and doctor tool probes on 2026-11-06 are recorded below. | 2026-11-06 |
 | 1.5.1 | Media local and YouTube probes, near-cap file and doctor. Partial coverage and exact outcomes below. The installed binary reported 1.5.1 during these runs; 1.5.0 remains the separate controller measurement above. | 2026-11-06 |
-| 1.5.3 | Standalone measured pass: plugin version and review help; doctor receipt (warnings, exit 0); foreground task (OK, total=7880 in=7875 out=5); rescue (RESCUE, total=7906 in=7874 out=32); working-tree review (APPROVE, total=16895 in=15348 out=1547); vision using the existing registration (red, total=29403 in=27288 out=2115); local one-second red MP4 media (Red, total=16914 in=16353 out=561); YouTube jNQXAC9IVRw transcript-only (captions, no model or usage trailer); status list and result. Raw files in A:/tmp/153-pkg-d/: live-{agy-version,version,help,doctor,task,rescue,review-retry,vision,media,transcript,status,result}.out and corresponding .err where emitted. The first review command used unsupported --path and was refused before agy; the supported retry passed. Not run: setup, setup --remove-vision, hosts 2 to 4, agy 1.5.2, background/cancel and other optional flags. Coverage is partial. | 2026-11-09 |
+| 1.5.3 | Standalone measured pass: plugin version and review help; doctor receipt (warnings, exit 0); foreground task (OK, total=7880 in=7875 out=5); rescue (RESCUE, total=7906 in=7874 out=32); working-tree review (APPROVE, total=16895 in=15348 out=1547); vision using the existing registration (red, total=29403 in=27288 out=2115); local one-second red MP4 media (Red, total=16914 in=16353 out=561); YouTube jNQXAC9IVRw transcript-only (captions, no model or usage trailer); status list and result. The first review command used unsupported --path and was refused before agy; the supported retry passed. Not run: setup, setup --remove-vision, hosts 2 to 4, agy 1.5.2, background/cancel and other optional flags. Coverage is partial. | 2026-11-09 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
 `result`. The 1.1.24 runs covered foreground and background `rescue` and
@@ -76,7 +76,7 @@ The newest measured version is agy 1.5.3, on 2026-11-09. Each row states
 what passed and what was not run. The historical 1.3.1 row retains its
 per-verb results from 2026-10-08. The agy
 changelogs for 1.2.13 to 1.3.0 were read, not measured. The previous smoke-only measurement is agy 1.2.12, on
-2026-09-27, from commit `9c21979` (`probe-setup.txt`, `probe-task-foreground-json.txt`,
+2026-09-27, from the measured release tree (`probe-setup.txt`, `probe-task-foreground-json.txt`,
 `probe-background-lifecycle.txt`, `probe-status-list.txt`). The 1.2.12 row covers smoke-only measurement: `setup` with `--skip-vision`, `task` foreground and background, `status` list, `result`, and the structured output flag probe. The table also retains the saved
 transcripts for earlier versions. The 1.2.11 rows cover `task`,
 `rescue`, `review`, `vision`, `status`, `result`, and `cancel`
@@ -280,7 +280,7 @@ touched the real `~/.gemini` store on agy 1.2.12: verified, transcript
 
 ### agy 1.4.0 runtime probes
 
-The plugin runtime was run on Windows with agy 1.4.0 and Node 25.8.1 on
+The plugin at version 3.0.1 was run on Windows with agy 1.4.0 and Node 25.8.1 on
 2026-10-16. Scratch repositories and a separate plugin state root kept the
 jobs isolated. Existing OAuth and the existing trusted vision server were
 used without changing host configuration.
@@ -485,7 +485,7 @@ stable.
 
 ### `--json`
 
-`--json` is public on every verb except `setup`. It is a contract for a stable
+`--json` is public on every verb. Setup stays foreground; sign-in output goes to stderr in JSON mode. It is a contract for a stable
 outer envelope, not a promise that model answers are structured. When a command
 reaches a normal output path with `--json`, its entire stdout stream is exactly
 one pretty-printed JSON object followed by a newline. The object has these
@@ -494,8 +494,8 @@ fields in envelope version 1:
 | Field | 3.x contract |
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
-| `command` | One of `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`; `review --models` is `paired`, `jobId: null`, `answer: null`, representing TWO jobs under `details.jobs` instead of one (see [Package E additive paired-review surface](#package-e-additive-paired-review-surface-320)). `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
+| `command` | One of `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`, `doctor`, or `setup`, matching the invoked verb. |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`; `review --models` is `paired`, `jobId: null`, `answer: null`, representing TWO jobs under `details.jobs` instead of one (see [Review with two models](#review-with-two-models-320)). `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 3.x; consumers must tolerate additions, removals, and changes within it. |
@@ -925,7 +925,7 @@ These variables have direct semantics in the shipped code:
 
 | Variable | Contract |
 |---|---|
-| `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing, for setup, review, rescue, task and vision, except for `--preview` on review, task, rescue and vision. Media has no dispatcher preflight; direct command-module invocation can fall back to normal discovery. |
+| `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing, for setup, review, rescue, task and vision, except for `setup --remove-vision` and `--preview` on review, task, rescue and vision. Media has no dispatcher preflight; direct command-module invocation can fall back to normal discovery. |
 | `ANTIGRAVITY_AGY_TIMEOUT_MS` | Execution budget for foreground and background jobs, in milliseconds; defaults to 1800000 (30 minutes). A positive decimal safe integer up to 2147483647 overrides it; exactly `0` disables it. Invalid values are ignored with one stderr warning. Background jobs store the budget when queued and receive the full budget when the worker starts agy. |
 | `PATH` / `Path` | Searched for `agy`; Windows accepts its conventional `Path` casing when `PATH` is absent. |
 | `HOME` / `USERPROFILE` | Used, in that order, for the fallback `<home>/.local/bin/agy` search. Node's platform home directory also determines the `~/.gemini` paths used by vision setup. |
@@ -1439,7 +1439,7 @@ meaning:
   reason?, checkedAt }` on `result <job-id> --check-current`; absent without the
   flag. `reason` is set only with `unknown`: `legacy_record`, `base_not_found`,
   `default_base_not_found` or `collection_failed`. One stderr line, also appended
-  to the markdown: `currentness check (snapshot): <status>.`
+  to the markdown: `antigravity:result — currentness check (snapshot): <status>.`
 - Error code `check_current_unsupported_kind` (additive, 3.2.0): `invalid_input`
   (exit 1) when `result --check-current` addresses a job that is not a `review`
   job.
@@ -1736,7 +1736,7 @@ Version-probe load measurements (2026-11-04): `agy --version` took 0.9 to 1.4 se
 
 Load regression probes on 2026-11-06: `load-local` (`clip.mp4 --expect ZEBRA`) completed with `all_found`, and `load-transcript` (YouTube `jNQXAC9IVRw`, `--transcript --prompt "One sentence."`) completed. Each ran while `npm test` was active. Both used agy 1.5.1.
 
-### Package A additive model selection surface (Unreleased)
+### Model aliases (3.2.0)
 
 - Flag `--model-alias <alias>` on task, rescue, review, vision, and media.
 - Setup flag `--json` reports the best-effort check after OAuth.
@@ -1801,17 +1801,14 @@ request-id creation runs inside a synchronous mutex callback. Model facts
 remain in `provenance.requestedAlias`, `provenance.resolvedModel`, and the
 reported model. Receipt text contains only its five named keys. Plain
 doctor output and its exit rule stay unchanged except for the measured ceiling
-updated by the 1.5.3 measurement. Under the exclusive suite slot on this
+updated by the 1.5.3 measurement. In serial test runs on this
 Windows host, ten fake-agy foreground tasks per tree took median
-2624.97 ms / maximum 3512.27 ms on base 966559d, and median
-2646.26 ms / maximum 3876.15 ms on package D (7b32385).
+2624.97 ms / maximum 3512.27 ms on the baseline, and median
+2646.26 ms / maximum 3876.15 ms in the receipt checks.
 The median difference was 21.29 ms. This sample includes process
 scheduling noise. The failure-path probe budget is 1,000 ms.
 
-### Package E additive paired-review surface (3.2.0)
-
-The 3.2.0 output examples quote message bodies, without the CLI prefix
-and separator. The runtime still prints its usual prefix.
+### Review with two models (3.2.0)
 
 - Flag `--models <a,b>` on `review`: two comma-separated, non-empty, distinct
   model tokens, each an exact id or `alias:<name>`. Opt-in; never a default;
@@ -1866,7 +1863,7 @@ and separator. The runtime still prints its usual prefix.
   and the id). An unknown alias and this refusal use the existing
   model-resolution refusal, which under `--json` is the existing
   `model_alias_unavailable` error envelope.
-- Stderr line per denied action of a leg: `"<model>"
+- Stderr line per denied action of a leg: `antigravity:review — "<model>"
   denied "<action>" ...: <remedy>`, escaped and cut to 80 characters per
   field.
 - New file `scripts/lib/review-compare.mjs`: the value parser, the two-token
@@ -1886,7 +1883,7 @@ contract. The feature's own bounded-value check (whether two models
 find materially more than one, on real diffs) is recorded as the owner's
 post-ship validation, not a gate this release's implementation waited on.
 
-### Windows console windows (Unreleased)
+### Windows console windows (3.2.0)
 
 On Windows the plugin starts every process with Node's `windowsHide: true`
 option. One module applies it, `scripts/lib/process-adapter.mjs`;
