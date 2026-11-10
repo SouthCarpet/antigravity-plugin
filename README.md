@@ -2,6 +2,10 @@
 
 # antigravity-plugin
 
+Windows background cleanup stops confirmed agy tools after a worker disappears.
+Tools without proof stay running and are named in the job log. See the
+[cleanup limits and query budget](./docs/COMPATIBILITY.md#additive-surface-added-after-100).
+
 Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's Antigravity CLI from Claude Code, Codex CLI, agy, or your shell.
 
 [npm](https://www.npmjs.com/package/@southcarpet/antigravity-plugin) · [Releases](https://github.com/SouthCarpet/antigravity-plugin/releases) · [Changelog](./CHANGELOG.md) · [Commands](./docs/COMMANDS.md) · [Security](./SECURITY.md)

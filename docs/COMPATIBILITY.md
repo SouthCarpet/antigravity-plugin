@@ -951,6 +951,9 @@ the normal Node fashion but have no plugin-specific compatibility promise.
 
 ## Job state and configuration locations
 
+Background records can hold the optional worker-only `agyAliveAt` field.
+See the additive surface below for its identity meaning and clock limit.
+
 The workspace is the Git repository root when one can be resolved, otherwise
 the command's working directory. Each workspace gets a leaf named from a
 sanitized directory basename plus a 12-character hash of the resolved
@@ -1502,6 +1505,13 @@ meaning:
   right after agy started. Launch-time reads retry once after a failed query if the process is still alive;
   two PowerShell queries have a combined 10-second timeout bound. A failed
   second read still stores `null` and never permits an unconfirmed signal.
+- `agyAliveAt` (additive, 3.2.0): optional ISO time written only by the
+  background worker at agy PID publication and heartbeat patches while its
+  own child session has not received exit. It stops advancing on exit.
+  Old records stay readable and confirm no orphan tools. Older readers
+  ignore it. It is visible in stored job records, `state.json` entries and
+  existing job objects in single-job and list `status --json` output;
+  `result --json` and `cancel --json` add no field.
 - **Worker diagnostics**: detached workers capture runtime stderr before the
   worker module loads. Safe, redacted diagnostic lines use a 64 KiB limit
   per worker. The final error handler also appends a safe reason and records failure
@@ -1522,6 +1532,32 @@ meaning:
   of that process (within 1 second). Otherwise it writes
   `[wait] agy pid=<pid> not signalled: not confirmed as this job's process`
   to the job log and still records `worker_missing`, as before.
+- **Windows orphan tools** (3.2.0): when agy is already gone, the vanished-worker
+  waiter and `cancel` run one creator query outside the workspace lock.
+  A tool must name the recorded agy PID as creator and have an OS creation
+  time between `agyProcessStartedAt` and `agyAliveAt`, inclusive. No tolerance
+  widens these bounds. Its current identity is checked again before tree
+  termination. Unconfirmed tools stay running and get one job log line.
+  The query has a 15000 ms timeout, no retry, a 64 KiB output cap and a
+  limit of 64 candidates. An unusable answer signals nothing and logs a safe
+  reason: `timeout`, `spawn_failed`, `exit_nonzero`, `malformed`, `too_many`, or `unsupported`.
+  No query output or path is logged. One 60-second total cleanup budget starts
+  before the query, for both `waitForJob` and `cancel`. Each candidate reserves
+  5 seconds for its full identity check and 21 seconds for the existing tree
+  termination (two 10-second attempts and two 500 ms grace windows). A candidate
+  is not started without that reserve; the budget is checked again after its
+  complete identity check. Remaining tools get one `not signalled: cleanup time
+  budget used` line each. No identity check is shortened. The new worst case is
+  60 seconds plus file I/O and OS scheduling delays, replacing 1669 seconds.
+  Normal waits,
+  normal failures, cancellation of live agy and POSIX do not run this query.
+  POSIX keeps the existing process-group termination.
+  Limits: tools started after the last `agyAliveAt` (about one heartbeat
+  interval), deeper tools whose parent ended, and foreground runs whose CLI
+  was killed can remain. A backwards system-clock change between OS creation
+  and the worker reading can invalidate the interval proof. The three runtime
+  probes, foreground runtime termination and media-download stay root-only
+  callers when their root is already gone.
 - **Google OAuth URLs are removed from output** (2026-10): each URL of the
   form `accounts.google.com/o/oauth2/...` or
   `accounts.google.com/signin/oauth...` becomes `[oauth-url-removed]` in

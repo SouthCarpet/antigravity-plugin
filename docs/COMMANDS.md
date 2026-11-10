@@ -1051,6 +1051,13 @@ This reads only the cached value; status itself never calls agy. `status
 For queued and running jobs, health is observed from the worker PID, a
 persisted heartbeat written every 15 seconds, and persisted model-output
 progress. Output and heartbeat updates share a five-second write throttle.
+The optional `agyAliveAt` record field is written only by the background
+worker while its agy child has not received exit. It is visible in existing
+job objects in single-job and list `status --json` output, not added to
+`result` or `cancel` envelopes.
+On Windows, a missing worker or an already-gone agy in `cancel` can trigger
+confirmed-tool cleanup. Unconfirmed tools stay running and are named in the
+job log. See the [identity rule, limits and budget](./COMPATIBILITY.md#additive-surface-added-after-100).
 Until an older job has either observation, its `startedAt` value is used, so a
 live worker is `active` for recent activity, `quiet` after two minutes, and
 only `possibly_stalled` after ten minutes without activity. A missing worker
@@ -1329,6 +1336,12 @@ recorded agy process, then records `cancelled` only when all known targets are
 confirmed killed or already absent. A job with no recorded process id, a
 termination failure, or a state persistence failure remains an error and can
 be retried.
+
+On Windows, when agy was already absent, cancel also attempts the confirmed-tool
+cleanup described in [Compatibility](./COMPATIBILITY.md#additive-surface-added-after-100).
+Its cancellation outcome still describes the recorded worker and agy roots.
+Tool cleanup changes only the job log. An unconfirmed tool or a failed query
+can leave tools running even when cancel reports `cancelled`.
 
 Before it signals a recorded process, cancel checks its start time. At launch
 the plugin stores the OS start time of each worker and agy process in the
