@@ -319,17 +319,17 @@ describe('compareReviewFindings', () => {
 
 // The model-value contract refuses flags before resolution; ids keep punctuation.
 describe('model token flag safety', () => {
-  for (const raw of ['a,--x', '--x,b', 'a,-x', 'a,-', 'a,  -x']) {
+  for (const [raw, token] of [['a,--x', '--x'], ['--x,b', '--x'], ['a,-x', '-x'], ['a,-', '-'], ['a,  -x', '  -x']]) {
     it(`refuses a leading dash in ${JSON.stringify(raw)} without trimming tokens`, () => {
       assert.deepEqual(parseModelsOption(raw), {
         ok: false,
-        reason: `--models token ${JSON.stringify(raw.split(',').find(t => t.trimStart().startsWith('-')))} must not start with a dash`,
+        reason: `--models token ${JSON.stringify(token)} must not start with a dash`,
       });
     });
   }
-  for (const raw of ['gemini-3.8-flash-high,alias:flash', 'a.b,c/d', 'vendor:model,  plain']) {
+  for (const [raw, tokens] of [['gemini-3.8-flash-high,alias:flash', ['gemini-3.8-flash-high', 'alias:flash']], ['a.b,c/d', ['a.b', 'c/d']], ['vendor:model,  plain', ['vendor:model', '  plain']]]) {
     it(`keeps valid punctuation and whitespace in ${JSON.stringify(raw)}`, () => {
-      assert.deepEqual(parseModelsOption(raw), { ok: true, tokens: raw.split(',') });
+      assert.deepEqual(parseModelsOption(raw), { ok: true, tokens });
     });
   }
 });

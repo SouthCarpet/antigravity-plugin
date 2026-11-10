@@ -423,6 +423,24 @@ describe('/antigravity:review --models (in-process)', () => {
     }
   });
 
+  // Pair values must fail before diff construction, probes, or job writes, even with --json.
+  for (const jsonArgs of [[], ['--json']]) {
+    it(`refuses a dash model before side effects ${jsonArgs.join(' ')}`, async () => {
+      const { run } = await import('../scripts/commands/review.mjs');
+      const beforeFiles = fs.readdirSync(tempDir);
+      const cap = captureStdio();
+      let exit;
+      try { exit = await run(['--models', 'a,--x', '--findings-json', ...jsonArgs], { cwd: tempDir }); }
+      finally { cap.restore(); }
+      assert.equal(exit, 1);
+      assert.equal(cap.out.join(''), '');
+      assert.equal(cap.err.join(''), 'antigravity:review \u2014 --models token "--x" must not start with a dash\n');
+      assert.equal(agyRuntime.calls.length, 0);
+      assert.equal(inputBuilds.count, 0);
+      assert.deepEqual(fs.readdirSync(tempDir), beforeFiles);
+    });
+  }
+
   it('refuses --models without --findings-json', async () => {
     prepareTrackedChange(tempDir);
     const { run } = await import('../scripts/commands/review.mjs');
