@@ -769,3 +769,59 @@ describe('worker persisted-request effort revalidation', () => {
     });
   }
 });
+
+// Oracle: fix-2 ruling 1b. Publication must sample before a queued microtask.
+it('first agy PID patch samples liveness and clock before any asynchronous gap', () => {
+  const root = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-publication-'));
+  const helpers = new URL('../scripts/lib/job-helpers.mjs', import.meta.url).href;
+  const recorder = new URL('../scripts/lib/job-activity.mjs', import.meta.url).href;
+  const runtimeUrl = new URL('../scripts/lib/agent-runtime.mjs', import.meta.url).href;
+  const worker = new URL('../scripts/commands/_worker.mjs', import.meta.url).href;
+  const script = `
+    import { mock } from 'node:test';
+    import assert from 'node:assert/strict';
+    const h = await import(${JSON.stringify(helpers)});
+    const a = await import(${JSON.stringify(recorder)});
+    const r = await import(${JSON.stringify(runtimeUrl)});
+    const root = ${JSON.stringify(root)};
+    process.env.CLAUDE_PLUGIN_DATA = root;
+    process.argv = [process.execPath, 'worker', 'abcdefabcdef', root];
+    await h.patchJob(root, 'abcdefabcdef', { status: 'queued', request: { prompt: 'test' } });
+    let gap = false, checked = false, published = false;
+    mock.module(${JSON.stringify(recorder)}, { namedExports: { ...a,
+      createJobActivityRecorder: (root, id, options) => a.createJobActivityRecorder(root, id, {
+        ...options, now: () => {
+          assert.equal(checked, true, 'liveness before clock');
+          assert.equal(gap, false, 'no microtask between liveness and clock');
+          return Date.parse('2026-11-10T10:00:15.000Z');
+        },
+      }),
+    } });
+    mock.module(${JSON.stringify(helpers)}, { namedExports: { ...h, patchJob: async (...args) => {
+      if (Object.hasOwn(args[2], 'agyPid')) {
+        assert.equal(published, false, 'first PID publication');
+        assert.equal(args[2].agyAliveAt, '2026-11-10T10:00:15.000Z');
+        published = true;
+      }
+      return h.patchJob(...args);
+    } } });
+    mock.module(${JSON.stringify(runtimeUrl)}, { namedExports: { ...r, runAgyPrint: async options => {
+      queueMicrotask(() => { gap = true; });
+      await options.onSpawn({ pid: 7331, isAlive: () => {
+        assert.equal(gap, false, 'publication must start before the queued microtask');
+        checked = true;
+        return true;
+      } });
+      assert.equal(published, true, 'PID patch carries the live sample');
+      return { status: 'completed', exitCode: 0, stdout: 'done', stderr: '' };
+    } } });
+    await import(${JSON.stringify(worker)});
+  `;
+  try {
+    const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+      { encoding: 'utf8', timeout: 20000, windowsHide: true });
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    removeTestDir(root);
+  }
+});

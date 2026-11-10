@@ -421,3 +421,20 @@ test('missing worker PID does not reserve a valid confirmed tool', async () => {
   await cleanupConfirmedTools(root, { ...job, workerPid: 'bad' }, deps);
   assert.deepEqual(deps.signals, [600]);
 });
+
+// Oracle: fix-2 ruling 1a. The sample belongs to the tick, before its queued write.
+test('exit immediately after heartbeat tick preserves the tick sample in the queued patch', async () => {
+  let time = Date.parse('2026-11-10T10:00:15.000Z');
+  let live = true;
+  let tick;
+  const patches = [];
+  const activity = createJobActivityRecorder('root', 'job', { heartbeat: true, now: () => time,
+    patch: async (_root, _id, fields) => patches.push(fields),
+    setIntervalImpl: callback => { tick = callback; return { unref() {} }; }, clearIntervalImpl() {} });
+  activity.setAgyIsAlive(() => live);
+  tick();
+  live = false;
+  time = Date.parse('2026-11-10T10:00:16.000Z');
+  await activity.finish();
+  assert.deepEqual(patches, [{ lastHeartbeatAt: '2026-11-10T10:00:15.000Z', agyAliveAt: '2026-11-10T10:00:15.000Z' }]);
+});
