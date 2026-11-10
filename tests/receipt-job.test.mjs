@@ -1,4 +1,4 @@
-/** Ruling 4: help failure never changes the foreground job exit or result. */
+/** A help failure never changes the foreground job exit or result. */
 import {it,mock,after} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +16,7 @@ mock.module('../scripts/lib/process-adapter.mjs',{namedExports:{spawn:realSpawn,
 const {run}=await import('../scripts/commands/task.mjs');
 const {readJobFile}=await import('../scripts/lib/state.mjs');
 for(const [name,value] of [['real timeout','real'],['spawn error',{error:new Error('failed')}],['nonzero',{status:1,stdout:'--model'}],['empty',{status:0,stdout:''}],['timeout',{status:null,error:Object.assign(new Error('timeout'),{code:'ETIMEDOUT'})}]]){
- it(`${name} help still completes task with exit 0 and null listing (ruling 4)`,async()=>{
+ it(`${name} help still completes task with exit 0 and null listing`,async()=>{
   result=value;helpCalls=0;
   const savedBin=process.env.AGY_BIN,savedData=process.env.CLAUDE_PLUGIN_DATA;
   process.env.AGY_BIN=result==='real'?slowFake:fake;process.env.CLAUDE_PLUGIN_DATA=path.join(root,'state');

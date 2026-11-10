@@ -1,5 +1,5 @@
 /**
- * `media --preview` with `--output` and `--timestamps` (3.2.0, package C).
+ * `media --preview` with `--output` and `--timestamps` (3.2.0).
  * The preview keeps its guarantee: no agy spawn, no download, no state write,
  * no file write. It uses the real runtime (the preview builds its argv with
  * it), so this file does not mock the agent runtime.
@@ -55,7 +55,7 @@ const nothingHappened = () => {
   assert.equal(fs.existsSync(path.join(dir, 'data')), false, 'state was written');
 };
 
-// Oracle: ruling 8 "Preview" and ruling 7: the preview shows the facts, validates the shape, writes nothing.
+// Oracle: the preview shows the facts, validates the shape, writes nothing.
 test('shows the resolved target and the timestamps fact and writes nothing', async () => {
   const r = await go([URL, '--transcript', '--timestamps', '--output', 'p.txt', '--preview', '--json']);
   assert.equal(r.code, 0, r.err);

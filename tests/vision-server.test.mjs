@@ -73,7 +73,7 @@ const tmpDirs = [];
 before(() => {
   // Realpath'd up front: on macOS os.tmpdir() sits under /var, a symlink to
   // /private/var, and scripts/commands/vision.mjs records the allowlist in
-  // its resolved form (084-T4 F3). Every allowlist entry built from tmpDir
+  // its resolved form. Every allowlist entry built from tmpDir
   // below must already be in that same resolved form to exercise the
   // realistic (production) shape rather than the ancestor-symlink case the
   // dedicated tests further down cover explicitly.
@@ -154,7 +154,7 @@ describe('vision-server.loadImageResult', () => {
     assert.ok(imagePart, 'expected an image content block');
     assert.equal(imagePart.mimeType, 'image/png');
     assert.ok(imagePart.data.length > 0);
-    // Brief R1: retain the documented text-then-image success shape and pixels.
+    // Retain the documented text-then-image success shape and pixels.
     assert.deepEqual(out.content.map((part) => part.type), ['text', 'image']);
     assert.equal(imagePart.data, TINY_PNG_BASE64);
   });
@@ -217,7 +217,7 @@ describe('vision-server.loadImageResult', () => {
     assert.match(out.content[0].text, /symlink|junction/);
   });
 
-  // 084-T4 F3: an ancestor directory symlink (macOS's os.tmpdir() resolving
+  // An ancestor directory symlink (macOS's os.tmpdir() resolving
   // through /var -> /private/var is the real-world case) must not be
   // refused merely because it exists, as long as the request's own
   // realpath is itself the authorized (already-canonical) entry.
@@ -257,7 +257,7 @@ describe('vision-server.loadImageResult', () => {
     assert.match(out.content[0].text, /not authorized/);
   });
 
-  // 084-T4 F3, pinned 085-T4 F2: the final component itself must stay refused
+  // The final component itself must stay refused
   // even though an ancestor symlink is now accepted, and even when its target
   // is ALSO authorized — an authorized NAME must always read the file that
   // name itself is, not whatever it currently points at. Authorizing only the
@@ -397,9 +397,9 @@ describe('vision-server.loadImageResult', () => {
     assert.match(out.content[0].text, /too large/);
   });
 
-  // Oracle for the race, cap and descriptor cases: binding brief 076-T2 R1.
+  // Oracle for the race, cap and descriptor cases.
   it('refuses a real junction/symlink substitution scheduled after the pre-open stat', () => {
-    // Realpath'd (084-T4 F3): the pre-swap authorization check must see the
+    // Realpath'd: the pre-swap authorization check must see the
     // allowlist entry and the request agree before the race even starts.
     const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-vision-race-')));
     tmpDirs.push(dir);
@@ -448,7 +448,7 @@ describe('vision-server.loadImageResult', () => {
   }
 
   it('refuses distinct 64-bit inode indexes that round to the same Number', () => {
-    // Brief fix1 F2: these adjacent file indexes collide as doubles.
+    // These adjacent file indexes collide as doubles.
     const seam = { fs: { ...fs,
       statSync(p, options) {
         return Object.assign(fs.statSync(p, options), {
@@ -563,7 +563,7 @@ function startServer(cwd, allowedPaths = []) {
 }
 
 describe('vision-server (real MCP stdio process)', () => {
-  // Brief fix1 F3: only strings may be echoed as protocolVersion.
+  // Only strings may be echoed as protocolVersion.
   for (const [label, value, expected] of [
     ['string', '2024-11-05', '2024-11-05'],
     ['object', { nested: [1, 2] }, '2025-06-18'],
@@ -604,7 +604,7 @@ describe('vision-server (real MCP stdio process)', () => {
     }
   });
 
-  // Plan 086 T2 D5: agy 1.2.1 "preserves open object schemas ... instead of
+  // Agy 1.2.1 "preserves open object schemas ... instead of
   // rejecting undeclared arguments on schemas that allow them", so the
   // declared schema itself must close the object. loadImageResult's own
   // behaviour is unchanged — an undeclared argument never reached the
@@ -704,7 +704,7 @@ describe('vision-server (real MCP stdio process)', () => {
 });
 
 // A complete stdin session proves recovery and a clean exit, rather than
-// killing the server as soon as a response arrives. Oracle: brief 076-T2 R2.
+// killing the server as soon as a response arrives.
 async function exchangeFrames(t, input) {
   const child = spawn(process.execPath, [SERVER], {
     cwd: tmpDir,
@@ -726,7 +726,7 @@ async function exchangeFrames(t, input) {
   return stdout.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
 }
 
-describe('vision-server malformed input recovery (brief R2)', () => {
+describe('vision-server malformed input recovery', () => {
   const ping = '{"jsonrpc":"2.0","id":99,"method":"ping"}\n';
   const invalidRequests = [
     ['null', 'null', null],
@@ -754,7 +754,7 @@ describe('vision-server malformed input recovery (brief R2)', () => {
     ['missing path', {}],
   ]) {
     it(`rejects ${label} without leaking details and still answers ping`, { timeout: 10000 }, async (t) => {
-      // Deliberately omit name: path validation must catch the brief's exact payload.
+      // Deliberately omit name: path validation must catch the exact payload.
       const frame = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { arguments: args } });
       const replies = await exchangeFrames(t, `${frame}\n${ping}`);
       assert.equal(replies.length, 2);
@@ -818,7 +818,7 @@ describe('vision-server malformed input recovery (brief R2)', () => {
   });
 });
 
-describe('vision-server transport bounds and handler failures (brief R2)', () => {
+describe('vision-server transport bounds and handler failures', () => {
   it('drops an oversized frame across chunks and preserves a split UTF-8 id on the next request', async () => {
     const chunks = [
       Buffer.alloc(MAX_FRAME_BYTES, 120), Buffer.from('x'), Buffer.from('discarded\n'),
@@ -888,7 +888,7 @@ describe('vision-server transport bounds and handler failures (brief R2)', () =>
     });
     await firstWrite;
     try {
-      // Brief fix1 F1: let the request loop advance while output stays stalled;
+      // Let the request loop advance while output stays stalled;
       // the firstWrite microtask alone runs too early to expose a missing wait.
       await setTimeout(50);
       assert.equal(loads, 1, 'a paused client must stop subsequent image reads');

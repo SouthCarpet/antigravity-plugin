@@ -1,6 +1,5 @@
 /**
- * review-findings: the local check behind `review --findings-json` (Senate
- * R7, 2026-09).
+ * review-findings: the local check behind `review --findings-json` (added 2026-09).
  *
  * agy 1.2.12 accepts `--json-schema <path>` on the stream-json transport and
  * puts the model's structured answer on the final `result` event as

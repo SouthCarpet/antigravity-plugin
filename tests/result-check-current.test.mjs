@@ -1,5 +1,5 @@
 /**
- * `result <job-id> --check-current` (3.2.0, package C, item C2).
+ * `result <job-id> --check-current` (3.2.0).
  *
  * Real `review` jobs are made with a mocked agy answer in a real git
  * repository, then the repository is changed and the check is run. The job
@@ -240,7 +240,7 @@ describe('branch scope', () => {
     assert.equal(result.payload.details.checkCurrent.reason, 'base_not_found');
   });
 
-  // Decision (ruling 2): a stored base of null on a branch review means the default base is resolved again today.
+  // Decision: a stored base of null on a branch review means the default base is resolved again today.
   test('match: a branch review with the default base (stored null) resolves main again', async () => {
     const id = await review();
     const request = readJobFile(repo, id).request;
@@ -346,8 +346,8 @@ describe('job kinds', () => {
   }
 });
 
-describe('a record from the next package', () => {
-  // Package E stores `request.pairId` on both jobs of a `review --models` call. Each job is a review job like any other.
+describe('a record from a paired review', () => {
+  // `review --models` stores `request.pairId` on both of its jobs. Each job is a review job like any other.
   test('a stored record with request.pairId is checked on its own, not refused', async () => {
     put('a.txt', 'one\nTWO\nthree\n');
     const id = await review();

@@ -1,6 +1,6 @@
 /**
  * review-currentness: the check behind `result <job-id> --check-current`
- * (3.2.0, plan 153 package C, item C2).
+ * (3.2.0).
  *
  * It answers one question about a finished `review` job: would the review
  * input built from the repository NOW be the same as the input the job sent?

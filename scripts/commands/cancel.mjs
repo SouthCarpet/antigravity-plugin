@@ -268,8 +268,7 @@ export async function run(argv = [], ctx = {}) {
 
 /**
  * Report a `resolveCancelableJob` failure (no active job, or none matching
- * `reference`): the existing stderr line, unchanged, plus (Task 3, "Senate
- * R1", 2026-09) one `state_error` `--json` envelope when `json` is true.
+ * `reference`): the existing stderr line, unchanged, plus (added 2026-09) one `state_error` `--json` envelope when `json` is true.
  * `jobId` is always `null` here — the job was never resolved.
  *
  * @param {unknown} err

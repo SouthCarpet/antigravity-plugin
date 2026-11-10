@@ -1,5 +1,5 @@
 /**
- * `review --models a,b` (plan 153 p2, package E, "E1"): the command-level
+ * `review --models a,b`: the command-level
  * wiring — argv per leg, the shared `request.pairId`, the paired envelope,
  * the exit code rule, and the refusals.
  *
@@ -162,7 +162,7 @@ describe('review --models: real spawns through bin/antigravity.mjs', () => {
       envFor(echoAgy, data), work,
     );
     // The echo fake exits 1 on every call: a run failure (unlike
-    // auth_required) never halts the second leg (controller ruling 3), and
+    // auth_required) never halts the second leg, and
     // the command's own exit code is the first non-zero leg's code.
     assert.equal(res.status, 1, res.stderr);
     const payload = JSON.parse(res.stdout);
@@ -396,7 +396,7 @@ function prepareTrackedChange(cwd) {
 }
 
 describe('/antigravity:review --models (in-process)', () => {
-  describe('conflicts (controller ruling 2)', () => {
+  describe('conflicts', () => {
     const pairs = [
       ['--model', 'gemini-x'],
       ['--model-alias', 'flash'],
@@ -491,7 +491,7 @@ describe('/antigravity:review --models (in-process)', () => {
     assert.equal(agyRuntime.calls.length, 2);
     // Every argv-determining field `runAgyPrint` receives for each leg,
     // asserted in full: two fresh-conversation calls, differing only in
-    // `model` (the brief's "two print-mode calls with the two distinct
+    // `model` (the contract's "two print-mode calls with the two distinct
     // models, full argv").
     const argvFields = (call) => ({
       model: call.model, effort: call.effort, mode: call.mode, conversationId: call.conversationId,

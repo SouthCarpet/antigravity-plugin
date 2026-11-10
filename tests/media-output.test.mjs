@@ -1,6 +1,6 @@
 /**
- * `media --output <path>` (item C4) and the `media --transcript --timestamps`
- * command cases (item C1), 3.2.0, package C.
+ * `media --output <path>` and the `media --transcript --timestamps`
+ * command cases (3.2.0).
  *
  * agy is mocked in process (the pattern of tests/media-command.test.mjs);
  * yt-dlp is the process-level fixture of tests/helpers/fake-yt-dlp.mjs.
@@ -84,7 +84,7 @@ function jobFiles() {
 const file = (name) => path.join(dir, name);
 const bytesOf = (name) => fs.readFileSync(file(name));
 
-// Oracle: ruling 8 of the package brief. The file is the stdout answer text plus one final newline.
+// Oracle: the file is the stdout answer text plus one final newline.
 describe('what is written', () => {
   test('a local run saves the answer text exactly as stdout prints it, plus one newline, and prints Saved last', async () => {
     const r = await go([wav, '--output', 'out.txt']);
@@ -206,7 +206,7 @@ describe('what is written', () => {
   });
 });
 
-// Oracle: ruling 8 "Never overwrites" and "Checked early": refusal before any spawn, record or write.
+// Oracle: never overwrites, checked early: refusal before any spawn, record or write.
 describe('target refusals', () => {
   function makeTargets() {
     const targets = {};

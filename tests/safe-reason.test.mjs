@@ -1,4 +1,4 @@
-/** Exact expectations come from the binding allow-list specification and the verifier's bypass inputs. */
+/** Exact expectations come from the allow-list specification and known bypass inputs. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_SAFE_REASON_LENGTH, safeFailureReason } from '../scripts/lib/safe-reason.mjs';
@@ -53,7 +53,7 @@ const CASES = [
   ['returns null when only numbers and short words remain', '12 ab xy [redacted] [redacted-url]', null],
   ['ignores readable letters in markers', 'a=secret https://one.test', null, 'secret', 'one.test'],
   ['keeps a three-letter ASCII run', 'abc 12', 'abc 12'],
-  // Oracle: T4b items 1 to 5 and the numbered V2 verifier probes.
+  // Oracle: five filter rules and the numbered probes.
   ['V2 row 9 redacts a glued header and its value', 'failed Authorization:Basic dXNlcjpwYXNz retry', 'failed [redacted] retry', 'Authorization:Basic', 'dXNlcjpwYXNz'],
   ['V2 row 10 redacts a glued password and next token', 'failed password:hunter2 retry', 'failed [redacted]', 'hunter2'],
   ['V2 row 11 redacts a glued API key and next token', 'failed api_key:abcd1234ef retry', 'failed [redacted]', 'abcd1234ef'],
@@ -88,20 +88,20 @@ const CASES = [
   ['keeps a short value after an unlisted word', 'failed authToken hunter2 retry', 'failed authToken hunter2 retry'],
   ['checks the word after a numeric status as an ordinary token', 'UNAVAILABLE (code 503): hunter2 remains today', 'UNAVAILABLE (code 503): hunter2 remains today'],
   ['V2 row 50 redacts a slash-separated base64 mixed run', 'failed YWJjZGVm/YWJjZGVmMTIzNDU2Nzg5 retry', 'failed [redacted] retry', 'YWJjZGVm', 'YWJjZGVmMTIzNDU2Nzg5'],
-  // Oracle: T4c keeps a joined keyword; it replaces any other token with a format sentinel.
-  ['T4c redacts a format-glued Bearer value and keeps retry', 'Bearer\u200bshortSecret retry', '[redacted] retry', 'shortSecret', '\ue000'],
-  ['T4c rejoins Bearer and masks its next two tokens', 'Be\u200barer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c rejoins password and masks its next two tokens', 'pass\u00adword hunter2 retry', 'password [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c returns null for a format-split long run alone', `${'A'.repeat(20)}\u200b${'A'.repeat(20)}`, null, 'A'.repeat(20), '\ue000'],
-  ['T4c redacts a nonkeyword with a raw sentinel', 'failed short\ue000Secret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
-  ['T4c recognizes a keyword with a raw sentinel', 'Be\ue000arer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c rejoins a keyword with two format characters', 'Be\u200ba\u00adrer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c redacts a nonkeyword with two format characters', 'failed short\u200bSe\u00adcret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
-  ['T4c rejoins a keyword with surrounding punctuation', 'failed ("Be\u200barer"), hunter2 retry later', 'failed ("Bearer"), [redacted] later', 'hunter2', 'retry', '\ue000'],
-  ['T4c rejoins a colon keyword and masks its next token', 'failed Auth\u200borization:Basic dXNlcjpwYXNz retry', 'failed [redacted] retry', 'dXNlcjpwYXNz', '\ue000'],
-  ['T4c recognizes surrounding punctuation before the first colon', 'failed ("pass\u00adword"):hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
-  ['T4c strips leading punctuation before a colon keyword check', 'failed :\u200bBearer:hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
-  ['T4c redacts a token made only of raw sentinels', 'failed \ue000\ue000 retry', 'failed [redacted] retry', '\ue000'],
+  // Oracle: the filter keeps a joined keyword; it replaces any other token with a format sentinel.
+  ['redacts a format-glued Bearer value and keeps retry', 'Bearer\u200bshortSecret retry', '[redacted] retry', 'shortSecret', '\ue000'],
+  ['rejoins Bearer and masks its next two tokens', 'Be\u200barer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['rejoins password and masks its next two tokens', 'pass\u00adword hunter2 retry', 'password [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['returns null for a format-split long run alone', `${'A'.repeat(20)}\u200b${'A'.repeat(20)}`, null, 'A'.repeat(20), '\ue000'],
+  ['redacts a nonkeyword with a raw sentinel', 'failed short\ue000Secret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
+  ['recognizes a keyword with a raw sentinel', 'Be\ue000arer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['rejoins a keyword with two format characters', 'Be\u200ba\u00adrer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['redacts a nonkeyword with two format characters', 'failed short\u200bSe\u00adcret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
+  ['rejoins a keyword with surrounding punctuation', 'failed ("Be\u200barer"), hunter2 retry later', 'failed ("Bearer"), [redacted] later', 'hunter2', 'retry', '\ue000'],
+  ['rejoins a colon keyword and masks its next token', 'failed Auth\u200borization:Basic dXNlcjpwYXNz retry', 'failed [redacted] retry', 'dXNlcjpwYXNz', '\ue000'],
+  ['recognizes surrounding punctuation before the first colon', 'failed ("pass\u00adword"):hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
+  ['strips leading punctuation before a colon keyword check', 'failed :\u200bBearer:hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
+  ['redacts a token made only of raw sentinels', 'failed \ue000\ue000 retry', 'failed [redacted] retry', '\ue000'],
 ];
 
 describe('safeFailureReason: exact allow-list outputs', () => {
@@ -115,8 +115,8 @@ describe('safeFailureReason: exact allow-list outputs', () => {
   }
 });
 
-// Oracle: T4b requires an unchanged diagnostic for each of the five filter changes.
-describe('safeFailureReason: each T4b fix preserves diagnostics', () => {
+// Oracle: an unchanged diagnostic is required for each of the five filter changes.
+describe('safeFailureReason: each filter fix preserves diagnostics', () => {
   for (const item of [1, 2, 3, 4, 5]) {
     it(`item ${item} keeps the capacity line, ERROR status and model id`, () => {
       assert.equal(safeFailureReason(CAPACITY), CAPACITY);

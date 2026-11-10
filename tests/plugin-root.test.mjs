@@ -1,11 +1,10 @@
 /**
- * Tests for scripts/lib/plugin-root.mjs's own exports (076-T7 R5b, fix
- * round 1 F1/F2).
+ * Tests for scripts/lib/plugin-root.mjs's own exports.
  *
  * `tests/command-wrappers.test.mjs` covers `hostBootstrapSource`/`hostBangLine`
  * against the real commands/*.md wrapper files and against a live
  * `require()`-able plugin tree end to end, including the fixture attacks
- * (foreign module, empty/missing root) that motivated F1/F2. This file
+ * (foreign module, empty/missing root) that motivated the checks. This file
  * covers the module's exports directly: the generated one-line snippet's
  * shape — it checks the manifest itself before requiring anything from the
  * root — and the message builders whose wording it reuses.
@@ -35,7 +34,7 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
     assert.match(source, /process\.exit\(/);
   });
 
-  it('checks the manifest and module presence inline before requiring from the root (F1/F2)', () => {
+  it('checks the manifest and module presence inline before requiring from the root', () => {
     const source = hostBootstrapSource('status');
     assert.equal(source.includes('plugin.json'), true, source);
     assert.equal(source.includes('JSON.parse'), true, source);
@@ -66,9 +65,9 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
     assert.throws(() => hostBootstrapSource("review';process.exit(0)//"), /invalid verb/);
   });
 
-  // 076-T7 fix round 1 (F1/F2): the manifest check the snippet now carries
+  // The manifest check the snippet now carries
   // inline pushed every wrapper's bang line past the pre-fix 400-character
-  // bar. The controller's guidance is explicit that correctness wins here
+  // bar. Correctness wins here
   // ("the 400-character bar for the bang line yields to this check") — this
   // test keeps a sane upper bound so a future regression (e.g. duplicated
   // logic, verbose identifiers) still gets caught, without reintroducing a
@@ -121,7 +120,7 @@ describe('plugin-root.mjs: root resolution (unchanged by R5b)', () => {
   });
 });
 
-// Oracle: package J wrapper refusal is one complete line, exit 1, with no pending stderr.
+// Oracle: the wrapper refusal is one complete line, exit 1, with no pending stderr.
 import fs from 'node:fs';
 import os from 'node:os';
 import { runOutput, assertDrained } from './helpers/slow-output.mjs';

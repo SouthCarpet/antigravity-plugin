@@ -7,7 +7,7 @@ import process from "node:process";
 
 export const GIT_TIMEOUT_MS = 120_000;
 const PROCESS_START_CACHE_TTL_MS = 5_000;
-// Fix brief 076-T4-fix2 F3: measured on this machine across 5 freshly
+// Measured on this machine across 5 freshly
 // spawned node processes (one "cold" call each, immediately followed by 2
 // "warm" calls in the same process, 500 ms apart) — 15 samples of the exact
 // PowerShell command below ranged 548.4-631.8 ms, with no measurable

@@ -1,7 +1,7 @@
 /**
- * Windows console behaviour of a background job (plan 153 package G).
+ * Windows console behaviour of a background job.
  *
- * The background worker is detached and has no console. Before package G
+ * The background worker is detached and has no console. Before 3.2.0
  * every console program it started got a new console WINDOW, and Windows
  * handed that window to the default terminal application (one terminal
  * window per child). scripts/lib/process-adapter.mjs now starts every child
@@ -18,7 +18,7 @@
  *    detect: a console host of the worker or of agy that outlives the job.
  *    What it cannot detect: with Windows Console Host as the default
  *    terminal a console host ends with its program, with or without the
- *    hide option, so this case passed before package G too. It also cannot
+ *    hide option, so this case passed before 3.2.0 too. It also cannot
  *    see a console host of a short helper (the start-time query, taskkill,
  *    git), because the job record does not store those PIDs.
  *

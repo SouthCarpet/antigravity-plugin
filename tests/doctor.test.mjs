@@ -1,6 +1,5 @@
 /**
- * Tests for `/antigravity:doctor` (scripts/commands/doctor.mjs, Senate R2,
- * 2026-09): a read-only environment/configuration check with no OAuth, no
+ * Tests for `/antigravity:doctor` (scripts/commands/doctor.mjs, 2026-09): a read-only environment/configuration check with no OAuth, no
  * model call, no file write, and no network access.
  *
  * Uses a real spawnable fake `agy` (tests/helpers/fake-agy.mjs), not a
@@ -111,7 +110,7 @@ describe("doctor: no OAuth, no model call, no write, no network (isolated HOME)"
   });
 });
 
-describe("doctor: agy classification (Senate R2)", () => {
+describe("doctor: agy classification", () => {
   it("missing agy: classification 'missing', overall 'problems', exit 1", async () => {
     // resolveAgyBin only trusts AGY_BIN when it exists on disk (agent-runtime.mjs),
     // otherwise it falls through to a real PATH search. This machine may have
@@ -184,7 +183,7 @@ describe("doctor: agy classification (Senate R2)", () => {
   }
 });
 
-describe("doctor: flags, listed vs not_listed (Senate R2)", () => {
+describe("doctor: flags, listed vs not_listed", () => {
   it("a flag present in --help text is 'listed'; one absent from it is 'not_listed'", async () => {
     const stubDir = tmp("antigravity-doctor-stub-");
     const partial = FORWARDED_FLAGS.filter((f) => f !== "--json-schema");
@@ -204,8 +203,8 @@ describe("doctor: flags, listed vs not_listed (Senate R2)", () => {
   });
 });
 
-describe("doctor: --json envelope shape (Senate R2)", () => {
-  it("has exactly the top-level envelope keys and the exact details keys from the brief", async () => {
+describe("doctor: --json envelope shape", () => {
+  it("has exactly the top-level envelope keys and the exact details keys of the contract", async () => {
     const stubDir = tmp("antigravity-doctor-stub-");
     const fakeAgy = writeFakeAgy(stubDir, "agy-fake", { versionOk: true, helpText: helpTextListing(FORWARDED_FLAGS) });
     const work = tmp("antigravity-doctor-work-");
@@ -252,7 +251,7 @@ describe("doctor: --json envelope shape (Senate R2)", () => {
   });
 });
 
-describe("doctor has no --live flag and never contacts Google (Senate R2)", () => {
+describe("doctor has no --live flag and never contacts Google", () => {
   it("accepts only --json and --cwd; an unknown flag is a stderr-only argument error", async () => {
     const work = tmp("antigravity-doctor-work-");
     const cap = captureStdio();

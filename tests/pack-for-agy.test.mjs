@@ -102,10 +102,10 @@ describe('pack-for-agy: prepared copy preserves npm files and adds only ten stan
     assert.equal(report.fileCount, expected.length);
   });
 
-  it('contains no .git, tests/, .github/, or .superpowers/ entries', () => {
+  it('contains no .git, tests/ or .github/ entries', () => {
     const report = runScriptJson([]);
     const extracted = listFilesRecursive(report.dir);
-    for (const forbidden of ['.git', 'tests/', '.github/', '.superpowers/']) {
+    for (const forbidden of ['.git', 'tests/', '.github/']) {
       assert.ok(
         !extracted.some((rel) => rel === forbidden || rel.startsWith(forbidden)),
         `${forbidden} must not appear in the extracted tree, saw: ${JSON.stringify(

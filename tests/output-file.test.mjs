@@ -1,6 +1,6 @@
 /**
  * output-file: the shared "write one NEW local file" rule behind
- * `result --export` and `media --output` (3.2.0, package C).
+ * `result --export` and `media --output` (3.2.0).
  *
  *   node --test tests/output-file.test.mjs
  */
@@ -36,7 +36,7 @@ function refusal(fn) {
   assert.fail('expected an OutputTargetError');
 }
 
-// Oracle: the brief's path rules. The target is resolved against the given cwd.
+// Oracle: the path rules. The target is resolved against the given cwd.
 describe('resolveOutputPath', () => {
   test('resolves a relative path against the given cwd', () => {
     assert.equal(resolveOutputPath('out.txt', dir, { noun: 'Export' }), path.join(dir, 'out.txt'));
@@ -162,7 +162,7 @@ describe('assertNewFileTarget', () => {
     assert.equal(error.reason, 'parent_not_directory');
   });
 
-  // Oracle: package J, POSIX can reject either path lookup with ENOTDIR.
+  // Oracle: POSIX can reject either path lookup with ENOTDIR.
   for (const stage of ['target', 'parent']) {
     test(`maps injected ENOTDIR at ${stage} lookup to parent_not_directory`, () => {
       const fail = () => { throw Object.assign(new Error('not a directory'), { code: 'ENOTDIR' }); };

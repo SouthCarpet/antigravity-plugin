@@ -1,4 +1,4 @@
-/** Oracles: package A brief and plan 153 A1/A2/A3, including the captured agy 1.5.3 table. */
+/** Oracles: the model alias contract, setup default check and mismatch warning, with the captured agy 1.5.3 table. */
 import { it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -82,7 +82,7 @@ it('setup distinguishes a valid present table from a valid absent table (A2)', a
   assert.equal(await checkDefaultModel({ probe: async () => ({ ok: true, text: 'flash-9-medium\tNew' }) }),
     'absent');
 });
-it('resume replays ids, keeps old/external jobs unlocked, and permits overrides (F4)',
+it('resume replays ids, keeps old/external jobs unlocked, and permits overrides',
   async () => {
     const work = path.join(root, 'resume'); fs.mkdirSync(work);
     const env = { ANTIGRAVITY_PLUGIN_SESSION_ID: 'alias-session' };
@@ -208,7 +208,7 @@ it('all five verbs resolve the captured alias through the real CLI and store sep
 
 // Oracle: A1 resume contract; task continuation and both rescue resume spellings share exact replay.
 for (const kind of ['task', 'rescue']) {
-  it(`${kind} resumes current-session ids and explicit caller/native ids without a listing (F4)`, async () => {
+  it(`${kind} resumes current-session ids and explicit caller/native ids without a listing`, async () => {
     const work = path.join(root, `resume-${kind}`); fs.mkdirSync(work);
     const env = { ANTIGRAVITY_PLUGIN_SESSION_ID: `resume-${kind}` };
     const job = await createTrackedJob({ workspaceRoot: work, kind, env, conversationId: 'caller-id',

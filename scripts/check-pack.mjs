@@ -23,8 +23,7 @@
  *   5. The static import graph of (3), (4), and `bin/antigravity.mjs`, plus
  *      relative `.mjs` string literals in those files (`new URL("…")`).
  *   6. The host bootstrap module the generated `node -e` snippet
- *      `require()`s at run time (`scripts/lib/plugin-root.mjs#hostBootstrapSource`,
- *      076-T7 R5b/fix round 1 F5). That `require()` call lives inside
+ *      `require()`s at run time (`scripts/lib/plugin-root.mjs#hostBootstrapSource`). That `require()` call lives inside
  *      generated text, not a static import, so the walk in (5) cannot see
  *      it; its path is parsed out of the generated source itself instead of
  *      hardcoded, so a future change to where that snippet resolves its
@@ -233,7 +232,7 @@ export function readmeDeadLinkErrors(readmeRel = 'README.md') {
 
 /**
  * The package-relative path the generated `node -e` snippet `require()`s at
- * run time (076-T7 fix round 1, F5). Parsed out of
+ * run time. Parsed out of
  * {@link hostBootstrapSource}'s own output instead of hardcoded, so this
  * stays correct if that snippet's module path ever changes without anyone
  * remembering to update this file too.

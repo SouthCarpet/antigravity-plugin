@@ -134,25 +134,25 @@ describe('_worker.mjs background job completion', () => {
       assert.equal(stored.workerPid, process.pid);
       assert.equal(stored.agyPid, 7331);
       assert.ok(Number.isFinite(Date.parse(stored.agyAliveAt)), 'worker publishes the live-child bound');
-      // R3: observed streamed output records all three activity timestamps.
+      // Observed streamed output records all three activity timestamps.
       assert.ok(Number.isFinite(Date.parse(stored.lastProgressAt)));
       assert.ok(Number.isFinite(Date.parse(stored.lastModelOutputAt)));
       assert.ok(Number.isFinite(Date.parse(stored.lastHeartbeatAt)));
       assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
       assert.equal(stored.result.durationSeconds, 3.5);
       assert.equal(stored.result.agyConversationId, 'conv-123');
-      // 076-T7 R1: stored counts after a worker finish (stdout is 'done', one line).
+      // Stored counts after a worker finish (stdout is 'done', one line).
       assert.equal(stored.answerBytes, 4);
       assert.equal(stored.answerLines, 1);
-      // Oracle: 076-T3 R1, legacy records get the full default budget.
+      // Oracle: legacy records get the full default budget.
       assert.equal(runtime.options.timeoutMs, 1800000);
     });
   }
 });
 
-// 076-T7 R3: a background task/rescue's stored request.model reaches agy the
+// A background task/rescue's stored request.model reaches agy the
 // same way the foreground path does.
-describe('_worker.mjs forwards a stored request.model to runAgyPrint (076-T7 R3)', () => {
+describe('_worker.mjs forwards a stored request.model to runAgyPrint', () => {
   it('passes request.model through to runAgyPrint', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-data-'));
@@ -199,10 +199,10 @@ describe('_worker.mjs forwards a stored request.model to runAgyPrint (076-T7 R3)
   });
 });
 
-// Plan 085 T3: a background task/rescue's stored request.effort reaches agy
+// A background task/rescue's stored request.effort reaches agy
 // the same way request.model does; a stored request with no effort behaves
 // exactly as before this field existed.
-describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 T3)', () => {
+describe('_worker.mjs forwards a stored request.effort to runAgyPrint', () => {
   it('passes request.effort through to runAgyPrint', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-data-'));
@@ -296,7 +296,7 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
     assert.equal(stored.status, 'completed');
   });
 
-  // Plan 086 T5i: a stored `agy-default` is accepted by revalidation (the
+  // A stored `agy-default` is accepted by revalidation (the
   // job completes, it is not rejected as an unsupported effort) and is
   // translated to `undefined` for the runAgyPrint call, so agy receives no
   // --effort flag at all.
@@ -350,7 +350,7 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
   });
 });
 
-// Plan 085 T2: the background path persists the same top-level
+// The background path persists the same top-level
 // deniedActions/deniedActionsCount fields the foreground path does
 // (job-helpers.mjs#runForegroundJob), via _worker.mjs's own patchJob call.
 describe('_worker.mjs persists deniedActions and deniedActionsCount', () => {
@@ -411,7 +411,7 @@ describe('_worker.mjs persists deniedActions and deniedActionsCount', () => {
   });
 });
 
-// Plan 086 T1: the background path persists the same top-level
+// The background path persists the same top-level
 // agyPrintTimeout field the foreground path does (job-helpers.mjs's
 // buildTerminalJobPatch), via _worker.mjs's own patchJob call.
 describe('_worker.mjs persists agyPrintTimeout', () => {
@@ -471,7 +471,7 @@ describe('_worker.mjs persists agyPrintTimeout', () => {
   });
 });
 
-describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () => {
+describe('_worker.mjs auth_required stderr preservation', () => {
   it('stores filtered agy stderr as errorMessage and status <id> renders a ## Error section', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-data-'));
@@ -559,13 +559,13 @@ describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () =>
   });
 });
 
-// 085-T4 F1 fix round 2: the worker must key state with the SAME spelling
+// The worker must key state with the SAME spelling
 // its parent used, not re-derive one from its own process.cwd() (already the
 // physical path per POSIX getcwd() after a chdir). Without the argv root, a
 // job the parent created (and addressed) through a logical/symlinked
 // spelling would be written by the worker under a different, realpath-keyed
 // leaf — splitting the job's state in two and leaving it stuck `queued`.
-describe('_worker.mjs uses the parent-supplied workspace root spelling (085-T4 F1 fix round 2)', () => {
+describe('_worker.mjs uses the parent-supplied workspace root spelling', () => {
   it('a logical-spelling caller and a physical-cwd worker reuse the same (logical) leaf', async (t) => {
     const linkTarget = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-target-'));
     const linkParent = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-parent-'));
@@ -638,7 +638,7 @@ describe('_worker.mjs uses the parent-supplied workspace root spelling (085-T4 F
 });
 
 it('uses the stored 50 ms budget and persists failed after terminating a sleeping fake agy', () => {
-  // Oracle: brief 076-T3 R1; the process seam avoids taskkill and verifies death.
+  // Oracle: the process seam avoids taskkill and verifies death.
   // The helper writes a real job store; its baseline is 5-6 s alone and grows
   // under a loaded full-suite run, so the bound is that order plus a safety
   // factor. Cleanup never throws past the assertions: a killed helper can
@@ -717,7 +717,7 @@ describe('worker persisted-request allowlist', () => {
   }
 });
 
-// Plan 085 T3 item 3 (widened by plan 086 T5i): the worker revalidates a
+// The worker revalidates a
 // stored request.effort against EFFORT_CHOICES (agy's three plus the
 // agy-default sentinel) before running — a hand-edited or legacy job file
 // is not guaranteed to carry a value the CLI parser would have accepted.
@@ -725,7 +725,7 @@ describe('worker persisted-request effort revalidation', () => {
   const cases = [
     { effort: 'max', echoed: 'max' },
     { effort: 'LOW', echoed: 'LOW' },
-    // Control characters in the echoed value are neutralised (item 3).
+    // Control characters in the echoed value are neutralised.
     { effort: 'ma\x00x\x1f', echoed: 'max' },
   ];
   for (const { effort, echoed } of cases) {
@@ -770,7 +770,7 @@ describe('worker persisted-request effort revalidation', () => {
   }
 });
 
-// Oracle: fix-2 ruling 1b. Publication must sample before a queued microtask.
+// Oracle: publication must sample before a queued microtask.
 it('first agy PID patch samples liveness and clock before any asynchronous gap', () => {
   const root = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-publication-'));
   const helpers = new URL('../scripts/lib/job-helpers.mjs', import.meta.url).href;

@@ -164,7 +164,7 @@ test("VTT and SRT remove timestamps and tags", () => {
     "Hello\nWorld",
   );
 });
-// Oracle: plan 150 fix-2 caption conversion contract; each case pins plain-text output.
+// Oracle: the caption conversion contract; each case pins plain-text output.
 test("nested entity spelling decodes only once", () =>
   assert.equal(transcriptText("&amp;lt;b&amp;gt;"), "&lt;b&gt;"));
 

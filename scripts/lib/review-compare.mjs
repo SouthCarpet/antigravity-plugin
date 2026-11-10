@@ -1,6 +1,6 @@
 /**
  * review-compare: the value option and comparison behind `review --models
- * a,b` (plan 153 p2, package E, "E1").
+ * a,b`.
  *
  * `--models <a,b>` runs the same review twice, against two different agy
  * models, and compares the structured findings each one returns. This
@@ -9,7 +9,7 @@
  * tokens (an exact id, or `alias:<name>` reusing the shipped alias table),
  * and matching one model's findings against the other's.
  *
- * Match rule (controller ruling, plan 153 p2 brief E1): two findings count
+ * Match rule: two findings count
  * as the same finding when they name the same `file` and their `line`
  * falls inside the same hunk of the diff sent to both models
  * (`buildReviewInput`'s own `hunks`, the array `review-locations.mjs`

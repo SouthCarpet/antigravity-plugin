@@ -6,7 +6,7 @@
  *
  * Two hosts (agy, which has no bang executor, and Claude Code) need a
  * snippet that finds the install root without knowing it in advance. Before
- * 076-T7 that snippet's whole body — root resolution, manifest check,
+ * this module, that snippet's whole body — root resolution, manifest check,
  * refusal message, spawn of the verb, exit-code passthrough — was generated
  * as one long interpolated string and passed to `node -e`. This module is
  * that body as real, reviewable, testable source: the generated snippet
@@ -29,7 +29,7 @@ const PLUGIN_MANIFEST_NAME = "antigravity";
 
 /**
  * Mirrors `scripts/lib/job-helpers.mjs`'s `HOST_WRAPPER_ENV` constant
- * (plan 086 T5k F2) — duplicated as a string literal, not imported, for the
+ * — duplicated as a string literal, not imported, for the
  * same reason `isPluginRoot`/message wording are already duplicated here:
  * this module must stay loadable with a synchronous `require()` from a
  * one-line `node -e` snippet, and `job-helpers.mjs` is an ES module.
@@ -92,8 +92,7 @@ function missingRuntimeMessage(scriptPath, verb) {
  * code through. Refuses before it spawns anything when `root` is not this
  * plugin's tree, or when the verb's script is missing.
  *
- * The generated `node -e` snippet (`scripts/lib/plugin-root.mjs#hostBootstrapSource`,
- * 076-T7 fix round 1, F1/F2) already checks the manifest before it
+ * The generated `node -e` snippet (`scripts/lib/plugin-root.mjs#hostBootstrapSource`) already checks the manifest before it
  * `require()`s this file at all, so `root` normally arrives here
  * pre-validated. This function repeats the same check anyway — defence in
  * depth, in case this module is ever reached by a caller other than that
@@ -128,7 +127,7 @@ function run(root, verb, argv = process.argv.slice(1)) {
     windowsHide: true,
     // Every verb reached through this wrapper (Claude Code, the agy TUI —
     // both use the same protected `node -e` snippet) must never
-    // offer the interactive denial prompt (plan 086 T5k F2), even when
+    // offer the interactive denial prompt, even when
     // `stdio: "inherit"` happens to hand the child a real TTY.
     env: { ...process.env, [HOST_WRAPPER_ENV]: "1" },
   });

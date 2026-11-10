@@ -100,8 +100,8 @@ describe('runIfMain (unit)', () => {
       if (process.platform === 'win32') {
         // Same file, but forward slashes and flipped case on the drive
         // letter and directory names — NTFS comparison is case-insensitive.
-        process.argv[1] = 'C:\\Users\\Asus\\fake\\module.mjs';
-        importMetaUrl = 'file:///c:/users/ASUS/FAKE/Module.MJS';
+        process.argv[1] = 'C:\\Users\\user\\fake\\module.mjs';
+        importMetaUrl = 'file:///c:/users/USER/FAKE/Module.MJS';
       } else {
         process.argv[1] = '/tmp/fake/module.mjs';
         importMetaUrl = pathToFileURL('/tmp/fake/module.mjs').href;
@@ -131,8 +131,8 @@ describe('runIfMain (unit)', () => {
     try {
       const fakeRun = mock.fn(async () => 7);
       if (process.platform === 'win32') {
-        process.argv[1] = 'C:\\Users\\Asus\\fake\\module.mjs';
-        const importMetaUrl = 'file:///C:/Users/Asus/fake/MODULE.mjs';
+        process.argv[1] = 'C:\\Users\\user\\fake\\module.mjs';
+        const importMetaUrl = 'file:///C:/Users/user/fake/MODULE.mjs';
         const result = await runIfMain(importMetaUrl, fakeRun);
         assert.equal(result, true);
         assert.equal(fakeRun.mock.callCount(), 1);
@@ -166,7 +166,7 @@ describe('runIfMain (unit)', () => {
       stderrOutput += typeof chunk === 'string' ? chunk : chunk.toString();
       return true;
     };
-    process.argv[1] = 'C:\\Users\\Asus\\fake\\failing-module.mjs';
+    process.argv[1] = 'C:\\Users\\user\\fake\\failing-module.mjs';
 
     try {
       const failingRun = mock.fn(async () => {

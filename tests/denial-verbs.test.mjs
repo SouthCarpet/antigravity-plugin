@@ -52,21 +52,21 @@ function resultLine(response, extra = {}) {
   });
 }
 
-// Verbatim shape from the t0a fixture (agy 1.1.27, plan 085): the JSON list
+// Verbatim shape from the t0a fixture (agy 1.1.27): the JSON list
 // and the unchanged stderr sentinel arrive together on a real denied run.
 const READ_URL_MEMBER = { action: 'read_url', display_name: 'ReadUrlContent' };
 const DENIAL_LINE_READ_URL =
   'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied.';
 
-// Plan 086 T1: agy's print-timeout truncation marker (verbatim from
+// Agy's print-timeout truncation marker (verbatim from
 // t0d-stream-json-print-timeout.txt).
 const PRINT_TIMEOUT_LINE =
   '[agy] print timeout after 25s with turn in progress; returning partial output';
 
-// Plan 086 T3: the step_update line (verbatim from
+// The step_update line (verbatim from
 // t0e-denied-read-url-step.txt) that names the denied target, and agy's
 // full stderr sentinel including its own bypass advice (verbatim from
-// t0-plugin-task-denied-url.txt) — item 4 checks the plugin drops just that
+// t0-plugin-task-denied-url.txt): the plugin must drop just that
 // one sentence from what it prints.
 const T0E_STEP_LINE = '{"event":"step_update","step_update":{"conversation_id":"594b90eb-80e4-4271-8563-da2453f36f62","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"read_url_content","duration_seconds":0.127872,"tool_info":{"name":"read_url_content","parameters":{"Url":"https://example.com/"},"error":{"type":"TOOL_ERROR","message":"permission check failed for read_url \\"example.com\\": user denied permission for read_url(example.com)"}}}}';
 const DENIAL_LINE_READ_URL_WITH_BYPASS =
@@ -92,7 +92,7 @@ before(() => {
     stdout: resultLine('Answer without the file.') + '\n',
     stderr: DENIAL_LINE + '\n',
   });
-  // Plan 085 T2: the structured JSON list travels alongside the stderr
+  // The structured JSON list travels alongside the stderr
   // sentinel, matching the t0a fixture exactly.
   starvedStructuredAgy = writeFakeAgy(stubDir, 'agy-starved-structured', {
     stdout: resultLine('', { denied_actions: [READ_URL_MEMBER] }) + '\n',
@@ -102,7 +102,7 @@ before(() => {
     stdout: resultLine('Answer without the URL.', { denied_actions: [READ_URL_MEMBER] }) + '\n',
     stderr: DENIAL_LINE_READ_URL + '\n',
   });
-  // Plan 086 T1: the fake agy writes the print-timeout marker to stderr and
+  // The fake agy writes the print-timeout marker to stderr and
   // a partial answer to stdout (non-empty), or an empty response (starved).
   printTimeoutAnsweredAgy = writeFakeAgy(stubDir, 'agy-print-timeout-answered', {
     stdout: resultLine('The Architecture of the Visible Voice: partial essay text') + '\n',
@@ -112,7 +112,7 @@ before(() => {
     stdout: resultLine('') + '\n',
     stderr: PRINT_TIMEOUT_LINE + '\n',
   });
-  // Plan 086 T3: the step_update line carries the denied target; the
+  // The step_update line carries the denied target; the
   // stderr sentinel carries agy's own bypass advice the plugin must not
   // repeat on its own stderr.
   starvedWithTargetAgy = writeFakeAgy(stubDir, 'agy-starved-with-target', {
@@ -185,11 +185,11 @@ describe('starved run (empty response + denial) fails with a per-verb hint', () 
   });
 });
 
-// Plan 086 T5k F1: a denied foreground run of a resumable verb prints the
+// A denied foreground run of a resumable verb prints the
 // exact resume command, with the conversation id agy itself reported
-// (`c-e2e`, from `resultLine` above) — the gap the controller found live,
+// (`c-e2e`, from `resultLine` above) — the gap seen in a live run,
 // where the host was told to pass `--conversation <id>` but never given one.
-describe('resume hint on a denied foreground run (plan 086 T5k F1)', () => {
+describe('resume hint on a denied foreground run', () => {
   it('rescue: stderr names the exact resume command with the real id', () => {
     const res = runVerb(starvedAgy, ['rescue', 'read the notes']);
     assert.equal(res.status, 1, res.stderr);
@@ -218,14 +218,14 @@ describe('resume hint on a denied foreground run (plan 086 T5k F1)', () => {
   });
 });
 
-// Plan 086 T5k F2: the interactive retry prompt must never appear in any of
+// The interactive retry prompt must never appear in any of
 // these real, non-interactive invocations. `spawnSync` here gives every
 // child a piped (non-TTY) stdin/stdout by default, so a bug that tried to
 // prompt anyway would either print the prompt text below or hang the child
 // waiting on input that never arrives (spawnSync would then block until the
 // test itself times out) — this is a real behavioural proof, not only a
 // unit test of the gate function.
-describe('the interactive retry prompt never appears in a non-interactive run (plan 086 T5k F2)', () => {
+describe('the interactive retry prompt never appears in a non-interactive run', () => {
   const NO_PROMPT = /retry the same conversation now, or stop/i;
 
   it('task --foreground, plain text: no prompt text, exits promptly', () => {
@@ -287,7 +287,7 @@ describe('answered run (non-empty response + denial) completes with a warning', 
   });
 });
 
-// Plan 085 T2: end-to-end coverage for agy 1.1.27's structured denied_actions
+// End-to-end coverage for agy 1.1.27's structured denied_actions
 // list, verbatim-shaped like the t0a fixture (both the JSON list and the
 // unchanged stderr sentinel present together).
 const DENIED_READ_URL = /auto-denied[\s\S]*"read_url"|"read_url"[\s\S]*auto-denied/;
@@ -323,12 +323,12 @@ describe('structured denial (agy 1.1.27 denied_actions) — answered run', () =>
   });
 });
 
-// Plan 086 T1: end-to-end coverage for agy's print-timeout truncation
+// End-to-end coverage for agy's print-timeout truncation
 // marker (>= 1.1.28), verbatim-shaped like t0d-stream-json-print-timeout.txt
 // (the marker on stderr, a `result` event on stdout).
 const PRINT_TIMEOUT_MARKER = /\[agy\] print timeout after 25s[\s\S]*returning partial output/;
 
-describe('agy print-timeout marker — non-empty answer (plan 086 T1)', () => {
+describe('agy print-timeout marker — non-empty answer', () => {
   it('task --foreground --json: exit 0, details.agyPrintTimeout carries the limit, a partial answer is still an answer', () => {
     const res = runVerb(printTimeoutAnsweredAgy, ['task', 'write an essay', '--foreground', '--json']);
     assert.equal(res.status, 0, res.stderr);
@@ -346,7 +346,7 @@ describe('agy print-timeout marker — non-empty answer (plan 086 T1)', () => {
   });
 });
 
-describe('agy print-timeout marker — empty answer fails like a starved denial (plan 086 T1)', () => {
+describe('agy print-timeout marker — empty answer fails like a starved denial', () => {
   it('task --foreground: exit 1, names the print timeout as the reason', () => {
     const res = runVerb(printTimeoutEmptyAgy, ['task', 'write an essay', '--foreground']);
     assert.equal(res.status, 1, res.stderr);
@@ -356,10 +356,10 @@ describe('agy print-timeout marker — empty answer fails like a starved denial 
   });
 });
 
-// Plan 086 T3: end to end, the denied target flows into every output path,
+// End to end, the denied target flows into every output path,
 // and the plugin's console output never repeats agy's own bypass advice
-// (item 4) even though it is present in what agy actually printed.
-describe('denied-action target end to end, and bypass-advice filtering (plan 086 T3)', () => {
+// even though it is present in what agy actually printed.
+describe('denied-action target end to end, and bypass-advice filtering', () => {
   it('starved run, task --foreground: stderr names the target and drops the bypass sentence', () => {
     const res = runVerb(starvedWithTargetAgy, ['task', 'read a url', '--foreground']);
     assert.equal(res.status, 1, res.stderr);

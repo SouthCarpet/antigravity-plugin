@@ -1,5 +1,5 @@
 /**
- * Flat ESLint config (076-T6b, item 18): one gate, cyclomatic complexity, so
+ * Flat ESLint config: one gate, cyclomatic complexity, so
  * the codebase keeps the user's rule ("all code passes cyclomatic-complexity
  * linting; refactor instead of suppressing warnings") enforced instead of
  * remembered. No style rules, no formatter — this is not a style gate.

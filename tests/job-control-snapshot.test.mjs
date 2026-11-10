@@ -16,7 +16,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { portableTmpRoot, removeTestDir } from './helpers/tmp.mjs';
 
-// The owned git seam (076-T6 R4): `workspace.mjs`'s `resolveWorkspaceRoot`
+// The owned git seam: `workspace.mjs`'s `resolveWorkspaceRoot`
 // imports `ensureGitRepository` from here, so mocking it before `state.mjs`/
 // `job-control.mjs` are ever imported (mocks registered after a module has
 // already been loaded do not retroactively apply) lets the launch-count case
@@ -124,15 +124,14 @@ describe('buildStatusSnapshot', () => {
     assert.ok(snap.running.some((j) => j.id === ID('q')));
   });
 
-  // 076-T6 R4: state.mjs no longer re-resolves an already-resolved workspace
+  // State.mjs no longer re-resolves an already-resolved workspace
   // root, so a snapshot over several stored jobs calls `resolveWorkspaceRoot`
   // (and so launches "git", the owned seam mocked at the top of this file) at
   // most once. The cache is reset right before the assertion so a warm hit
   // from a cache the seeding calls may have populated cannot mask a
-  // regression (test-isolation footgun flagged on the T4 fix round 2
-  // re-review).
+  // regression (a test-isolation trap).
   //
-  // Fix round 1 F1: asserting on `gitCalls` alone does not discriminate a
+  // Asserting on `gitCalls` alone does not discriminate a
   // regression where `resolveStateDir` re-resolves the SAME already-resolved
   // cwd string — the per-cwd cache absorbs that redundant call before it
   // ever reaches the mocked `ensureGitRepository`, so `gitCalls` stays 1
@@ -171,7 +170,7 @@ describe('buildSingleJobSnapshot', () => {
     assert.throws(() => buildSingleJobSnapshot(workCwd, 'missing'), /No job found/);
   });
 
-  it('keeps a summary containing a pipe and an embedded newline raw (F5) — escaping is a render-time concern, not the enriched/--json field', async () => {
+  it('keeps a summary containing a pipe and an embedded newline raw — escaping is a render-time concern, not the enriched/--json field', async () => {
     const job = await seedJob({ id: ID('summary-escape'), status: 'completed', summary: 'a | b\nc' });
     const snap = buildSingleJobSnapshot(workCwd, job.id);
     assert.equal(snap.job.summary, 'a | b\nc');
@@ -193,10 +192,10 @@ describe('buildSingleJobSnapshot', () => {
     assert.ok(snap.job.recentProgress.length >= 1);
   });
 
-  // Plan 085 T2: enrichJob drops the nested `result` object for status
+  // EnrichJob drops the nested `result` object for status
   // views, so the top-level `deniedActions`/`deniedActionsCount` (persisted
   // as job fields, not only inside `result`) are what must carry the
-  // projection through. Plan 103 T2 narrows that drop: `result.reportedModel`
+  // projection through. Provenance narrows that drop: `result.reportedModel`
   // alone survives, as `{ reportedModel: null | string }` — never the
   // caller's full raw output/stderr.
   it('carries deniedActions and deniedActionsCount through enrichment despite dropping result (except reportedModel)', async () => {
@@ -221,7 +220,7 @@ describe('buildSingleJobSnapshot', () => {
     assert.equal(snap.job.deniedActionsCount, 0);
   });
 
-  // Plan 086 T5k F1 item 1: agy's own conversation id — distinct from
+  // Agy's own conversation id — distinct from
   // `conversationId` (the id the *caller* passed in) — carries through
   // enrichment on a denied/failed job, the same top-level-field pattern
   // `deniedActions`/`deniedActionsCount` above already use.
@@ -261,7 +260,7 @@ describe('buildSingleJobSnapshot', () => {
 });
 
 describe('classifyRuntimeHealth — branches via buildSingleJobSnapshot', () => {
-  // R3: legacy jobs use startedAt until observations exist, with unchanged thresholds.
+  // Legacy jobs use startedAt until observations exist, with unchanged thresholds.
   for (const [ageSeconds, expected] of [[30, 'active'], [121, 'quiet'], [601, 'possibly_stalled']]) {
     it(`classifies a live legacy worker started ${ageSeconds} seconds ago as ${expected}`, async () => {
       const now = Date.UTC(2026, 0, 1, 12);

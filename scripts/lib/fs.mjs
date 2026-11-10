@@ -23,8 +23,8 @@ export function isProbablyText(buffer) {
 
 /**
  * Render a repository-controlled path for prose that sits outside a fenced
- * data block (a heading label, a `skipped:` line, a summary file list; item
- * 12/13, F1). `-z` porcelain parsing (git.mjs) delivers a path verbatim,
+ * data block (a heading label, a `skipped:` line, a summary file list).
+ * `-z` porcelain parsing (git.mjs) delivers a path verbatim,
  * including any byte a POSIX filesystem allows, so a raw CR/LF in a path
  * could forge a markdown heading or list line ahead of the intended content.
  * Folding both to a visible two-character escape keeps the path on one

@@ -26,7 +26,7 @@ function trimDiff(diff) {
 
 /**
  * The truncation facts {@link trimDiff} applies, without the trimmed text
- * itself (Task 5, "Senate R5", 2026-09): `buildReviewInput`
+ * itself (added 2026-09): `buildReviewInput`
  * (`review-input.mjs`) needs `{ diff: boolean, droppedBytes: number }` for
  * its own `truncated` field and for the incomplete-input warning/refusal,
  * using the exact same {@link MAX_DIFF_BYTES} boundary `trimDiff` already
@@ -44,7 +44,7 @@ export function diffTruncationInfo(diff) {
 
 /**
  * Wrap repository content (diffs, commits, untracked file bodies) in a
- * fenced, explicitly-labeled data block (item 13/F14): the fence uses one
+ * fenced, explicitly-labeled data block: the fence uses one
  * more backtick than the longest backtick run already inside `value` (so
  * the content can never close the fence early), and the label is suffixed
  * to say the content is untrusted repository data, not instructions.
@@ -65,11 +65,10 @@ function dataBlock(label, value) {
  * Build the review prompt for `/antigravity:review`.
  *
  * @param {{ scope: string, context: any }} contextEnvelope - Return value from collectReviewContext.
- * @param {{ focus?: string, findingsJson?: boolean }} [options] `focus` (Task 4, "Senate R4",
- *   2026-09): caller text, already trimmed and capped by
+ * @param {{ focus?: string, findingsJson?: boolean }} [options] `focus` (added 2026-09): caller text, already trimmed and capped by
  *   `resolveReviewFocus` (job-helpers.mjs), never derived from repository
  *   content. When given, a "## Reviewer focus" section is inserted
- *   immediately before "## Output". `findingsJson` (Senate R7, 2026-09):
+ *   immediately before "## Output". `findingsJson` (added 2026-09):
  *   `review --findings-json`; the Output section then ends with one
  *   sentence that the structured result must follow the schema agy got.
  * @returns {string}
@@ -160,7 +159,7 @@ export function buildReviewPrompt(contextEnvelope, { focus, findingsJson } = {})
  * copy every visible string verbatim before it interprets anything cannot
  * describe UI that is not there without the transcript contradicting it,
  * and the transcript can be checked against the source by a human or a
- * test. Plan 065 (2026-09) recorded a PASS-on-every-axis review of elements
+ * test. A review in 2026-09 reported a PASS on every axis of elements
  * that did not exist; the transcription-first instruction was the fix that
  * held.
  *

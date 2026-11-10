@@ -39,7 +39,7 @@ jobs:
           # devDependency, so caching one small lockfile buys nothing.
           package-manager-cache: false
 
-      # package-lock.json exists (076-T6b, one devDependency: eslint), so
+      # package-lock.json exists (one devDependency: eslint), so
       # `npm ci` now installs it deterministically; it is a no-op otherwise
       # since the package still ships zero runtime dependencies.
       - name: Install

@@ -1,6 +1,5 @@
 /**
- * Tests for safe job provenance and the measured-usage trailer (Task 2,
- * 2026-09): a job record's `provenance` object, `buildStoredResult`'s
+ * Tests for safe job provenance and the measured-usage trailer (added 2026-09): a job record's `provenance` object, `buildStoredResult`'s
  * `reportedModel`, legacy-record handling, and the trailer that now prints
  * for `review`/`rescue`/`task` foreground and background-wait paths too, not
  * only `vision`/`result`.
@@ -240,7 +239,7 @@ describe('provenance — display (status/result markdown)', () => {
   });
 });
 
-describe('usage trailer — every reader, not just vision/result (plan 103 T2)', () => {
+describe('usage trailer — every reader, not just vision/result', () => {
   it('task --foreground prints the trailer when the result event carries usage, absent when it does not', () => {
     const { work, data } = freshDirs();
 
@@ -269,7 +268,7 @@ describe('usage trailer — every reader, not just vision/result (plan 103 T2)',
   });
 });
 
-describe('recent jobs table — Model/Effort columns are opt-in (plan 103 T2)', () => {
+describe('recent jobs table — Model/Effort columns are opt-in', () => {
   it('adds no Model/Effort columns when every listed job has null provenance values', async () => {
     const { renderStatusSnapshot } = await import('../scripts/lib/render.mjs');
     const provenance = {

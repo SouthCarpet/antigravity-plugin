@@ -6,9 +6,9 @@
  *   node scripts/commands/_worker.mjs <jobId> <workspaceRoot>
  *
  * `<workspaceRoot>` is the exact spelling the parent process used for every
- * state access when it created the job (085-T4 F1 fix round 2): the parent
+ * state access when it created the job: the parent
  * and this worker must key state with the same string, since `resolveStateDir`
- * only falls back to a pre-085 logical-keyed leaf for the caller that spells
+ * only falls back to a pre-1.3 logical-keyed leaf for the caller that spells
  * the workspace the way that leaf was written, and this worker's own
  * `process.cwd()` is already the physical path (a `chdir`'d process's
  * `getcwd()` per POSIX). A missing or non-absolute argument falls back to
@@ -57,7 +57,7 @@ function unsupportedStoredFlag(extraArgs) {
 
 /**
  * Neutralise control characters in a value about to be echoed into an error
- * message (item 3: the worker's own revalidation failure text).
+ * message (the worker's own revalidation failure text).
  *
  * @param {unknown} value
  * @returns {string}
@@ -67,8 +67,7 @@ function sanitizeEchoedValue(value) {
 }
 
 /**
- * Revalidate a stored `request.effort` against {@link EFFORT_CHOICES} (agy's
- * three plus the `agy-default` sentinel, plan 086 T5i) before running: a
+ * Revalidate a stored `request.effort` against {@link EFFORT_CHOICES} (agy's three plus the `agy-default` sentinel) before running: a
  * legacy or hand-edited job file is not guaranteed to carry a value the CLI
  * parser would have accepted. Returns `null` when the field is absent or
  * valid, else the sanitized value for the failure message.
@@ -83,8 +82,7 @@ function unsupportedStoredEffort(effort) {
 }
 
 /**
- * Revalidate a stored `request.findingsJson` (`review --findings-json`,
- * Senate R7, 2026-09): absent or a boolean is fine; anything else is a
+ * Revalidate a stored `request.findingsJson` (`review --findings-json`, 2026-09): absent or a boolean is fine; anything else is a
  * hand-edited or corrupt job file and fails the job before agy runs, the
  * same way an unsupported effort does. Returns `null` when valid, else the
  * sanitized value for the failure message.
@@ -228,7 +226,7 @@ async function runWorkerAgy({ workspaceRoot, jobId, request, prompt, startedAt, 
 }
 
 /**
- * One stored-result projection for both paths (076-T6 R1): the same status
+ * One stored-result projection for both paths: the same status
  * mapping, summary derivation, and trimming helper `runForegroundJob` uses,
  * so a background run stores `agyConversationId` and the same timeout retry
  * hint the foreground path already had.
@@ -256,23 +254,23 @@ async function persistWorkerResult(workspaceRoot, jobId, stored, result) {
     deniedActionsCount: Array.isArray(result.deniedActions) ? result.deniedActions.length : 0,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
     // Top-level, mirroring the foreground path's buildTerminalJobPatch
-    // (job-helpers.mjs, plan 086 T5k F1 item 1): agy's own conversation id,
+    // (job-helpers.mjs): agy's own conversation id,
     // present whenever agy reported one, including a failed or denied run.
     agyConversationId: result.agyConversationId ?? null,
-    // Fix round 1 F3: keyed off the raw `result.status` this dropped agy's
+    // Keyed off the raw `result.status` this dropped agy's
     // stderr for `auth_required`/`timeout` jobs, since neither raw status is
     // literally "failed" (only `derived.status`, job-helpers.mjs's mapping
     // of both onto a persisted job status, is). `derived.status === "failed"`
-    // restores the pre-T6 behaviour for every status this fallback applies
+    // restores the earlier behaviour for every status this fallback applies
     // to; `result.errorMessage` (set for a timeout/output-limit termination)
     // still wins when present.
     errorMessage: storedErrorMessage(result, derived.status === "failed"),
     result: buildStoredResult(result),
   });
-  // Fix round 1 F5: pre-T6 this line read `[worker] ${status} exit=${result.exitCode}`
+  // Earlier this line read `[worker] ${status} exit=${result.exitCode}`
   // with no ` status=` suffix; nothing reads that suffix as a structured
   // field (it only ever surfaced verbatim in `status`'s Recent Progress), so
-  // restore the exact pre-T6 wording rather than declare an undeclared change.
+  // restore the exact earlier wording rather than declare an undeclared change.
   appendJobLog(workspaceRoot, jobId, `[worker] ${derived.status} exit=${result.exitCode}`);
   return derived.status === "completed" ? 0 : 1;
 }

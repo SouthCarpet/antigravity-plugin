@@ -128,7 +128,7 @@ describe('/antigravity:setup — vision config wiring', () => {
     assert.equal(state.ensureVisionCalls.length, 0);
   });
 
-  // Plan 153 package G: the sign-in run is the one spawn that keeps the
+  // The sign-in run is the one spawn that keeps the
   // caller's console and window. The oracle is the whole call: one
   // spawnInteractive call, the exact argv, and options with no hide option.
   it('starts the sign-in run once, through spawnInteractive, with inherited stdio and no hide option', async () => {
@@ -192,7 +192,7 @@ describe('/antigravity:setup — vision config wiring', () => {
   });
 });
 
-describe('/antigravity:setup — agy version warning (Senate R2)', () => {
+describe('/antigravity:setup — agy version warning', () => {
   it('prints no warning line for a measured version', async () => {
     state.probe = { ok: true, version: '1.2.12' };
     const cap = captureStdio();
@@ -246,7 +246,7 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
   });
 });
 
-// Oracle: plan 153 A2. Only a valid listing can prove the pinned id absent.
+// Oracle: Only a valid listing can prove the pinned id absent.
 for (const [expected, models] of Object.entries({
   present: { ok: true, text: 'gemini-3.8-flash-high\tPinned' },
   absent: { ok: true, text: 'gemini-4-flash-medium\tNew' },

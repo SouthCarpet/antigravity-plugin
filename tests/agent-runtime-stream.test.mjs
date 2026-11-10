@@ -96,7 +96,7 @@ const INIT_LINE = JSON.stringify({
   init: { model: 'gemini-3.6-flash-high', cwd: '/x', tools: [] },
 });
 
-// Oracle: brief 076-T3 R2. Control exit and close independently to reproduce
+// Oracle: Control exit and close independently to reproduce
 // inherited pipes and data delivered after the process has already exited.
 describe('bounded stdio draining', () => {
   it('keeps a SUCCESS answer delivered between exit and close', async () => {
@@ -130,7 +130,7 @@ describe('bounded stdio draining', () => {
   });
 
   it('the worker liveness callback becomes false on exit before inherited pipes close', async () => {
-    // Oracle: package I ruling 1, exit first and heartbeat second.
+    // Oracle: exit first and heartbeat second.
     autoExit = false;
     try {
       let probe;
@@ -210,7 +210,7 @@ describe('bounded stdio draining', () => {
   });
 
   it('clears both deadlines on close even while onSpawn is still persisting', async (t) => {
-    // Oracle: R2 clears timers on close, not after an unrelated callback finishes.
+    // Oracle: the runtime clears timers on close, not after an unrelated callback finishes.
     autoExit = false;
     t.mock.timers.enable({ apis: ['setTimeout'] });
     try {
@@ -246,7 +246,7 @@ describe('bounded stdio draining', () => {
   });
 });
 
-// Oracle: 076-T3 fix round 2, finding F2. A detached child leaves the
+// Oracle: a detached child leaves the
 // terminal's foreground process group, so the interactive signals have to be
 // forwarded explicitly. Windows cannot raise them, so the wiring is checked
 // through the `platform` seam: the handler this run installed is located by
@@ -294,7 +294,7 @@ describe('foreground cancellation on the detached path', () => {
     } finally { autoExit = true; }
   });
 
-  // Plan 153 package G: process-adapter.mjs starts agy with the hide option.
+  // Process-adapter.mjs starts agy with the hide option.
   // With piped stdio the child then has a console of its own on Windows
   // (measured), so a Ctrl+C, a Ctrl+Break or a closed terminal window in the
   // caller's console does not reach it. The bridge is the only thing that
@@ -377,7 +377,7 @@ describe('foreground cancellation on the detached path', () => {
   });
 });
 
-// Oracle: brief 076-T3 R1 caps bytes, retains only pre-breach output, and
+// Oracle: the runtime caps bytes, retains only pre-breach output, and
 // fails even if a SUCCESS event preceded the oversized chunk.
 describe('agy output caps', () => {
   for (const stream of ['stdout', 'stderr']) {
@@ -602,7 +602,7 @@ describe('runAgyPrint — stdin stream-json transport', () => {
     assert.equal(res.oauthUrl, null);
   });
 
-  it('a raw auth prompt followed by a SUCCESS empty-response result stays auth_required (F3 fixture A1)', async () => {
+  it('a raw auth prompt followed by a SUCCESS empty-response result stays auth_required', async () => {
     spawnCalls.length = 0;
     nextEvents = [`${AUTH_PROMPT}\n`, resultLine({ response: '' }) + '\n'];
     nextExitCode = 0;

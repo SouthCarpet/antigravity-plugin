@@ -1,5 +1,5 @@
 /**
- * Consistency test (Senate R2, plan 103 T6): `scripts/lib/compat.mjs`'s
+ * Consistency test: `scripts/lib/compat.mjs`'s
  * constants must never drift from the docs that state the same facts in
  * prose: `docs/COMPATIBILITY.md`'s matrix table and `README.md`'s "newest
  * measured <v>" phrase. Reads the docs as text; never imports doc content

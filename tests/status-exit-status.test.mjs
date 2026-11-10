@@ -1,5 +1,5 @@
 /**
- * `--exit-status` on `status <id> --wait` (Task 8, "Senate R10", 2026-09).
+ * `--exit-status` on `status <id> --wait` (added 2026-09).
  *
  * Opt-in: without the flag, `status --wait` keeps its frozen contract of
  * returning 0 whenever it successfully produces a snapshot, including a
@@ -108,7 +108,7 @@ afterEach(() => {
   } catch {}
 });
 
-describe('--exit-status flag validation (Task 8, "Senate R10", 2026-09)', () => {
+describe('--exit-status flag validation (added 2026-09)', () => {
   it('refused without a job id: stderr only, exit 1, no stdout', async () => {
     const { run } = await import('../scripts/commands/status.mjs');
     const cap = captureStdio();
@@ -178,7 +178,7 @@ describe('--exit-status flag validation (Task 8, "Senate R10", 2026-09)', () => 
   });
 });
 
-describe('/antigravity:status <id> --wait --exit-status (Task 8, "Senate R10", 2026-09)', () => {
+describe('/antigravity:status <id> --wait --exit-status (added 2026-09)', () => {
   it('completed: exit 0 with the flag, exit 0 without, markdown output unchanged', async () => {
     const id = 'e00000000001';
     await makeJob(tempDir, id, 'completed', { result: { rawOutput: 'hi' } });

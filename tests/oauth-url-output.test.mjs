@@ -124,7 +124,7 @@ describe('removeOAuthUrls', () => {
   });
 
   it('OAuth property names in nested arrays become marker keys and keep the first value on collision', () => {
-    // The security fix brief requires replacement of keys and first-entry retention.
+    // The security fix requires replacement of keys and first-entry retention.
     const input = { usage: [{
       'HTTPS://accounts.google.com/signin/oauth/consent': 1,
       'https://accounts.google.com/o/oauth2/auth': 2,
@@ -139,7 +139,7 @@ describe('removeOAuthUrls', () => {
 
 describe('agy text from a new run', () => {
   it('runtime usage with an OAuth property name prints a marker key through result --json', () => {
-    // The verifier's runtime probe must have no OAuth URL in either output stream.
+    // The runtime probe must have no OAuth URL in either output stream.
     const { work, data } = freshDirs();
     const agy = writeFakeAgy(stubDir, 'agy-usage-oauth-key', {
       stdout: event({ event: 'result', result: {
@@ -301,7 +301,7 @@ describe('a background wait prints a stored record without a URL', () => {
     assert.equal(err, `antigravity:task — sign in at ${OAUTH_URL_MARKER}\n`);
   });
 });
-// Oracle retained verbatim from the pre-fix implementation (controller F2).
+// Oracle retained verbatim from the pre-fix implementation.
 const LEGACY_OAUTH_URL_PATTERN =
   /(?:[a-z][a-z0-9+.-]*:)?(?:\/\/)?(?:[^\s/@"'<>`\\]*@)?accounts\.google\.com(?::\d*)?\/+(?:o\/oauth2|signin\/oauth)[^\s"'<>`\\]*/gi;
 function assertLegacyOAuthOutput(text) {
@@ -326,7 +326,7 @@ it('OAuth redaction matches the legacy oracle for named URL forms and existing f
     fs.readFileSync(new globalThis.URL('./agent-runtime-stream.test.mjs', import.meta.url), 'utf8')]) assertLegacyOAuthOutput(text);
 });
 it('OAuth redaction matches the legacy oracle for 4000 deterministic generated strings up to 300 characters', () => {
-  // F2 requires a differential oracle; fixed seed makes failures repeatable.
+  // A differential oracle; fixed seed makes failures repeatable.
   const alphabet = ['a','Z','0','+','.', '-', ':','/','@','"',"'",'<','>','`','\\',' ','\n','\t','?', '#',
     'accounts.google.com', 'ACCOUNTS.GOOGLE.COM', 'accounts.', 'google.com', '/o/oauth2', '/signin/oauth'];
   let seed = 153;

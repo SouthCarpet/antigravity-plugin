@@ -112,8 +112,7 @@ const VERB_RE = /^[a-z]+$/;
  * The snippet resolves the plugin root exactly as before, then checks the
  * manifest itself — reading `<root>/plugin.json` and comparing its `name` —
  * before it ever requires anything from that root, then checks that the
- * shipped bootstrap module exists before requiring it (076-T7 fix round 1,
- * F1/F2: a prior version handed the unchecked root straight to
+ * shipped bootstrap module exists before requiring it (a prior version handed the unchecked root straight to
  * `require(p.join(root,'scripts','lib','host-bootstrap.cjs'))`, so a foreign
  * tree shipping its own copy of that file ran instead of being refused, and
  * a root with no such file at all crashed with a raw Node loader stack

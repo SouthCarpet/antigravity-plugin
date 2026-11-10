@@ -1,5 +1,5 @@
 /**
- * `media --transcript --timestamps` (3.2.0, package C, item C1): the caption
+ * `media --transcript --timestamps` (3.2.0): the caption
  * conversion and the option rules. The command-level cases (details,
  * preview, output file) live in tests/media-output.test.mjs.
  *

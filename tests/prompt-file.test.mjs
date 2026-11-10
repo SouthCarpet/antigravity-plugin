@@ -1,6 +1,5 @@
 /**
- * `task --prompt-file <path>` and `--prompt-file -` (stdin) (Senate R13,
- * 2026-09).
+ * `task --prompt-file <path>` and `--prompt-file -` (stdin) (added 2026-09).
  *
  * Every case runs the real `bin/antigravity.mjs` as a child process against
  * a fake `agy` binary (tests/helpers/fake-agy.mjs), the same pattern

@@ -1,4 +1,4 @@
-/** Oracles: package B controller rulings 1-6. The recording fake observes the real foreground argv. */
+/** Oracles: the run preview contract. The recording fake observes the real foreground argv. */
 import { it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -81,7 +81,7 @@ it('transcript-only preview has no agy argv or prompt',()=>{
  const f=fixture('media');const r=run('media',['https://youtu.be/jNQXAC9IVRw','--transcript','--preview','--json'],f);
  assert.equal(r.status,0,r.stderr);const p=JSON.parse(r.stdout);assert.deepEqual(p.details.argv,[]);assert.equal(p.details.prompt,null);assert.equal(p.details.agyCall,false);
 });
-// Oracle: controller ruling 4 preserves all existing local file, type and flag refusals.
+// Oracle: preview keeps all existing local file, type and flag refusals.
 for (const [kind,scenario] of [['vision','missing'],['vision','unsupported'],['vision','oversize'],
  ['media','missing'],['media','unsupported'],['media','oversize'],['media','local-flags']]) {
  it(`${kind} preview preserves the ${scenario} local refusal`,()=>{
@@ -96,7 +96,7 @@ for (const [kind,scenario] of [['vision','missing'],['vision','unsupported'],['v
  });
 }
 
-// F1 oracle: only flags before -- may bypass the missing-AGY_BIN preflight.
+// Oracle: only flags before -- may bypass the missing-AGY_BIN preflight.
 // Media has no positional prompt after its file and no dispatcher AGY_BIN preflight.
 for (const kind of ['task','rescue','vision']) {
  it(`${kind} --preview after -- keeps preflight exit 127 and never calls agy`,()=>{

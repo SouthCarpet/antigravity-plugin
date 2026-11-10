@@ -9,7 +9,7 @@ import { isProbablyText, sanitizeDisplayPath } from "./fs.mjs";
 import { formatCommandFailure, runCommand } from "./process.mjs";
 
 const MAX_UNTRACKED_BYTES = 24 * 1024;
-// Never send a file whose name alone marks it as a secret (item 13): dotenv
+// Never send a file whose name alone marks it as a secret: dotenv
 // variants, private-key/keystore extensions, and the default SSH key names.
 const SECRET_SHAPED_NAME_RE = /^\.env(\..*)?$|\.(pem|key|p12|pfx)$|^id_(rsa|ed25519|ecdsa)$/i;
 
@@ -92,7 +92,7 @@ export function getWorkingTreeFiles(cwd) {
   // `-z` disables git's default quoting/octal-escaping of non-ASCII and
   // whitespace-containing paths and NUL-terminates each record instead of
   // newline-terminating it, so a path is taken verbatim from offset 3 with
-  // no trim/dequote step to get wrong (item 12). A rename/copy record
+  // no trim/dequote step to get wrong. A rename/copy record
   // carries one extra NUL-terminated field (the original path) right after
   // the current path; it is consumed and dropped since only the current
   // path is tracked here.
@@ -208,7 +208,7 @@ export function readUntrackedFiles(cwd, files, options = {}) {
  * @param {{ realpathSync?: typeof fs.realpathSync }} [options] only
  *   `realpathSync` is read; an earlier revision of this JSDoc also listed
  *   `maxInlineFiles`/`maxInlineDiffBytes`, options this function has never
- *   read (076-T6 R3)
+ *   read
  * @returns {{ branch: string | null, headSha: string, diff: string, files: { staged: string[], unstaged: string[], untracked: string[] }, untrackedContents: Array<any>, summary: string }}
  */
 export function collectWorkingTreeContext(cwd, options = {}) {
@@ -284,8 +284,8 @@ function compareBaseCommit(cwd, baseRef, baseCommit) {
   const diff = gitChecked(cwd, ["diff", `${mergeBase}...HEAD`]);
   const commits = gitChecked(cwd, ["log", "--oneline", `${mergeBase}...HEAD`]);
   // `-z` NUL-terminates each name instead of newline-terminating and quoting
-  // it, so a non-ASCII or space-containing filename survives verbatim
-  // (item 12), matching the `-z` porcelain parsing in getWorkingTreeFiles.
+  // it, so a non-ASCII or space-containing filename survives verbatim,
+  // matching the `-z` porcelain parsing in getWorkingTreeFiles.
   const fileListRaw = gitChecked(cwd, ["diff", "--name-only", "-z", `${mergeBase}...HEAD`]);
   const fileList = fileListRaw.split("\0").filter(Boolean);
 
@@ -306,7 +306,7 @@ const VALID_SCOPES = new Set(["auto", "working-tree", "branch"]);
 /**
  * Collect git context based on scope (working-tree or branch).
  *
- * `base` and `headSha` (Task 5, "Senate R5", 2026-09) sit at the envelope's
+ * `base` and `headSha` (added 2026-09) sit at the envelope's
  * top level, not only inside `context`: `context`'s own shape differs by
  * scope (only working-tree's carries a `headSha`, branch's carries none at
  * all), so `buildReviewInput` (`review-input.mjs`) needs one place to read

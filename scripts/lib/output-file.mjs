@@ -1,7 +1,7 @@
 /**
  * output-file: the one place that writes a NEW local file at a path the
  * caller chose. Two flags use it: `result --export <path>` and
- * `media --output <path>` (3.2.0, plan 153 package C).
+ * `media --output <path>` (3.2.0).
  *
  * The rule is the same for both: the target must not exist (checked without
  * following a link), its parent directory must exist, the file is created

@@ -18,7 +18,7 @@
  *                     characters
  *   --preview         show what would be sent (included/skipped files,
  *                     counts, truncation, hash); no agy call, no state
- *                     change (Task 5, "Senate R5", 2026-09); conflicts with
+ *                     change (added 2026-09); conflicts with
  *                     --background, --wait, --continue, --conversation
  *   --require-complete  refuse to send an input with a skipped file or a
  *                     truncated diff, instead of sending it with a warning
@@ -27,16 +27,15 @@
  *                     envelope (requires --wait and --background)
  *   --findings-json   also ask agy for structured findings under the
  *                     shipped schema (`--json-schema`) and validate them
- *                     locally into `details.findings` (Senate R7, 2026-09);
+ *                     locally into `details.findings` (added 2026-09);
  *                     `answer` stays agy's response text, except Google
  *                     OAuth URLs become `[oauth-url-removed]`
  *   --check-locations heuristically check each `path:line` citation the
  *                     answer names against the sent diff's own hunks
- *                     (Task 14, "Senate R8", 2026-09); local only, adds
+ *                     (added 2026-09); local only, adds
  *                     nothing to the agy call; see `review-locations.mjs`
  *   --models <a,b>    run the SAME review twice, against two different agy
- *                     models, and compare their structured findings (plan
- *                     153 p2, "E1"); each token is an exact model id or
+ *                     models, and compare their structured findings; each token is an exact model id or
  *                     `alias:<name>`; requires --findings-json; conflicts
  *                     with --model, --model-alias, --background, --wait,
  *                     --continue, --conversation, --show-result, --preview;
@@ -101,18 +100,18 @@ function resolveReviewMode(options) {
 
 /**
  * The `request` fields common to the foreground and background review job
- * (Task 5, "Senate R5", 2026-09): the existing `scope`/`base`/`mode`/`model`/
+ * (added 2026-09): the existing `scope`/`base`/`mode`/`model`/
  * `effort`/`focus` fields, plus `inputHash`, `inputCounts`, and `headSha`
  * straight off `buildReviewInput`'s own return value — never a second copy
  * of the diff or the prompt (that already lives at the top-level `prompt`
  * argument `runForegroundJob`/`startBackgroundJob` store as `request.prompt`
  * on the background path).
  *
- * `findingsJson: true` (Senate R7, 2026-09) is stored only for a
+ * `findingsJson: true` (added 2026-09) is stored only for a
  * `--findings-json` run, so a request without the flag is unchanged; the
  * worker turns it back into `--json-schema`.
  *
- * `hunks` (Task 14, "Senate R8", 2026-09) is stored on every request,
+ * `hunks` (added 2026-09) is stored on every request,
  * unconditionally — not only under `--check-locations` — straight off
  * `buildReviewInput`'s own return value, so a job reviewed without the flag
  * can still be checked later with `result <id> --check-locations`.
@@ -163,8 +162,8 @@ async function runReviewBackground({ workspaceRoot, title, prompt, mode, convers
 
 /**
  * The `finishForeground` options for review's two additive result-shaping
- * flags — `--findings-json` (Senate R7, 2026-09) and `--check-locations`
- * (Task 14, "Senate R8", 2026-09) — either, both, or neither active for one
+ * flags — `--findings-json` (added 2026-09) and `--check-locations`
+ * (added 2026-09) — either, both, or neither active for one
  * run:
  *   - `resultDetails` always runs (an empty object when neither flag is
  *     set, so `finishForeground`'s merge is a no-op); it derives the
@@ -193,8 +192,8 @@ function reviewFinishOptions({ findingsJson, checkLocations, hunks }) {
 }
 
 /**
- * The one stderr line `--models` prints before either leg dispatches
- * (controller ruling, plan 153 p2 brief E1, "Cost"): no prompt, no
+ * The one stderr line `--models` prints before either leg dispatches:
+ * no prompt, no
  * confirmation, just the fact that two agy calls (two quotas) are about to
  * run.
  *
@@ -205,8 +204,7 @@ function printModelsCostNotice() {
 }
 
 /**
- * The `request` fields one `--models` leg stores (plan 153 p2 brief E1,
- * "Mechanics"): the same fields a single-model review stores
+ * The `request` fields one `--models` leg stores: the same fields a single-model review stores
  * ({@link buildReviewRequestFields}), always `mode: "print"` ("each leg is
  * a fresh conversation"), always `findingsJson: true` (required by the
  * conflict rule), plus the shared `pairId` linking both legs' job records.
@@ -238,7 +236,7 @@ function buildPairedRequestFields({ envelope, base, model, modelRequest, effort,
  * The exit code one `--models` leg contributes (same mapping
  * `finishForeground`'s non-completed branches already use: `cancelled` is
  * 2, every other non-completed status is 1, `completed` is 0). A leg that
- * never ran ("not_run", controller ruling 3's halt case) contributes 0: it
+ * never ran ("not_run", the halt case) contributes 0: it
  * can only ever follow a leg that already halted the pair with its own
  * non-zero code, so it is never the first non-zero leg.
  *
@@ -252,8 +250,8 @@ function pairedLegExitCode(status) {
 
 /**
  * The `jobs[]` entry for one `--models` leg that actually ran: `id`,
- * `model`, the run `status` (controller ruling 3: "the envelope always
- * lists both legs with their status"), and, only once the leg completed,
+ * `model`, the run `status` (the envelope always
+ * lists both legs with their status), and, only once the leg completed,
  * `findingsStatus` (plus a one-line `findingsError` when it is not
  * `"valid"`, and `locationCheck` when `--check-locations` was given — "one
  * check per leg, results under each leg"). `deniedActions` (with remedy, the
@@ -298,8 +296,8 @@ function stripPairedLegFindings({ findings: _findings, ...rest }) {
 }
 
 /**
- * The `comparison` field (plan 153 p2 brief E1, "Output shape"): `null`
- * unless both legs completed with valid findings (controller ruling 3),
+ * The `comparison` field: `null`
+ * unless both legs completed with valid findings,
  * else {@link compareReviewFindings} against the diff's own hunks (shared
  * identically by both legs, "Mechanics"). `leg.findings` is the WHOLE
  * validated `review-findings.schema.json` document
@@ -348,8 +346,7 @@ function reportPairedDenials(leg) {
 /**
  * The markdown rendering for `--models`' paired envelope: one line per leg,
  * then the comparison counts or a note that comparison is unavailable.
- * Kept local to this module (package E owns only `review.mjs` and
- * `review-compare.mjs`, not `render.mjs`).
+ * Kept local to this module, so `render.mjs` does not change.
  *
  * @param {{ pairId: string, jobs: object[], comparison: object | null }} details
  * @returns {string}
@@ -372,8 +369,8 @@ function renderReviewPairedMarkdown(details) {
 
 /**
  * Report `--models`' paired envelope and compute the command's exit code
- * (controller ruling 3: "the command's exit code is the first non-zero leg
- * exit code, else 0").
+ * (the first non-zero leg
+ * exit code, else 0).
  *
  * @param {{ pairId: string, legs: Array<ReturnType<typeof buildPairedLeg>>,
  *   hunks: Array<{ path: string, newStart: number, newEnd: number }>, json: boolean }} args
@@ -412,11 +409,11 @@ function checkPairedOptions(options) {
 }
 
 /**
- * `review --models <a,b>` (plan 153 p2, package E, "E1"): one shared
+ * `review --models <a,b>`: one shared
  * `buildReviewInput` call already ran in `run()`; this resolves the two
  * model tokens, prints the cost notice, then runs each leg's OWN fresh
  * `runForegroundJob` call in order, halting before the second leg only
- * when the first leg reports `auth_required` (controller ruling 3: a
+ * when the first leg reports `auth_required` (a
  * sign-in failure is not model-specific, so the second leg would only
  * hit it again) — every other non-completed first-leg status still lets
  * the second leg run.
@@ -515,7 +512,7 @@ async function runReviewForeground({
 }
 
 /**
- * Resolve `review`'s three additive flags (Task 4, "Senate R4", 2026-09) off
+ * Resolve `review`'s three additive flags (added 2026-09) off
  * the parsed CLI options, split out of `run` to keep it under the
  * complexity ceiling: `--model` (verbatim string or `undefined`), `--effort`
  * (via {@link resolveReviewEffort}, which has no plugin default), and
@@ -534,8 +531,7 @@ function resolveReviewFlagOptions(options) {
 
 /**
  * True when `buildReviewInput`'s own record left something out of the
- * prompt: a skipped file, or a diff cut by the 196 KiB cap (Task 5, "Senate
- * R5", 2026-09). The one condition both the incomplete-input warning and
+ * prompt: a skipped file, or a diff cut by the 196 KiB cap (added 2026-09). The one condition both the incomplete-input warning and
  * `--require-complete`'s refusal gate on, so the two can never disagree
  * about what counts as "incomplete".
  *
@@ -548,7 +544,7 @@ function isReviewInputIncomplete(input) {
 
 /**
  * Print the one stderr warning line for a normal run whose input is
- * incomplete (Task 5, "Senate R5", 2026-09): printed once, before the agy
+ * incomplete (added 2026-09): printed once, before the agy
  * probe or any spawn.
  *
  * @param {ReturnType<import('../lib/review-input.mjs').buildReviewInput>} input
@@ -562,8 +558,8 @@ function printIncompleteInputWarning(input) {
 }
 
 /**
- * Report `--require-complete`'s refusal (Task 5, "Senate R5", 2026-09): the
- * plugin's own one-line reason on stderr, plus the Task 3 `invalid_input`
+ * Report `--require-complete`'s refusal (added 2026-09): the
+ * plugin's own one-line reason on stderr, plus the `invalid_input`
  * `--json` envelope (`error.code: "input_incomplete"`, phase `collect`),
  * before any agy probe or spawn. Exit 1, same as every other validation
  * failure this verb reports.
@@ -588,7 +584,7 @@ function reportInputIncomplete(input, json) {
 }
 
 /**
- * Report `--preview` (Task 5, "Senate R5", 2026-09): the included/skipped
+ * Report `--preview` (added 2026-09): the included/skipped
  * lists, counts, truncation state, and hash `buildReviewInput` already
  * computed. No agy probe, no spawn, no state change, exit 0 always.
  *
@@ -682,7 +678,7 @@ export async function run(argv = [], ctx = {}) {
       ["preview", "wait"],
       ["preview", "continue"],
       ["preview", "conversation"],
-      // --models (plan 153 p2, package E, "E1"): each leg is a fresh print
+      // --models: each leg is a fresh print
       // conversation, built and dispatched by `runReviewPairedCommand`
       // itself, so none of the single-model flags below apply to it.
       ["models", "model"],
@@ -753,8 +749,7 @@ export async function run(argv = [], ctx = {}) {
 }
 
 /**
- * The `error.code` for a `collectReviewContext` failure (Task 3, "Senate
- * R1", 2026-09): the two validation shapes `git.mjs` throws today
+ * The `error.code` for a `collectReviewContext` failure (added 2026-09): the two validation shapes `git.mjs` throws today
  * (`collectReviewContext`'s own scope check, `resolveBaseCommit`'s ref
  * check), or a generic collection failure for anything else (a missing
  * `git` binary, a spawn error) — never invented from a message this module
@@ -771,7 +766,7 @@ function classifyReviewCollectionError(message) {
 
 /**
  * Report a `collectReviewContext` failure: the existing stderr line,
- * unchanged, plus (Task 3, "Senate R1", 2026-09) one `invalid_input`
+ * unchanged, plus (added 2026-09) one `invalid_input`
  * `--json` envelope when `json` is true.
  *
  * @param {unknown} err

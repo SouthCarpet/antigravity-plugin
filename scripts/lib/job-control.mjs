@@ -4,7 +4,7 @@
  * Lean port from gemini-plugin-cc — ACP / broker references removed because
  * agy 1.0.1 has no ACP. Health classifier still tracks `auth_required`,
  * `failed`, `worker_missing`, and `cancel_failed` (the signals a writer in
- * this codebase actually persists; `rate_limited` was removed 076-T6 R2 —
+ * this codebase actually persists; `rate_limited` was removed:
  * no writer ever sets it, so `status <id>` could never render it).
  */
 
@@ -215,7 +215,7 @@ export function mergeJobDetail(job, storedJob) {
 
 /**
  * The `deniedActions`/`deniedActionsCount` projection carried through
- * enrichment (plan 085 T2): `enrichJob` drops the nested `result` object
+ * enrichment: `enrichJob` drops the nested `result` object
  * below, so these top-level job fields (job-helpers.mjs persists both as
  * job fields, not only inside `result`) are what a status view reads.
  * Split out to keep `enrichJob` itself under the complexity ceiling.
@@ -231,7 +231,7 @@ function deniedActionsProjection(source) {
 }
 
 /**
- * The `agyPrintTimeout` projection carried through enrichment (plan 086 T1):
+ * The `agyPrintTimeout` projection carried through enrichment:
  * split out for the same reason {@link deniedActionsProjection} is — one
  * fewer branch inline in `enrichJob` keeps it under the complexity ceiling.
  *
@@ -243,8 +243,7 @@ function printTimeoutProjection(source) {
 }
 
 /**
- * The `agyConversationId` projection carried through enrichment (plan 086
- * T5k F1 item 1): split out for the same reason {@link deniedActionsProjection}
+ * The `agyConversationId` projection carried through enrichment: split out for the same reason {@link deniedActionsProjection}
  * is — one fewer branch inline in `enrichJob` keeps it under the complexity
  * ceiling. Distinct from the `conversationId` field `enrichJob` still sets
  * inline: that is the id the *caller* passed in via `--conversation`; this
@@ -259,8 +258,7 @@ function agyConversationIdProjection(source) {
 }
 
 /**
- * The `provenance` projection carried through enrichment (plan 103 T2,
- * "Senate R11", 2026-09): split out for the same reason
+ * The `provenance` projection carried through enrichment (added 2026-09): split out for the same reason
  * {@link deniedActionsProjection} is — one fewer branch inline in
  * `enrichJob` keeps it under the complexity ceiling.
  *
@@ -272,8 +270,7 @@ function provenanceProjection(source) {
 }
 
 /**
- * The `result.reportedModel` projection carried through enrichment (plan
- * 103 T2, "Senate R11", 2026-09): `enrichJob` otherwise drops the full
+ * The `result.reportedModel` projection carried through enrichment (added 2026-09): `enrichJob` otherwise drops the full
  * nested `result` object below (it holds raw output/stderr — too large and
  * too raw for a status view), but `status <id> --json`'s
  * `details.job.result.reportedModel` needs somewhere to live that is not
@@ -289,8 +286,7 @@ function reportedModelProjection(source) {
 }
 
 /**
- * The `request.inputHash` projection carried through enrichment (Task 5,
- * "Senate R5", 2026-09): `enrichJob` drops the full `request` object below
+ * The `request.inputHash` projection carried through enrichment (added 2026-09): `enrichJob` drops the full `request` object below
  * (it holds the prompt sent to agy — too large, and not for a status view),
  * but `status <id> --json`'s `details.job.request.inputHash` and the
  * Provenance section's "Input hash" line (render.mjs's
@@ -381,7 +377,7 @@ function computeElapsed(job, now = new Date().toISOString()) {
 
 /**
  * @param {string} cwd unresolved cwd; resolved once here and passed to every
- *   downstream `state.mjs` call (076-T6 R4)
+ *   downstream `state.mjs` call
  * @param {{ env?: NodeJS.ProcessEnv, maxJobs?: number, maxProgressLines?: number,
  *   now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
  * @returns {{ workspaceRoot: string, config: object,
@@ -422,7 +418,7 @@ export function buildStatusSnapshot(cwd, options = {}) {
 
 /**
  * @param {string} cwd unresolved cwd; resolved once here and passed to every
- *   downstream `state.mjs` call (076-T6 R4)
+ *   downstream `state.mjs` call
  * @param {string | null} reference job id, unique prefix, or 1-based index
  * @param {{ maxProgressLines?: number, now?: number, isProcessAlive?: typeof isProcessAlive }} [options]
  * @returns {{ workspaceRoot: string, job: import('./types.mjs').JobRecord }}
