@@ -172,9 +172,13 @@ it('all five verbs resolve the captured alias through the real CLI and store sep
     assert.equal(stored.details.provenance.resolvedModel, 'gemini-3.8-flash-medium');
     assert.equal(stored.details.result.reportedModel, 'reported');
     // Oracle: media forwards the physical workspace, not its junction/symlink spelling.
+    // The spelling of the parent folders can differ (8.3 short names, letter case on Windows),
+    // so compare the last segment as text and the whole path as the same directory.
     if (args[0] === 'media') {
       const actual = argvOf(stored.details.result.stderr);
-      assert.equal(actual[actual.indexOf('--add-dir') + 1], fs.realpathSync.native(work));
+      const forwarded = actual[actual.indexOf('--add-dir') + 1];
+      assert.equal(path.basename(forwarded), 'cli-physical');
+      assert.equal(fs.realpathSync.native(forwarded), fs.realpathSync.native(work));
     }
     assert.deepEqual(canonicalArgv(argvOf(stored.details.result.stderr)), canonicalArgv([
       ...(args[0] === 'media' ? ['--add-dir', work] : []), '--model', 'gemini-3.8-flash-medium', '--print-timeout', '1860s', '--disable-slash-commands',
