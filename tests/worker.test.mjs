@@ -54,9 +54,11 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
     runAgyPrint: async (options) => {
       runtime.options = options;
-      await options.onSpawn?.({ pid: 7331 });
+      let alive = true;
+      await options.onSpawn?.({ pid: 7331, child: {}, isAlive: () => alive });
       options.onText?.('first delta');
       options.onText?.('second delta');
+      alive = false;
       return { ...runtime.next };
     },
     resolveAgyBin: () => 'agy',
@@ -131,6 +133,7 @@ describe('_worker.mjs background job completion', () => {
       assert.equal(stored.status, 'completed');
       assert.equal(stored.workerPid, process.pid);
       assert.equal(stored.agyPid, 7331);
+      assert.ok(Number.isFinite(Date.parse(stored.agyAliveAt)), 'worker publishes the live-child bound');
       // R3: observed streamed output records all three activity timestamps.
       assert.ok(Number.isFinite(Date.parse(stored.lastProgressAt)));
       assert.ok(Number.isFinite(Date.parse(stored.lastModelOutputAt)));

@@ -129,6 +129,22 @@ describe('bounded stdio draining', () => {
     } finally { autoExit = true; }
   });
 
+  it('the worker liveness callback becomes false on exit before inherited pipes close', async () => {
+    // Oracle: package I ruling 1, exit first and heartbeat second.
+    autoExit = false;
+    try {
+      let probe;
+      const pending = runAgyPrint({ prompt: 'p', bin: 'agy', onSpawn: ({ isAlive }) => { probe = isAlive; } });
+      const child = spawnCalls.at(-1).child;
+      child.pid = 7331;
+      assert.equal(probe(), true);
+      child.emit('exit', 0);
+      assert.equal(probe(), false);
+      child.emit('close', 0);
+      await pending;
+    } finally { autoExit = true; }
+  });
+
   it('destroys inherited pipes at the five-second drain deadline and warns', async (t) => {
     autoExit = false;
     t.mock.timers.enable({ apis: ['setTimeout'] });
