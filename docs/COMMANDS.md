@@ -1541,3 +1541,14 @@ Each preview conflict uses the parser's existing `cannot combine --preview and -
 - `rescue --prompt-file -` reads stdin in the standalone CLI only. Host wrappers refuse it with `--prompt-file - (stdin) is available in the standalone CLI only`.
 - A positional prompt is refused with `cannot combine --prompt-file with a positional prompt`.
 - Content failures keep `prompt_file_too_large`, `prompt_file_unreadable` and `prompt_file_empty` (exit 1). The first non-empty line becomes the title, capped at 80 characters.
+
+### Release 3.2.0 implementation references
+
+The model-family selector is `scripts/lib/model-alias.mjs`. The read-only
+review snapshot check is `scripts/lib/review-currentness.mjs`. Two-model
+comparison is `scripts/lib/review-compare.mjs`; new-file output validation
+is `scripts/lib/output-file.mjs`. These are internal modules, not commands.
+The Windows process adapter and worker diagnostics preload change process
+handling only. See Compatibility, sections "Windows console windows" and
+"Additive surface", for the hide rule, signal bridge, retry bounds and
+job-log diagnostics. No runtime dependency was added.

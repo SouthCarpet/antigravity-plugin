@@ -495,7 +495,7 @@ fields in envelope version 1:
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
 | `command` | One of `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`, or `doctor`, matching the invoked verb. |
-| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`; `review --models` is `paired`, `jobId: null`, `answer: null`, representing TWO jobs under `details.jobs` instead of one (see [Package E additive paired-review surface](#package-e-additive-paired-review-surface-unreleased)). `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
+| `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`; `review --models` is `paired`, `jobId: null`, `answer: null`, representing TWO jobs under `details.jobs` instead of one (see [Package E additive paired-review surface](#package-e-additive-paired-review-surface-320)). `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
 | `details` | An object containing command-specific metadata. Its field set and nested shapes are explicitly unstable in 3.x; consumers must tolerate additions, removals, and changes within it. |
@@ -925,7 +925,7 @@ These variables have direct semantics in the shipped code:
 
 | Variable | Contract |
 |---|---|
-| `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing, except for `--preview` on review, task, rescue, vision and media; direct command-module invocation can fall back to normal discovery. |
+| `AGY_BIN` | Optional exact path to the agy executable. It wins over binary discovery when the file exists. The standalone dispatcher returns 127 when an explicitly configured path is missing, for setup, review, rescue, task and vision, except for `--preview` on review, task, rescue and vision. Media has no dispatcher preflight; direct command-module invocation can fall back to normal discovery. |
 | `ANTIGRAVITY_AGY_TIMEOUT_MS` | Execution budget for foreground and background jobs, in milliseconds; defaults to 1800000 (30 minutes). A positive decimal safe integer up to 2147483647 overrides it; exactly `0` disables it. Invalid values are ignored with one stderr warning. Background jobs store the budget when queued and receive the full budget when the worker starts agy. |
 | `PATH` / `Path` | Searched for `agy`; Windows accepts its conventional `Path` casing when `PATH` is absent. |
 | `HOME` / `USERPROFILE` | Used, in that order, for the fallback `<home>/.local/bin/agy` search. Node's platform home directory also determines the `~/.gemini` paths used by vision setup. |
@@ -1808,7 +1808,7 @@ Windows host, ten fake-agy foreground tasks per tree took median
 The median difference was 21.29 ms. This sample includes process
 scheduling noise. The failure-path probe budget is 1,000 ms.
 
-### Package E additive paired-review surface (Unreleased)
+### Package E additive paired-review surface (3.2.0)
 
 - Flag `--models <a,b>` on `review`: two comma-separated, non-empty, distinct
   model tokens, each an exact id or `alias:<name>`. Opt-in; never a default;
@@ -1871,9 +1871,9 @@ scheduling noise. The failure-path probe budget is 1,000 ms.
 
 The second leg still runs after the first leg's own run or findings
 failure; it does not run after the first leg reports `auth_required` (not
-model-specific, so the second leg would only hit it again), after `agy`
-itself is found absent, or after `--require-complete` refuses the shared
-input, all three are checked once, before either leg exists. The command's
+model-specific, so the second leg would only hit it again). A missing `agy`
+or an input refused by `--require-complete` stops the command before either
+leg exists; authentication failure is learned from the first leg. The command's
 exit code is the first non-zero leg's exit code, or 0 when both legs
 completed. The text output shows comparison counts only; `--json` carries
 the matched findings. Paths are compared as written and case-sensitively.
