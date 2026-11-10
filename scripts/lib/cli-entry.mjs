@@ -18,6 +18,8 @@
  * imports it.
  */
 
+import processExit from './process-exit.cjs';
+const { createProcessEnd } = processExit;
 import { fileURLToPath } from "node:url";
 
 import { canonicalComparePath } from "./paths.mjs";
@@ -60,13 +62,14 @@ function isMainModule(importMetaUrl) {
  */
 export async function runIfMain(importMetaUrl, run, { host = "claude-code" } = {}) {
   if (!isMainModule(importMetaUrl)) return false;
+  const endProcess = createProcessEnd();
 
   try {
     const code = await run(process.argv.slice(2), { host, cwd: process.cwd() });
-    process.exit(typeof code === "number" ? code : 0);
+    await endProcess(typeof code === "number" ? code : 0);
   } catch (err) {
     process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
-    process.exit(1);
+    await endProcess(1);
   }
   return true;
 }

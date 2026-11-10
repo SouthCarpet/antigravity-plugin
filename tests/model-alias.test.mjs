@@ -140,6 +140,9 @@ function cli(args, env, cwd) {
   return spawnSync(process.execPath, [bin, ...args],
     { cwd, env, encoding: 'utf8', timeout: 90000 });
 }
+function canonicalArgv(argv) {
+  return argv.map((arg, index) => argv[index - 1] === '--add-dir' ? fs.realpathSync.native(arg) : arg);
+}
 function argvOf(stderr) {
   return stderr.split(/\r?\n/).map((line) => line.replace(/^\uFEFF/, ''))
     .filter((line) => line.startsWith('arg=')).map((line) => line.slice(4));
@@ -147,7 +150,8 @@ function argvOf(stderr) {
 it('all five verbs resolve the captured alias through the real CLI and store separate provenance (A1)', () => {
   const fake = writeFakeAgy(root, 'run', { modelsText: table, versionOk: true, echoArgsStderr: true,
     stdout: '{"event":"result","result":{"status":"SUCCESS","response":"ok","model":"reported"}}\n' });
-  const work = path.join(root, 'cli'); fs.mkdirSync(work);
+  const physical = path.join(root, 'cli-physical'); fs.mkdirSync(physical);
+  const work = path.join(root, 'cli'); fs.symlinkSync(physical, work, process.platform === 'win32' ? 'junction' : 'dir');
   spawnSync('git', ['init', '-q', work]);
   spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com',
     'commit', '--allow-empty', '-qm', 'Baseline'], { cwd: work });
@@ -167,15 +171,20 @@ it('all five verbs resolve the captured alias through the real CLI and store sep
     assert.equal(stored.details.provenance.requestedAlias, 'flash');
     assert.equal(stored.details.provenance.resolvedModel, 'gemini-3.8-flash-medium');
     assert.equal(stored.details.result.reportedModel, 'reported');
-    assert.deepEqual(argvOf(stored.details.result.stderr), [
+    // Oracle: media forwards the physical workspace, not its junction/symlink spelling.
+    if (args[0] === 'media') {
+      const actual = argvOf(stored.details.result.stderr);
+      assert.equal(actual[actual.indexOf('--add-dir') + 1], fs.realpathSync.native(work));
+    }
+    assert.deepEqual(canonicalArgv(argvOf(stored.details.result.stderr)), canonicalArgv([
       ...(args[0] === 'media' ? ['--add-dir', work] : []), '--model', 'gemini-3.8-flash-medium', '--print-timeout', '1860s', '--disable-slash-commands',
-      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '']);
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '']));
     const exactRun = cli([...args, '--model', 'unlisted', '--json'], env, work);
     assert.equal(exactRun.status, 0, exactRun.stderr);
     const exactRecord = JSON.parse(cli(['result', JSON.parse(exactRun.stdout).jobId, '--json'], env, work).stdout);
-    assert.deepEqual(argvOf(exactRecord.details.result.stderr), [
+    assert.deepEqual(canonicalArgv(argvOf(exactRecord.details.result.stderr)), canonicalArgv([
       ...(args[0] === 'media' ? ['--add-dir', work] : []), '--model', 'unlisted', '--print-timeout', '1860s', '--disable-slash-commands',
-      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '']);
+      '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '']));
     const conflict = cli([...args, '--model', 'exact', '--model-alias', 'flash'], env, work);
     assert.equal(conflict.status, 1);
     assert.match(conflict.stderr, /cannot combine/);

@@ -162,6 +162,29 @@ describe('assertNewFileTarget', () => {
     assert.equal(error.reason, 'parent_not_directory');
   });
 
+  // Oracle: package J, POSIX can reject either path lookup with ENOTDIR.
+  for (const stage of ['target', 'parent']) {
+    test(`maps injected ENOTDIR at ${stage} lookup to parent_not_directory`, () => {
+      const fail = () => { throw Object.assign(new Error('not a directory'), { code: 'ENOTDIR' }); };
+      const io = stage === 'target' ? { lstatSync: fail } : {
+        lstatSync: () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); }, statSync: fail,
+      };
+      assert.equal(refusal(() => assertNewFileTarget(path.join(dir, 'x'), { noun: 'Export', io })).reason, 'parent_not_directory');
+    });
+  }
+  for (const code of ['EACCES', 'ELOOP', 'ENAMETOOLONG']) {
+    test(`reports ${code} at parent lookup as check_failed`, () => {
+      const io = { statSync: () => { throw Object.assign(new Error(code), { code }); } };
+      assert.equal(refusal(() => assertNewFileTarget(path.join(dir, 'x'), { noun: 'Export', io })).reason, 'check_failed');
+    });
+  }
+  test('refuses a parent link to a file when file symlinks are allowed', (t) => {
+    const real = path.join(dir, 'real-parent'); fs.writeFileSync(real, 'x');
+    const link = path.join(dir, 'parent-link');
+    try { fs.symlinkSync(real, link, 'file'); } catch (error) { t.skip(`file symlinks unavailable: ${error.code}`); return; }
+    assert.equal(refusal(() => assertNewFileTarget(path.join(link, 'out'), { noun: 'Export' })).reason, 'parent_not_directory');
+  });
+
   test('reports a check error other than "not found" as check_failed', () => {
     const io = { lstatSync: () => { throw Object.assign(new Error('x'), { code: 'EACCES' }); } };
     const error = refusal(() => assertNewFileTarget(path.join(dir, 'x'), { noun: 'Export', io }));
@@ -222,16 +245,27 @@ describe('writeNewTextFile', () => {
   });
 
   test('refuses a read-only directory when the platform enforces it', (t) => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) {
-      t.skip('directory modes are not enforced here');
+    if (process.platform === 'win32') {
+      t.skip('Windows does not enforce POSIX directory modes');
       return;
     }
     const locked = path.join(dir, 'locked');
     fs.mkdirSync(locked, { mode: 0o500 });
-    t.after(() => fs.chmodSync(locked, 0o700));
-    const error = refusal(() => writeNewTextFile(path.join(locked, 'out.txt'), 'x', { noun: 'Export' }));
-    assert.equal(error.reason, 'write_failed');
-    assert.match(error.message, /^Export target cannot be written \(EACCES\): /);
+    // Shared afterEach removes dir before t.after on Node 24. Restore first.
+    try {
+      const probe = path.join(locked, 'probe');
+      try {
+        fs.writeFileSync(probe, 'probe', { flag: 'wx' });
+        fs.unlinkSync(probe);
+        t.skip('process can write to a read-only directory (root or equivalent privileges)');
+        return;
+      } catch (error) { if (error.code !== 'EACCES') throw error; }
+      const error = refusal(() => writeNewTextFile(path.join(locked, 'out.txt'), 'x', { noun: 'Export' }));
+      assert.equal(error.reason, 'write_failed');
+      assert.match(error.message, /^Export target cannot be written \(EACCES\): /);
+    } finally {
+      if (fs.existsSync(locked)) fs.chmodSync(locked, 0o700);
+    }
   });
 
   test('an existing read-only file is refused and stays unchanged', () => {
