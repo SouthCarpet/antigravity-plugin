@@ -25,7 +25,7 @@ import {
   AGY_PLUGIN_INSTALL_SEGMENTS,
 } from '../scripts/lib/plugin-root.mjs';
 
-describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)', () => {
+describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff', () => {
   it('resolves the root the same way as before and requires host-bootstrap.cjs with the verb', () => {
     const source = hostBootstrapSource('status');
     assert.match(source, /process\.env\.CLAUDE_PLUGIN_ROOT\|\|/);
@@ -101,7 +101,7 @@ describe('plugin-root.mjs: message builders (still ESM, used by tests and docs)'
   });
 });
 
-describe('plugin-root.mjs: root resolution (unchanged by R5b)', () => {
+describe('plugin-root.mjs: root resolution', () => {
   it('CLAUDE_PLUGIN_ROOT wins when set and non-empty', () => {
     assert.equal(
       resolvePluginRoot({ env: { CLAUDE_PLUGIN_ROOT: '/opt/claude-plugin' }, homedir: '/home/nobody' }),

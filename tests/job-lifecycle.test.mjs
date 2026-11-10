@@ -145,7 +145,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
     assert.equal(fs.existsSync(lockPath), false);
   });
 
-  // Item G2. The fake agy of the early-cancel case used
+  // The fake agy of the early-cancel case used
   // to live 2 000 ms. Under load the Windows start-time query (PowerShell)
   // took longer than that: the process was gone when the query answered, the
   // worker correctly stored `agyProcessStartedAt: null`, and the case failed

@@ -252,7 +252,7 @@ for (const [expected, models] of Object.entries({
   absent: { ok: true, text: 'gemini-4-flash-medium\tNew' },
   unknown: { ok: false, reason: 'timeout' },
 })) {
-  it(`setup --skip-vision --json reports ${expected} after OAuth without changing exit 0 (A2)`, async () => {
+  it(`setup --skip-vision --json reports ${expected} after OAuth without changing exit 0`, async () => {
     state.models = models;
     const cap = captureStdio();
     try {

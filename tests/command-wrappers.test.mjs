@@ -83,7 +83,7 @@ function runBootstrap(verb, { args = [], env = {}, cwd } = {}) {
   });
 }
 
-// R5b: `host-bootstrap.cjs` is a real shipped file the generated snippet
+// `host-bootstrap.cjs` is a real shipped file the generated snippet
 // require()s at `<root>/scripts/lib/host-bootstrap.cjs`, so any fixture
 // plugin root that needs the verb to actually dispatch carries its own copy
 // — a real `agy plugin install` copy would carry one too, since

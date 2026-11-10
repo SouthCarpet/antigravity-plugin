@@ -740,7 +740,7 @@ describe('runAgyPrint — stdin stream-json transport', () => {
 
 // ───────────────────── D1 --print-timeout / D2 --disable-slash-commands ─────────────────────
 
-describe('printTimeoutArg — budget-to-duration mapping (D1)', () => {
+describe('printTimeoutArg — budget-to-duration mapping', () => {
   const cases = [
     { timeoutMs: 1_800_000, expected: '1860s', label: 'the 30-minute default' },
     { timeoutMs: 1, expected: '61s', label: '1 ms rounds up to a whole second' },

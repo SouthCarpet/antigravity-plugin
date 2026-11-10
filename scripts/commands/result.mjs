@@ -262,7 +262,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
   // summary/unavailable line after the findings line.
   const { locationCheck, lines: locationLines } = resultLocationCheckFields(stored, checkLocations);
   const withLocationCheck = appendSectionLines(withFindings, locationLines);
-  // 3.2.0 (C2): `--check-current` appends one snapshot line after the
+  // 3.2.0: `--check-current` appends one snapshot line after the
   // location-check line. `checkCurrent` is computed by `run`, read-only.
   const withCurrentCheck = appendSectionLines(withLocationCheck, checkCurrent ? [currentnessReportLine(checkCurrent)] : []);
   // The "## Provenance" section is appended last,

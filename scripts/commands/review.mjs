@@ -299,7 +299,7 @@ function stripPairedLegFindings({ findings: _findings, ...rest }) {
  * The `comparison` field: `null`
  * unless both legs completed with valid findings,
  * else {@link compareReviewFindings} against the diff's own hunks (shared
- * identically by both legs, "Mechanics"). `leg.findings` is the WHOLE
+ * identically by both legs). `leg.findings` is the WHOLE
  * validated `review-findings.schema.json` document
  * (`{verdict, summary, findings: [...]}`, see `review-findings.mjs`'s own
  * `reviewFindingsDetails`), so the array to compare is its own `.findings`

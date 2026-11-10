@@ -36,11 +36,11 @@ it('captured table and reversed CRLF rows select medium for all six literal fami
   }
 });
 for (const text of ['', 'id name', 'id\tname\textra', 'id\t', '\u0000\tname', 'Please sign in', '--flash-medium\tBad']) {
-  it(`parser refuses malformed or empty input ${JSON.stringify(text)} as a whole (A1)`, () => {
+  it(`parser refuses malformed or empty input ${JSON.stringify(text)} as a whole`, () => {
     assert.equal(parseModelsListing(text).ok, false);
   });
 }
-it('duplicate ids keep the first name and do not change the selection (A1)', () => {
+it('duplicate ids keep the first name and do not change the selection', () => {
   const parsed = parseModelsListing('flash-4-medium\tFirst\nflash-4-medium\tSecond');
   assert.deepEqual(parsed.rows, [{ id: 'flash-4-medium', name: 'First' }]);
 });
@@ -54,13 +54,13 @@ it('numeric family versions win before effort selection, independent of order (O
   assert.equal(select('flash', 'agy-default').model, 'gemini-3.8-flash-medium');
   assert.equal(select('flash', undefined, [{ id: 'flash-4', name: 'Only' }]).model, 'flash-4');
 });
-it('unknown aliases and synthetic multiple families refuse instead of guessing (A1)', () => {
+it('unknown aliases and synthetic multiple families refuse instead of guessing', () => {
   assert.match(select('unknown').reason, /unknown model alias/);
   assert.equal(select('bad\nalias').reason.includes('\n'), false);
   assert.match(selectAliasModel(rows, 'mixed', undefined, { mixed: ['flash', 'argon'] }).reason,
     /multiple families/);
 });
-it('exact id bypasses even a failing listing, while conflicting flags refuse (A1)', async () => {
+it('exact id bypasses even a failing listing, while conflicting flags refuse', async () => {
   assert.deepEqual(await resolveRequestModel({ modelOption: 'unlisted-new-id', probe: neverProbe }),
     { ok: true, model: 'unlisted-new-id', request: {} });
   assert.equal((await resolveRequestModel({ modelOption: 'id', aliasOption: 'flash', probe: neverProbe })).ok, false);
@@ -77,7 +77,7 @@ for (const [name, opts] of Object.entries({ missing: null, exit: { exitCode: 3 }
     assert.equal(await checkDefaultModel({ probe }), 'unknown');
   });
 }
-it('setup distinguishes a valid present table from a valid absent table (A2)', async () => {
+it('setup distinguishes a valid present table from a valid absent table', async () => {
   assert.equal(await checkDefaultModel({ probe: async () => ({ ok: true, text: table }) }), 'present');
   assert.equal(await checkDefaultModel({ probe: async () => ({ ok: true, text: 'flash-9-medium\tNew' }) }),
     'absent');
@@ -121,7 +121,7 @@ function captureFinish(kind, provenance, reportedModel, status = 'completed') {
   } finally { process.stdout.write = stdout; process.stderr.write = stderr; }
 }
 for (const kind of ['task', 'rescue', 'review', 'vision', 'media']) {
-  it(`${kind} reports normalized model mismatch without changing exit codes; absent model is silent (A3)`, () => {
+  it(`${kind} reports normalized model mismatch without changing exit codes; absent model is silent`, () => {
     for (const status of ['completed', 'failed']) {
       const mismatch = captureFinish(kind, { model: 'requested' }, 'different', status);
       assert.equal(mismatch.code, status === 'completed' ? 0 : 1);
@@ -147,7 +147,7 @@ function argvOf(stderr) {
   return stderr.split(/\r?\n/).map((line) => line.replace(/^\uFEFF/, ''))
     .filter((line) => line.startsWith('arg=')).map((line) => line.slice(4));
 }
-it('all five verbs resolve the captured alias through the real CLI and store separate provenance (A1)', () => {
+it('all five verbs resolve the captured alias through the real CLI and store separate provenance', () => {
   const fake = writeFakeAgy(root, 'run', { modelsText: table, versionOk: true, echoArgsStderr: true,
     stdout: '{"event":"result","result":{"status":"SUCCESS","response":"ok","model":"reported"}}\n' });
   const physical = path.join(root, 'cli-physical'); fs.mkdirSync(physical);
