@@ -91,8 +91,8 @@ async function makeJob(cwd, id, status, fileExtra = {}) {
  * even though the flag changes nothing about how it is rendered. */
 function stripElapsed(text) {
   return text
-    .replace(/- \*\*Elapsed:\*\* \d+s\n/, '- **Elapsed:** Ns\n')
-    .replace(/"elapsed": "\d+s"/, '"elapsed": "Ns"');
+    .replace(/- \*\*Elapsed:\*\* \d+(?:ms|s)\n/, '- **Elapsed:** Ns\n')
+    .replace(/"elapsed": "\d+(?:ms|s)"/, '"elapsed": "Ns"');
 }
 
 let tempDir;

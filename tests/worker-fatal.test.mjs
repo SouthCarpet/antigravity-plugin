@@ -1,4 +1,17 @@
-import { removeTestDir } from './helpers/tmp.mjs';
+// Local cleanup only: other users of helpers/tmp.mjs keep their behaviour.
+function removeFatalFixture(dir) {
+ const target = path.resolve(dir);
+ assert.ok(target.startsWith(path.resolve(os.tmpdir()) + path.sep), 'owned TEMP fixture');
+ const deadline = Date.now() + 5000;
+ while (true) {
+  try { fs.rmSync(target, { recursive: true, force: true }); return; }
+  catch (error) {
+   const remaining = deadline - Date.now();
+   if (!['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(error.code) || remaining <= 0) throw error;
+   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(100, remaining));
+  }
+ }
+}
 // Regressions for the worker and state-save guarantees in docs/COMPATIBILITY.md.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +23,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { patchJob } from '../scripts/lib/job-helpers.mjs';
 import { resolveJobLogFile, readJobFile } from '../scripts/lib/state.mjs';
 const saved=process.env.CLAUDE_PLUGIN_DATA;let root;
-afterEach(()=>{if(saved===undefined)delete process.env.CLAUDE_PLUGIN_DATA;else process.env.CLAUDE_PLUGIN_DATA=saved;if(root)removeTestDir(root);});
+afterEach(()=>{if(saved===undefined)delete process.env.CLAUDE_PLUGIN_DATA;else process.env.CLAUDE_PLUGIN_DATA=saved;if(root)removeFatalFixture(root);});
 async function fixture(){root=fs.mkdtempSync(path.join(os.tmpdir(),'antigravity-fatal-'));process.env.CLAUDE_PLUGIN_DATA=root;await patchJob(root,'abcdefabcdef',{status:'running',request:{prompt:'test'}});return root;}
 test('runtime stderr is bounded and redacts OAuth URLs and bypass flags',async()=>{
  await fixture();const entry=path.join(root,'noisy.mjs');
@@ -35,7 +48,7 @@ test('a failed final write logs the fatal reason and records failed when storage
 
 
 
-test('the launcher exits while its detached worker is still running',async()=>{
+test('the launcher exits while its detached worker is still running',async(t)=>{
  await fixture();const {writeFakeAgy}=await import('./helpers/fake-agy.mjs');const {waitForJob}=await import('../scripts/lib/job-helpers.mjs');
  const fake=writeFakeAgy(root,'agy-detached',{stdout:JSON.stringify({event:'result',result:{status:'SUCCESS',response:'done'}})+'\n',exitCode:0,versionOk:true,delayMs:20000});
  const script=`import {startBackgroundJob} from ${JSON.stringify(new URL('../scripts/lib/job-helpers.mjs',import.meta.url).href)}; const launched=await startBackgroundJob({workspaceRoot:${JSON.stringify(root)},kind:'task',prompt:'go',env:{...process.env,AGY_BIN:${JSON.stringify(fake)}}});console.log(JSON.stringify(launched));`;
@@ -43,12 +56,11 @@ test('the launcher exits while its detached worker is still running',async()=>{
  assert.equal(result.status,0,result.stderr);const launched=JSON.parse(result.stdout);assert.ok(launched.pid);assert.doesNotThrow(()=>process.kill(launched.pid,0));
  const final=await waitForJob(root,launched.job.id,{pollMs:100,timeoutMs:30000});assert.equal(final.status,'completed');
  const deadline=Date.now()+5000;
- let alive=true;
- while(alive && Date.now()<deadline){
-  try{process.kill(launched.pid,0);}catch{alive=false;}
-  if(alive)await new Promise(resolve=>setTimeout(resolve,10));
- }
- assert.equal(alive,false,'worker exits before fixture cleanup');
+ const pids = [launched.pid, final.agyPid];
+ const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; } };
+ while(pids.some(alive) && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,10));
+ t.diagnostic(JSON.stringify({ fixture: root, executable: fake, pids, alive: pids.map(alive) }));
+ assert.deepEqual(pids.map(alive), [false, false], 'worker and fake agy exit before fixture cleanup');
 });
 
 

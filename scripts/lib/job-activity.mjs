@@ -12,7 +12,8 @@ export const HEARTBEAT_MIN_GAP_MS = 5_000;
  * @param {string} jobId
  * @param {{ heartbeat?: boolean, now?: () => number, patch?: typeof patchJobState,
  *   setIntervalImpl?: typeof setInterval, clearIntervalImpl?: typeof clearInterval }} [options]
- * @returns {{ onText: () => void, finish: () => Promise<void> }}
+ * @returns {{ onText: () => void, setAgyIsAlive: (probe: () => boolean) => void,
+ *   agyAliveFields: () => { agyAliveAt?: string }, finish: () => Promise<void> }}
  */
 export function createJobActivityRecorder(workspaceRoot, jobId, {
   heartbeat = false,
@@ -27,6 +28,16 @@ export function createJobActivityRecorder(workspaceRoot, jobId, {
   let writing = false;
   let failure;
   let stopped = false;
+  let agyIsAlive = () => false;
+
+  // libuv win/process.c retains the process handle until main-thread
+  // endgame, after exit notification (Node 22.3.0:903, 25.8.1:884).
+  // Windows reserves the PID while that handle exists. Sample in the same
+  // synchronous step as the child-session check. A backwards system-clock
+  // change between OS creation time and this reading invalidates the bound.
+  function agyAliveFields() {
+    return agyIsAlive() ? { agyAliveAt: new Date(now()).toISOString() } : {};
+  }
 
   function record(output = false) {
     if (stopped) return;
@@ -36,6 +47,7 @@ export function createJobActivityRecorder(workspaceRoot, jobId, {
     lastPatchAt = time;
     const fields = {
       ...(heartbeat ? { lastHeartbeatAt: new Date(time).toISOString() } : {}),
+      ...(heartbeat ? agyAliveFields() : {}),
       ...(progressAt ? { lastProgressAt: progressAt, lastModelOutputAt: progressAt } : {}),
     };
     writing = true;
@@ -48,6 +60,8 @@ export function createJobActivityRecorder(workspaceRoot, jobId, {
   timer?.unref();
 
   return {
+    setAgyIsAlive: (probe) => { agyIsAlive = probe; },
+    agyAliveFields,
     onText: () => record(true),
     async finish() {
       stopped = true;

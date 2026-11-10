@@ -176,6 +176,33 @@ export function recordProcessStartTime(pid, readStartTime = readProcessStartTime
   return startedAt === null ? null : new Date(startedAt).toISOString();
 }
 
+/** One bounded Windows creator query. An unusable answer carries a safe reason. */
+export function queryProcessChildren(pid, { platform = process.platform, spawnSyncImpl = spawnSync } = {}) {
+  const unusable = reason => ({ rows: null, reason });
+  if (platform !== "win32" || !Number.isSafeInteger(pid) || pid <= 0) return unusable("unsupported");
+  let result;
+  try {
+    result = spawnSyncImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      `$ErrorActionPreference='Stop'; $rows=@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' | ForEach-Object { @{pid=[int]$_.ProcessId;parentPid=[int]$_.ParentProcessId;startedAt=$_.CreationDate.ToUniversalTime().ToString('o')} }); ConvertTo-Json -InputObject $rows -Compress`],
+    { encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 64 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    return unusable("spawn_failed");
+  }
+  if (result.error?.code === "ETIMEDOUT") return unusable("timeout");
+  if (result.error) return unusable("spawn_failed");
+  if (result.status !== 0) return unusable("exit_nonzero");
+  try {
+    const rows = JSON.parse(result.stdout);
+    if (!Array.isArray(rows)) return unusable("malformed");
+    if (rows.length > 64) return unusable("too_many");
+    if (!rows.every(row => row && Number.isSafeInteger(row.pid) && row.pid > 0 &&
+      Number.isSafeInteger(row.parentPid) && typeof row.startedAt === "string")) return unusable("malformed");
+    return { rows, reason: null };
+  } catch {
+    return unusable("malformed");
+  }
+}
+
 /**
  * The largest difference allowed between two reads of one process's start
  * time: the rounding of the read itself (`ps` reports whole seconds).

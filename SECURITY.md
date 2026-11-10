@@ -1,5 +1,7 @@
 # Security policy
 
+Windows orphan tools are signalled only when their creator PID and bounded creation time prove job ownership and a fresh identity check confirms the tool.
+
 This plugin is a one-maintainer fork. Security reports are handled on a
 **best-effort** basis. There is no dedicated security team, no SLA, and no
 CVE assignment process beyond what GitHub provides.

@@ -6,6 +6,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+- Add the optional worker-only `agyAliveAt` job record field for safe orphan-tool cleanup.
 - Measure standalone agy 1.5.3; retain per-verb coverage limits in the matrix.
 - Add `doctor --receipt` for a redacted compatibility receipt.
 - Store the forwarded flag help listing in job provenance; a failed probe stores null, and a job that does not use agy runs no probe.
@@ -41,6 +42,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed.
 - Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
 - State saves retry brief Windows file locks instead of failing on the first rename.
 - A waiter no longer replaces a finished job with a missing-worker failure.

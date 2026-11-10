@@ -223,6 +223,8 @@
  *   `cancel` and the vanished-worker cleanup signal the PID only while its
  *   current start time matches; additive, `null`/absent on legacy records
  * @property {string | null} [agyProcessStartedAt] the same for `agyPid`
+ * @property {string} [agyAliveAt] worker time sampled while its own agy child
+ *   had not emitted exit; optional on older records, never written by callers
  * @property {string | null} [conversationId] the id the *caller* passed via
  *   `--conversation`; `null`/absent when the run started fresh or continued
  * @property {string | null} [agyConversationId] the id *agy itself reported*
@@ -378,7 +380,7 @@
  * @property {(chunk: string) => void} [onStdout]
  * @property {(chunk: string) => void} [onStderr]
  * @property {(delta: string) => void} [onText]
- * @property {(info: { pid: number | undefined }) => void | Promise<void>} [onSpawn]
+ * @property {(info: { pid: number | null, child: object, isAlive: () => boolean }) => void | Promise<void>} [onSpawn]
  */
 
 export {};

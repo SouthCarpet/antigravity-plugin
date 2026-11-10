@@ -39,6 +39,7 @@ import {
   isProcessAlive as processIsAlive,
   readProcessStartTime,
   recordProcessStartTime,
+  queryProcessChildren,
   terminateProcessTree,
 } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
@@ -2060,6 +2061,83 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
   );
 }
 
+function toolCreatedInBound(candidate, job, lower, upper) {
+  const time = typeof candidate?.startedAt === "string" ? Date.parse(candidate.startedAt) : NaN;
+  return Number.isSafeInteger(candidate?.pid) && candidate.pid > 0 &&
+    candidate.parentPid === Number(job.agyPid) && time >= lower && time <= upper;
+}
+
+function toolTime(value) {
+  return typeof value === "string" ? Date.parse(value) : NaN;
+}
+
+function toolPid(candidate) { return candidate?.pid ?? "unknown"; }
+
+function queryToolRows(pid, queryChildren, log) {
+  let answer;
+  try { answer = queryChildren(pid); } catch { answer = { rows: null, reason: "spawn_failed" }; }
+  const rows = answer?.rows;
+  if (Array.isArray(rows) && rows.length <= 64) return rows;
+  const reason = rows?.length > 64 ? "too_many" : answer?.reason;
+  const safeReason = ["timeout", "spawn_failed", "exit_nonzero", "malformed", "too_many", "unsupported"].includes(reason) ? reason : "malformed";
+  log(`tools not signalled: creator query ${safeReason}`);
+  return null;
+}
+
+// The one creator query cannot reveal a longer ancestry chain. The caller's
+// immediate parent is known without another query; never terminate its tree.
+function isReservedToolPid(pid, job) {
+  return pid <= 4 || [process.pid, process.ppid, Number(job.workerPid), Number(job.agyPid)].includes(pid);
+}
+
+/**
+ * Stop bounded, identity-confirmed direct tools after the caller proved agy
+ * gone. Call outside the workspace mutex. Outcomes go only to the job log.
+ * @param {string} workspaceRoot
+ * @param {import('./types.mjs').JobRecord} job
+ * @param {{ platform?: string, queryChildren?: typeof queryProcessChildren,
+ *   terminateTree?: typeof terminateProcessTree, isProcessAlive?: typeof processIsAlive,
+ *   readStartTime?: typeof readProcessStartTime, cleanupNow?: () => number }} [deps]
+ * @param {string} [prefix]
+ * @returns {Promise<void>}
+ */
+export async function cleanupConfirmedTools(workspaceRoot, job, {
+  platform = process.platform, queryChildren = queryProcessChildren,
+  terminateTree = terminateProcessTree, isProcessAlive = processIsAlive,
+  readStartTime = readProcessStartTime, cleanupNow = () => performance.now(),
+} = {}, prefix = "wait") {
+  const lower = toolTime(job.agyProcessStartedAt);
+  const upper = toolTime(job.agyAliveAt);
+  if (platform !== "win32" || !Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) return;
+  const log = message => appendJobLog(workspaceRoot, job.id, `[${prefix}] ${message}`);
+  const deadline = cleanupNow() + 60_000;
+  const rows = queryToolRows(Number(job.agyPid), queryChildren, log);
+  if (rows === null) return;
+  // The worker sampled upper while its own child retained its Windows PID.
+  // No tolerance widens this interval. A backwards clock change can invalidate
+  // comparison of the OS creation time and the worker clock (documented limit).
+  const candidates = rows.filter(candidate => {
+    if (!isReservedToolPid(candidate?.pid, job)) return true;
+    log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: reserved process id`);
+    return false;
+  });
+  for (const candidate of candidates) {
+    // Reserve the existing maximum termination time (two 10s calls + 1s grace)
+    // and 5s for a complete identity read. Never shorten an identity check.
+    const budgetUsed = () => log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: cleanup time budget used`);
+    if (cleanupNow() + 26_000 > deadline) { budgetUsed(); continue; }
+    const confirmed = toolCreatedInBound(candidate, job, lower, upper);
+    if (!confirmed || checkProcessIdentity(candidate.pid, candidate.startedAt, { isProcessAlive, readStartTime }) !== "match") {
+      log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: not confirmed as this job's process`);
+      continue;
+    }
+    if (cleanupNow() + 21_000 > deadline) { budgetUsed(); continue; }
+    let outcome;
+    try { outcome = (await terminateTree(candidate.pid)).outcome; } catch { outcome = "failed"; }
+    log(`tool pid=${candidate.pid} of agy pid=${job.agyPid} outcome=${outcome}`);
+  }
+}
+
 /**
  * Persist and log the terminal state for a job whose worker vanished
  * without recording a result. Terminates the recorded `agyPid` FIRST, before
@@ -2085,7 +2163,8 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
  *   readStartTime: typeof readProcessStartTime }} deps
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
-async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime }) {
+async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, deps) {
+  const { terminateTree, isProcessAlive, readStartTime } = deps;
   const decision = await withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
     const fresh = readJobFile(workspaceRoot, jobId, { strict: true });
     const vanished = Boolean(fresh && Number(fresh.workerPid ?? fresh.pid) === workerPid &&
@@ -2099,7 +2178,9 @@ async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { termin
     const identity = checkProcessIdentity(agyPid, job.agyProcessStartedAt, { isProcessAlive, readStartTime });
     if (identity === "match") {
       await terminateTree(agyPid).catch(() => {});
-    } else if (identity !== "gone") {
+    } else if (identity === "gone") {
+      await cleanupConfirmedTools(workspaceRoot, job, deps);
+    } else {
       appendJobLog(workspaceRoot, jobId, `[wait] agy pid=${agyPid} not signalled: not confirmed as this job's process`);
     }
   }
@@ -2132,6 +2213,9 @@ export async function waitForJob(
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
     terminateTree = terminateProcessTree,
     readStartTime = readProcessStartTime,
+    queryChildren = queryProcessChildren,
+    platform,
+    cleanupNow,
   } = {},
 ) {
   const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
@@ -2141,7 +2225,7 @@ export async function waitForJob(
     if (!job || TERMINAL.has(job.status)) return job;
     const workerPid = Number(job.workerPid ?? job.pid);
     if (isWorkerVanished(job, workerPid, isProcessAlive)) {
-      job = await markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
+      job = await markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime, queryChildren, platform, cleanupNow });
       if (!job || TERMINAL.has(job.status)) return job;
     }
     if (deadline !== null && now() >= deadline) return job;
