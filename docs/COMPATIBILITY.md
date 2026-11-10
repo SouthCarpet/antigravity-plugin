@@ -496,7 +496,7 @@ fields in envelope version 1:
 | Field | 3.x contract |
 |---|---|
 | `schemaVersion` | The integer `1`. An incompatible envelope change requires a new value. |
-| `command` | One of `review`, `rescue`, `task`, `vision`, `media`, `status`, `result`, `cancel`, `doctor`, or `setup`, matching the invoked verb. |
+| `command` | One of `review`, `rescue`, `task`, `media`, `vision`, `status`, `result`, `cancel`, `doctor`, or `setup`, matching the invoked verb. |
 | `status` | A string describing the represented outcome or state. Foreground delegated success is `completed`; a successful background dispatch is `queued`; a deduplicated `--request-id` dispatch reports the current status of the existing job; an empty review is `no_changes`; `review --preview` is `preview`, `jobId: null`, `answer: null`; `review --models` is `paired`, `jobId: null`, `answer: null`, representing TWO jobs under `details.jobs` instead of one (see [Review with two models](#review-with-two-models-320)). `status` and `result` expose the represented job's stored status when they address one job. A status list uses `ok`. Cancellation paths that emit output use `cancelled`, `cancel_failed`, or `state_busy`. `doctor` uses `"ok"`, `"warnings"`, or `"problems"`, always with `jobId: null` and `answer: null` (see [`doctor`](#additive-surface-added-after-100)). |
 | `jobId` | The tracked job id as a string when the output represents one job, otherwise `null`. Successful background dispatch always supplies it. Foreground `review`, `rescue`, `task`, and `vision` also supply their tracked job id. |
 | `answer` | Opaque human-facing/model-generated text as a string when the command returns an answer, otherwise `null`. Its prose, Markdown, field-like conventions, and all other internal structure are explicitly unstable. Consumers may display or store it but must not parse it as a review/result schema. For structured review findings, use `review --findings-json` and read `details.findings` (see [Structured output flag](#structured-output-flag)). |
@@ -1858,6 +1858,7 @@ scheduling noise. The failure-path probe budget is 1,000 ms.
 - Stderr refusal: a malformed `--models` value (not exactly two
   comma-separated, non-empty, distinct tokens), checked before the diff is
   read. A valid call on an empty diff returns `no_changes` with no agy call.
+- A token that starts with a dash (including after leading whitespace) is refused on stderr, exit 1, before any agy call or state write.
 - Stderr refusal: a token with a control character (C0, DEL, C1) or over 200
   characters. Every refusal shows a token JSON-escaped and cut to 80
   characters, so one refusal is one line.

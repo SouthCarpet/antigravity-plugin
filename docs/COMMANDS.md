@@ -537,6 +537,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
 
   - A malformed value (not exactly two comma-separated, non-empty, distinct
     tokens) is refused on stderr only, exit 1, like the requirement above.
+  - A token that starts with a dash (including after leading whitespace) is refused on stderr, exit 1, before any agy call or state write.
   - A token with a control character (C0, DEL or C1, so a newline, tab or
     escape too) or more than 200 characters is refused the same way. Spaces,
     slashes, dots and colons are allowed in an exact id.

@@ -54,7 +54,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Top-level help now lists media and names `--json` as the common output flag.
 - Prevent stdout and stderr output from being cut before CLI exit. In 3.1.0, output larger than the pipe buffer could be cut on Linux and macOS.
 - Host wrappers now print their refusal line whole before they end. The generated command text and the permission rule text in each command file changed with it.
-- Report a file used as an output target parent as `parent_not_directory` on POSIX.
+- On Linux and macOS, a file used as the parent of an `--output` or `--export` target is now reported as "parent is not a directory" instead of "cannot be checked".
 - On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed. Cleanup has a time budget and logs what remains; a tool started in the last seconds before the worker died is not confirmed.
 - Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
 - State saves retry brief Windows file locks instead of failing on the first rename.
