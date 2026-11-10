@@ -9,7 +9,7 @@ changes](#deprecation-and-compatibility-changes)). A behavior is public only
 when this document or the [commands reference](./COMMANDS.md) says it is
 promised.
 
-Plugin 3.1.0 is this package's version number. Measured versions of Google's
+Plugin 3.2.0 is this package's version number. Measured versions of Google's
 Antigravity CLI span 1.1.15 to 1.5.3; newest measured 1.5.3. Coverage differs
 by version. The 1.4.0 checks cover native discovery, `doctor`, `task`,
 `status`, `result`, running-job `cancel`, `rescue`, `review`, and one simple
@@ -280,7 +280,7 @@ touched the real `~/.gemini` store on agy 1.2.12: verified, transcript
 
 ### agy 1.4.0 runtime probes
 
-Plugin 3.1.0 was run on Windows with agy 1.4.0 and Node 25.8.1 on
+The plugin runtime was run on Windows with agy 1.4.0 and Node 25.8.1 on
 2026-10-16. Scratch repositories and a separate plugin state root kept the
 jobs isolated. Existing OAuth and the existing trusted vision server were
 used without changing host configuration.
@@ -1439,7 +1439,7 @@ meaning:
   reason?, checkedAt }` on `result <job-id> --check-current`; absent without the
   flag. `reason` is set only with `unknown`: `legacy_record`, `base_not_found`,
   `default_base_not_found` or `collection_failed`. One stderr line, also appended
-  to the markdown: `antigravity:result — currentness check (snapshot): <status>.`
+  to the markdown: `currentness check (snapshot): <status>.`
 - Error code `check_current_unsupported_kind` (additive, 3.2.0): `invalid_input`
   (exit 1) when `result --check-current` addresses a job that is not a `review`
   job.
@@ -1810,6 +1810,9 @@ scheduling noise. The failure-path probe budget is 1,000 ms.
 
 ### Package E additive paired-review surface (3.2.0)
 
+The 3.2.0 output examples quote message bodies, without the CLI prefix
+and separator. The runtime still prints its usual prefix.
+
 - Flag `--models <a,b>` on `review`: two comma-separated, non-empty, distinct
   model tokens, each an exact id or `alias:<name>`. Opt-in; never a default;
   never changes a plain single-model review in any way. Foreground only.
@@ -1863,7 +1866,7 @@ scheduling noise. The failure-path probe budget is 1,000 ms.
   and the id). An unknown alias and this refusal use the existing
   model-resolution refusal, which under `--json` is the existing
   `model_alias_unavailable` error envelope.
-- Stderr line per denied action of a leg: `antigravity:review — "<model>"
+- Stderr line per denied action of a leg: `"<model>"
   denied "<action>" ...: <remedy>`, escaped and cut to 80 characters per
   field.
 - New file `scripts/lib/review-compare.mjs`: the value parser, the two-token

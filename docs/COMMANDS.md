@@ -415,7 +415,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   model listing the same way `--model-alias` is, one listing call for the
   whole pair, never one per alias token). `--models` requires
   `--findings-json` on the same call; without it the call is refused with
-  `antigravity:review — --models needs --findings-json to compare structured
+  `--models needs --findings-json to compare structured
   findings` (stderr only, exit 1, no agy probe, and checked before the diff
   is read, so a malformed call is refused whatever the diff holds). A valid
   `--models` call on an empty diff returns `no_changes` like any review: no
@@ -425,7 +425,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   fresh conversation, dispatched in the foreground only.
 
   One stderr line is printed before either leg dispatches:
-  `antigravity:review — two model calls will run (two agy calls, two
+  `two model calls will run (two agy calls, two
   quotas).` No prompt, no confirmation.
 
   Both legs send the exact same diff (one `buildReviewInput` call, so both
@@ -524,7 +524,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   (`status: "failed"`, `findingsStatus: null`, so `comparison` is `null`); a
   leg that was denied but still returned valid findings stays `completed`
   and stays in the comparison, with its `deniedActions` shown. Each denied
-  action also prints one stderr line (`antigravity:review — "<model>" denied
+  action also prints one stderr line (`"<model>" denied
   "<action>" ... : <remedy>`) and one line under the leg in the text output.
   The action, display name, target and model label are JSON-escaped and cut
   to 80 characters there, so one denied action is always one line. There is
@@ -1274,7 +1274,7 @@ the job record or any state file, and it works with agy absent. `--json` adds
 (the new `inputHash` equals the stored one), `changed` (both hashes exist and
 differ) or `unknown` (the check could not run; `reason` is `legacy_record`,
 `base_not_found`, `default_base_not_found` or `collection_failed`). One line,
-`antigravity:result — currentness check (snapshot): <status>.` (with
+`currentness check (snapshot): <status>.` (with
 ` (<reason>)` before the full stop when there is a reason), goes to stderr and
 is appended to the markdown output after the location-check line. The check is
 a snapshot of the moment of the call and not a lock: the repository can change
@@ -1506,7 +1506,7 @@ it is not copied from the older job. Review continuation does not replay a store
 For all five verbs, when both a requested model and agy's reported model are
 available, `details.modelMismatch` is true or false after trim and case folding.
 Completed or failed runs with a mismatch print one stderr line:
-`antigravity:<verb> — warning: agy reported model "<reported>", requested "<requested>".`
+`warning: agy reported model "<reported>", requested "<requested>".`
 The exit code does not change. If either value is missing, the field and
 warning are absent. The reported model comes only from agy's result event
 `model` field. Versions measured before this release did not supply it.
@@ -1560,3 +1560,8 @@ that run interactive. The Windows bridge handles SIGINT, SIGTERM, SIGHUP
 and SIGBREAK. A cleanup query has a 15000 ms timeout. Remaining candidates
 are logged with `not signalled: cleanup time budget used`; each cleanup
 keeps the 60-second budget described in Compatibility.
+
+The 3.2.0 output examples above quote message bodies. The CLI can prefix
+a message with `antigravity:<verb>` and its separator; that prefix does not
+change the message body. Historical installation rows can also quote a message
+body rather than the full stream.
