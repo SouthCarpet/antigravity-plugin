@@ -466,7 +466,7 @@ the exit code, and, on the timeout outcome, that one stderr line, differ
 from a call without it. See
 [`docs/COMMANDS.md`](./COMMANDS.md#status) for the full table.
 
-CLI exit waits for pending stdout and stderr writes, then terminates with the command's exit code so live child handles or timers cannot keep it open. The wait has no time limit. On every platform, a reader that keeps the pipe open and never reads keeps the call open. When the reader closes the pipe, the call ends with the command's exit code.
+CLI exit waits for pending stdout and stderr writes, then terminates with the command's exit code so live child handles or timers cannot keep it open. The wait has no time limit. On every platform, when the output is larger than the pipe buffer, a reader that keeps the pipe open and never reads keeps the call open. When the reader closes the pipe, the call ends with the command's exit code.
 
 ## Output contract
 
