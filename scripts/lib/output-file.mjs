@@ -95,11 +95,19 @@ function lstatOrNull(target, io, noun) {
     return io.lstatSync(target);
   } catch (error) {
     if (error?.code === "ENOENT") return null;
+    if (error?.code === "ENOTDIR") throw parentNotDirectory(target, noun);
     throw new OutputTargetError(
       "check_failed",
       `${noun} target cannot be checked (${error?.code ?? "error"}): ${displayTargetPath(target)}`,
     );
   }
+}
+
+function parentNotDirectory(target, noun) {
+  return new OutputTargetError(
+    "parent_not_directory",
+    `${noun} target parent is not a directory: ${displayTargetPath(path.dirname(target))}`,
+  );
 }
 
 function assertParentDirectory(target, io, noun) {
@@ -114,16 +122,14 @@ function assertParentDirectory(target, io, noun) {
         `${noun} target directory does not exist: ${displayTargetPath(parent)}`,
       );
     }
+    if (error?.code === "ENOTDIR") throw parentNotDirectory(target, noun);
     throw new OutputTargetError(
       "check_failed",
       `${noun} target directory cannot be checked (${error?.code ?? "error"}): ${displayTargetPath(parent)}`,
     );
   }
   if (!stat.isDirectory()) {
-    throw new OutputTargetError(
-      "parent_not_directory",
-      `${noun} target parent is not a directory: ${displayTargetPath(parent)}`,
-    );
+    throw parentNotDirectory(target, noun);
   }
 }
 
