@@ -1508,6 +1508,7 @@ meaning:
 - `agyAliveAt` (additive, 3.2.0): optional ISO time written only by the
   background worker at agy PID publication and heartbeat patches while its
   own child session has not received exit. It stops advancing on exit.
+  It is written on every platform and read for orphan cleanup only on Windows.
   Old records stay readable and confirm no orphan tools. Older readers
   ignore it. It is visible in stored job records, `state.json` entries and
   existing job objects in single-job and list `status --json` output;
@@ -1536,7 +1537,10 @@ meaning:
   waiter and `cancel` run one creator query outside the workspace lock.
   A tool must name the recorded agy PID as creator and have an OS creation
   time between `agyProcessStartedAt` and `agyAliveAt`, inclusive. No tolerance
-  widens these bounds. Its current identity is checked again before tree
+  widens these bounds. Bounds compare at millisecond resolution: parsing the
+  OS timestamp drops its smaller fractions. This is safe because the agy PID
+  stays reserved until the process handle closes, after the live sample.
+  Its current identity is checked again before tree
   termination. Unconfirmed tools stay running and get one job log line.
   The query has a 15000 ms timeout, no retry, a 64 KiB output cap and a
   limit of 64 candidates. An unusable answer signals nothing and logs a safe
@@ -1549,6 +1553,15 @@ meaning:
   complete identity check. Remaining tools get one `not signalled: cleanup time
   budget used` line each. No identity check is shortened. The new worst case is
   60 seconds plus file I/O and OS scheduling delays, replacing 1669 seconds.
+  No new candidate starts after about 34 seconds. One cleanup may stop about
+  10 to 20 tools on an unloaded machine; this is no promise. The rest are left
+  running and logged.
+  The caller, its immediate parent, the recorded worker and agy PIDs, and PIDs
+  at or below 4 are skipped before identity checks, with a `not signalled:
+  reserved process id` log line. Tree termination can also stop the caller
+  through a confirmed ancestor. The direct-child query and `process.ppid`
+  identify only its immediate parent; a more distant ancestor cannot be
+  identified from that answer, so that case remains a limit.
   Normal waits,
   normal failures, cancellation of live agy and POSIX do not run this query.
   POSIX keeps the existing process-group termination.
