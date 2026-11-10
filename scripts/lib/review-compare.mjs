@@ -76,6 +76,7 @@ function tokenShapeProblem(token) {
     return `--models token ${escapeForLine(token)} is longer than ${MAX_TOKEN_LENGTH} characters`;
   }
   if (CONTROL_CHARS.test(token)) return `--models token ${escapeForLine(token)} holds a control character`;
+  if (token.trimStart().startsWith("-")) return `--models token ${escapeForLine(token)} must not start with a dash`;
   return null;
 }
 
