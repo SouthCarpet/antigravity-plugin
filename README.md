@@ -2,11 +2,7 @@
 
 # antigravity-plugin
 
-Windows background cleanup stops confirmed agy tools after a worker disappears.
-Tools without proof stay running and are named in the job log. See the
-[cleanup limits and query budget](./docs/COMPATIBILITY.md#additive-surface-added-after-100).
-
-Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's Antigravity CLI from Claude Code, Codex CLI, agy, or your shell.
+Delegate code reviews, second opinions, fixes, screenshots, and audio/video analysis to Google's Antigravity CLI (agy) from Claude Code, Codex CLI, agy, or your shell.
 
 [npm](https://www.npmjs.com/package/@southcarpet/antigravity-plugin) · [Releases](https://github.com/SouthCarpet/antigravity-plugin/releases) · [Changelog](./CHANGELOG.md) · [Commands](./docs/COMMANDS.md) · [Security](./SECURITY.md)
 
@@ -25,6 +21,7 @@ Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's 
 - Runs `agy --print` from the host you already use.
 - Gives Claude Code, Codex CLI, agy, and the standalone CLI the same ten verbs.
 - Reviews diffs, runs delegated prompts, analyzes named images and media, and manages background jobs.
+- Works with agy, the CLI that took over from Gemini CLI for free and personal Google accounts. If you used a Gemini CLI plugin before, install agy and this plugin.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/SouthCarpet/antigravity-plugin/main/assets/demo/media-vision-dark.gif">
@@ -33,6 +30,18 @@ Delegate code reviews, fixes, screenshots, and audio/video analysis to Google's 
 </picture>
 
 Output from real runs of the 3.2.0 release code. Waiting time and some lines are cut.
+
+## New in 3.2.0
+
+- **Pick a model by family.** `--model-alias flash|argon|pro|sonnet|opus|gpt-oss` selects the newest matching model from your account's `agy models` list.
+- **Get a second opinion.** `review --models <a,b> --findings-json` runs the same review with two models and shows which findings both found and which only one found.
+- **Look before you spend quota.** `--preview` on task, rescue, vision, and media shows the exact request with no agy call and no download.
+- **Keep transcripts and answers.** `media --transcript --timestamps` adds `[HH:MM:SS]` to each caption line, and `media --output <path>` saves the answer to a new file.
+- **Check old reviews.** `result --check-current` tells you if a stored review still matches your diff, and `result --export <path>` saves the stored record for another host.
+- **Better bug reports.** `doctor --receipt` prints a short compatibility receipt with no paths and no account data.
+- **Quieter Windows.** Background jobs open no console windows, and Ctrl+C in a foreground run stops agy.
+
+All changes: [CHANGELOG](./CHANGELOG.md).
 
 ## Installation and quick start
 
@@ -94,7 +103,7 @@ If a command fails, see [Troubleshooting](./docs/INSTALL.md#troubleshooting).
 - **One command set on every host.** The same ten verbs run everywhere.
 - **Clear failures.** Denied actions are reported with a remedy. An empty answer with a denied action fails.
 - **Real image input.** `vision` sends pixels to agy, and `--expect` checks the transcription for text you name.
-- **Reviews you can check.** `review` can preview its input, return schema-checked findings, and check cited lines against the diff.
+- **Reviews you can check.** `review` can preview its input, return schema-checked findings, check cited lines against the diff, and compare two models.
 - **Background jobs.** `status`, `result`, and `cancel` manage them, and `--request-id` prevents double dispatch. Worker crashes leave a safe diagnostic in the job log.
 - **Predictable runs.** `task` and `rescue` have a default effort and a time budget, and every job records its provenance.
 - **Script-friendly.** `--json` writes one envelope, also for expected failures.
@@ -147,7 +156,7 @@ npx @southcarpet/antigravity-plugin vision ./screenshot.png --prompt "Which text
 
 ## Media
 
-Send a local audio or video file with `media ./clip.mp4`. agy 1.5.0 and 1.5.1 open the exact file with `read_file`, with `--add-dir` limited to its directory. The whole directory of the file is readable for the run; keep unrelated files out of it. Media bytes reach Google. For YouTube, yt-dlp downloads the file first, then that file reaches Google.
+Send a local audio or video file with `media ./clip.mp4`. agy opens the exact file with `read_file` (measured on agy 1.5.0, 1.5.1, and 1.5.3), with `--add-dir` limited to its directory. The whole directory of the file is readable for the run; keep unrelated files out of it. Media bytes reach Google. For YouTube, yt-dlp downloads the file first, then that file reaches Google.
 
 YouTube needs yt-dlp on PATH (`winget install yt-dlp.yt-dlp` or `py -m pip install --user yt-dlp`). Merging video formats needs ffmpeg. Default quality is 360p; use `--quality 480p`, `--quality 720p`, `--audio`, or `--transcript`. Transcript-only mode prints captions without a model call; add `--timestamps` for `[HH:MM:SS]` prefixes, or `--prompt` to ask about them. `--output <path>` saves the answer text to a new file and never overwrites. Downloads are deleted after the job unless `--keep`. Local files have a 100,000,000-byte cap. The default model matches vision: `gemini-3.8-flash-high`.
 
@@ -243,6 +252,6 @@ All previously tracked items are fixed. New items use the [`known issue` label](
 
 ## Acknowledgements and license
 
-- Originally forked from [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin); now maintained independently by SouthCarpet, with more than 270 commits since the fork. The original project replaces the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) after Google [retires Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
+- Originally forked from [sakibsadmanshajib/antigravity-plugin](https://github.com/sakibsadmanshajib/antigravity-plugin); now maintained independently by SouthCarpet, with more than 270 commits since the fork. The original project replaced the archived [`gemini-plugin-cc`](https://github.com/sakibsadmanshajib/gemini-plugin-cc) when Google [retired Gemini CLI on June 18, 2026](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) for free and personal users.
 - MIT License. See [`LICENSE`](./LICENSE).
 - Antigravity and Gemini are Google's trademarks, Claude Code is Anthropic's, and Codex is OpenAI's. This project is not affiliated with or endorsed by them.
