@@ -986,6 +986,9 @@ export function printTimeoutArg(timeoutMs) {
  * @returns {string[]}
  */
 export function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, jsonSchemaPath, timeoutMs }) {
+  if (model && String(model).trimStart().startsWith('-')) {
+    throw new TypeError('runAgyPrint: model must not start with a dash');
+  }
   const args = [];
   if (mode === 'continue') args.push('--continue');
   if (mode === 'conversation') {
