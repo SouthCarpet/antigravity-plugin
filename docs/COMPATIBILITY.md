@@ -18,6 +18,8 @@ by version. The 1.4.0 checks cover native discovery, `doctor`, `task`,
 The two version lines advance independently. A new agy release does not
 change the plugin version.
 
+CLI exit waits for pending stdout and stderr writes, then terminates with the command's exit code so live child handles or timers cannot keep it open.
+
 ## Supported matrix
 
 | Surface | Supported in 3.x |
