@@ -125,8 +125,10 @@ agy plugin install <fresh prepared antigravity directory>
 agy plugin list --json
 # skills: antigravity:setup, antigravity:review, antigravity:rescue,
 # antigravity:task, antigravity:vision, antigravity:status,
-# antigravity:result, antigravity:cancel, antigravity:doctor
+# antigravity:result, antigravity:cancel, antigravity:doctor, antigravity:media
+# Current prepared copy: 10 skills (including media).
 agy plugin validate <fresh prepared antigravity directory>
+# Historical measurement before media:
 # agy 1.4.0: skills 9; Validation passed
 # Optional on 1.4.0: plugin validate <dir> --strict --json
 ```
