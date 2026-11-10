@@ -69,7 +69,9 @@ stores a failed job with `agy did not finish within <ms> ms`. Output above
 chunk is retained; a partial answer is never reported as success.
 
 A foreground verb interrupted with Ctrl+C terminates agy and its child
-processes before it exits, on every platform.
+processes before it exits, on every platform. On Windows the same holds for
+Ctrl+Break and for a closed terminal window (see
+[Windows console windows](./COMPATIBILITY.md#windows-console-windows-unreleased)).
 
 Final output is collected until stdio closes. Inherited pipes that remain
 open five seconds after exit are closed with the stored warning

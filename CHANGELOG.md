@@ -46,10 +46,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A waiter no longer replaces a finished job with a missing-worker failure.
 - Process start-time reads retry once so cancellation can confirm the process under load.
 - A failed job-file read stops a patch instead of dropping existing fields.
+- Windows: a background job no longer opens a console window for each program that it starts. Before, a terminal window opened for each of these programs, and on some machines the windows and their console processes stayed after the job ended.
 
 ### Changed
 
 - `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
+- Windows: Ctrl+C, Ctrl+Break or a closed terminal window during a foreground run now stops agy through the plugin, as on Linux and macOS, and the run ends as cancelled.
 
 ## [3.1.0] — 2026-11-06
 

@@ -1833,3 +1833,55 @@ The feature does not promise that two models find more than one. See
 contract. The feature's own bounded-value check (whether two models
 find materially more than one, on real diffs) is recorded as the owner's
 post-ship validation, not a gate this release's implementation waited on.
+
+### Windows console windows (Unreleased)
+
+On Windows the plugin starts every process with Node's `windowsHide: true`
+option. One module applies it, `scripts/lib/process-adapter.mjs`;
+`scripts/lib/host-bootstrap.cjs` is CommonJS and sets the option itself.
+No flag, field, status value, exit code or output text changes.
+
+Why: the background worker runs with no console. Before this change each
+console program that the worker started (agy, `taskkill`, git) got a new
+console window. With Windows Terminal as the default terminal application,
+Windows opened one terminal window for each of these programs. Measured on
+Windows 11 with Windows Terminal 1.24 and Node 25.8.1 on 2026-11-09: five of
+five programs opened a terminal window without the option, and none of five
+with it. With Windows Console Host as the default terminal the same five
+programs each showed a console window for a moment without the option, and
+none with it. A background job with the fake agy opened one terminal window
+before this change and none after it.
+
+The option does two different things, by the stdio of the child (libuv
+`src/win/process.c`; both cases were measured):
+
+- All streams piped or ignored (agy runs, the probes, git, `taskkill`, the
+  start-time query, `where.exe`, yt-dlp): the child gets a console of its
+  own with no window. It no longer shares the caller's console.
+- A stream inherited or given as a file descriptor (the host bootstrap,
+  the steps of `update --apply`): the child stays in the caller's console
+  and the caller's window stays visible. Only a console that Windows would
+  create for it is hidden.
+
+Consequences and limits:
+
+- **Ctrl+C on a foreground run.** A hidden agy does not receive a Ctrl+C,
+  a Ctrl+Break or the close of the terminal window from the caller's
+  console. The plugin now forwards these three events on Windows and stops
+  the agy process tree, as it already did on Linux and macOS. The run ends
+  as `cancelled` with the existing exit code of a cancelled run. Before
+  this change Windows delivered the event to agy directly and the plugin
+  process ended at once.
+- **Short tools.** git, `taskkill`, `where.exe`, `tar` and `npm pack` run
+  synchronously with piped streams. A Ctrl+C during one of them takes
+  effect when the tool ends or reaches its existing timeout. The steps of
+  `update --apply` stay in the caller's console and receive Ctrl+C
+  directly, as before.
+- **Exception: the sign-in run of `setup`.** It starts exactly as before,
+  with inherited streams and without the option, so an interactive sign-in
+  is never hidden. Started from a process that has no console, it still
+  gets a console window.
+- **What the plugin cannot control.** A terminal window that the user's own
+  shell or the host application opens for the plugin command itself, and a
+  window that agy or a program started by agy opens on purpose. A program
+  that agy starts normally shares the windowless console of agy.
