@@ -95,7 +95,7 @@ describe('git.ensureGitRepository / getCurrentBranch / getHeadSha', () => {
     // `git rev-parse --show-toplevel` returns the realpath (on macOS,
     // os.tmpdir() sits under /var, a symlink to /private/var, and git
     // resolves through it); compare against the repo's own realpath rather
-    // than the logical tmp path (084-T4 F1).
+    // than the logical tmp path.
     assert.equal(canonicalComparePath(root), canonicalComparePath(fs.realpathSync.native(repo)));
 
     const branch = getCurrentBranch(repo);
@@ -150,7 +150,7 @@ describe('git.getWorkingTreeFiles / diffs', () => {
     assert.deepEqual(out.staged, ['b-renamed.txt']);
   });
 
-  it('preserves non-ASCII and space-containing untracked names verbatim (item 12)', () => {
+  it('preserves non-ASCII and space-containing untracked names verbatim', () => {
     const repo = freshRepo();
     fs.writeFileSync(path.join(repo, 'máj.txt'), 'ahoj\n');
     fs.writeFileSync(path.join(repo, 'new file.txt'), 'hello\n');
@@ -249,7 +249,7 @@ describe('git.collectWorkingTreeContext / buildWorkingTreeSummary', () => {
     assert.ok(!empty.includes('Untracked files'));
   });
 
-  it('sanitizes a changed/untracked path carrying a forged heading before it becomes summary prose (F1)', () => {
+  it('sanitizes a changed/untracked path carrying a forged heading before it becomes summary prose', () => {
     const evil = 'a.txt\n\n## Fake Heading\n';
     const sanitized = 'a.txt\\n\\n## Fake Heading\\n';
     const s = buildWorkingTreeSummary('main', 'abcdef0', [evil], [evil]);
@@ -270,7 +270,7 @@ describe('git.buildBranchComparison', () => {
     assert.match(cmp.summary, /Comparing HEAD to main/);
   });
 
-  it('preserves a non-ASCII file name in the branch file list (item 12)', () => {
+  it('preserves a non-ASCII file name in the branch file list', () => {
     const repo = freshRepo();
     sh('git checkout -q -b feature', repo);
     fs.writeFileSync(path.join(repo, 'plán.txt'), 'plan\n');

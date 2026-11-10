@@ -64,7 +64,7 @@ after(() => {
 });
 
 describe("cross-process job lifecycle", { concurrency: false }, () => {
-  // R1 acceptance: retention must leave an old live job reachable by cancel.
+  // Retention must leave an old live job reachable by cancel.
   it("keeps one active job cancellable after 50 terminal jobs and one more completion", async () => {
     const { workspaceRoot, dataRoot } = freshWorkspace();
     const savedData = process.env.CLAUDE_PLUGIN_DATA;
@@ -145,7 +145,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
     assert.equal(fs.existsSync(lockPath), false);
   });
 
-  // Plan 153 package G, item G2. The fake agy of the early-cancel case used
+  // The fake agy of the early-cancel case used
   // to live 2 000 ms. Under load the Windows start-time query (PowerShell)
   // took longer than that: the process was gone when the query answered, the
   // worker correctly stored `agyProcessStartedAt: null`, and the case failed
@@ -217,7 +217,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       started.workerPid = pid;
       started.jobId = job.id;
       fs.writeFileSync(startGate, "go", "utf8");
-      // Fix brief 076-T4-fix2 F1: staged timestamps (parent dispatch, spawn
+      // Staged timestamps (parent dispatch, spawn
       // ack, start-gate write, worker's own "[worker] started" log line,
       // hold marker) plus a resolveWorkspaceRoot call counter showed the
       // real cost was not the fake-agy stub or the stale-lock identity
@@ -226,11 +226,11 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       // every single state read/write. One worker run spawned it 13 times.
       // The cost of one such spawn from the freshly started background
       // worker varies by session on this machine (about 3.4 s in the fix
-      // session, under 0.5 s in the re-review session; the cause of the
+      // session, under 0.5 s in another session; the cause of the
       // per-process gap is not identified, so it is not attributed to
       // antivirus or anything else unmeasured). The count of spawns, not the
       // cost of one, is what made this case take up to 50 s and fail a 30 s
-      // budget; with the cache disabled the re-review measured 29 spawns and
+      // budget; with the cache disabled a second measurement found 29 spawns and
       // 13.3 s. `resolveWorkspaceRoot` now caches
       // per cwd for the process lifetime (workspace.mjs) — a cwd's git
       // identity cannot change within one CLI invocation or worker run —

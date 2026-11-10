@@ -8,8 +8,6 @@
  * place that data lives, so `docs/COMPATIBILITY.md`'s matrix table and
  * `README.md`'s "newest measured" phrase can be checked against it instead
  * of against each other (`tests/compat.test.mjs`).
- *
- * Senate R2 (2026-09).
  */
 
 import { compareVersions } from "./update.mjs";

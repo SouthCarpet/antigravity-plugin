@@ -1,4 +1,4 @@
-/** Package D contract oracles: controller rulings 1 to 4. */
+/** Oracles: the doctor receipt and job flag listing contract. */
 import { it, mock, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -31,7 +31,7 @@ mock.module('../scripts/lib/process-adapter.mjs', { namedExports: {
     // reach spawnSync through the same adapter and run for real.
     if (!(argv?.length === 1 && argv[0] === '--help')) return realSpawnSync(bin, argv, options);
     calls.push(argv);
-    assert.equal(options.timeout, 1000, 'ruling 4 bounds the probe');
+    assert.equal(options.timeout, 1000, 'the probe is bounded');
     assert.equal(options.killSignal, 'SIGKILL');
     return probe;
   },
@@ -54,7 +54,7 @@ async function capture(args) {
   try { return { code: await run(args, {cwd:root}), get text() { return text; } }; }
   finally { process.stdout.write = saved; for (const [key,value] of Object.entries(privateEnv)) { if (value === undefined) delete process.env[key]; else process.env[key]=value; } }
 }
-it('receipt has the closed redacted key set and no added agy spawn (rulings 1 and 2)', async () => {
+it('receipt has the closed redacted key set and no added agy spawn', async () => {
   calls.length = 0;
   const plain = await capture(['--json']);
   assert.deepEqual(calls, [['--version'], ['--help']]);
@@ -75,7 +75,7 @@ it('receipt has the closed redacted key set and no added agy spawn (rulings 1 an
   assert.ok(!text.text.includes('RECEIPT-PRIVATE-USER'));
   assert.ok(!text.text.includes('RECEIPT-PRIVATE-HOST'));
 });
-it('absent agy gives null version, missing classification and all flags not listed (ruling 2)', async () => {
+it('absent agy gives null version, missing classification and all flags not listed', async () => {
   missing = true;
   try {
     const output = await capture(['--receipt','--json']);
@@ -84,7 +84,7 @@ it('absent agy gives null version, missing classification and all flags not list
     assert.deepEqual(receipt, {pluginVersion:packageVersion,agyVersion:null,classification:'missing',listedFlags:{...expectedFlags,'--model':'not_listed','--mode':'not_listed','--print':'not_listed'},modelFamilies:'unknown'});
   } finally { missing = false; }
 });
-it('every job gets exactly one bounded help probe and the shared flag states (rulings 3 and 4)', async () => {
+it('every job gets exactly one bounded help probe and the shared flag states', async () => {
   calls.length=0;
   const job = await createTrackedJob({workspaceRoot:root,kind:'task',agyVersion:'1.5.1'});
   assert.deepEqual(calls,[['--help']]);
@@ -96,23 +96,23 @@ for (const [name,result] of [
   ['empty',{status:0,stdout:'',stderr:''}],
   ['timeout',{status:null,error:Object.assign(new Error('timeout'),{code:'ETIMEDOUT'})}],
 ]) {
-  it(`${name} help stores null and still creates a queued job (ruling 4)`, async () => {
+  it(`${name} help stores null and still creates a queued job`, async () => {
     probe=result;
     const job = await createTrackedJob({workspaceRoot:root,kind:'task',agyVersion:'1.5.1'});
     assert.equal(job.status,'queued');
     assert.equal(readJobFile(root,job.id).provenance.listedFlags,null);
   });
 }
-// Oracles: controller ruling 4, all preview verbs and resumed creation.
+// Oracles: all preview verbs and resumed creation.
 for (const kind of ['task','rescue','vision','media','review']) {
-  it(`${kind} preview spawns no help probe (ruling 4)`, async () => {
+  it(`${kind} preview spawns no help probe`, async () => {
     const { buildRunPreview } = await import('../scripts/lib/job-helpers.mjs');
     calls.length=0;
     buildRunPreview({kind,prompt:'preview',options:{}});
     assert.deepEqual(calls,[]);
   });
 }
-it('resumed creation captures a new listing once (ruling 4)', async () => {
+it('resumed creation captures a new listing once', async () => {
   probe={status:0,stdout:'--model --print',stderr:''}; calls.length=0;
   const job=await createTrackedJob({workspaceRoot:root,kind:'task',agyVersion:'1.5.1',request:{mode:'conversation',replayedFromJobId:'old-job'}});
   assert.deepEqual(job.provenance.listedFlags,expectedFlags);

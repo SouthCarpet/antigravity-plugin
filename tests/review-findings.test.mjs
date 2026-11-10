@@ -1,5 +1,5 @@
 /**
- * `review --findings-json` (Senate R7, 2026-09): opt-in structured review
+ * `review --findings-json` (added 2026-09): opt-in structured review
  * findings. agy 1.2.12 accepts `--json-schema <path>` with the stream-json
  * transport and puts a `structured_output` field on its final `result`
  * event (measured in agy-1.2.12-20260927/probe-json-schema.txt). The plugin

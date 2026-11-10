@@ -15,12 +15,15 @@ node scripts/bump-version.mjs --check
 ```
 
 `bump-version.mjs --check` also fails, naming the file and line, when a
-tracked markdown file other than `CLAUDE.md` or `AGENTS.md` still names an
-internal planning identifier: the word "plan", one space, then three digits,
-case-sensitive (the word "planning" does not match). Before a release, run
-`git grep -n -E "plan [0-9]{3}" -- '*.md' ':!CLAUDE.md' ':!AGENTS.md'` and
-remove every hit, or replace it with a user-facing explanation, so this gate
-passes.
+tracked document, code, manifest or workflow file (`.md`, `.mjs`, `.cjs`,
+`.js`, `.json`, `.yml`, `.yaml`; not `package-lock.json`, `CLAUDE.md` or
+`AGENTS.md`) still names an internal planning identifier: "plan" or "Plan",
+one space, then three digits, or three digits, "-T" and a number (the word
+"planning" does not match). Before a release, run
+`git grep -n -E "[Pp]lan [0-9]{3}|[0-9]{3}-T[0-9]" -- ':!CLAUDE.md' ':!AGENTS.md' ':!package-lock.json'`
+and remove every hit, or replace it with a user-facing explanation, so this
+gate passes. Code comments, test names and documents must read on their own,
+without the maintainer's planning notes.
 
 ## The 3.x contract
 
@@ -43,4 +46,4 @@ A change that alters behavior, output, flags, or state updates `CHANGELOG.md` an
 
 ## Scope
 
-This repository ships a product: the plugin's code, tests, and docs. Pull requests stay in that scope. A maintainer's internal notes, vault, or agent orchestration tooling never belong here.
+This repository ships a product: the plugin's code, tests, and docs. Pull requests stay in that scope. Personal notes and local tooling do not belong here.

@@ -102,10 +102,19 @@ describe('pack-for-agy: prepared copy preserves npm files and adds only ten stan
     assert.equal(report.fileCount, expected.length);
   });
 
-  it('contains no .git, tests/, .github/, or .superpowers/ entries', () => {
+  it('contains no hidden top-level folder other than the host manifest folders', () => {
+    const report = runScriptJson([]);
+    const hidden = new Set(listFilesRecursive(report.dir)
+      .filter((rel) => rel.startsWith('.')).map((rel) => rel.split(/[\\/]/)[0]));
+    // Oracle: the package allow-list ships only these hidden folders; a local notes or tooling
+    // folder in the checkout must never reach the prepared tree.
+    assert.deepEqual([...hidden].sort(), ['.agents', '.claude-plugin', '.codex-plugin']);
+  });
+
+  it('contains no .git, tests/ or .github/ entries', () => {
     const report = runScriptJson([]);
     const extracted = listFilesRecursive(report.dir);
-    for (const forbidden of ['.git', 'tests/', '.github/', '.superpowers/']) {
+    for (const forbidden of ['.git', 'tests/', '.github/']) {
       assert.ok(
         !extracted.some((rel) => rel === forbidden || rel.startsWith(forbidden)),
         `${forbidden} must not appear in the extracted tree, saw: ${JSON.stringify(

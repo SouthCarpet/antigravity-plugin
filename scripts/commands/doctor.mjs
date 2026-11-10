@@ -1,7 +1,7 @@
 /**
  * /antigravity:doctor — read-only environment and configuration check.
  *
- * Senate R2 (2026-09), plan 103 task 6. `doctor` never runs OAuth, never
+ * `doctor` never runs OAuth, never
  * calls a model, never writes a file, and never opens the network: it reads
  * `process.version`, `package.json` `engines.node`, `agy --version`,
  * `agy --help`, the two agy config files `vision-config.mjs` already knows
@@ -48,7 +48,7 @@ export { FORWARDED_FLAGS } from "../lib/compat.mjs";
 const BUCKET_KEYS = { ok: "ok", warning: "warnings", problem: "problems" };
 
 /** agy version classification → this check's bucket. `beyond_measured` and
- * `unmeasured` are both warnings, never problems (the brief is explicit
+ * `unmeasured` are both warnings, never problems (the contract is explicit
  * about `beyond_measured`; `unmeasured` gets the same treatment `setup` and
  * `status` already give it: see their own warning lines). */
 const AGY_CLASSIFICATION_BUCKET = {

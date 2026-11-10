@@ -56,7 +56,7 @@ export function createJsonEnvelope(command, fields = {}) {
 }
 
 /**
- * Every `details.error.code` value a Task 3 ("Senate R1", 2026-09) envelope
+ * Every `details.error.code` value a JSON error envelope
  * can carry, frozen so docs and tests enumerate the same list this module
  * builds from — never a second, hand-copied list. A later task
  * (`--require-complete`, `--show-result`, `--request-id`) adds its own codes
@@ -81,7 +81,7 @@ export const ERROR_CODES = Object.freeze([
   "unknown_base_ref",
   "review_collection_failed",
   // invalid_input, phase collect (review only): --require-complete refused
-  // to send an input with a skip or a truncation (Task 5, "Senate R5", 2026-09)
+  // to send an input with a skip or a truncation (added 2026-09)
   "input_incomplete",
   // invalid_input, phase validate
   "missing_task_text",
@@ -91,10 +91,9 @@ export const ERROR_CODES = Object.freeze([
   "unsupported_image_extension",
   "image_too_large",
   // invalid_input, phase validate (task/rescue background): --request-id
-  // already claimed by a different request (Senate R12, 2026-09)
+  // already claimed by a different request (added 2026-09)
   "request_id_conflict",
-  // invalid_input, phase validate (task --prompt-file / stdin, Senate R13,
-  // 2026-09): the named file or stdin content is over the byte cap, the
+  // invalid_input, phase validate (task --prompt-file / stdin, 2026-09): the named file or stdin content is over the byte cap, the
   // named file could not be found or read, or the content is empty or
   // whitespace-only
   "prompt_file_too_large",
@@ -107,7 +106,7 @@ export const ERROR_CODES = Object.freeze([
   "state_locked",
   // result <id> on a stored failed job (status stays "failed")
   "job_failed",
-  // --show-result after a background --wait (Task 7, "Senate R9", 2026-09):
+  // --show-result after a background --wait (added 2026-09):
   // the awaited job settled cancelled, or the wait itself timed out while
   // the job was still queued/running (status matches, phase "wait")
   "job_cancelled",
@@ -116,7 +115,7 @@ export const ERROR_CODES = Object.freeze([
 
 /**
  * Build the one failure envelope every expected-failure path emits under
- * `--json` (Task 3, "Senate R1", 2026-09): `answer` is always `null`, and
+ * `--json` (added 2026-09): `answer` is always `null`, and
  * `error` (`{ code, phase, message }`) is always present under `details`.
  * `error.message` never carries a token, an OAuth URL, or the full upstream
  * stderr — callers pass the plugin's own one-line reason.
@@ -169,7 +168,7 @@ export function warningDetails(result) {
  * that sentence from a line that contains the flag and keeps the rest of the
  * line untouched — anchored on the flag name and the `Alternatively,`
  * lead-in, the two parts of the sentence most likely to stay stable if agy
- * rewords the rest (plan 086 T3 item 4).
+ * rewords the rest.
  *
  * This only changes what reaches the console (`reportWarnings` below,
  * `job-helpers.mjs#finishForeground`'s failure echo): the stored result and
@@ -193,7 +192,7 @@ const BYPASS_FLAG = "--dangerously-skip-permissions";
 
 /**
  * Replace every literal occurrence of {@link BYPASS_FLAG} in `text` with a
- * fixed placeholder (plan 086 T5e F3): unlike {@link stripBypassAdvice}
+ * fixed placeholder: unlike {@link stripBypassAdvice}
  * (which only trims agy's own "Alternatively, ..." suggestion sentence),
  * this strips the flag itself wherever it appears — including inside
  * model-chosen `target` text on a plugin-authored denial label. A denied
@@ -215,7 +214,7 @@ export function redactBypassFlag(text) {
  * Echo runtime warnings to stderr on a completed run. The verbs only print
  * `result.stderr` on failure, so without this a benign denial would reach
  * the stored job and `--json` but never the terminal. Each line is printed
- * through {@link stripBypassAdvice} (plan 086 T3 item 4); the stored
+ * through {@link stripBypassAdvice}; the stored
  * `result.warnings` array itself (and therefore `--json`'s
  * `details.warnings`) is never mutated.
  *
@@ -230,8 +229,7 @@ export function reportWarnings(command, result) {
 }
 
 /**
- * Sanitize a job summary for embedding in a markdown table cell (F5/item
- * 13c): a raw `|` would split the cell, and a raw CR/LF would break the row
+ * Sanitize a job summary for embedding in a markdown table cell: a raw `|` would split the cell, and a raw CR/LF would break the row
  * across lines. A trailing `\` before a raw `|` must be escaped first, or
  * markdown reads `\|` as an escaped backslash followed by a live pipe and
  * still splits the cell. This runs only where a table row is actually
@@ -251,7 +249,7 @@ function summaryForTableCell(value) {
 
 /**
  * `<bytes>B/<lines>L`, or `-` when either field is missing (running jobs and
- * legacy records) — 076-T7 R1: `answerBytes`/`answerLines` shown in the
+ * legacy records): `answerBytes`/`answerLines` shown in the
  * `status` table.
  *
  * @param {{ answerBytes?: number | null, answerLines?: number | null }} job
@@ -263,7 +261,7 @@ function formatAnswerSize(job) {
 }
 
 /**
- * A short marker for the status table (plan 085 T2 item 4): the denied-
+ * A short marker for the status table: the denied-
  * action count, or `-` when none/absent (legacy records, a clean run).
  * Always a plain non-negative integer or a literal dash, so no table-cell
  * escaping applies here (contrast `summaryForTableCell`).
@@ -279,7 +277,7 @@ function formatDeniedMarker(job) {
 }
 
 /**
- * A short marker for the status table (plan 086 T1): `partial` when agy's
+ * A short marker for the status table: `partial` when agy's
  * own print timeout truncated the job's answer, or `-` when absent (legacy
  * records, a clean run). Plain text, no table-cell escaping needed.
  *
@@ -292,7 +290,7 @@ function formatPrintTimeoutMarker(job) {
 
 /**
  * True when at least one listed job's provenance names a model or an effort
- * (plan 103 T2, "Senate R11", 2026-09) — the gate for the Recent Jobs
+ * (added 2026-09) — the gate for the Recent Jobs
  * table's optional `Model`/`Effort` columns, so a fleet of `review`-only or
  * legacy jobs (which never carry either) leaves the table unchanged.
  *
@@ -337,8 +335,7 @@ function formatModelEffortCells(job, showModelEffort) {
 }
 
 /**
- * One note line when agy's own print timeout truncated the answer (plan 086
- * T1): used by the single-job `status` view and by `result`. Empty when
+ * One note line when agy's own print timeout truncated the answer: used by the single-job `status` view and by `result`. Empty when
  * there is nothing to show.
  *
  * @param {import('./types.mjs').AgyPrintTimeout | null | undefined} marker
@@ -352,12 +349,11 @@ export function renderPrintTimeoutNote(marker) {
 
 /**
  * The one-line label naming a denied action, shared by the markdown "Denied
- * Actions" list and the stderr denial hint (plan 086 T3 item 2): `action`,
+ * Actions" list and the stderr denial hint: `action`,
  * optionally `(displayName)`, optionally ` for "target"` when the target is
  * known. `target` is untrusted model-chosen tool-parameter text — this only
  * wraps the already-sanitized/capped string (`agent-runtime.mjs`) in quotes
- * for display; it never assembles a `permissions.allow` line or a wildcard
- * (item 3).
+ * for display; it never assembles a `permissions.allow` line or a wildcard.
  *
  * @param {{ action: string, displayName?: string | null, target?: string | null }} entry
  * @returns {string}
@@ -371,7 +367,7 @@ export function formatDeniedActionLabel({ action, displayName, target }) {
  * Markdown lines for a denied-actions list already carrying `remedy`
  * (`job-helpers.mjs#deniedActionsWithRemedy`): one line per action under a
  * "## Denied Actions" heading, used by the single-job status view and by
- * `result` (plan 085 T2 item 4; target added plan 086 T3 item 2). Empty when
+ * `result`. Empty when
  * there is nothing to show.
  *
  * @param {import('./types.mjs').DeniedActionWithRemedy[] | null | undefined} list
@@ -387,14 +383,13 @@ export function renderDeniedActionLines(list) {
 }
 
 /**
- * Markdown lines for a job's `provenance` record (plan 103 T2, "Senate R11",
- * 2026-09): one "- **Label:** value" line per non-null field, under a
+ * Markdown lines for a job's `provenance` record (added 2026-09): one "- **Label:** value" line per non-null field, under a
  * "## Provenance" heading, shared by the single-job status view and by
  * `result` (appended after the answer, never folded into it). Empty when
  * there is nothing to show — a legacy record with no `provenance` field, or
  * `null`.
  *
- * `inputHash` (Task 5, "Senate R5", 2026-09) is a separate parameter, not a
+ * `inputHash` (added 2026-09) is a separate parameter, not a
  * `provenance` field: it lives on the job's `request` (`review-input.mjs`'s
  * `buildReviewInput`), and `provenance` itself is deliberately never
  * extended with it — this only adds one more line to the same section.
@@ -424,7 +419,7 @@ export function renderProvenanceLines(provenance, inputHash = null) {
 }
 
 /**
- * Markdown for `review --preview` (Task 5, "Senate R5", 2026-09): the exact
+ * Markdown for `review --preview` (added 2026-09): the exact
  * included/skipped lists, counts, truncation state and hash
  * `buildReviewInput` (`review-input.mjs`) already computed, before any agy
  * call. The one place this text is built, so the markdown and the `--json`
@@ -769,7 +764,7 @@ export function renderSetupReport(report) {
  * one. `[]` returns `text` unchanged. Shared by every path that appends an
  * optional line or section after the answer without folding it into the
  * opaque `answer`/`rendered` text: the foreground `--check-locations` line
- * (Task 14, "Senate R8", 2026-09) is the first `finishForeground` caller to
+ * (added 2026-09) is the first `finishForeground` caller to
  * need this. `result.mjs` keeps its own local `appendSectionLines`, the
  * same shape, for its several appended sections (denied actions,
  * print-timeout, findings, provenance) — not merged into this helper, since

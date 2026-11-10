@@ -170,7 +170,7 @@ describe('ensureVisionConfig — idempotent second run', () => {
     // could go undetected (a false green). Faking the owned atomic-writer
     // boundary (see defaultAtomicWriter in vision-config.mjs) instead of
     // mocking fs.renameSync directly proves the same thing without reaching
-    // into a node:fs export this module does not own (TotT R9).
+    // into a node:fs export this module does not own.
     let writeCount = 0;
     const fakeAtomicWriter = { write() { writeCount += 1; } };
     const { mcpConfig, permissions } = ensureVisionConfig({ homeDir, atomicWriter: fakeAtomicWriter });

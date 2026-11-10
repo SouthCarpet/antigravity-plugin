@@ -131,7 +131,7 @@ test('two failed launch queries leave the fake agy alive and log that it was not
  }
 });
 
-// Oracle: fix-round controller rulings F1, F2, F3 and 4b.
+// Oracle: the fix-round rules for cleanup outside the lock.
 test('gone launch process gets no second identity query',()=>{
  let queries=0;assert.equal(recordProcessStartTime(4242,()=>{queries++;return null;},()=>false),null);assert.equal(queries,1);
 });
@@ -192,7 +192,7 @@ test('two waiters return the same terminal record after confirmed cleanup',async
  assert.deepEqual(first,second);assert.equal(first.phase,'worker_missing');assert.ok(signals>=1&&signals<=2);
 });
 
-// Oracle: package H verifier m7a. A finished job must not trigger identity queries or signals.
+// Oracle: a finished job must not trigger identity queries or signals.
 test('terminal record before first vanish lock causes no identity query or termination', async () => {
  const root = fixture(); const id = 'abcdefabcdef';
  const terminal = { id, status: 'completed', workerPid: 4242, agyPid: 4343, agyProcessStartedAt: new Date(1000).toISOString() };

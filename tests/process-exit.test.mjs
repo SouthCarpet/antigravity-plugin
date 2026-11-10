@@ -1,4 +1,4 @@
-// Oracle: package J requires pending stdout and stderr to finish before forced exit.
+// Oracle: pending stdout and stderr must finish before forced exit.
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
@@ -33,7 +33,7 @@ it('ends from an async callback with the explicit code instead of the previous c
 });
 
 for (const pendingName of ['stdout', 'stderr']) {
-  it(`waits when only ${pendingName} has a pending write (package J flush contract)`, async () => {
+  it(`waits when only ${pendingName} has a pending write`, async () => {
     const delayed = slowStream();
     const idle = new Writable({ write(_c, _e, cb) { cb(); } });
     const codes = [];

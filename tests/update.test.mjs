@@ -49,7 +49,7 @@ const NOW = Date.parse('2026-09-02T12:00:00.000Z');
 const HOUR = 60 * 60 * 1000;
 
 it('stops a sleeping update step with a one-line 50 ms timeout error', () => {
-  // Oracle: brief 076-T3 R1; exercise real spawnSync with a short injected bound.
+  // Oracle: exercise real spawnSync with a short injected bound.
   const result = defaultRunner({
     command: process.execPath, args: ['-e', 'setTimeout(() => {}, 2000)'],
     capture: true, timeoutMs: 50,
@@ -238,7 +238,7 @@ describe('update: registry cache', () => {
     assert.equal(fs.existsSync(cacheFile), false);
   });
 
-  it('a trust violation while writing the cache is never folded into "unreachable" (F4)', async () => {
+  it('a trust violation while writing the cache is never folded into "unreachable"', async () => {
     // Platform seam, not `fs`/uid mocking: `assertPrivateDir` is a no-op on
     // win32, so this exercises resolveLatest's own error-classification
     // branch on every OS the same way CI's Ubuntu run would exercise it live.
@@ -253,7 +253,7 @@ describe('update: registry cache', () => {
     assert.equal(fs.existsSync(cacheFile), false);
   });
 
-  it('runUpdate lets that trust violation through to the bin\'s one-line failure path (F4)', async () => {
+  it('runUpdate lets that trust violation through to the bin\'s one-line failure path', async () => {
     const throwingAssertPrivateDir = () => {
       throw new UnsafeStateDirError(`${cacheFile} is not a private directory owned by this user`);
     };
@@ -299,7 +299,7 @@ describe('update: registry cache', () => {
   });
 });
 
-describe('update: registry retry (076-T7 R2)', () => {
+describe('update: registry retry', () => {
   function immediateSleep() {
     const calls = [];
     const sleep = async (ms) => { calls.push(ms); };
@@ -380,14 +380,14 @@ describe('update: registry retry (076-T7 R2)', () => {
     assert.equal(fetch.calls.length, 2);
   });
 
-  // 076-T7 fix round 1, F11: `waitForRetry` only bounds when the *next*
+  // `waitForRetry` only bounds when the *next*
   // attempt may start, not an attempt already in flight — an unbounded
   // per-request timeout could let one real call run to roughly the total
   // budget plus the full 10s FETCH_TIMEOUT_MS. `attemptTimeoutMs` caps each
   // attempt's own timeout at whatever of the budget remains when it starts,
   // using the same injected clock (`now`/`deadline`) fetchLatestVersion
   // itself uses.
-  describe('attemptTimeoutMs caps the per-request timeout at the remaining budget (F11)', () => {
+  describe('attemptTimeoutMs caps the per-request timeout at the remaining budget', () => {
     it('keeps the full per-request timeout when plenty of budget remains', () => {
       const deadline = 1_000_000 + UPDATE_CHECK_TOTAL_MS;
       const now = () => 1_000_000;
@@ -407,12 +407,12 @@ describe('update: registry retry (076-T7 R2)', () => {
     });
   });
 
-  // 076-T7 fix round 2, F11 (the re-review found the unit cases above never
+  // (A review found the unit cases above never
   // exercised a retry or the timeout `fetchLatestVersion` actually passes to
   // `fetch`). Drives the real retry loop with an injected clock, recovering
   // each attempt's timeout by intercepting `AbortSignal.timeout`, the exact
   // seam `fetchOnce` builds the abort signal through.
-  it('fetchLatestVersion caps only the last attempt\'s per-request timeout when the budget runs low (F11)', async () => {
+  it('fetchLatestVersion caps only the last attempt\'s per-request timeout when the budget runs low', async () => {
     const recordedTimeouts = [];
     const originalTimeout = AbortSignal.timeout;
     AbortSignal.timeout = (ms) => {
@@ -449,7 +449,7 @@ describe('update: registry retry (076-T7 R2)', () => {
   });
 
   it('update --apply steps never retry (defaultRunner has no retry loop)', () => {
-    // Oracle: R2's retry contract applies only to fetchLatestVersion; the
+    // Oracle: the retry contract applies only to fetchLatestVersion; the
     // update-plan runner (applyPlan/defaultRunner) makes exactly one attempt
     // per step and reports the first failure, as covered by the
     // "a failing step stops that host" test above.
@@ -788,7 +788,7 @@ describe('update --apply: command plans', () => {
 });
 
 describe('update --apply: a local Codex marketplace', () => {
-  const LOCAL_PATH = 'A:\\projects-vault\\apps\\plugins\\antigravity-plugin';
+  const LOCAL_PATH = 'C:\\src\\antigravity-plugin';
 
   function localMarketplace(source) {
     return ['Marketplaces:', '  antigravity', `    source: ${source}`, ''].join('\n');

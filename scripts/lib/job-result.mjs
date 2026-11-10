@@ -1,7 +1,7 @@
 /**
  * job-result: the completed-job `details` projection shared by
  * `result.mjs` (`result <id> --json`) and `job-helpers.mjs`'s
- * `--show-result` background-wait envelope (Task 7, "Senate R9", 2026-09).
+ * `--show-result` background-wait envelope (added 2026-09).
  *
  * Split out of `result.mjs` into its own module, rather than exported from
  * `job-helpers.mjs` or imported back into it, because `job-helpers.mjs`
@@ -38,7 +38,7 @@ export function resolveInputHash(stored, job) {
  * cut applied; `result <id>` is the only caller that ever passes a `cut`
  * with `truncated: true`; a `--show-result` wait never cuts the answer, so
  * it always passes the default). A completed `review --findings-json` job
- * (Senate R7, 2026-09) also gets `findings`, `findingsStatus` and, when not
+ * (added 2026-09) also gets `findings`, `findingsStatus` and, when not
  * valid, `findingsError`, validated here from the stored `structuredRaw`.
  *
  * @param {import('./types.mjs').JobIndexEntry} job
@@ -57,11 +57,10 @@ export function buildResultDetails(job, stored, cut) {
     conversationId: stored?.conversationId ?? job.conversationId ?? null,
     // The id agy itself reported, distinct from `conversationId` above (the
     // id the caller passed in), already nested at `result.agyConversationId`
-    // via `buildStoredResult`; also surfaced at this top level (plan 086 T5k
-    // F1 item 2) so a host reading `result <id> --json` finds it in the same
+    // via `buildStoredResult`; also surfaced at this top level so a host reading `result <id> --json` finds it in the same
     // place `status <id> --json`'s `details.job.agyConversationId` puts it.
     agyConversationId: stored?.result?.agyConversationId ?? null,
-    // Plan 103 T2 ("Senate R11", 2026-09): the job's own provenance record
+    // The job's own provenance record
     // and agy's reported model, both `null` on a legacy record or a run agy
     // never reported a model for. `provenance` is the same object `status
     // <id> --json` puts at `details.job.provenance`.

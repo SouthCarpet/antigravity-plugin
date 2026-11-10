@@ -483,7 +483,7 @@ describe('bump-version README Status token', () => {
   }
 });
 
-// Plan 086 T5e F7: the byte-equivalence check above (README_REWRITE_CASES)
+// The byte-equivalence check above (README_REWRITE_CASES)
 // replaced an explicit assertion that README.md's Status blockquote kept its
 // frozen-1.x wording; it is deliberately prose-tolerant (a legitimate rewrite
 // of that wording must not fail it) but as a result it cannot detect a
@@ -491,7 +491,7 @@ describe('bump-version README Status token', () => {
 // contradicted before the bump ran. This test asserts the promise's
 // meaning-bearing tokens directly, on the real repo README (not a bump
 // fixture), without pinning the sentence's exact wording.
-describe('README compatibility-promise sentence (F7: prose-tolerant, not a full-paragraph pin)', () => {
+describe('README compatibility-promise sentence (prose-tolerant, not a full-paragraph pin)', () => {
   it('the Status section still states: no break within 3.x, breaking changes need 4.0.0, docs/COMPATIBILITY.md is the contract', () => {
     const readmeText = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
     const section = readmeText.match(/## Status\n\n([\s\S]*?)\n\n##/);
@@ -646,11 +646,14 @@ describe('bump-version documentation version phrases', () => {
 });
 
 describe('bump-version internal identifier gate', () => {
+  // Built at run time so this tracked test file does not hold the identifiers it tests.
+  const PLAN_ID = ['plan', '123'].join(' ');
+  const TASK_ID = ['123', 'T4b'].join('-');
   it('--check fails on a tracked markdown file with plan NNN, naming file and line', () => {
     const root = makeTree();
-    const lines = ['# Notes', '', 'See plan 086 for the background.', ''];
+    const lines = ['# Notes', '', `See ${PLAN_ID} for the background.`, ''];
     writeDoc(root, 'PLAN-NOTE.md', lines.join('\n'));
-    const line = lines.findIndex((text) => text.includes('plan 086')) + 1;
+    const line = lines.findIndex((text) => text.includes(PLAN_ID)) + 1;
     assert.ok(line > 0, 'the fixture must hold the identifier');
 
     const result = runBump(root, ['--check']);
@@ -659,7 +662,7 @@ describe('bump-version internal identifier gate', () => {
     assert.match(output, /version check failed:/);
     assert.match(
       output,
-      new RegExp(`docs/PLAN-NOTE\\.md:${line}: internal identifier "plan 086"`),
+      new RegExp(`docs/PLAN-NOTE\\.md:${line}: internal identifier "${PLAN_ID}"`),
     );
   });
 
@@ -678,12 +681,34 @@ describe('bump-version internal identifier gate', () => {
 
   it('--check exempts CLAUDE.md and AGENTS.md even when they name plan NNN', () => {
     const root = makeTree();
-    fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'Local notes for plan 086.\n');
-    fs.writeFileSync(path.join(root, 'AGENTS.md'), 'Local notes for plan 086.\n');
+    fs.writeFileSync(path.join(root, 'CLAUDE.md'), `Local notes for ${PLAN_ID}.\n`);
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), `Local notes for ${PLAN_ID}.\n`);
 
     const result = runBump(root, ['--check']);
     assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
     assert.match(result.stdout, /ok: no internal "plan NNN" identifier/);
+  });
+
+  it('--check fails on a code comment with a capitalized plan id or a task id', () => {
+    const root = makeTree();
+    fs.mkdirSync(path.join(root, 'scripts', 'lib'), { recursive: true });
+    const capital = `// ${PLAN_ID.replace('plan', 'Plan')}: note`;
+    fs.writeFileSync(path.join(root, 'scripts', 'lib', 'note.mjs'), `export {};\n${capital}\n// (${TASK_ID}, 2026-09)\n`);
+
+    const result = runBump(root, ['--check']);
+    assert.notEqual(result.status, 0);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.match(output, new RegExp(`scripts/lib/note\\.mjs:2: internal identifier "${PLAN_ID.replace('plan', 'Plan')}"`));
+    assert.match(output, new RegExp(`scripts/lib/note\\.mjs:3: internal identifier "${TASK_ID}"`));
+  });
+
+  it('does not read package-lock.json', () => {
+    const root = makeTree();
+    fs.writeFileSync(path.join(root, 'package-lock.json'), `{ "note": "${PLAN_ID}" }\n`);
+
+    const result = runBump(root, ['--check']);
+    const output = `${result.stdout}${result.stderr}`;
+    assert.doesNotMatch(output, /package-lock\.json:\d+: internal identifier/);
   });
 
   it('does not flag "planning" as the whole-token identifier', () => {

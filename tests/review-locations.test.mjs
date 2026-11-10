@@ -1,6 +1,5 @@
 /**
- * `review --check-locations` / `result --check-locations` (Task 14, "Senate
- * R8", 2026-09): the heuristic citation-location check.
+ * `review --check-locations` / `result --check-locations` (added 2026-09): the heuristic citation-location check.
  *
  * Layers:
  *   - `checkReviewLocations` itself: in/outside/unknown classification,
@@ -167,7 +166,7 @@ describe('location check report lines', () => {
 // Hunk parsing (review-input.mjs)
 // ---------------------------------------------------------------------------
 
-describe('parseDiffHunks (Task 14, "Senate R8")', () => {
+describe('parseDiffHunks', () => {
   it('parses newStart/newEnd off @@ headers, across files, one hunk per header', () => {
     const diff = [
       'diff --git a/src/app.py b/src/app.py',
@@ -218,7 +217,7 @@ describe('parseDiffHunks (Task 14, "Senate R8")', () => {
   });
 });
 
-describe('buildReviewInput — hunks (Task 14, "Senate R8")', () => {
+describe('buildReviewInput — hunks', () => {
   it('every included untracked file becomes one { newStart: 1, newEnd: <line count> } hunk', () => {
     const envelope = {
       scope: 'working-tree',
@@ -331,7 +330,7 @@ const ANSWER_WITH_ALL_THREE_KINDS = [
   '- `unrelated/other.js:1` is a pre-existing issue (path not in the diff).',
 ].join('\n');
 
-describe('review --check-locations (foreground, Task 14, "Senate R8")', () => {
+describe('review --check-locations (foreground)', () => {
   it('reports details.locationCheck, one stderr line, and appends the line to markdown', async () => {
     initEmptyGitRepo(tempDir);
     fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true });
@@ -428,7 +427,7 @@ describe('review --check-locations (foreground, Task 14, "Senate R8")', () => {
   });
 });
 
-describe('result --check-locations (Task 14, "Senate R8")', () => {
+describe('result --check-locations', () => {
   it('checks a stored job written without the flag, since hunks are always stored', async () => {
     const id = '123456abcdef';
     const hunks = [{ path: 'src/app.py', newStart: 1, newEnd: 5 }];

@@ -1,6 +1,5 @@
 /**
- * Tests for `buildReviewInput` (scripts/lib/review-input.mjs, Task 5,
- * "Senate R5", 2026-09) and the `review.mjs` surfaces built on it:
+ * Tests for `buildReviewInput` (scripts/lib/review-input.mjs, 2026-09) and the `review.mjs` surfaces built on it:
  * `--preview`, `--require-complete`, the incomplete-input warning, the
  * stored request fields, and the Provenance "Input hash" line.
  *
@@ -294,7 +293,7 @@ function captureStdio() {
   return { out, err, restore: () => { process.stdout.write = origOut; process.stderr.write = origErr; } };
 }
 
-describe("review --preview (Task 5, Senate R5)", () => {
+describe("review --preview", () => {
   it("lists match buildReviewInput exactly, no agy call, exit 0", async () => {
     const fixture = buildFixtureRepo();
     // A fake agy that writes a marker on any invocation: --preview must never
@@ -346,7 +345,7 @@ describe("review --preview (Task 5, Senate R5)", () => {
   });
 });
 
-describe("review --require-complete (Task 5, Senate R5)", () => {
+describe("review --require-complete", () => {
   it("refuses an incomplete input before spawning agy: exit 1, input_incomplete envelope, no marker", async () => {
     const fixture = buildFixtureRepo(); // big.txt/.env/bin.dat make this incomplete
     const marker = path.join(stateDir, "agy-invoked.marker");
@@ -430,7 +429,7 @@ describe("review --require-complete (Task 5, Senate R5)", () => {
   });
 });
 
-describe("review request fields and Provenance input hash (Task 5, Senate R5)", () => {
+describe("review request fields and Provenance input hash", () => {
   it("a background job's stored request.prompt is byte-identical to buildReviewInput's prompt, and carries inputHash/inputCounts/headSha", async () => {
     const repo = tmpDir("review-input-bg-");
     sh("git init -q -b main", repo);

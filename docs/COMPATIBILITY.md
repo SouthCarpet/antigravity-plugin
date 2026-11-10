@@ -60,7 +60,7 @@ probe does not promise that an unlisted agy version is compatible.
 | 1.3.1 | Measured pass: `doctor`; `task` foreground, and background with `--wait`; `status` list and by job id; `result`; `cancel` of a running job; `review`, plain and with `--findings-json`; `setup --skip-vision`; `rescue` with a trivial prompt; `--add-dir`; `vision` with `gemini-3.8-flash-high` (5 of 5 runs, one with a path that holds a space, `#`, and `%`); `vision` with `gemini-3.6-flash-high` (3 of 5 runs); `agy plugin install`, `list`, `validate`, and `uninstall` in an isolated profile. Measured failure: `vision` with `gemini-3.6-flash-high` failed 2 of 5 runs with a 503 capacity error; `rescue` with a prompt that needs a shell command failed because agy headless mode denied the `command` tool (the plugin named the tool and gave the remedy); `cancel` of a job that had already finished returned `job_not_found`, exit 1; `setup --json` is not supported. Not measured: `setup` without `--skip-vision`, `setup --remove-vision`, `review --background`, `--show-result`, `--request-id`, `--prompt-file`, `--preview`, `--check-locations`, `--mode`, and resuming a conversation with `--continue` or `--conversation`. 1.2.13 to 1.3.0 were not run live. See the [agy 1.3.1 probes](#agy-131-probes) for the raw files. | 2026-10-08 |
 | 1.4.0 | Measured pass: native discovery of all nine exact aliases and one TUI `doctor --json`; `task` foreground and background; `status` and `result` for that background job; `cancel` of an observed running job; trivial foreground `rescue`; plain `review` detecting a subtraction regression; one synthetic `vision` image with `--expect`. Not measured: `setup`, the remaining flags/modes, and all nine verbs through native wrappers. See the [1.4.0 runtime probes](#agy-140-runtime-probes). | 2026-10-16 |
 | 1.5.0 | On 2026-11-04: setup --skip-vision, task foreground/background, status/result/cancel lifecycle, rescue, plain review and findings review, vision. The native doctor attempt was denied; its alternate skip-permission run is not a normal-wrapper pass. Probe ids dated 2026-11-04: (setup-skip-vision.txt, task-bg-wait.txt, cancel.txt, rescue.txt, review-plain.txt, review-findings.txt, vision.txt, native-doctor.txt, native-doctor-skip.txt). Media and doctor tool probes on 2026-11-06 are recorded below. | 2026-11-06 |
-| 1.5.1 | Media local and YouTube probes, near-cap file and doctor. Partial coverage and exact outcomes below. The installed binary reported 1.5.1 during these runs; 1.5.0 remains the separate controller measurement above. | 2026-11-06 |
+| 1.5.1 | Media local and YouTube probes, near-cap file and doctor. Partial coverage and exact outcomes below. The installed binary reported 1.5.1 during these runs; 1.5.0 remains the separate measurement above. | 2026-11-06 |
 | 1.5.3 | Standalone measured pass: plugin version and review help; doctor receipt (warnings, exit 0); foreground task (OK, total=7880 in=7875 out=5); rescue (RESCUE, total=7906 in=7874 out=32); working-tree review (APPROVE, total=16895 in=15348 out=1547); vision using the existing registration (red, total=29403 in=27288 out=2115); local one-second red MP4 media (Red, total=16914 in=16353 out=561); YouTube jNQXAC9IVRw transcript-only (captions, no model or usage trailer); status list and result. The first review command used unsupported --path and was refused before agy; the supported retry passed. Not run: setup, setup --remove-vision, hosts 2 to 4, agy 1.5.2, background/cancel and other optional flags. Coverage is partial. | 2026-11-09 |
 
 The 1.1.15 and 1.1.17 runs included the usage trailer on `vision` and
@@ -799,7 +799,7 @@ The way to give a headless `rescue` or `task` run read access to files is
 `--add-dir <dir>` on the invocation. It is not an allow rule in
 `~/.gemini/antigravity-cli/settings.json`: on agy 1.1.24 twelve
 `read_file(<path>)` rule forms (absolute with and without drive, relative,
-trailing slash, `*`, `**`, `/A:/...`, `/a/...`) were all denied headless even
+trailing slash, `*`, `**`, `/C:/...`, `/c/...`) were all denied headless even
 though the rule was confirmed loaded; only `read_file(*)` matched, and a
 wildcard is not something this plugin writes. With no rule at all
 (probed 2026-09-02):
@@ -1882,8 +1882,8 @@ the matched findings. Paths are compared as written and case-sensitively.
 The feature does not promise that two models find more than one. See
 [`--models`](COMMANDS.md#review) for the full match rule and output
 contract. The feature's own bounded-value check (whether two models
-find materially more than one, on real diffs) is recorded as the owner's
-post-ship validation, not a gate this release's implementation waited on.
+find materially more than one, on real diffs) is a check after the
+release, not a release gate.
 
 ### Windows console windows (3.2.0)
 

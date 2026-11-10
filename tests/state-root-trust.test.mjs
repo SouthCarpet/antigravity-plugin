@@ -1,6 +1,5 @@
 /**
- * POSIX-only trust checks for the shared-tmp state/lock root (item 15,
- * F4/F15). `assertPrivateDir` is a no-op on win32 — `%TEMP%` is per-user
+ * POSIX-only trust checks for the shared-tmp state/lock root. `assertPrivateDir` is a no-op on win32 — `%TEMP%` is per-user
  * there and Windows has no POSIX uid/mode model to check — so every case
  * here is skipped on this Windows machine and runs on CI's Ubuntu job.
  */
@@ -73,7 +72,7 @@ describe('file-lock root creation', () => {
   });
 });
 
-describe('ensureStateDir wiring (F2/F7)', () => {
+describe('ensureStateDir wiring', () => {
   // `mkdirSync({ recursive: true })` silently accepts a pre-existing
   // directory and only sets the mode of the level it actually creates, so a
   // check only on the `jobs` leaf never sees an attacker-planted state root

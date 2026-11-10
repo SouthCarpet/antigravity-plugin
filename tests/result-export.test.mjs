@@ -1,5 +1,5 @@
 /**
- * `result <job-id> --export <path>` (3.2.0, package C, item C3).
+ * `result <job-id> --export <path>` (3.2.0).
  *
  * The exported file is the plain `result <job-id> --json` text of the job:
  * the stored record in its safe, redacted shape, uncut, written to a NEW
@@ -66,7 +66,7 @@ async function makeJob(kind, { status = 'completed', rawOutput = ANSWER, request
 const file = (name) => path.join(dir, name);
 const plainJson = async (id) => (await go([id, '--json'])).out;
 
-// Oracle: ruling 4. The file is the text `result <id> --json` prints with no other flag.
+// Oracle: the file is the text `result <id> --json` prints with no other flag.
 describe('file content', () => {
   for (const kind of ['review', 'task', 'rescue', 'vision', 'media']) {
     test(`the file equals the result --json output of a ${kind} job, byte for byte`, async () => {
@@ -175,7 +175,7 @@ describe('what the call prints', () => {
   });
 });
 
-// Oracle: ruling 5. Never overwrites; every refusal is invalid_input / export_target_unwritable and writes nothing.
+// Oracle: never overwrites; every refusal is invalid_input / export_target_unwritable and writes nothing.
 describe('target refusals', () => {
   function makeTargets() {
     const targets = {};
@@ -255,7 +255,7 @@ describe('target refusals', () => {
   });
 });
 
-// Oracle: package J, a stored answer must arrive whole through a CLI pipe.
+// Oracle: a stored answer must arrive whole through a CLI pipe.
 test('result --json sends a 512 KiB stored answer through a pipe without cutting it', async () => {
   const answer = 'z'.repeat(512 * 1024);
   const id = await makeJob('task', { rawOutput: answer });

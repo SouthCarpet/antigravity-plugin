@@ -264,7 +264,7 @@ describe('/antigravity:status', () => {
     assert.doesNotMatch(cap.err.join(''), /raw lock path|\n\s+at /);
   });
 
-  // Task 3 ("Senate R1", 2026-09): the same lock contention emits one
+  // The same lock contention emits one
   // state_error/state_locked error envelope under --json.
   it('lock contention under --json: one state_error envelope, jobId null', async () => {
     const { run } = await import('../scripts/commands/status.mjs');
@@ -311,7 +311,7 @@ describe('/antigravity:status', () => {
     assert.match(cap.err.join(''), /No job found for/);
   });
 
-  // Plan 085 T2: a single-job status view attaches the remedy for --json
+  // A single-job status view attaches the remedy for --json
   // and markdown, and the all-jobs list carries a lightweight count.
   it('single job --json carries details.job.deniedActions with a computed remedy', async () => {
     const id = randomBytes(6).toString('hex');
@@ -384,7 +384,7 @@ describe('/antigravity:status', () => {
     assert.equal(entry.deniedActionsCount, 1);
   });
 
-  // Plan 086 T1: a single-job status view carries agy's print-timeout
+  // A single-job status view carries agy's print-timeout
   // marker under details.job.agyPrintTimeout, a "Note:" line in markdown,
   // and the all-jobs list carries the same field per job (a `Partial`
   // table marker in markdown).
@@ -410,9 +410,9 @@ describe('/antigravity:status', () => {
     assert.deepEqual(payload.details.job.agyPrintTimeout, { limit: '25s' });
   });
 
-  // Plan 086 T5k F1 items 1: a denied job's own agy conversation id is
+  // A denied job's own agy conversation id is
   // readable from the plugin's own output, not only from the job file on
-  // disk — the exact gap the controller found live. Distinct from
+  // disk, the exact gap seen in a live run. Distinct from
   // `conversationId` (the id the *caller* passed in via `--conversation`).
   it('single job --json carries details.job.agyConversationId on a denied job, distinct from conversationId', async () => {
     const id = randomBytes(6).toString('hex');
@@ -531,7 +531,7 @@ describe('/antigravity:status', () => {
   });
 });
 
-describe('/antigravity:status — agy version warning (Senate R2)', () => {
+describe('/antigravity:status — agy version warning', () => {
   it('prints nothing when no agyVersionSeen is cached', async () => {
     const { run } = await import('../scripts/commands/status.mjs');
     const cap = captureStdio();
@@ -592,8 +592,8 @@ describe('/antigravity:status — agy version warning (Senate R2)', () => {
 // ───────────────────────────── result ─────────────────────────────
 
 describe('/antigravity:result', () => {
-  // R2: unreadable details must never produce a success envelope. Since
-  // Task 3 ("Senate R1", 2026-09), a `--json` run instead gets one
+  // Unreadable details must never produce a success envelope. Since
+  // A `--json` run instead gets one
   // `state_error` error envelope (`answer: null`, `details.error.code:
   // "invalid_job_record"`) — the plain (non-`--json`) run keeps its
   // stderr-only, empty-stdout contract unchanged.
@@ -652,7 +652,7 @@ describe('/antigravity:result', () => {
     parseEnvelope(cap.out, { command: 'result', status: 'completed', answer: 'committed answer\n' });
   });
 
-  // Plan 085 T2 item 4: `result` appends the denial section to the printed
+  // `result` appends the denial section to the printed
   // markdown (never into the opaque `answer` field) and sets
   // `details.deniedActions` with the computed remedy on `--json`.
   it('carries deniedActions with remedy on --json and appends a markdown section', async () => {
@@ -691,7 +691,7 @@ describe('/antigravity:result', () => {
     assert.equal(Object.hasOwn(payload.details, 'deniedActions'), false);
   });
 
-  // Plan 086 T5k F1 item 2: `result <id> --json` carries agy's own
+  // `result <id> --json` carries agy's own
   // conversation id at the top level of `details`, the same place
   // `status <id> --json`'s `details.job.agyConversationId` puts it — not
   // only nested under `details.result.agyConversationId`.
@@ -750,10 +750,9 @@ describe('/antigravity:result', () => {
     assert.match(text, /--mode accept-edits/);
   });
 
-  // Plan 086 T1: `result` surfaces agy's print-timeout marker as
+  // `result` surfaces agy's print-timeout marker as
   // `details.agyPrintTimeout` and a "Note:" markdown line, distinct from the
-  // pre-existing `details.truncated` boolean (076-T7, `--head`/`--tail`
-  // display cut) — the two must never collide.
+  // pre-existing `details.truncated` boolean (`--head`/`--tail` display cut) — the two must never collide.
   it('carries agyPrintTimeout on --json and appends a "Note:" markdown line', async () => {
     const id = '123456abcdef';
     await upsertJob(tempDir, { id, kind: 'task', status: 'completed' });
@@ -793,9 +792,9 @@ describe('/antigravity:result', () => {
     assert.equal(Object.hasOwn(payload.details, 'agyPrintTimeout'), false);
   });
 
-  // The pre-existing 076-T7 `--head`/`--tail` `details.truncated` boolean
+  // The pre-existing `--head`/`--tail` `details.truncated` boolean
   // must keep working unchanged even on a job that also carries an
-  // agyPrintTimeout marker — the two fields are independent (plan 086 T1).
+  // agyPrintTimeout marker — the two fields are independent.
   it('a job with both --head cutting and an agyPrintTimeout marker sets both details keys distinctly', async () => {
     const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
@@ -846,7 +845,7 @@ describe('/antigravity:result', () => {
     assert.match(cap.err.join(''), /antigravity:result/);
   });
 
-  // Task 3 ("Senate R1", 2026-09): the same "no jobs" failure emits one
+  // The same "no jobs" failure emits one
   // state_error/job_not_found error envelope under --json.
   it('no jobs exist: one state_error/job_not_found envelope under --json', async () => {
     const { run } = await import('../scripts/commands/result.mjs');
@@ -864,7 +863,7 @@ describe('/antigravity:result', () => {
     assert.match(cap.err.join(''), /antigravity:result/);
   });
 
-  // Task 3: a reference that matches an active (not-yet-terminal) job
+  // A reference that matches an active (not-yet-terminal) job
   // classifies as job_not_ready, not job_not_found.
   it('an active job reference: one state_error/job_not_ready envelope under --json', async () => {
     const id = 'ac0000000001';
@@ -993,7 +992,7 @@ describe('/antigravity:result', () => {
       jobId: id,
       answer: 'opaque result text\n',
     });
-    // Task 3 ("Senate R1", 2026-09): a completed run's envelope carries no
+    // A completed run's envelope carries no
     // details.error key at all.
     assert.equal(Object.hasOwn(payload.details, 'error'), false);
   });
@@ -1023,7 +1022,7 @@ describe('/antigravity:result', () => {
     assert.equal(exit, 2);
   });
 
-  // 076-T7 fix round 1, F8: `result` on a `failed` job exits 1 by the same
+  // `result` on a `failed` job exits 1 by the same
   // `exitCodeForJobStatus` mapping every other terminal status goes through
   // (job-helpers.test.mjs pins the mapping itself); nothing pinned it for
   // `result` specifically before this. `status` is the one verb that does
@@ -1057,7 +1056,7 @@ describe('/antigravity:result', () => {
     assert.equal(exit, 1);
   });
 
-  // Task 3 ("Senate R1", 2026-09): `result` on a failed job keeps its
+  // `result` on a failed job keeps its
   // existing envelope (status "failed", answer as stored) and adds
   // details.error naming why — never the raw upstream stderr in
   // errorMessage.
@@ -1161,7 +1160,7 @@ describe('/antigravity:result', () => {
     assert.doesNotMatch(cap.err.join(''), /usage: total=/);
   });
 
-  // ─────────────────── 076-T7 R1: result --head/--tail ───────────────────
+  // ─────────────────── Result --head/--tail ───────────────────
 
   async function resultWithFiveLineAnswer(extraArgs = []) {
     const id = randomBytes(6).toString('hex');
@@ -1236,10 +1235,10 @@ describe('/antigravity:result', () => {
     assert.equal(payload.details.truncated, true);
   });
 
-  // 076-T7 fix round 1, F9: the cut used to apply to `answer` but not to
+  // The cut used to apply to `answer` but not to
   // `details.result.rawOutput`, so the --json path still carried the whole
   // stored answer even when truncated=true.
-  it('--json cuts details.result.rawOutput too when truncated (F9)', async () => {
+  it('--json cuts details.result.rawOutput too when truncated', async () => {
     const id = randomBytes(6).toString('hex');
     ensureStateDir(tempDir);
     await upsertJob(tempDir, {
@@ -1277,7 +1276,7 @@ describe('/antigravity:cancel', () => {
     assert.match(cap.err.join(''), /No active antigravity jobs/);
   });
 
-  // Task 3 ("Senate R1", 2026-09): the same resolution failure emits one
+  // The same resolution failure emits one
   // state_error/job_not_found error envelope under --json.
   it('errors out when no active jobs exist: one state_error envelope under --json', async () => {
     const { run } = await import('../scripts/commands/cancel.mjs');
@@ -1387,14 +1386,14 @@ describe('/antigravity:review', () => {
     assert.equal(typeof payload.details.scope, 'string');
   });
 
-  // Task 3 ("Senate R1", 2026-09): a `collectReviewContext` failure (an
+  // A `collectReviewContext` failure (an
   // invalid `--scope`, an unresolved `--base`) emits one `invalid_input`
   // error envelope under `--json`, and stays stderr-only, unchanged, without
   // it. `git.test.mjs`'s "review validates base refs" describe block pins
   // the exact stderr text and the owned-git-runner call list for the same
   // two base refs; these pin the envelope shape and the without-`--json`
   // stdout contract side by side.
-  describe('collectReviewContext failures (Task 3, "Senate R1")', () => {
+  describe('collectReviewContext failures', () => {
     it('invalid --scope: stderr only, exit 1, no stdout, without --json', async () => {
       const { run } = await import('../scripts/commands/review.mjs');
       const cap = captureStdio();
@@ -1515,7 +1514,7 @@ describe('/antigravity:review', () => {
     assert.match(agyRuntime.calls[0].prompt, /brand-new\.txt/);
   });
 
-  // Plan 086 T2 D1 item 3, still true after Task 4 ("Senate R4"): review has
+  // Still true after `review --effort` was added: review has
   // no plugin-side effort default, unlike task/rescue's `medium`. With
   // neither --model nor --effort given, no effort value reaches runAgyPrint.
   it('sends no effort value to runAgyPrint when neither --model nor --effort is given', async () => {
@@ -1596,7 +1595,7 @@ describe('/antigravity:review', () => {
     assert.equal(typeof payload.jobId, 'string');
   });
 
-  // Fix round 1 F7 verb-level case: a foreground `review` cancelled by agy
+  // Verb-level case: a foreground `review` cancelled by agy
   // must exit 2 (docs/COMPATIBILITY.md exit codes), not `finishForeground`'s
   // generic 1. This exercises the shared line through a real verb, not just
   // a direct `finishForeground` call.
@@ -1619,7 +1618,7 @@ describe('/antigravity:review', () => {
     assert.equal(exit, 2);
   });
 
-  describe('--model/--effort/--focus (Task 4, "Senate R4")', () => {
+  describe('--model/--effort/--focus', () => {
     it('forwards --model to runAgyPrint', async () => {
       initEmptyGitRepo(tempDir);
       fs.writeFileSync(path.join(tempDir, 'brand-new-model.txt'), 'never committed\n');
@@ -1632,7 +1631,7 @@ describe('/antigravity:review', () => {
       assert.equal(agyRuntime.calls[0].model, 'gemini-x');
     });
 
-    // Controller ruling on Task 4 review: review stores whatever the caller
+    // Design rule: review stores whatever the caller
     // gave, exactly like task/rescue do for their own explicit values (see
     // rescue's 'stores the sentinel (foreground)' test above) — only the
     // argv translation (agyEffortArg) collapses the sentinel to no flag.
@@ -1706,7 +1705,7 @@ describe('/antigravity:review', () => {
   });
 });
 
-// ───────── 076-T7 R4: every verb exits non-zero when the job is failed ─────────
+// ───────── Every verb exits non-zero when the job is failed ─────────
 //
 // Per verb, the test that pins a non-zero exit on a `failed` job status:
 //   review  — 'exits 1 for a foreground review that agy reports failed' (below)
@@ -1718,8 +1717,7 @@ describe('/antigravity:review', () => {
 //             'exits 1 for a background task --wait that ends failed' (below, background)
 //   vision  — already covered: tests/denial-verbs.test.mjs
 //             'vision: exit 1, hints view_image and never --add-dir' (foreground only; no background mode)
-//   result  — 'exits 1 for result on a failed job' (above, in the
-//             /antigravity:result describe block, 076-T7 fix round 1 F8)
+//   result  — 'exits 1 for result on a failed job' (above, in the /antigravity:result describe block)
 // `status` is the one verb that does NOT follow this pattern: it returns 0
 // on a failed job by frozen contract (docs/COMMANDS.md) because it reports
 // on whether it produced a snapshot, not on the job's own outcome.
@@ -1728,7 +1726,7 @@ describe('/antigravity:review', () => {
 // mapping itself in isolation ('failed → status=failed and errorMessage from
 // stderr', 'finishForeground returns exit code 2 for a cancelled result, 1
 // for any other non-completed status').
-describe('076-T7 R4: failed job status is always a non-zero exit', () => {
+describe('failed job status is always a non-zero exit', () => {
   it('exits 1 for a foreground review that agy reports failed', async () => {
     const gitEnv = initEmptyGitRepo(tempDir);
     fs.writeFileSync(path.join(tempDir, 'a.txt'), 'original\n');
@@ -1856,7 +1854,7 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.match(cap.err.join(''), /no task text/);
   });
 
-  // Task 3 ("Senate R1", 2026-09): the same validation failure emits one
+  // The same validation failure emits one
   // invalid_input error envelope under --json.
   it('rejects empty prompt without --conversation: one invalid_input envelope under --json', async () => {
     const { run } = await import('../scripts/commands/rescue.mjs');
@@ -1874,7 +1872,7 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.match(cap.err.join(''), /no task text/);
   });
 
-  // 076-T7 R3: `agy --help` lists a global `--model` flag ("Model for the
+  // `agy --help` lists a global `--model` flag ("Model for the
   // current CLI session") honoured in print mode — the same flag `vision`
   // already forwards. `rescue` now stores and forwards it instead of
   // logging it as ignored.
@@ -1913,7 +1911,7 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.match(cap.err.join(''), /a piece of readable text/);
   });
 
-  // Plan 085 T3: `--effort` on `rescue`, additive, forwarded exactly as
+  // `--effort` on `rescue`, additive, forwarded exactly as
   // `--model` already is.
   it('--effort stores request.effort and reaches agy via runAgyPrint (foreground)', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
@@ -1930,7 +1928,7 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.equal(agyRuntime.calls[0].effort, 'low');
   });
 
-  // Plan 086 T2 D1: no --effort defaults to medium so a delegated run is
+  // No --effort defaults to medium so a delegated run is
   // reproducible across machines; the explicit flag above still wins.
   it('no --effort defaults request.effort to medium (foreground): reaches agy and is persisted', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'rescue answer', stderr: '' };
@@ -1970,7 +1968,7 @@ describe('/antigravity:rescue argv parsing', () => {
     assert.equal(capturedRequest.effort, 'medium');
   });
 
-  // Plan 086 T5i: `agy-default` sends no --effort to runAgyPrint at all, so
+  // `agy-default` sends no --effort to runAgyPrint at all, so
   // the user's own agy configuration decides; the stored request keeps the
   // sentinel itself, not `undefined`, so a background re-run replays it.
   it('--effort agy-default sends no effort to runAgyPrint, but stores the sentinel (foreground)', async () => {
@@ -2035,8 +2033,7 @@ describe('/antigravity:task argv parsing', () => {
   });
 
   it('prints a worker launch failure and exits 1 with one failed error envelope on PID-patch failure', async () => {
-    // Oracle: 076-T3 R3's stderr-only failure contract, updated by Task 3
-    // ("Senate R1", 2026-09): a `--json` run now also gets one `failed`
+    // Oracle: the stderr-only failure contract, updated in 2026-09: a `--json` run now also gets one `failed`
     // error envelope (`worker_start_failed`) instead of empty stdout.
     const { run } = await import('../scripts/commands/task.mjs');
     const { startBackgroundJob } = await import('../scripts/lib/job-helpers.mjs');
@@ -2125,7 +2122,7 @@ describe('/antigravity:task argv parsing', () => {
     assert.match(cap.err.join(''), /no task text/);
   });
 
-  // Task 3 ("Senate R1", 2026-09): the same validation failure emits one
+  // The same validation failure emits one
   // invalid_input error envelope under --json.
   it('rejects empty prompt without --conversation: one invalid_input envelope under --json', async () => {
     const { run } = await import('../scripts/commands/task.mjs');
@@ -2143,7 +2140,7 @@ describe('/antigravity:task argv parsing', () => {
     assert.match(cap.err.join(''), /no task text/);
   });
 
-  // 076-T7 R3: task gains --model, additive, forwarded exactly as vision does.
+  // Task gains --model, additive, forwarded exactly as vision does.
   it('--model --foreground stores request.model and reaches agy', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
     agyRuntime.calls = [];
@@ -2183,7 +2180,7 @@ describe('/antigravity:task argv parsing', () => {
     assert.equal(capturedRequest.effort, 'agy-default');
   });
 
-  // Plan 085 T3: `--effort` on `task`, additive, forwarded exactly as
+  // `--effort` on `task`, additive, forwarded exactly as
   // `--model` already is.
   it('--effort --foreground stores request.effort and reaches agy', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
@@ -2220,7 +2217,7 @@ describe('/antigravity:task argv parsing', () => {
     assert.equal(capturedRequest.effort, 'medium');
   });
 
-  // Plan 086 T2 D1: no --effort defaults to medium so a delegated run is
+  // No --effort defaults to medium so a delegated run is
   // reproducible across machines; the explicit flag above still wins.
   it('no --effort defaults request.effort to medium (foreground): reaches agy and is persisted', async () => {
     agyRuntime.next = { status: 'completed', exitCode: 0, stdout: 'task answer', stderr: '' };
@@ -2260,7 +2257,7 @@ describe('/antigravity:task argv parsing', () => {
     assert.equal(capturedRequest.effort, 'medium');
   });
 
-  // Plan 086 T5i: `agy-default` sends no --effort to runAgyPrint at all, so
+  // `agy-default` sends no --effort to runAgyPrint at all, so
   // the user's own agy configuration decides; the stored request keeps the
   // sentinel itself, not `undefined`, so a background re-run replays it.
   it('--effort agy-default sends no effort to runAgyPrint, but stores the sentinel (foreground)', async () => {

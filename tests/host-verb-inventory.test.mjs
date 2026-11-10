@@ -105,7 +105,7 @@ function verbsFromSkillMd(source) {
 /**
  * The Codex install recipe's own verb sentence in docs/INSTALL.md ("Verbs:
  * `setup`, ..., `doctor`."), the exact line the review found stale (missing
- * `doctor`) because Task 15's sweep only matched the literal strings "eight
+ * `doctor`) because an earlier sweep only matched the literal strings "eight
  * verb"/"eight commands"/etc., which this sentence never contained.
  */
 function verbsFromInstallMd(source) {
@@ -167,7 +167,7 @@ const SURFACES = [
 /**
  * The approved 3.x public command surface, copied verbatim from
  * docs/COMPATIBILITY.md ("The public verbs are exactly: ..."). This is the
- * independent oracle (TotT R19): it comes from the contract document, never
+ * independent oracle: it comes from the contract document, never
  * from reading any of the surfaces under test.
  */
 const EXPECTED_VERBS = uniqueSorted([

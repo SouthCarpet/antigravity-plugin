@@ -7,7 +7,7 @@
  *                       may be combined with --head)
  *   --check-locations   heuristically check each `path:line` citation the
  *                       stored answer names against the job's own stored
- *                       `request.hunks` (Task 14, "Senate R8", 2026-09);
+ *                       `request.hunks` (added 2026-09);
  *                       works on a job reviewed without the flag, since
  *                       hunks are stored on every review job; `null` on a
  *                       job stored before this feature shipped
@@ -41,8 +41,7 @@ import { runIfMain } from "../lib/cli-entry.mjs";
 /**
  * Run a job-state read (`resolveResultJob`/`readJobFile`) and keep the raw
  * error on failure, so the caller can both print its message and classify
- * it into a `--json` envelope's `error.code` (Task 3, "Senate R1", 2026-09;
- * `classifyStateError`) without reclassifying an already-stringified message.
+ * it into a `--json` envelope's `error.code` (`classifyStateError`, 2026-09) without reclassifying an already-stringified message.
  *
  * @template T
  * @param {() => T} fn
@@ -59,7 +58,7 @@ function readJobState(fn) {
 /**
  * Report a job-state read failure (an unresolved reference, a job not yet in
  * the required terminal state, or lock contention): the existing stderr
- * line, unchanged, plus (Task 3, "Senate R1", 2026-09) one `state_error`
+ * line, unchanged, plus (added 2026-09) one `state_error`
  * `--json` envelope when `json` is true.
  *
  * @param {string | null} jobId the index job's id when already resolved, else `null`
@@ -83,7 +82,7 @@ function reportStateError(jobId, err, json) {
 /**
  * Parse a `--head`/`--tail` value: a positive integer, or `undefined` when
  * the flag was not given. Anything else is the same `ArgsError` shape every
- * other flag uses (076-T7 R1).
+ * other flag uses.
  *
  * @param {string | boolean | undefined} value
  * @param {string} flag
@@ -102,7 +101,7 @@ function parsePositiveIntFlag(value, flag) {
  * the end (both may be given; the two windows never overlap). Lines only —
  * never a byte offset — so a multi-byte UTF-8 character is never split.
  * Without either option, or when nothing is actually cut, `truncated` is
- * `false` and `text` is returned unchanged (076-T7 R1).
+ * `false` and `text` is returned unchanged.
  *
  * @param {string} text
  * @param {{ head?: number, tail?: number }} options
@@ -123,8 +122,7 @@ export function cutAnswerLines(text, { head, tail } = {}) {
 /**
  * Resolve and validate the job this invocation addresses: the index entry,
  * its stored detail record, merged. Every failure path prints the one
- * `antigravity:result — <reason>` line, unchanged, plus (Task 3, "Senate
- * R1", 2026-09) one `state_error` `--json` envelope when `json` is true, and
+ * `antigravity:result — <reason>` line, unchanged, plus (added 2026-09) one `state_error` `--json` envelope when `json` is true, and
  * this returns `null` for the caller to `return 1` on.
  *
  * @param {string} cwd
@@ -208,8 +206,7 @@ function appendSectionLines(text, lines) {
 }
 
 /**
- * The `--check-locations` fields for `buildResultOutput` (Task 14, "Senate
- * R8", 2026-09): the computed check (`null` when the flag was not given, or
+ * The `--check-locations` fields for `buildResultOutput` (added 2026-09): the computed check (`null` when the flag was not given, or
  * when it was given but the job predates hunk storage), plus the one
  * markdown line to append — `[]` without the flag, so `appendSectionLines`
  * is a no-op then. Split out to keep `buildResultOutput` itself under the
@@ -228,7 +225,7 @@ function resultLocationCheckFields(stored, checkLocations) {
 
 /**
  * Build the markdown and `--json` output for a resolved job, applying the
- * `--head`/`--tail` cut when requested (076-T7 R1).
+ * `--head`/`--tail` cut when requested.
  *
  * @param {{ workspaceRoot: string, job: import('../lib/types.mjs').JobRecord,
  *   stored: import('../lib/types.mjs').JobRecord }} resolved
@@ -239,13 +236,13 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
   const rendered = renderResultOutput(workspaceRoot, job, stored);
   const { cut, renderedOut } = applyAnswerCut(stored, rendered, { head, tail });
 
-  // Plan 085 T2 item 4: when the stored result carries denials, one markdown
+  // When the stored result carries denials, one markdown
   // line per action with its remedy is appended after the answer text (never
   // folded into the opaque `answer`/`rendered` text above), plus the same
   // `{ action, displayName, remedy }` list under `details.deniedActions`.
   const deniedList = deniedActionsWithRemedy(stored?.result?.deniedActions, job.kind);
   const withDenied = appendSectionLines(renderedOut, renderDeniedActionLines(deniedList));
-  // Plan 086 T1 item 4: when the stored result carries agy's own
+  // When the stored result carries agy's own
   // print-timeout marker, one note line is appended after the denied-action
   // section (never folded into the opaque `answer`/`rendered` text above),
   // plus `details.agyPrintTimeout` on `--json` — distinct from
@@ -253,7 +250,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
   // display cut.
   const agyPrintTimeout = stored?.result?.agyPrintTimeout ?? null;
   const withPrintTimeout = appendSectionLines(withDenied, renderPrintTimeoutNote(agyPrintTimeout));
-  // Senate R7 (2026-09): a completed `review --findings-json` job gets one
+  // A completed `review --findings-json` job gets one
   // `Findings: <status>` line, validated from the stored record; the full
   // fields are in `--json`'s `details`.
   const resultDetails = buildResultDetails(job, stored, cut);
@@ -261,14 +258,14 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
     withPrintTimeout,
     resultDetails.findingsStatus ? [`Findings: ${resultDetails.findingsStatus}`] : [],
   );
-  // Task 14 ("Senate R8", 2026-09): `--check-locations` appends one
+  // `--check-locations` appends one
   // summary/unavailable line after the findings line.
   const { locationCheck, lines: locationLines } = resultLocationCheckFields(stored, checkLocations);
   const withLocationCheck = appendSectionLines(withFindings, locationLines);
-  // 3.2.0 (C2): `--check-current` appends one snapshot line after the
+  // 3.2.0: `--check-current` appends one snapshot line after the
   // location-check line. `checkCurrent` is computed by `run`, read-only.
   const withCurrentCheck = appendSectionLines(withLocationCheck, checkCurrent ? [currentnessReportLine(checkCurrent)] : []);
-  // Senate R11 (2026-09): the "## Provenance" section is appended last,
+  // The "## Provenance" section is appended last,
   // after the answer text and every other appended section — never folded
   // into the opaque `answer`/`rendered` text above. `job` already carries
   // `stored`'s own `provenance` value (`mergeJobDetail`, job-control.mjs).
@@ -294,11 +291,10 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
 }
 
 /**
- * `{ error: {...} }` when `job.status === "failed"`, else `{}` (Task 3,
- * "Senate R1", 2026-09): the stored job already carries its own answer and
+ * `{ error: {...} }` when `job.status === "failed"`, else `{}` (added 2026-09): the stored job already carries its own answer and
  * `status: "failed"` unchanged — this only names why, using the job's own
  * curated `healthMessage` (set by `job-helpers.mjs#deriveJobStatus`) when
- * present. `job.errorMessage` is redacted too (plan 118 T1b), but this path
+ * present. `job.errorMessage` is redacted too, but this path
  * keeps its own contract and reads `healthMessage` only.
  *
  * @param {import('../lib/types.mjs').JobRecord} job

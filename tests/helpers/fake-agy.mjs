@@ -76,9 +76,9 @@ class Program {
         }
         // Written on every invocation, before anything else: a test proves
         // "agy was never spawned" by pointing this at a scratch path and
-        // asserting the file is absent (Task 5, "Senate R5", 2026-09).
+        // asserting the file is absent (added 2026-09).
         if (touchFile.Length > 0) File.WriteAllText(touchFile, "");
-        // Plan 153 package G: report the console this process got, so a test
+        // Report the console this process got, so a test
         // can prove that a child of the console-less worker has no window.
         if (consoleReportFile.Length > 0) {
             IntPtr window = GetConsoleWindow();
@@ -217,7 +217,7 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
   const lines = ["#!/bin/sh"];
   // Written on every invocation, before anything else: a test proves "agy
   // was never spawned" by pointing this at a scratch path and asserting the
-  // file is absent (Task 5, "Senate R5", 2026-09).
+  // file is absent (added 2026-09).
   if (touchFile) lines.push(`: > ${shQuote(touchFile)}`);
   if (versionOk) {
     lines.push('if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then echo 0.0.0-fake; exit 0; fi');
@@ -267,14 +267,13 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
  *   settings, so a fake that fails the run still passes the verbs' probe.
  *   `readStdin` consumes stdin until EOF before exit, so a print-mode fake
  *   waits for the prompt write without a timing delay.
- *   `touchFile` (Task 5, "Senate R5", 2026-09), when given, writes an empty
+ *   `touchFile` (added 2026-09), when given, writes an empty
  *   file at that path on every invocation, before anything else runs — the
  *   proof a test needs that this binary was never spawned at all.
- *   `consoleReportFile` (plan 153 package G, win32 only; the POSIX stub
- *   ignores it), when given, writes `window=<0|1> visible=<0|1>` to that
+ *   `consoleReportFile` (win32 only, the POSIX stub ignores it), when given, writes `window=<0|1> visible=<0|1>` to that
  *   path on every invocation: whether this process has a console window and
  *   whether that window is visible.
- *   `helpText` (Senate R2, 2026-09), when given, answers a lone `--help`
+ *   `helpText` (added 2026-09), when given, answers a lone `--help`
  *   with that exact text and exit 0, distinct from `versionOk`'s `--version`
  *   answer and from the generic `stdout` option: `doctor`'s flag-listing
  *   check needs `--help` output that differs from a `--version` probe.

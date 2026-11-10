@@ -49,8 +49,7 @@ const FETCH_TIMEOUT_MS = 10_000;
  * this budget ({@link waitForRetry}); an attempt already in flight is not
  * aborted mid-request, but its own per-request timeout is capped at
  * whatever of this budget remains when it starts ({@link attemptTimeoutMs}),
- * so no single attempt can carry the call meaningfully past this number
- * (076-T7 fix round 1, F11).
+ * so no single attempt can carry the call meaningfully past this number.
  */
 export const UPDATE_CHECK_TOTAL_MS = 25_000;
 /** Retries on a network error, HTTP 429, or 5xx: `500ms * 2^attempt` plus up to 250ms jitter. */
@@ -164,8 +163,7 @@ function writeUpdateCache(file, entry, assertPrivateDirImpl = defaultAssertPriva
     assertPrivateDirImpl(dir);
     fs.writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 });
   } catch (error) {
-    // A trust violation (another local user pre-created or replaced this
-    // directory, item 15) must not be swallowed the way an ordinary write
+    // A trust violation (another local user pre-created or replaced this directory) must not be swallowed the way an ordinary write
     // failure is: propagate it. The answer was already obtained, so an
     // ordinary I/O error only costs one more registry request next time.
     if (error instanceof UnsafeStateDirError) throw error;
@@ -267,7 +265,7 @@ async function waitForRetry({ attempt, retryAfterSeconds, now, deadline, sleep, 
 
 /**
  * The per-attempt fetch timeout: `timeoutMs`, capped at whatever of the
- * total budget remains when this attempt starts (076-T7 fix round 1, F11).
+ * total budget remains when this attempt starts.
  * Never negative — a call starting at or past its own deadline (the last
  * moment {@link waitForRetry} allowed) gets a timeout of 0, which aborts
  * immediately rather than waiting the full per-request timeout regardless
@@ -453,7 +451,7 @@ export async function resolveLatest({
   fetchImpl = globalThis.fetch,
   cacheFile = resolveUpdateCacheFile(),
   forceRefresh = false,
-  // Test-only seam (F4/item 15): a fake that always throws lets the
+  // Test-only seam: a fake that always throws lets the
   // POSIX-only trust violation be exercised on win32 too.
   assertPrivateDir = defaultAssertPrivateDir,
   retry = {},
@@ -479,7 +477,7 @@ export async function resolveLatest({
     // A trust violation (another local user pre-created or replaced the
     // cache directory) is a security refusal, not a network problem — it
     // must reach the verb's existing one-line failure path with exit 1, not
-    // get folded into "could not reach the npm registry" (F4).
+    // get folded into "could not reach the npm registry".
     if (err instanceof UnsafeStateDirError) throw err;
     return {
       latest: null,

@@ -15,7 +15,7 @@ import {
   processStartedAt,
 } from '../scripts/lib/process.mjs';
 
-it('treats an EPERM probe as an existing process, as required by R3', () => {
+it('treats an EPERM probe as an existing process, as required', () => {
   assert.equal(isProcessAlive(123, () => { throw Object.assign(new Error('not ours'), { code: 'EPERM' }); }), true);
   assert.equal(isProcessAlive(123, () => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); }), false);
 });
@@ -42,7 +42,7 @@ it('can read the start time of a live child for stale-lock identity checks', asy
 });
 
 it('caches a process start query during retries and refreshes it after five seconds', () => {
-  // Oracle: fix brief F1 requires no shell per stale-lock retry while later
+  // Oracle: no shell per stale-lock retry while later
   // PID reuse must still become observable after the bounded cache expires.
   let now = 0;
   let calls = 0;
@@ -66,7 +66,7 @@ it('caches a process start query during retries and refreshes it after five seco
 });
 
 it('caches a null result (query failure or timeout) for the same TTL as a real value', () => {
-  // Oracle: fix brief 076-T4-fix2 F2. A null is conservative for stale-lock
+  // Oracle: a null is conservative for stale-lock
   // logic (staleLockCanBeReaped treats it as "cannot conclude dead, do not
   // reap"), but the 5 s TTL was written to also cover a real value; this
   // pins that a query failure is cached the same way, not re-queried on
@@ -92,7 +92,7 @@ it('caches a null result (query failure or timeout) for the same TTL as a real v
 });
 
 it('returns a one-line timeout error for a child sleeping beyond an injected 50 ms bound', () => {
-  // Oracle: brief 076-T3 R1. The real synchronous child would run for 2 s.
+  // Oracle: the real synchronous child would run for 2 s.
   const result = runCommand(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { timeoutMs: 50 });
   assert.equal(result.error?.code, 'ETIMEDOUT');
   assert.equal(result.error?.message, `${process.execPath} timed out after 50 ms`);

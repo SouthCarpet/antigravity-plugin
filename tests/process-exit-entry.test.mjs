@@ -1,4 +1,4 @@
-// Oracle: package J preserves every byte and exit code, and exits with no accepted write pending.
+// Oracle: CLI exit preserves every byte and exit code, and exits with no accepted write pending.
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

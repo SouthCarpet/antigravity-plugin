@@ -130,7 +130,7 @@ export function resolveStateRoot(env = process.env) {
  * process that received the logical form and one that received the already-
  * resolved form (a `chdir`'d worker's own `process.cwd()` returns the
  * physical path per POSIX `getcwd()`) land on the same key. Falls back to
- * the input unchanged when the path does not exist yet (085-T4).
+ * the input unchanged when the path does not exist yet.
  *
  * @param {string} root
  * @returns {string}
@@ -145,7 +145,7 @@ function canonicalWorkspaceRoot(root) {
 
 /**
  * Resolve the state directory for a workspace. `cwd` must already be the
- * resolved workspace root (076-T6 R4) — callers resolve it once via
+ * resolved workspace root — callers resolve it once via
  * `resolveWorkspaceRoot` and pass it down; this function no longer
  * re-resolves it via git, so a status snapshot over several stored jobs
  * spawns at most the one `git` call its caller already made, not one per
@@ -166,7 +166,7 @@ export function resolveStateDir(cwd, env = process.env) {
 
   // A workspace reached through a symlink or junction (macOS's os.tmpdir()
   // resolving through /var -> /private/var, or a user-created link) hashes
-  // to a different leaf than the pre-085 logical spelling did. An existing
+  // to a different leaf than the pre-1.3 logical spelling did. An existing
   // 1.x install's jobs stay reachable under that logical leaf until it is
   // explicitly moved.
   const logicalLeaf = root !== logicalRoot ? leafFor(logicalRoot) : undefined;
@@ -190,7 +190,7 @@ export function resolveStateFile(cwd) {
 
 /**
  * Describe this workspace's job-state location for `doctor`
- * (scripts/commands/doctor.mjs, Senate R2, 2026-09): read-only, creates
+ * (scripts/commands/doctor.mjs, 2026-09): read-only, creates
  * nothing. `legacyLeaf` is true when the directory actually in use (an
  * existing older logical-path or fallback-temp-root leaf, see
  * {@link resolveStateDir}) differs from the current realpath-hashed leaf
@@ -228,7 +228,7 @@ export function resolveJobLogFile(cwd, jobId) {
   return path.join(resolveJobsDir(cwd), `${jobId}.log`);
 }
 
-// The trust check (item 15) must cover every directory this plugin creates
+// The trust check must cover every directory this plugin creates
 // on the way down to `jobs`, not only the leaf: `mkdirSync({ recursive: true })`
 // silently accepts a pre-existing state root or per-workspace directory that
 // another local user planted, and only ever sets the mode of the directory
@@ -289,7 +289,7 @@ function readStateIndex(cwd) {
 }
 
 /**
- * The `requestIds` map (Senate R12, 2026-09): `{ [requestId]: { jobId,
+ * The `requestIds` map (added 2026-09): `{ [requestId]: { jobId,
  * fingerprint, createdAt } }`. A `state.json` written before it existed, or
  * one without any claimed id, has no key and reads as `{}`.
  *
@@ -623,7 +623,7 @@ export function patchJobStateUnlocked(cwd, jobId, detailPatch, indexPatch = deta
 }
 
 /**
- * Claim a `--request-id` for this workspace (Senate R12, 2026-09). One
+ * Claim a `--request-id` for this workspace (added 2026-09). One
  * locked critical section: read `state.requestIds`, then either
  *
  * - absent (or its job is no longer in the index): run `createJob`, which
@@ -697,8 +697,7 @@ function precededByNewline(fd, position) {
 
 /**
  * Read at most `maxBytes` from the end of a file and return its last
- * `lines` lines, without ever loading the whole file into memory (076-T6
- * R4/item 20: a `status` snapshot used to read a whole multi-megabyte job
+ * `lines` lines, without ever loading the whole file into memory (a `status` snapshot used to read a whole multi-megabyte job
  * log to show four lines). The one log reader for both `job-control.mjs`'s
  * progress tail and any other caller that used to go through the retired
  * `readJobLog(cwd, jobId)` (same bounded-read job, a general file path
@@ -711,7 +710,7 @@ function precededByNewline(fd, position) {
  * @returns {string} the tail, newline-joined, oldest kept line first
  */
 export function readLogTail(filePath, { lines = DEFAULT_LOG_TAIL_LINES, maxBytes = DEFAULT_LOG_TAIL_MAX_BYTES } = {}) {
-  // Fix round 1 F9: `slice(-0)` is `slice(0)` (the whole array), so an
+  // `slice(-0)` is `slice(0)` (the whole array), so an
   // unguarded `lines: 0` would return everything instead of nothing.
   if (!(lines > 0)) return "";
   let fd;
@@ -723,7 +722,7 @@ export function readLogTail(filePath, { lines = DEFAULT_LOG_TAIL_LINES, maxBytes
     const buffer = Buffer.alloc(readSize);
     if (readSize > 0) fs.readSync(fd, buffer, 0, readSize, start);
     let text = buffer.toString("utf8");
-    // Fix round 1 F4: a window that starts exactly at a line boundary holds
+    // A window that starts exactly at a line boundary holds
     // no truncated fragment, so dropping its first line unconditionally
     // discarded a complete one. Only drop when the byte before `start` is
     // NOT `\n` — i.e. `start` really does land mid-line.

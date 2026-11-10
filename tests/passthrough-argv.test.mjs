@@ -1,5 +1,5 @@
 /**
- * Flags that must reach agy's argv verbatim and in order (plan 068 T3/T4).
+ * Flags that must reach agy's argv verbatim and in order.
  *
  * Runs `bin/antigravity.mjs <verb>` in a child process with `AGY_BIN`
  * pointed at a fake agy that echoes its argv to stderr and exits 1. A
@@ -126,8 +126,7 @@ describe('--print-timeout and --disable-slash-commands reach agy argv on every p
     '--input-format', 'stream-json', '--output-format', 'stream-json', '--print', '',
   ];
 
-  // rescue/task apply `--effort medium` when the caller passes none (plan
-  // 086 T2 D1), so it appears in every argv below even though these tests
+  // rescue/task apply `--effort medium` when the caller passes none, so it appears in every argv below even though these tests
   // predate that default and pass no --effort of their own.
   it('rescue (foreground): both flags appear once, before the default-effort + stream-json tail', () => {
     const { work, data } = freshDirs();
@@ -171,7 +170,7 @@ describe('--mode <plan|accept-edits> reaches agy argv; anything else is an ArgsE
     const res = runVerb(['rescue', 'plan it', '--add-dir', 'd', '--mode', 'plan'], makeEnv(data), work);
     assert.equal(res.status, 1, res.stderr);
     const argv = argvOf(res.stderr);
-    // --effort (default medium, plan 086 T2) lands between --add-dir and
+    // --effort (default medium) lands between --add-dir and
     // --mode: buildAgyArgs pushes addDirs, then model/effort, then extraArgs
     // (--mode is part of extraArgs), so --add-dir and --mode are no longer
     // contiguous on their own.
@@ -296,7 +295,7 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     }
   });
 
-  // Plan 086 T5i: `agy-default` is the sentinel meaning "send no --effort
+  // `agy-default` is the sentinel meaning "send no --effort
   // flag at all; let agy use whatever default the user configured on that
   // machine" — the pre-1.4.0 behaviour, reached again as an explicit choice.
   it('rescue --effort agy-default sends no --effort flag, with no --model', () => {
@@ -345,7 +344,7 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
       argvOf(payload.details.result.stderr),
       [...DEFAULT_BUDGET_ARGV_TAIL],
     );
-    // The stored job record keeps the sentinel itself (item 2): a background
+    // The stored job record keeps the sentinel itself: a background
     // worker re-run replays this exact request, not the runtime translation.
     const records = fs.readdirSync(data, { recursive: true }).filter((file) => file.endsWith(jobId + '.json'));
     assert.equal(records.length, 1);
@@ -383,12 +382,12 @@ describe('--effort <low|medium|high> reaches agy argv; anything else is an ArgsE
     const stored = JSON.parse(fs.readFileSync(path.join(data, records[0]), 'utf8'));
     assert.equal(stored.request.prompt, 'Explain --effort high');
     // The prompt text is not parsed as a flag: agy still gets the plugin's
-    // own default `--effort medium` (plan 086 T2), never the prompt's "high".
+    // own default `--effort medium`, never the prompt's "high".
     assert.deepEqual(argvOf(stored.result.stderr).slice(0, 2), ['--effort', 'medium']);
   });
 });
 
-describe('review --model/--effort reach agy argv; review has no plugin-side effort default (Task 4, "Senate R4")', () => {
+describe('review --model/--effort reach agy argv; review has no plugin-side effort default', () => {
   const DEFAULT_BUDGET_ARGV_TAIL = [
     '--print-timeout', '1860s',
     '--disable-slash-commands',
@@ -450,7 +449,7 @@ describe('review --model/--effort reach agy argv; review has no plugin-side effo
     const res = runVerb(['review', '--effort', 'agy-default', '--json'], env, work);
     assert.equal(res.status, 1, res.stderr);
     assert.deepEqual(argvOf(res.stderr), [...DEFAULT_BUDGET_ARGV_TAIL]);
-    // Controller ruling on Task 4 review: review stores whatever the caller
+    // Design rule: review stores whatever the caller
     // gave, exactly like task/rescue do for their own explicit values — only
     // the argv translation (agyEffortArg) collapses the sentinel to no flag.
     const { jobId } = JSON.parse(res.stdout);

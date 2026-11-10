@@ -456,31 +456,44 @@ function tagReport(root, version) {
   return `note: git tag v${version} is absent (this script does not create, move, or delete tags)`;
 }
 
-/** Tracked markdown files this check never flags, even when they match. */
+/** Tracked files this check never flags, even when they match. */
 const INTERNAL_ID_EXEMPT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
 
 /** Directory names a plain-walk fallback never descends into. */
 const INTERNAL_ID_WALK_SKIP = new Set(['node_modules', '.git']);
 
 /**
- * `plan NNN`, case-sensitive, three digits, as a whole token: `plan 086`
- * matches, `planning 123` does not (no literal `plan ` substring in it).
+ * An internal planning identifier as a whole token: `plan` or `Plan` with
+ * three digits, or three digits, `-T` and a number (an optional letter may
+ * follow). `planning` with a number does not match.
  */
-const INTERNAL_ID_RE = /\bplan \d{3}\b/;
+const INTERNAL_ID_RE = /\b(?:[Pp]lan \d{3}|\d{3}-T\d+[a-z]?)\b/;
+
+/** File types the check reads: documents, code, manifests and workflows. */
+const INTERNAL_ID_EXTENSIONS = ['.md', '.mjs', '.cjs', '.js', '.json', '.yml', '.yaml'];
+
+/** Generated files the check never reads. */
+const INTERNAL_ID_SKIP_FILES = new Set(['package-lock.json']);
+
+function isInternalIdCandidate(rel) {
+  const name = rel.split('/').pop();
+  return !INTERNAL_ID_SKIP_FILES.has(name) && INTERNAL_ID_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
 
 /**
- * Every tracked `*.md` file, repo-root-relative with `/` separators. Uses
- * `git ls-files` when `root` is a git checkout; falls back to a plain
- * directory walk (skipping `node_modules` and `.git`) so the check still
- * runs against a tree with no `.git` directory, such as some test fixtures.
+ * Every tracked file of the checked types, repo-root-relative with `/`
+ * separators. Uses `git ls-files` when `root` is a git checkout; falls back
+ * to a plain directory walk (skipping `node_modules` and `.git`) so the check
+ * still runs against a tree with no `.git` directory, such as some test
+ * fixtures.
  */
-function trackedMarkdownFiles(root) {
-  const result = spawnSync('git', ['ls-files', '--', '*.md'], { cwd: root, encoding: 'utf8' });
+function trackedTextFiles(root) {
+  const result = spawnSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' });
   if (result.status === 0) {
     return result.stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter(Boolean);
+      .filter((line) => line && isInternalIdCandidate(line));
   }
   const files = [];
   const walk = (relDir) => {
@@ -490,7 +503,7 @@ function trackedMarkdownFiles(root) {
       if (entry.isDirectory()) {
         if (INTERNAL_ID_WALK_SKIP.has(entry.name)) continue;
         walk(rel);
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      } else if (entry.isFile() && isInternalIdCandidate(rel)) {
         files.push(rel);
       }
     }
@@ -500,15 +513,15 @@ function trackedMarkdownFiles(root) {
 }
 
 /**
- * Fail with file:line when a tracked markdown file (other than `CLAUDE.md`
- * or `AGENTS.md`, both git-ignored machine-local orientation files) still
- * names an internal planning identifier. User-facing docs, commit messages,
- * and CLI strings must read on their own; `plan NNN` means nothing to
- * someone who does not have this repository's planning tree.
+ * Fail with file:line when a tracked document, code, manifest or workflow
+ * file (other than `CLAUDE.md` or `AGENTS.md`, both git-ignored local agent
+ * notes) still names an internal planning identifier. Docs, code comments,
+ * test names and CLI strings must read on their own; a planning identifier
+ * means nothing to a reader without the maintainer's planning notes.
  */
 function internalIdErrors(root) {
   const errors = [];
-  for (const rel of trackedMarkdownFiles(root)) {
+  for (const rel of trackedTextFiles(root)) {
     if (INTERNAL_ID_EXEMPT_FILES.has(rel)) continue;
     let text;
     try {
@@ -792,7 +805,7 @@ function printCheck(root, expectedVersion) {
   console.log(`ok: CHANGELOG.md has ## [${expectedVersion}] and matching compare links`);
   console.log(`ok: README.md Status is v${expectedVersion}`);
   console.log('ok: no stale Plugin <version> phrase in README.md or docs/*.md');
-  console.log('ok: no internal "plan NNN" identifier in tracked markdown outside CLAUDE.md/AGENTS.md');
+  console.log('ok: no internal "plan NNN" identifier in tracked docs, code or workflows outside CLAUDE.md/AGENTS.md');
   console.log(tagLine);
 }
 

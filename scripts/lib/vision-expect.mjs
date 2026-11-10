@@ -1,6 +1,5 @@
 /**
- * vision-expect.mjs — local, no-agy check for `vision --expect` (Senate R6,
- * 2026-09).
+ * vision-expect.mjs — local, no-agy check for `vision --expect` (added 2026-09).
  *
  * `--expect <text>` names a string a human expects the image's transcribed
  * text to contain. The check below runs after the answer comes back: it
@@ -126,7 +125,7 @@ export function checkVisionExpectations(answer, expectValues) {
 
 /**
  * Render the markdown block `writeExpectationsBlock` appends after the
- * answer (Senate R6, 2026-09): the header line always prints; a `"missing"`
+ * answer (added 2026-09): the header line always prints; a `"missing"`
  * summary adds one `  missing: <value>` line per value not found; an
  * `"unverifiable"` summary adds the one fixed `  unverifiable: ...` line
  * instead. `"all_found"` adds nothing beyond the header.

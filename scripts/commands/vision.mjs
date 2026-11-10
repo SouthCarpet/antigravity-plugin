@@ -55,7 +55,7 @@ const DEFAULT_PROMPT =
  * only after agy has started and spent tokens, and its refusal comes back as
  * an answer-shaped reply. Checking here fails before any spawn.
  *
- * `code` (Task 3, "Senate R1", 2026-09) feeds the `invalid_input` envelope's
+ * `code` (added 2026-09) feeds the `invalid_input` envelope's
  * `error.code`; `message` is the same text this function has always
  * returned, printed verbatim on stderr.
  *
@@ -87,7 +87,7 @@ function imageProblem(imagePath) {
 /**
  * Report a `vision` input-validation failure (no image path at all, or the
  * first path {@link imageProblem} rejects): the existing stderr line,
- * unchanged, plus (Task 3, "Senate R1", 2026-09) one `invalid_input`
+ * unchanged, plus (added 2026-09) one `invalid_input`
  * `--json` envelope when `json` is true.
  *
  * @param {string} code

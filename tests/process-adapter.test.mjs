@@ -1,5 +1,5 @@
 /**
- * Contract of scripts/lib/process-adapter.mjs (plan 153 package G).
+ * Contract of scripts/lib/process-adapter.mjs.
  *
  * The adapter is the one place where a shipped file starts a process. It
  * sets `windowsHide: true` on every `spawn` and `spawnSync` call, so that a

@@ -1,5 +1,5 @@
 /**
- * `review --models a,b` (plan 153 p2, package E, "E1"): the value option
+ * `review --models a,b`: the value option
  * parsing, the two-token model resolution, and the findings comparison
  * that `review-compare.mjs` owns. `review.mjs`'s own command-level wiring
  * (argv shape, job records, the paired envelope, the exit code rule) is

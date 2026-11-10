@@ -1,4 +1,4 @@
-// Oracle: package I briefs, hard identity limit and rulings 1 through 3.
+// Oracle: the hard identity limit and the cleanup rules.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -384,7 +384,7 @@ test('unsupported creator query: safe reason and no signal', async () => {
   assert.deepEqual(lines, ['[wait] tools not signalled: creator query unsupported']);
 });
 
-// Oracle: fix-2 ruling 2. Reserved rows must not reach identity or termination.
+// Oracle: reserved rows must not reach identity or termination.
 for (const pid of [process.pid, process.ppid, 400, 500, 0, 4]) {
   test(`reserved pid ${pid}: no identity read or signal, valid sibling still stops`, async () => {
     const root = await fixture();
@@ -422,7 +422,7 @@ for (const workerPid of [undefined, 'bad']) test(`worker PID ${workerPid} does n
   assert.deepEqual(deps.signals, [600]);
 });
 
-// Oracle: fix-2 ruling 1a. The sample belongs to the tick, before its queued write.
+// Oracle: the sample belongs to the tick, before its queued write.
 test('exit immediately after heartbeat tick preserves the tick sample in the queued patch', async () => {
   let time = Date.parse('2026-11-10T10:00:15.000Z');
   let live = true;

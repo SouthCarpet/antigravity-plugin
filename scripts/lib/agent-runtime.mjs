@@ -448,8 +448,7 @@ function createNdjsonLineFeeder() {
  * event appears, the last one wins — atomically: each `result` event
  * replaces the whole prior snapshot rather than filling in gaps field by
  * field, so a later event that omits a field never keeps an earlier event's
- * value for that field (plan 086 T5e F2; before this fix a `?? out.X` merge
- * let a torn/partial later `result` inherit stale data from an earlier one).
+ * value for that field (before this fix a `?? out.X` merge let a torn/partial later `result` inherit stale data from an earlier one).
  * When no `result` event is found, `sawResult` is `false` and every other
  * field stays `null` — nothing is guessed from `step_update`/`init` events.
  *
@@ -461,8 +460,7 @@ function createNdjsonLineFeeder() {
  * `deniedActions` carries `result.denied_actions` normalized via
  * {@link normalizeDeniedActions}, then joined with the denied target named
  * in a `step_update` event's tool error message via
- * {@link joinDeniedActionTargets}/{@link parseStepUpdateDeniedTargets} (plan
- * 086 T3) — `null` when the field was absent on every `result` event seen,
+ * {@link joinDeniedActionTargets}/{@link parseStepUpdateDeniedTargets} — `null` when the field was absent on every `result` event seen,
  * an array (possibly empty) once one carried it. `target` is `null` on a
  * member no `step_update` matched.
  *
@@ -507,8 +505,8 @@ export function parseAgyStream(text) {
 /**
  * The complete field snapshot for one `result` event, replacing (never
  * merging with) whatever an earlier `result` event in the same stream left
- * behind — see {@link parseAgyStream}'s "last one wins, atomically" contract
- * (plan 086 T5e F2). A field this event does not carry becomes `null`, not
+ * behind — see {@link parseAgyStream}'s "last one wins, atomically" contract.
+ * A field this event does not carry becomes `null`, not
  * "whatever the previous event had".
  *
  * @param {object} r the `result` field of one `result` event
@@ -530,7 +528,7 @@ function resultEventSnapshot(r, stepTargets) {
     deniedActions: Array.isArray(r.denied_actions)
       ? joinDeniedActionTargets(normalizeDeniedActions(r.denied_actions), stepTargets)
       : null,
-    // Senate R7 (2026-09): agy's `--json-schema` answer, measured on agy
+    // agy's `--json-schema` answer, measured on agy
     // 1.2.12 as `structured_output` (probe-json-schema.txt). Kept raw
     // (object or string); `review-findings.mjs` validates it.
     structured: r.structured_output ?? null,
@@ -567,8 +565,8 @@ export const MAX_DENIED_ACTION_STRING_LENGTH = 200;
  * that is not a non-empty string once sanitized, so a caller can treat that
  * as "missing".
  *
- * U+2028/U+2029 and the C1 range survived the original C0/DEL-only filter
- * (plan 086 T5e F5): both can break a single-line stderr echo or a markdown
+ * U+2028/U+2029 and the C1 range survived the original C0/DEL-only filter.
+ * Both can break a single-line stderr echo or a markdown
  * label across lines the same way a raw CR/LF would, and this string is
  * untrusted agy-reported (or, for a `target`, model-chosen) text. Quote
  * characters are left unescaped on purpose: every display site renders this
@@ -606,7 +604,7 @@ function normalizeJsonDeniedAction(member) {
 }
 
 /**
- * Normalize agy's `result.denied_actions` array (T0a: 0..n members, repeats,
+ * Normalize agy's `result.denied_actions` array (0..n members, repeats,
  * and the field on a non-SUCCESS result are all UNVERIFIED beyond the single-
  * member SUCCESS fixture) into a bounded, de-duplicated list: malformed
  * members are skipped, exact repeats (same action + displayName) are
@@ -633,7 +631,7 @@ export function normalizeDeniedActions(rawList) {
 
 /**
  * agy's stable permission-denial message prefix (measured on 1.2.1, both
- * `086-T3` fixtures): `permission check failed for <action> "<target>":`.
+ * captured fixtures): `permission check failed for <action> "<target>":`.
  * The action is the first whitespace-free token; the target is the quoted
  * text up to the first `":` that follows it — non-greedy so a target that
  * happens to contain a bare `"` does not run past the real close.
@@ -666,8 +664,7 @@ function matchPermissionDenialMessage(message) {
  * Scan an agy stream-json blob for `step_update` events reporting a
  * headless permission denial (`state: 'ERROR'`, `step_type: 'tool'`) and
  * extract the denied target from `tool_info.error.message` — the `result`
- * event's `denied_actions` carries the action alone, never the target (plan
- * 086 T3). {@link joinDeniedActionTargets} joins the result **by action
+ * event's `denied_actions` carries the action alone, never the target. {@link joinDeniedActionTargets} joins the result **by action
  * name**, never by `tool_name`: on both measured fixtures the tool name
  * differs from the action (`read_url_content` vs `read_url`, `run_command`
  * vs `command`).
@@ -709,8 +706,7 @@ function parseStepUpdateDeniedTargets(text) {
 
 /**
  * Join `{ target }` onto each normalized `denied_actions` member by action
- * name, occurrence-aware (item 1, plan 086 T3; made occurrence-aware plan
- * 086 T5e F2): `normalizeDeniedActions` keeps two members with the same
+ * name, occurrence-aware: `normalizeDeniedActions` keeps two members with the same
  * `action` distinct when their `displayName` differs (a real shape: two
  * denied calls to the same tool for different reasons), so mapping every
  * same-action member onto the FIRST `stepTargets` entry for that action
@@ -841,10 +837,10 @@ export function extractFatalErrorMarker(stderr) {
  * was present, so older agy (no `denied_actions` field) still surfaces its
  * one known denial, never duplicated once agy 1.1.27's own list also carries
  * it. `null` when neither source has anything (the additive "no
- * information" contract T2 item 2 requires).
+ * information" contract requires).
  *
  * The stderr-sourced `action` runs through {@link sanitizeDeniedActionString}
- * (T3 carry-over item 9) exactly like the JSON path's `action`/`displayName`
+ * exactly like the JSON path's `action`/`displayName`
  * fields — capped at {@link MAX_DENIED_ACTION_STRING_LENGTH} and stripped of
  * control characters — since `sentinelDenial.tool` comes from
  * {@link detectAutoDenial}'s free-text quote capture, not a bounded schema.
@@ -942,7 +938,7 @@ function normalizeRunOptions(options) {
   };
 }
 
-/** Forwarded for `timeoutMs === 0` ("no deadline"). agy before 1.2.6 treated a literal `--print-timeout 0` as an immediate timeout (T0a fixtures item 4); since 1.2.6 `0` means unlimited (`agy --help` 1.2.7: "default 0s", measured in raw-print-timeout-zero.txt). A large fixed duration keeps one behaviour across both. */
+/** Forwarded for `timeoutMs === 0` ("no deadline"). agy before 1.2.6 treated a literal `--print-timeout 0` as an immediate timeout; since 1.2.6 `0` means unlimited (`agy --help` 1.2.7: "default 0s", measured in raw-print-timeout-zero.txt). A large fixed duration keeps one behaviour across both. */
 export const PRINT_TIMEOUT_NO_DEADLINE = '24h';
 
 /** Headroom added on top of the plugin's own outer budget before it is
@@ -977,7 +973,7 @@ export function printTimeoutArg(timeoutMs) {
  * print-mode path (plain print, `--continue`, `--conversation`) the same
  * way; the `--version` probe does not go through this builder.
  *
- * `jsonSchemaPath` (Senate R7, 2026-09) adds `--json-schema <path>` right
+ * `jsonSchemaPath` (added 2026-09) adds `--json-schema <path>` right
  * before `--print-timeout`; `review --findings-json` is its only caller.
  *
  * @param {{ mode: string, conversationId?: string, addDirs: string[],
@@ -1269,7 +1265,7 @@ function describeDeniedActionMember(member) {
 /**
  * The stderr note appended when a SUCCESS result produced no answer text and
  * the only denial evidence is agy's structured `denied_actions` JSON list —
- * no stderr sentinel line (plan 086 T5e F1: `classifyFinalStatus` used to
+ * no stderr sentinel line (`classifyFinalStatus` used to
  * treat only the sentinel as denial evidence, so this exact shape passed as
  * `completed` with nothing in it).
  *
@@ -1285,7 +1281,7 @@ function structuredDenialEmptyNote(deniedActionsList) {
 /**
  * The warning pushed when a SUCCESS result answered despite carrying a
  * structured JSON-only denial (no stderr sentinel) — mirrors the sentinel
- * path's `warnings.push(denial.line)` (plan 086 T5e F1) so a real answer
+ * path's `warnings.push(denial.line)` so a real answer
  * with one denied input is reported the same way regardless of which
  * evidence source (stderr sentinel or JSON list) named the denial.
  *
@@ -1301,7 +1297,7 @@ function structuredDenialAnsweredWarning(deniedActionsList) {
  * Scan an agy stream-json blob for the first `step_update` event whose
  * `step_type` is not `"tool"` — the only value {@link parseStepUpdateDeniedTargets}
  * (and therefore the denial-classification path above) actually recognises
- * (Task 3, "Senate R1", 2026-09). Used only to annotate
+ * (added 2026-09). Used only to annotate
  * {@link emptyAnswerNote}'s generic "unexplained empty response" branch: this
  * never infers an action or a remedy from the value, only names it, so a
  * denial/timeout explanation this module already understands is never
@@ -1334,8 +1330,8 @@ function findUnrecognisedStepType(text) {
  * Stderr note(s) for a SUCCESS result that produced no answer text: one
  * line per explanation actually present (a stderr-sentinel denial, a
  * structured JSON-only denial, agy's own print-timeout marker), or one
- * generic line when none of them explain it (plan 086 T5e F1 — "an
- * unexplained empty response" is a failure like any other, not a silent
+ * generic line when none of them explain it (an
+ * unexplained empty response is a failure like any other, not a silent
  * success).
  *
  * Verbs checked for a legitimately silent answer before this was widened:
@@ -1347,7 +1343,7 @@ function findUnrecognisedStepType(text) {
  * contract. No verb's prompt asks the model to reply with nothing, so this
  * reclassification has no verb to spare at this (verb-agnostic) layer.
  *
- * `rawStdout` (Task 3, "Senate R1", 2026-09) is scanned only on the generic
+ * `rawStdout` (added 2026-09) is scanned only on the generic
  * fallback branch (no denial, no structured denial, no print-timeout marker)
  * for a `step_update` whose `step_type` this module does not recognise
  * ({@link findUnrecognisedStepType}): a denial or timeout already explains
@@ -1391,7 +1387,7 @@ function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncati
  * `deniedActions` ({@link mergeDeniedActions} of `parsed.deniedActions` and
  * the stderr sentinel) is computed and returned on every branch, including
  * the ones that never reach the fail-vs-answered check below; it also feeds
- * that check now (plan 086 T5e F1): a structured JSON-only denial (no
+ * that check now: a structured JSON-only denial (no
  * stderr sentinel) is denial evidence exactly like the sentinel is, so a
  * `SUCCESS` result with an empty response and `denied_actions` present only
  * in the JSON is `failed`, not `completed` with nothing in it. An empty
@@ -1399,8 +1395,7 @@ function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncati
  * print-timeout marker) is now also `failed` — see {@link emptyAnswerNote}
  * for the verbs checked before this was widened.
  *
- * `truncation` ({@link detectPrintTimeoutTruncation} of the raw stderr, plan
- * 086 T1) joins `denial`/structured-denial as a reason an otherwise-SUCCESS
+ * `truncation` ({@link detectPrintTimeoutTruncation} of the raw stderr) joins `denial`/structured-denial as a reason an otherwise-SUCCESS
  * result with an empty response is reclassified `failed`: agy's own print
  * timeout can expire before the model produced any text at all, which is
  * the same "no answer was ever produced" shape a starved denial already
@@ -1606,7 +1601,7 @@ function classifyRunResult({ session, exitCode }) {
  *       `agent-runtime:` line naming the tool, the denied action(s), and/or
  *       the expired print timeout. Callers that know the verb add the
  *       per-verb hint. An empty response with NONE of these three present
- *       is also `failed` (plan 086 T5e F1: "unexplained empty" is a failure
+ *       is also `failed` ("unexplained empty" is a failure
  *       like any other), with a generic `agent-runtime:` line — see
  *       {@link emptyAnswerNote} for the verbs checked before this was
  *       widened.
@@ -1620,7 +1615,7 @@ function classifyRunResult({ session, exitCode }) {
  *       is set either way (a) or (c) has it; callers add their own warning
  *       line for case (c) (job-helpers.mjs).
  *
- * `deniedActions` (additive, T2/plan 085) is the structured detail behind
+ * `deniedActions` (additive) is the structured detail behind
  * `denial`: agy 1.1.27's `result.denied_actions` JSON list
  * ({@link normalizeDeniedActions}) merged with the stderr sentinel
  * ({@link mergeDeniedActions}) — the JSON list wins when present, so an
@@ -1629,14 +1624,14 @@ function classifyRunResult({ session, exitCode }) {
  * `status` or the exit code; job-helpers.mjs's `denialRemedy` turns each
  * `action` into the caller-facing remedy sentence.
  *
- * `agyPrintTimeout` (additive, T1/plan 086) is `{ limit: string | null }`
+ * `agyPrintTimeout` (additive) is `{ limit: string | null }`
  * when {@link detectPrintTimeoutTruncation} found the marker on stderr, else
  * `null`. It never changes the exit code by itself; only an empty response
  * alongside it does (case (a) above), the same treatment a starved denial
  * already gets.
  *
  * `errorMessage` also picks up agy's stable `error:` fatal marker
- * ({@link extractFatalErrorMarker}, additive, T1/plan 086) when the run
+ * ({@link extractFatalErrorMarker}, additive) when the run
  * failed for a reason agy itself reported and no plugin-authored termination
  * reason (timeout, output-limit, cancellation) already explains it. When
  * agy sent no such marker, the run's `result.error` (for example `UNAVAILABLE

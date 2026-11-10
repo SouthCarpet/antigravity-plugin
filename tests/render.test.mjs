@@ -90,7 +90,7 @@ describe('renderStatusSnapshot', () => {
     assert.doesNotMatch(out, /\/antigravity:result f1/);
   });
 
-  // 076-T7 R1: answerBytes/answerLines shown in the Recent Jobs table (and
+  // AnswerBytes/answerLines shown in the Recent Jobs table (and
   // the single-job view), "-" when absent (legacy records, running jobs).
   it('shows a Size column with answerBytes/answerLines, or "-" when absent', () => {
     const now = new Date().toISOString();
@@ -110,7 +110,7 @@ describe('renderStatusSnapshot', () => {
     assert.match(out, /\| d2 \| task \| completed \| \d+m?s \| - \|/);
   });
 
-  it('escapes a pipe and folds CR/LF in a summary at the table row, keeping the raw value everywhere else (F5)', () => {
+  it('escapes a pipe and folds CR/LF in a summary at the table row, keeping the raw value everywhere else', () => {
     const now = new Date().toISOString();
     const out = renderStatusSnapshot({
       workspaceRoot: '/tmp',
@@ -125,7 +125,7 @@ describe('renderStatusSnapshot', () => {
     assert.doesNotMatch(out, /a \| b\nc/);
   });
 
-  it('escapes a trailing backslash before a pipe so the cell does not still split (item 3)', () => {
+  it('escapes a trailing backslash before a pipe so the cell does not still split', () => {
     const now = new Date().toISOString();
     const out = renderStatusSnapshot({
       workspaceRoot: '/tmp',
@@ -139,7 +139,7 @@ describe('renderStatusSnapshot', () => {
     assert.match(out, /\| a\\\\\\\|b c \|/);
   });
 
-  // Plan 085 T2 item 4: a trailing Denied column on both tables — a count,
+  // A trailing Denied column on both tables — a count,
   // or "-" when none/absent. Appended after existing columns so it never
   // disturbs a sequential-column assertion elsewhere in this file.
   it('shows a Denied column with a count, or "-" when none, on both tables', () => {
@@ -212,7 +212,7 @@ describe('renderSingleJobStatus', () => {
     assert.match(out, /line a/);
   });
 
-  // Plan 085 T2: `job.deniedActions` here is expected to already carry
+  // `job.deniedActions` here is expected to already carry
   // `remedy` (the caller's contract — status.mjs attaches it).
   it('renders a "## Denied Actions" section, one line per action with its remedy', () => {
     const job = {
@@ -255,8 +255,8 @@ describe('renderDeniedActionLines', () => {
     assert.equal(lines[4], '- **write_to_file**: r2');
   });
 
-  // Plan 086 T3 item 2: the target, when known, is named in the line;
-  // absent target renders exactly as before (item 6).
+  // The target, when known, is named in the line;
+  // absent target renders exactly as before.
   it('names the target when present, in the shape "action (displayName) for \\"target\\""', () => {
     const lines = renderDeniedActionLines([
       { action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com', remedy: 'r1' },
@@ -296,7 +296,7 @@ describe('formatDeniedActionLabel', () => {
   });
 });
 
-// Plan 086 T3 item 4: the plugin no longer relays agy's own bypass advice.
+// The plugin no longer relays agy's own bypass advice.
 describe('stripBypassAdvice', () => {
   const BYPASS_LINE =
     'jetski: no output produced — a tool required the "read_url" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_url(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
@@ -328,7 +328,7 @@ describe('stripBypassAdvice', () => {
   });
 });
 
-// Plan 086 T5e F3: a denied target whose text IS the bypass flag itself
+// A denied target whose text IS the bypass flag itself
 // (model-chosen, not agy's own advisory sentence) must not reach the
 // plugin's own stderr echo either.
 describe('redactBypassFlag', () => {
@@ -357,7 +357,7 @@ describe('redactBypassFlag', () => {
   });
 });
 
-// Plan 086 T3 item 4: reportWarnings prints each warning through
+// ReportWarnings prints each warning through
 // stripBypassAdvice; the source `result.warnings` array (and therefore
 // `--json`'s `details.warnings`) is never mutated.
 describe('reportWarnings — drops the bypass sentence, never mutates result.warnings', () => {

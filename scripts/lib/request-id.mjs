@@ -1,6 +1,6 @@
 /**
  * `--request-id <id>`: opt-in idempotent background dispatch on `task` and
- * `rescue --background` (Senate R12, 2026-09).
+ * `rescue --background` (added 2026-09).
  *
  * This module holds the flag's own validation and the request fingerprint.
  * The claim itself (look up the id, create the job, record the mapping, all

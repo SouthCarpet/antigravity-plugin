@@ -1,10 +1,9 @@
 /**
- * `--show-result` after a background `--wait` (Task 7, "Senate R9",
- * 2026-09). `review`, `rescue`, and `task` share one background-wait tail
+ * `--show-result` after a background `--wait` (added 2026-09). `review`, `rescue`, and `task` share one background-wait tail
  * (`job-helpers.mjs#waitAndReport`), so this file drives all three through
  * their own `run()` entry with a fake `startBackgroundJob`/`waitForJob` pair
- * (the same dependency-injection seam `tests/commands.test.mjs`'s "076-T7
- * R4" describe block already uses for `failed`) rather than spawning a real
+ * (the same dependency-injection seam `tests/commands.test.mjs`'s "failed job status"
+ * describe block already uses for `failed`) rather than spawning a real
  * background worker or a fake `agy` binary: the flag's own logic lives
  * entirely in the shared tail, dispatch, and validation layers, none of
  * which touch the worker process.
@@ -153,7 +152,7 @@ const VERB_FIXTURES = {
 };
 
 for (const [kind, fixture] of Object.entries(VERB_FIXTURES)) {
-  describe(`/antigravity:${kind} --show-result (Task 7, "Senate R9")`, () => {
+  describe(`/antigravity:${kind} --show-result`, () => {
     async function runVerb(argv, ctx) {
       fixture.setup(tempDir);
       const { run } = await import(fixture.modulePath);
@@ -363,7 +362,7 @@ for (const [kind, fixture] of Object.entries(VERB_FIXTURES)) {
   });
 }
 
-describe('--show-result flag validation (Task 7, "Senate R9")', () => {
+describe('--show-result flag validation', () => {
   it('task: --show-result without --wait is refused, stderr-only, exit 1, no --json envelope', async () => {
     const { run } = await import('../scripts/commands/task.mjs');
     const cap = captureStdio();

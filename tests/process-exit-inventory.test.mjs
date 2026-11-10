@@ -1,4 +1,4 @@
-// Oracle: package J runtime exits use the flush helper. Comments and strings are data.
+// Oracle: runtime exits use the flush helper. Comments and strings are data.
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

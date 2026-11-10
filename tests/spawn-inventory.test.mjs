@@ -1,6 +1,5 @@
 /**
- * Inventory of the ways a shipped file can start a process (plan 153
- * package G).
+ * Inventory of the ways a shipped file can start a process.
  *
  * Every shipped file starts processes through scripts/lib/process-adapter.mjs,
  * which sets the hide option. This test reads every shipped `.mjs`, `.cjs`

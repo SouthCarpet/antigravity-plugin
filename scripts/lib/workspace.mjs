@@ -11,7 +11,7 @@ const workspaceRootCache = new Map();
 // absorbs a redundant re-resolution of the SAME cwd string, so counting git
 // spawns (or cache misses) alone cannot tell a caller that resolves once and
 // passes the root down from one that keeps re-resolving an already-resolved
-// root apart, once both calls share one cwd string (076-T6 fix round 1 F1).
+// root apart, once both calls share one cwd string.
 let resolveCallCount = 0;
 
 /**
@@ -22,7 +22,7 @@ let resolveCallCount = 0;
  * cannot change within one CLI invocation or worker run, but every
  * `state.mjs` accessor (readJobFile, ensureStateDir, writeJobFile, ...)
  * calls this via `resolveStateDir`, so one job-lifecycle operation used to
- * spawn `git rev-parse` a dozen-plus times over. Fix brief 076-T4-fix2 F1:
+ * spawn `git rev-parse` a dozen-plus times over.
  * the per-call cost of that spawn from a freshly started background worker
  * varies by session on the reference machine (about 3.4 s in one session,
  * under 0.5 s in another; the cause of the gap is not attributed), so the
@@ -56,8 +56,7 @@ export function resolveWorkspaceRoot(cwd, { ensureGitRepository: ensure = ensure
 /**
  * Test-only: clear the per-cwd cache (and the call counter below) so a
  * launch-count assertion starts cold instead of inheriting a hit from an
- * earlier test's cwd (076-T6 R4; the missing reset was flagged as a
- * test-isolation footgun in the T4 fix round 2 re-review). Never called from
+ * earlier test's cwd (a missing reset is a test-isolation trap). Never called from
  * production code — every real process starts with an empty cache already.
  *
  * @returns {void}
@@ -69,10 +68,9 @@ export function resetWorkspaceRootCache() {
 
 /**
  * Test-only: number of `resolveWorkspaceRoot` calls (cache hit or miss)
- * since the last `resetWorkspaceRootCache()`. Proves the R4 pass-down
+ * since the last `resetWorkspaceRootCache()`. Proves the pass-down
  * independent of the per-cwd cache, which a git-spawn count alone cannot do
- * once the caller re-resolves the SAME already-resolved cwd string (076-T6
- * fix round 1 F1).
+ * once the caller re-resolves the SAME already-resolved cwd string.
  *
  * @returns {number}
  */
