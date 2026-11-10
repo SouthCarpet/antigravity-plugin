@@ -42,7 +42,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed.
+- On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed. Cleanup has a time budget and logs what remains; a tool started in the last seconds before the worker died is not confirmed.
 - Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
 - State saves retry brief Windows file locks instead of failing on the first rename.
 - A waiter no longer replaces a finished job with a missing-worker failure.
@@ -53,7 +53,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 
 - `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
-- Windows: Ctrl+C, Ctrl+Break or a closed terminal window during a foreground run now stops agy through the plugin, as on Linux and macOS, and the run ends as cancelled.
+- Windows: Ctrl+C, Ctrl+Break or a closed terminal window during a foreground run now stops agy through the plugin, as on Linux and macOS, and the run ends with exit code 2 and a `cancelled` record. Before, the foreground CLI ended with exit code 1 and could leave the job active.
 
 ## [3.1.0] — 2026-11-06
 

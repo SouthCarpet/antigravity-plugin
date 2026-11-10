@@ -436,7 +436,7 @@ has command-specific meanings, and this contract preserves that reality.
 | `1` | General validation, authentication, execution, state, configuration, import, or persistence failure. `result` uses 1 for a failed, active, missing, or unreadable job. `cancel` uses 1 when it cannot establish and persist cancellation. `status --exit-status` uses 1 for a `failed` waited job. |
 | `2` | A cancelled agy outcome from `review`, `rescue`, `task`, `vision`, or `media`, and a cancelled stored job from `result`. The standalone dispatcher also uses 2 for an unknown command/help target or invalid command module, and `setup` uses 2 when its agy probe cannot find or run agy. `status --exit-status` uses 2 for a `cancelled` waited job. It is therefore not a global “cancelled” code. |
 | `3` | `status <id> --wait --exit-status` only (added 2026-09): the wait's own deadline passed while the job was still `queued`/`running`. No other command uses this value. |
-| `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy, except `--preview` on review, task, rescue, vision and media. |
+| `127` | Standalone-dispatcher preflight only: `AGY_BIN` was explicitly set to a path that does not exist for a verb that needs agy, except `--preview` on review, task, rescue and vision. Media has no dispatcher agy preflight. Tokens after `--` are positional arguments and do not count as flags. |
 | other nonzero | `setup` passes through the exit status of its interactive agy OAuth probe. No meaning beyond “setup failed” is promised for that upstream value. |
 
 For a failed foreground run, agy's own nonzero exit status is stored on the
@@ -1521,7 +1521,7 @@ meaning:
 - **State saves**: atomic rename retries only EPERM, EACCES and EBUSY, up to
   five attempts with four 50 ms waits (200 ms total backoff). Strict job-file reads
   use the same retry. A write or strict read blocks the calling process for at
-  most 200 ms of backoff, in addition to file I/O time. Other errors
+  most 200 ms of backoff per file operation, in addition to file I/O time. One patch can use up to 600 ms of backoff; the second locked section of the vanish path can use up to 800 ms. Other errors
   surface immediately. Failed patches preserve the old job on read errors.
 - **Vanished-worker decision**: the waiter reads and probes again under the
   state lock, then checks process identity and signals outside the lock. It
@@ -1873,7 +1873,7 @@ The second leg still runs after the first leg's own run or findings
 failure; it does not run after the first leg reports `auth_required` (not
 model-specific, so the second leg would only hit it again), after `agy`
 itself is found absent, or after `--require-complete` refuses the shared
-input — all three are checked once, before either leg exists. The command's
+input, all three are checked once, before either leg exists. The command's
 exit code is the first non-zero leg's exit code, or 0 when both legs
 completed. The text output shows comparison counts only; `--json` carries
 the matched findings. Paths are compared as written and case-sensitively.
@@ -1924,7 +1924,7 @@ Consequences and limits:
   at once with the Windows Ctrl+C exit code and no output.
 - **Short tools.** git, `taskkill`, `where.exe`, `tar` and `npm pack` run
   synchronously with piped streams. A Ctrl+C during one of them takes
-  effect when the tool ends or reaches its existing timeout. The steps of
+  effect when the tool ends or reaches its existing timeout. The git timeout is 120 seconds (`GIT_TIMEOUT_MS` in `scripts/lib/process.mjs`). The `tar` and `npm pack` calls in `pack-for-agy` have no timeout. The steps of
   `update --apply` stay in the caller's console and receive Ctrl+C
   directly, as before.
 - **Exception: the sign-in run of `setup`.** It starts exactly as before,

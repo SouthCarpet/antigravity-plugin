@@ -487,3 +487,5 @@ Model output keeps its existing job log handling.
   host's environment already has code execution on that machine, so this check
   limits accidental misdirection, for example a stale or half-removed install
   copy in `CLAUDE_PLUGIN_ROOT`. It is not a defence against a hostile host.
+
+`review` and `result --check-current` run git in the workspace with the repository's own configuration, so a configured external diff program or filter can run.
