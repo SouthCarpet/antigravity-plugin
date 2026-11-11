@@ -35,7 +35,7 @@ Output from real runs of the 3.2.0 release code. Waiting time and some lines are
 
 - **Pick a model by family.** `--model-alias flash|argon|pro|sonnet|opus|gpt-oss` selects the newest matching model from your account's `agy models` list.
 - **Get a second opinion.** `review --models <a,b> --findings-json` runs the same review with two models and shows which findings both found and which only one found.
-- **Look before you spend quota.** `--preview` on task, rescue, vision, and media shows the planned request with no agy call and no download. It hides directory paths and leaves a model alias or a YouTube download unresolved.
+- **Look before you spend quota.** `--preview` on task, rescue, vision, and media shows the planned request with no agy call and no download. A model alias and a YouTube download stay unresolved.
 - **Keep transcripts and answers.** `media --transcript --timestamps` adds `[HH:MM:SS]` to each caption line, and `media --output <path>` saves the answer to a new file.
 - **Check old reviews.** `result --check-current` tells you if a stored review still matches your diff, and `result --export <path>` saves the stored record for another host.
 - **Better bug reports.** `doctor --receipt` prints a short compatibility receipt with no paths and no account data.
