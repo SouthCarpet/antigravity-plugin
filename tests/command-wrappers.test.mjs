@@ -83,15 +83,15 @@ function runBootstrap(verb, { args = [], env = {}, cwd } = {}) {
   });
 }
 
-// R5b: `host-bootstrap.cjs` is a real shipped file the generated snippet
+// `host-bootstrap.cjs` is a real shipped file the generated snippet
 // require()s at `<root>/scripts/lib/host-bootstrap.cjs`, so any fixture
 // plugin root that needs the verb to actually dispatch carries its own copy
 // — a real `agy plugin install` copy would carry one too, since
-// `scripts/lib` ships (package.json `files`). Fix round 1 (F1): after the
+// `scripts/lib` ships (package.json `files`). After the
 // manifest check moved ahead of the `require()` in the generated snippet, a
 // fixture that only exercises the refusal path no longer needs a copy of
 // this module at all, so `writePluginManifest` stops copying it by default;
-// a fixture that needs the module present (or a foreign one, for the F1
+// a fixture that needs the module present (or a foreign one, for the
 // masquerade test) says so explicitly.
 const HOST_BOOTSTRAP_SOURCE = fs.readFileSync(
   path.join(ROOT, 'scripts', 'lib', 'host-bootstrap.cjs'),
@@ -207,7 +207,7 @@ describe('host bootstrap source', () => {
     assert.match(message, /npx @southcarpet\/antigravity-plugin status/);
   });
 
-  // R5b + fix round 1 F1/F2: the spawn and the "missing runtime" message
+  // The spawn and the "missing runtime" message
   // stay inside the shipped `scripts/lib/host-bootstrap.cjs` module, but the
   // manifest and module-presence checks now live in the generated snippet,
   // ahead of the require() that loads that module — a root that is not this
@@ -345,7 +345,7 @@ describe('commands/*.md wrappers', () => {
       );
     });
 
-    // F4: the host model reads the runtime output as labelled, fenced data.
+    // The host model reads the runtime output as labelled, fenced data.
     it(`${verb}.md shows the runtime output in the labelled fenced block`, () => {
       const body = readCommand(verb);
       assert.equal(body.includes(`Run:\n\n${hostOutputBlock(verb)}\n`), true, `${verb}.md has no labelled output block`);
@@ -358,7 +358,7 @@ describe('commands/*.md wrappers', () => {
   }
 });
 
-// F3: a wrapper's allowed-tools must not pre-approve `node` in general,
+// A wrapper's allowed-tools must not pre-approve `node` in general,
 // because the host model reads untrusted agy and repository text in the
 // same turn. The only Bash grant is the exact bootstrap prefix of the bang
 // line, read and matched the way Claude Code reads it
@@ -513,14 +513,14 @@ describe('host bootstrap execution', () => {
     assert.equal(fs.existsSync(marker), false, 'verb script ran despite the foreign manifest');
   });
 
-  // Fix round 1, F1 (a): a foreign plugin root that carries its own
+  // A foreign plugin root that carries its own
   // scripts/lib/host-bootstrap.cjs, one that would announce itself if it
   // ran. Before the fix, the generated snippet handed this root straight to
   // require() with no check, so this foreign module ran and printed
   // "FOREIGN MODULE RAN" with exit 0. The manifest check now runs first: the
   // real bang line must refuse before that require() ever happens, so the
   // foreign text must never appear.
-  it('a foreign plugin root carrying its own host-bootstrap.cjs is refused before that module ever loads (F1)', () => {
+  it('a foreign plugin root carrying its own host-bootstrap.cjs is refused before that module ever loads', () => {
     const pluginRoot = path.join(tmpRoot, 'foreign-module-root');
     fs.mkdirSync(pluginRoot, { recursive: true });
     fs.writeFileSync(
@@ -547,14 +547,14 @@ describe('host bootstrap execution', () => {
     );
   });
 
-  // Fix round 1, F2 (b): an absent or non-plugin root with no
+  // An absent or non-plugin root with no
   // host-bootstrap.cjs at all used to die with a ~20-line raw Node loader
   // stack instead of the plugin's one line, because the old snippet
   // require()d the module unconditionally. The manifest check now runs
   // before any require(), so both an empty directory and an unset
   // CLAUDE_PLUGIN_ROOT with nothing at the default path get the same single
   // refusal line and no loader stack.
-  it('an empty CLAUDE_PLUGIN_ROOT directory is refused with one line and no loader stack (F2)', () => {
+  it('an empty CLAUDE_PLUGIN_ROOT directory is refused with one line and no loader stack', () => {
     const pluginRoot = path.join(tmpRoot, 'empty-dir-root');
     fs.mkdirSync(pluginRoot, { recursive: true });
 
@@ -567,7 +567,7 @@ describe('host bootstrap execution', () => {
     assert.equal(res.stderr.includes('node:internal'), false, res.stderr);
   });
 
-  it('unset CLAUDE_PLUGIN_ROOT with no plugin at the default path is refused with one line and no loader stack (F2)', () => {
+  it('unset CLAUDE_PLUGIN_ROOT with no plugin at the default path is refused with one line and no loader stack', () => {
     const home = path.join(tmpRoot, 'home-no-plugin');
     fs.mkdirSync(home, { recursive: true });
     const expectedRoot = agyPluginInstallDir(home);

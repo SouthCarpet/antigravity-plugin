@@ -1,6 +1,6 @@
 import { realpathSync, statSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './process-adapter.mjs';
 import { ArgsError } from './args.mjs';
 import { validateExpectOption } from './vision-expect.mjs';
 
@@ -12,12 +12,17 @@ export const MEDIA_MIME = Object.freeze({
   '.mkv': 'video/x-matroska', '.m4v': 'video/mp4',
 });
 export const MEDIA_SCHEMA = {
-  valueOptions: ['prompt', 'model', 'cwd', 'quality'],
-  booleanOptions: ['json', 'audio', 'transcript', 'keep'], repeatableOptions: ['expect'],
+  valueOptions: ['prompt', 'model', 'model-alias', 'cwd', 'quality', 'output'],
+  booleanOptions: ['preview', 'json', 'audio', 'transcript', 'keep', 'timestamps'], repeatableOptions: ['expect'],
   valueChoices: { quality: ['360p', '480p', '720p'] },
-  conflicts: [['audio', 'quality'], ['transcript', 'quality'], ['transcript', 'audio']],
-  validate: validateExpectOption,
+  conflicts: [['model', 'model-alias'], ['audio', 'quality'], ['transcript', 'quality'], ['transcript', 'audio']],
+  validate: validateMediaOptions,
 };
+
+function validateMediaOptions(options) {
+  if (options.timestamps && !options.transcript) throw new ArgsError('--timestamps requires --transcript');
+  validateExpectOption(options);
+}
 
 export function mediaError(code, message) { return Object.assign(new Error(message), { code }); }
 
@@ -96,7 +101,47 @@ export function transcriptText(text) {
   return lines.filter((line, index) => index === 0 || line !== lines[index - 1]).join('\n');
 }
 
-export function findTranscript(directory) {
+const CUE_LINE_START = /^\d+:\d+(?::\d+)?[.,]\d+/;
+const CUE_START_TIME = /^(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,]\d{1,3}$/;
+const UNKNOWN_CLOCK = '--:--:--';
+
+// Start of a cue line in whole seconds, floored. `undefined`: not a cue line.
+// `null`: a cue line whose start time is malformed or above 99 hours.
+function cueStartSeconds(line) {
+  const arrow = line.indexOf('-->');
+  if (arrow < 0 || !CUE_LINE_START.test(line)) return undefined;
+  const match = CUE_START_TIME.exec(line.slice(0, arrow).trim());
+  if (!match) return null;
+  const [hours, minutes, seconds] = [match[1] ?? '0', match[2], match[3]].map(Number);
+  return minutes > 59 || seconds > 59 ? null : hours * 3600 + minutes * 60 + seconds;
+}
+
+function clockText(seconds) {
+  if (seconds === null) return UNKNOWN_CLOCK;
+  const part = (value) => String(value).padStart(2, '0');
+  return `${part(Math.floor(seconds / 3600))}:${part(Math.floor(seconds / 60) % 60)}:${part(seconds % 60)}`;
+}
+
+// Same line selection, cleaning and dedup as `transcriptText`, with the
+// start time of the cue that holds each kept line in front of it. A repeated
+// line keeps the first time. A line with no known cue time (none seen yet, or
+// a malformed or over-99-hour cue time) is marked with `[--:--:--]`.
+export function transcriptTextWithTimestamps(text) {
+  let time = null;
+  const entries = [];
+  for (const raw of text.replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    const cue = cueStartSeconds(line);
+    if (cue !== undefined) { time = cue; continue; }
+    if (!isCaptionSpeech(line)) continue;
+    const clean = cleanCaptionLine(line);
+    if (clean) entries.push({ time, clean });
+  }
+  return entries.filter((entry, index) => index === 0 || entry.clean !== entries[index - 1].clean)
+    .map((entry) => `[${clockText(entry.time)}] ${entry.clean}`).join('\n');
+}
+
+export function findTranscript(directory, { timestamps = false } = {}) {
   const files = readdirSync(directory).filter((name) => /\.(vtt|srt)$/.test(name));
   const infoName = readdirSync(directory).find((name) => name.endsWith('.info.json'));
   const language = infoName ? JSON.parse(readFileSync(join(directory, infoName), 'utf8')).language : null;
@@ -104,7 +149,8 @@ export function findTranscript(directory) {
     files.find((name) => name === 'media.en.vtt' || name === 'media.en.srt') ?? files[0];
   if (!name) throw mediaError('transcript_unavailable', 'No captions available. Try --audio.');
   const mediaPath = join(directory, name);
-  const text = transcriptText(readFileSync(mediaPath, 'utf8'));
+  const caption = readFileSync(mediaPath, 'utf8');
+  const text = timestamps ? transcriptTextWithTimestamps(caption) : transcriptText(caption);
   if (!text) throw mediaError('transcript_unavailable', 'No caption text available. Try --audio.');
   return { mediaPath, text, mimeType: 'text/plain', bytes: statSync(mediaPath).size, mode: 'transcript' };
 }

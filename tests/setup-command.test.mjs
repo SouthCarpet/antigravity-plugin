@@ -11,10 +11,13 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 
 const state = {
+  models: { ok: false, reason: 'unavailable' },
   probe: { ok: true, version: '1.1.11' },
   spawnExitCode: 0,
+  interactiveCalls: [],
   ensureVisionCalls: [],
   ensureVisionSummary: ['mcp_config.json: already configured', 'settings.json: already configured'],
   removeVisionCalls: [],
@@ -24,6 +27,7 @@ const state = {
 mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => state.models,
     probeAgy: async () => state.probe,
     assertAgyBinSpawnable: () => {},
   },
@@ -45,11 +49,17 @@ mock.module('../scripts/lib/vision-config.mjs', {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
-    spawn: () => {
+    // setup starts its sign-in run through spawnInteractive, the adapter's one
+    // entry that does not hide the window. A call to the hiding spawn fails.
+    spawnInteractive: (bin, args, options) => {
+      state.interactiveCalls.push({ bin, args, options });
+      if (state.oauthUrl) options.stdio[1].write(state.oauthUrl);
       const child = new EventEmitter();
       queueMicrotask(() => child.emit('exit', state.spawnExitCode));
       return child;
     },
+    spawn: () => { throw new Error('setup must not start its sign-in run through the hiding spawn'); },
+    spawnSync,
   },
 });
 
@@ -83,6 +93,8 @@ function captureStdio() {
 beforeEach(() => {
   state.probe = { ok: true, version: '1.1.11' };
   state.spawnExitCode = 0;
+  state.oauthUrl = null;
+  state.interactiveCalls = [];
   state.ensureVisionCalls = [];
   state.removeVisionCalls = [];
   state.removeVisionResult = { ok: true, summary: ['removed'] };
@@ -114,6 +126,23 @@ describe('/antigravity:setup — vision config wiring', () => {
     }
     assert.equal(exit, 3);
     assert.equal(state.ensureVisionCalls.length, 0);
+  });
+
+  // The sign-in run is the one spawn that keeps the
+  // caller's console and window. The oracle is the whole call: one
+  // spawnInteractive call, the exact argv, and options with no hide option.
+  it('starts the sign-in run once, through spawnInteractive, with inherited stdio and no hide option', async () => {
+    const cap = captureStdio();
+    try {
+      assert.equal(await run(['--skip-vision'], { cwd: 'the-cwd' }), 0);
+    } finally {
+      cap.restore();
+    }
+    assert.deepEqual(state.interactiveCalls, [{
+      bin: 'agy',
+      args: ['--print', 'Reply with the word OK and nothing else.'],
+      options: { stdio: ['inherit', 'inherit', 'inherit'], cwd: 'the-cwd', env: process.env },
+    }]);
   });
 
   it('--skip-vision leaves vision config untouched and exits 0', async () => {
@@ -163,7 +192,7 @@ describe('/antigravity:setup — vision config wiring', () => {
   });
 });
 
-describe('/antigravity:setup — agy version warning (Senate R2)', () => {
+describe('/antigravity:setup — agy version warning', () => {
   it('prints no warning line for a measured version', async () => {
     state.probe = { ok: true, version: '1.2.12' };
     const cap = captureStdio();
@@ -176,7 +205,7 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
   });
 
   it('warns when the version is newer than the last measured version', async () => {
-    state.probe = { ok: true, version: '1.5.2' };
+    state.probe = { ok: true, version: '1.5.4' };
     const cap = captureStdio();
     try {
       await run(['--skip-vision'], {});
@@ -186,7 +215,7 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
     const text = cap.out.join('');
     assert.match(
       text,
-      /antigravity:setup — agy 1\.5\.2 is newer than the last measured version 1\.5\.1; see docs\/COMPATIBILITY\.md\.\n/,
+      /antigravity:setup — agy 1\.5\.4 is newer than the last measured version 1\.5\.3; see docs\/COMPATIBILITY\.md\.\n/,
     );
   });
 
@@ -203,7 +232,7 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
   });
 
   it('prints the warning line immediately after the "using <bin> v<version>" line', async () => {
-    state.probe = { ok: true, version: '1.5.2' };
+    state.probe = { ok: true, version: '1.5.4' };
     const cap = captureStdio();
     try {
       await run(['--skip-vision'], {});
@@ -211,8 +240,50 @@ describe('/antigravity:setup — agy version warning (Senate R2)', () => {
       cap.restore();
     }
     const lines = cap.out.join('').split('\n');
-    const usingIdx = lines.findIndex((l) => l.includes('using') && l.includes('v1.5.2'));
-    assert.ok(usingIdx >= 0, 'expected a "using ... v1.5.2" line');
+    const usingIdx = lines.findIndex((l) => l.includes('using') && l.includes('v1.5.4'));
+    assert.ok(usingIdx >= 0, 'expected a "using ... v1.5.4" line');
     assert.match(lines[usingIdx + 1], /is newer than the last measured version/);
   });
 });
+
+// Oracle: Only a valid listing can prove the pinned id absent.
+for (const [expected, models] of Object.entries({
+  present: { ok: true, text: 'gemini-3.8-flash-high\tPinned' },
+  absent: { ok: true, text: 'gemini-4-flash-medium\tNew' },
+  unknown: { ok: false, reason: 'timeout' },
+})) {
+  it(`setup --skip-vision --json reports ${expected} after OAuth without changing exit 0`, async () => {
+    state.models = models;
+    const cap = captureStdio();
+    try {
+      assert.equal(await run(['--skip-vision', '--json']), 0);
+      assert.equal(JSON.parse(cap.out.join('')).details.defaultModelCheck, expected);
+      assert.equal(state.ensureVisionCalls.length, 0);
+      if (expected === 'unknown') assert.equal(cap.err.join(''),
+        'antigravity:setup: could not check whether the default model is still available.\n');
+      if (expected === 'absent') assert.equal(cap.err.join(''),
+        'antigravity:setup: warning: default model "gemini-3.8-flash-high" is absent.\n');
+    } finally { cap.restore(); }
+  });
+}
+
+it('setup JSON forwards sign-in stdout to stderr and emits only its envelope', async () => {
+  state.oauthUrl = 'https://example.test/sign-in\n';
+  state.models = { ok: true, text: 'gemini-3.8-flash-high\tPinned' };
+  const cap = captureStdio();
+  try {
+    assert.equal(await run(['--skip-vision', '--json']), 0);
+    assert.equal(JSON.parse(cap.out.join('')).details.defaultModelCheck, 'present');
+    assert.equal(cap.err.join(''), 'https://example.test/sign-in\n');
+  } finally { cap.restore(); }
+});
+for (const summary of [['removed'], ['no plugin-owned entries']]) {
+  it(`setup removal JSON reports ${summary[0]}`, async () => {
+    state.removeVisionResult = { ok: true, summary };
+    const cap = captureStdio();
+    try {
+      assert.equal(await run(['--remove-vision', '--json']), 0);
+      assert.equal(JSON.parse(cap.out.join('')).answer, summary.join('\n'));
+    } finally { cap.restore(); }
+  });
+}

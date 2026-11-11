@@ -69,7 +69,9 @@ stores a failed job with `agy did not finish within <ms> ms`. Output above
 chunk is retained; a partial answer is never reported as success.
 
 A foreground verb interrupted with Ctrl+C terminates agy and its child
-processes before it exits, on every platform.
+processes before it exits, on every platform. On Windows the same holds for
+Ctrl+Break and for a closed terminal window (see
+[Windows console windows](./COMPATIBILITY.md#windows-console-windows-320)).
 
 Final output is collected until stdio closes. Inherited pipes that remain
 open five seconds after exit are closed with the stored warning
@@ -134,7 +136,7 @@ exactly once; a second denial is reported the same way and the plugin stops
 ## `setup`
 
 ```text
-setup [--skip-vision] [--remove-vision]
+setup [--skip-vision] [--remove-vision] [--json]
 ```
 
 - `--skip-vision` runs the agy OAuth probe but leaves all vision configuration
@@ -144,7 +146,7 @@ setup [--skip-vision] [--remove-vision]
 - If both flags are supplied, the current implementation takes the
   `--remove-vision` path. Relying on that combination is not recommended.
 
-Setup is always foreground and has no `--json` mode. A normal setup probes
+Setup is always foreground. With `--json`, it emits a JSON result and sends sign-in output to stderr. A normal setup probes
 `agy --version`, then runs an interactive authenticated `agy --print` call
 with inherited terminal streams. It enables vision only after that probe exits
 successfully.
@@ -163,10 +165,21 @@ waits up to 20 seconds and setup does not retry it. A nonzero exit
 from the interactive agy call is passed through unchanged. The standalone
 dispatcher can return 127 earlier when an explicit `AGY_BIN` path is missing.
 
+After successful OAuth, setup checks the pinned vision/media default
+`gemini-3.8-flash-high` with `agy models`. A valid listing without that id
+prints a warning. A failed or malformed listing prints "could not check
+whether the default model is still available". This check does not change
+exit codes. `--json` adds `details.defaultModelCheck` with `present`,
+`absent`, or `unknown`. Removal skips this check.
+
+Setup JSON mode forwards sign-in probe stdout to stderr, so sign-in URLs remain visible.
+`setup --remove-vision --json` returns one envelope with `answer` describing removal,
+including when no plugin-owned entries exist.
+
 ## `doctor`
 
 ```text
-doctor [--json] [--cwd <path>]
+doctor [--receipt] [--json] [--cwd <path>]
 ```
 
 Read-only environment and configuration check. Unlike `setup`, `doctor`
@@ -211,7 +224,7 @@ Six checks, one line each in markdown mode:
    leaf (see [job state and configuration
    locations](./COMPATIBILITY.md#job-state-and-configuration-locations)).
 
-Markdown output ends with `doctor: <n> ok, <m> warnings, <k> problems`.
+Without `--receipt`, Markdown output ends with `doctor: <n> ok, <m> warnings, <k> problems`.
 `--json` returns `command: "doctor"`, `jobId: null`, `answer: null`, and
 `details: { node, agy: { path, version, classification }, flags: [{ flag,
 state }], vision, media: { ytDlp: { path, version }, ffmpeg: { path }, sizeCapBytes }, stateRoot: { source, dir, exists, legacyLeaf },
@@ -228,13 +241,37 @@ on timeout, then report `no_agy`; missing binaries are not retried.
 
 Doctor adds details.media with ytDlp.path and ytDlp.version (or absent), ffmpeg.path (or absent), and sizeCapBytes. The text report prints these too. Probes are local, read-only, without a network request. Missing optional tools do not block local media.
 
+### Doctor receipt
+
+In text mode, `doctor --receipt` prints only a redacted compatibility
+receipt. With `--json` the output is the usual doctor envelope with the
+receipt added as `details.receipt`; the rest of that envelope still holds
+local paths (the agy path, the state directory, the yt-dlp and ffmpeg
+paths), so share only the `details.receipt` object. The flag reuses the
+existing checks, adds no spawn, network call or write, and keeps the doctor
+exit rule. Job model facts live in provenance and the reported model.
+
+- `details.receipt`: the receipt object, with exactly the five keys below.
+- `details.receipt.pluginVersion`: the running plugin version.
+- `details.receipt.agyVersion`: the probed agy version, or `null` when agy
+  is absent.
+- `details.receipt.classification`: the existing agy version
+  classification (`missing` when agy is absent).
+- `details.receipt.listedFlags`: each forwarded flag mapped to `listed` or
+  `not_listed`. A help listing, not proof that the flag works.
+- `details.receipt.modelFamilies`: always `unknown`. `doctor` never calls
+  `agy models`.
+
 ## `review`
+
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
 
 ```text
 review [--base <ref>] [--scope <auto|working-tree|branch>]
        [--background] [--wait] [--show-result]
        [--continue | --conversation <id>]
-       [--model <id>] [--effort <low|medium|high|agy-default>]
+       [--model <id> | --model-alias <alias>] [--effort <low|medium|high|agy-default>]
+       [--models <a,b>]
        [--focus <text>]
        [--preview] [--require-complete]
        [--findings-json]
@@ -271,6 +308,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   `Background review started: <job-id>` moves to stderr instead, in text mode
   and under `--json` alike. See [`--show-result`](#--show-result-all-three-verbs)
   below for the shared completion contract.
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy on both the foreground and the background path, exactly as `rescue`'s
   `--model` already was.
@@ -292,6 +330,7 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   gains a "## Reviewer focus (caller instruction)" section immediately before
   "## Output", the job's stored `request.focus` carries the trimmed text, and
   the job title gets a ` focus: <first 40 characters>` suffix.
+- `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
 - `--preview` (additive) shows exactly what a real run would send, without
   calling agy: the included files (with their kind, `diff` or `untracked`,
   and byte size), the skipped files with their reasons, whether the diff was
@@ -368,6 +407,150 @@ review [--base <ref>] [--scope <auto|working-tree|branch>]
   check later, from the stored answer and hunks, and works even on a job
   reviewed without this flag. See [Heuristic location
   check](./COMPATIBILITY.md#heuristic-location-check).
+- `--models <a,b>` (additive, opt-in) runs the SAME review twice, once
+  against each of two different agy models, and compares their structured
+  findings. The value is exactly two comma-separated, non-empty, distinct
+  tokens: each token is either an exact agy model id (never looked up, same
+  rule as a bare `--model`) or `alias:<name>` (resolved through the account's
+  model listing the same way `--model-alias` is, one listing call for the
+  whole pair, never one per alias token). `--models` requires
+  `--findings-json` on the same call; without it the call is refused with
+  `antigravity:review — --models needs --findings-json to compare structured
+  findings` (stderr only, exit 1, no agy probe, and checked before the diff
+  is read, so a malformed call is refused whatever the diff holds). A valid
+  `--models` call on an empty diff returns `no_changes` like any review: no
+  agy call, no cost notice, no job. `--models` conflicts with
+  `--model`, `--model-alias`, `--background`, `--wait`, `--continue`,
+  `--conversation`, `--show-result`, and `--preview`: each leg is its own
+  fresh conversation, dispatched in the foreground only.
+
+  One stderr line is printed before either leg dispatches:
+  `antigravity:review — two model calls will run (two agy calls, two
+  quotas).` No prompt, no confirmation.
+
+  Both legs send the exact same diff (one `buildReviewInput` call, so both
+  jobs share `inputHash`, `scope`, `base`, and `hunks`), differing only in
+  `model`. Both legs' job records additionally store the same
+  `request.pairId`, so the two can be found together later; a plain
+  single-model review stores no `pairId` field at all.
+
+  The two legs run in the given order. The second leg still runs after the
+  first leg fails, as long as that failure is a per-model run or findings
+  failure (an agy run that failed, was cancelled, or returned findings that
+  did not validate). The second leg does NOT run when the first leg's result
+  is `auth_required`: a sign-in failure is not model-specific, so the second
+  leg would only hit it again. `agy` being entirely absent, and
+  `--require-complete`'s own refusal, are both checked once before either
+  leg exists, so neither ever lets a leg spawn either.
+
+  The command's own output (not one stored job, since two exist) is a third
+  envelope shape, `status: "paired"`, `jobId: null`:
+  ```json
+  {
+    "status": "paired",
+    "jobId": null,
+    "answer": null,
+    "details": {
+      "pairId": "<hex>",
+      "jobs": [
+        { "id": "<job-id-a>", "model": "<model-a>", "status": "completed", "findingsStatus": "valid" },
+        { "id": "<job-id-b>", "model": "<model-b>", "status": "completed", "findingsStatus": "valid" }
+      ],
+      "comparison": { "bothFlagged": [ { "a": "<finding>", "b": "<finding>" } ], "onlyA": [], "onlyB": [] }
+    }
+  }
+  ```
+  Each key of the paired envelope:
+
+  - `details.pairId`: the hex id both legs' job records store as
+    `request.pairId`.
+  - `details.jobs`: one entry per leg, in the given order, always both legs.
+  - `details.jobs[].id`: the leg's job id, or `null` for a leg that never
+    ran (`status: "not_run"`).
+  - `details.jobs[].model`: the model id the leg used, after any alias
+    resolution.
+  - `details.jobs[].status`: the leg's own run status (`completed`,
+    `failed`, `cancelled`, `timeout`, `auth_required`, or `not_run`).
+  - `details.jobs[].findingsStatus`: `"valid"`, `"invalid"` or `"missing"`
+    once the leg completed (`"missing"`: agy returned no structured
+    output); `null` for a leg that did not complete (including `not_run`).
+  - `details.jobs[].findingsError`: one line, present only when
+    `findingsStatus` is `"invalid"` or `"missing"`.
+  - `details.jobs[].locationCheck`: present only with `--check-locations`
+    and only on a completed leg; one check per leg, exactly like a
+    single-model run's.
+  - `details.jobs[].deniedActions`: present only on a leg whose run reported
+    a denied action, whatever the leg's status. The same list a single-model
+    review reports: `{ action, displayName, target, remedy }` per denied
+    action, `target` `null` when agy gave none.
+  - `details.comparison`: `null` unless both legs completed with
+    `findingsStatus: "valid"`; otherwise `{ bothFlagged, onlyA, onlyB }`.
+  - `details.comparison.bothFlagged`: findings both models reported; an
+    array of `{ a, b }` pairs.
+  - `details.comparison.bothFlagged[].a`: the finding as model A reported
+    it, whole.
+  - `details.comparison.bothFlagged[].b`: the same finding as model B
+    reported it, whole (so `severity` can differ from `a`).
+  - `details.comparison.onlyA`: findings only model A reported.
+  - `details.comparison.onlyB`: findings only model B reported.
+  - `request.pairId` (on each leg's stored job record, not in the
+    envelope): the same `pairId`; a single-model review stores none.
+
+  A leg's full findings stay on its own stored job record, retrievable with
+  `result <job-id>`; the paired envelope itself carries the matched findings
+  only inside `comparison`. The text output shows counts only (how many both
+  flagged, how many only A, how many only B) and never the finding text;
+  `--json` carries the matched findings.
+
+  `comparison` is `null` unless BOTH legs completed with `findingsStatus:
+  "valid"`. When both did, two findings count as the same finding when they
+  name the same `file` and their `line` falls inside the same hunk of the
+  diff both legs were sent (`request.hunks`); a finding with `line: null`
+  matches only another `line: null` finding of the same file, because there
+  is no hunk to share. Paths are compared as written, after turning `\`
+  into `/` and removing a leading `./`, `a/` or `b/`, and they are
+  case-sensitive, also on Windows. `severity` is reported on both sides of a
+  match and is never part of the match; `description`/`recommendation` text
+  is never compared (the shipped findings schema has no `rule` field to
+  match on). A finding matches at most one finding of the other model,
+  chosen in order, so a duplicate on one side becomes an extra
+  `onlyA`/`onlyB` entry rather than matching the same finding twice. The
+  feature does not promise that two models find more than one: it shows
+  where they agree and where they differ.
+
+  A denied action is reported per leg as a single-model review reports it.
+  The leg's status and its exit code contribution follow the same rule as a
+  single-model run: a leg denied with an empty answer is a failed leg
+  (`status: "failed"`, `findingsStatus: null`, so `comparison` is `null`); a
+  leg that was denied but still returned valid findings stays `completed`
+  and stays in the comparison, with its `deniedActions` shown. Each denied
+  action also prints one stderr line (`antigravity:review — "<model>" denied
+  "<action>" ... : <remedy>`) and one line under the leg in the text output.
+  The action, display name, target and model label are JSON-escaped and cut
+  to 80 characters there, so one denied action is always one line. There is
+  no retry prompt for a paired leg.
+
+  The command's exit code is the first non-zero leg exit code (`cancelled`
+  is 2, any other non-completed status is 1), or 0 if both legs completed.
+
+  Refusals, all before any leg spawns, with no cost notice:
+
+  - A malformed value (not exactly two comma-separated, non-empty, distinct
+    tokens) is refused on stderr only, exit 1, like the requirement above.
+  - A token with a control character (C0, DEL or C1, so a newline, tab or
+    escape too) or more than 200 characters is refused the same way. Spaces,
+    slashes, dots and colons are allowed in an exact id.
+  - Two tokens that resolve to the same model id (`alias:flash` together
+    with the exact id it resolves to, or two aliases that pick one id) are
+    refused with a message naming both tokens and the id: exit 1, no agy
+    call, no cost notice.
+  - An unknown `alias:<name>`, an alias whose listing is unavailable, and
+    the same-model refusal use the existing model-resolution refusal:
+    one stderr line, exit 1, and under `--json` the existing
+    `model_alias_unavailable` error envelope (`status: "invalid_input"`).
+
+  Every refusal that shows a token shows it JSON-escaped and cut to 80
+  characters, so one refusal is always one stderr line.
 
 An empty working tree (no tracked diff and no untracked files) prints
 `antigravity:review — no changes to review.` and returns 0 without calling
@@ -397,12 +580,18 @@ of an empty stdout body; the stderr line is unchanged either way.
 
 ## `rescue`
 
+- `--preview`: see [Run preview](#run-preview). Refused with `--background`, `--wait`, `--continue`, `--conversation`, `--request-id`, `--show-result`, or `--resume`.
+
+- `--prompt-file <path>`: see [Rescue prompt files](#rescue-prompt-files).
+
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
+
 ```text
 rescue <prompt...>
        [--background] [--wait] [--show-result] [--request-id <id>]
        [--resume] [--continue] [--fresh] [--conversation <id>]
        [--add-dir <path>]... [--mode <plan|accept-edits>]
-       [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
+       [--model <id> | --model-alias <alias>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -438,6 +627,7 @@ characters.
   for this run (`plan`: propose without editing; `accept-edits`: apply file
   edits without a prompt). Any other value is an argument error (exit 1)
   and agy is not started.
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model <id>` (additive) selects the agy model for this run, forwarded to
   agy exactly as `vision`'s `--model` already was.
 - `--effort <low|medium|high|agy-default>` (additive) selects agy's reasoning
@@ -490,12 +680,16 @@ background job whose worker never started reports the same way.
 
 ## `task`
 
+- `--preview`: see [Run preview](#run-preview). Refused with `--background`, `--wait`, `--continue`, `--conversation`, `--request-id`, `--show-result`.
+
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
+
 ```text
 task <prompt...>
      [--background | --foreground] [--wait] [--show-result] [--request-id <id>]
      [--continue | --conversation <id>] [--prompt-file <path>]
      [--add-dir <path>]... [--mode <plan|accept-edits>]
-     [--model <id>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
+     [--model <id> | --model-alias <alias>] [--effort <low|medium|high|agy-default>] [--json] [--cwd <path>]
 ```
 
 All positional tokens are joined with spaces to form the prompt. A prompt is
@@ -547,6 +741,7 @@ required unless `--continue` or `--conversation` is supplied.
   and in [COMPATIBILITY.md](./COMPATIBILITY.md#headless-read-access).
 - `--mode <plan|accept-edits>` is forwarded to agy on both paths, as under
   `rescue`. Any other value is an argument error.
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model <id>` (additive) is forwarded to agy on both paths, as under
   `rescue` and `vision`.
 - `--effort <low|medium|high|agy-default>` (additive) follows the same rule
@@ -669,7 +864,11 @@ is unchanged and the job record has no request id fields.
 
 ## media
 
-`media <file-path | youtube-url> [--prompt <text>] [--model <id>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]`
+- `--preview`: see [Run preview](#run-preview). Foreground only; background and continuation flags remain unsupported.
+
+`--model-alias <alias>` selects an account model when a prompt reaches agy.
+
+`media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript [--timestamps]] [--keep] [--output <path>] [--json] [--cwd <path>]`
 
 Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp3 (audio/mpeg), m4a (audio/mp4), aac (audio/aac), flac (audio/flac), ogg (audio/ogg), opus (audio/opus). Video: mp4 and m4v (video/mp4), mov (video/quicktime), webm (video/webm), mkv (video/x-matroska). Images use `vision`. Files must be regular files at most 100,000,000 bytes. Paths resolve from `--cwd` or the caller directory and then through realpath. agy opens exactly that path with `read_file`; only its directory is granted through `--add-dir`.
 
@@ -678,7 +877,9 @@ Foreground only. One local file or one YouTube video. Audio: wav (audio/wav), mp
 - `--expect`: same trimmed, repeatable transcription substring check as vision, at most 32 values, no exit-code change.
 - `--quality`: YouTube only; 360p default, 480p or 720p. A ceiling, not a promise that the source has that resolution. Needs ffmpeg when formats must merge.
 - `--audio`: YouTube m4a audio only. Conflicts with quality.
-- `--transcript`: captions only, manual before automatic, original language before English. Caption metadata uses `--skip-download --dump-single-json` and downloads nothing. Prints plain text without timestamps and no agy call. With prompt, sends the transcript as text to agy, with no add-dir. Conflicts with quality and audio. No captions: `transcript_unavailable`, try audio.
+- `--transcript`: captions only, manual before automatic, original language before English. Caption metadata uses `--skip-download --dump-single-json` and downloads nothing. Prints plain text without timestamps and no agy call (no model call and no `agy --help` probe; the job record stores `provenance.listedFlags: null`). With prompt, sends the transcript as text to agy, with no add-dir. Conflicts with quality and audio. No captions: `transcript_unavailable`, try audio.
+- `--timestamps` (additive, 3.2.0): needs `--transcript`; without it the call is refused with `--timestamps requires --transcript` (exit 1, stderr only, like every parser error). Puts `[HH:MM:SS] ` before each kept caption line. The time is the start of the cue that holds the line, cut down to whole seconds; hours use at least two digits. A line that repeats the line before it is dropped, and the first time stays. Lines are selected and cleaned by the same code as the plain transcript, so removing the prefixes gives the plain text. A line with no known cue time is marked `[--:--:--]`: speech before the first cue, or a cue time that is malformed, has minutes or seconds above 59, or has hours above 99. Such a cue line is not printed and never produces `NaN`. With `--prompt`, the model receives the timestamped transcript. `--json` adds `details.timestamped: true`; the key is absent without the flag. No agy call is added. Without the flag the output is byte for byte what it was in 3.1.0. This flag has no measured demand yet.
+- `--output <path>` (additive, 3.2.0): save the answer text of a finished run to a NEW file. The file holds exactly the text stdout prints for the answer (the transcript in transcript-only mode, with the `[HH:MM:SS]` prefixes when `--timestamps` is given; the model answer otherwise), with Google OAuth URLs removed, as plain UTF-8 without a byte order mark and with one final newline. It does not hold the expectations block, the `Kept:` line, the usage trailer or any status line. The plugin saves plain text and converts nothing: the extension you choose (`.txt`, `.md`) changes nothing in the content. It works for local files and for YouTube. The path resolves against `--cwd` or the caller directory. The plugin never overwrites: the target must not exist (a file, a directory or a link, none of them followed), its parent directory must exist, and the file is created exclusively. A partial file is removed if the write fails. The target is checked before the version probe, before any download and before any agy call, so a refused target costs no quota and no download, and creates no job. A failed, cancelled or timed-out run writes no file. Refusals are `invalid_input` with code `output_target_unwritable` and a message that names the case: empty path, control character in the path (shown escaped), path longer than the platform limit (259 characters on Windows, 4095 elsewhere), target exists as a file, directory or link, target directory missing or not a directory, target cannot be checked, target cannot be written. `--output` without a value is a parser error. If the target appears after the early check, or the write fails, the run is not undone: stdout and the job record (status `completed`) stay as they are, one stderr line `antigravity:media: output not saved (output_target_unwritable): <message>` reports it, and the exit code is 1. On success, text mode prints one last line `Saved: <path>` (after any `Kept:` line) and `--json` adds `details.output: { path, bytes }`; both are absent without the flag, and without the flag every output is byte for byte what it was in 3.1.0. `--preview --output <path>` checks only the shape of the value, shows the resolved target as `output` in the preview details, and writes nothing. This flag has no measured demand yet.
 - `--keep`: YouTube only; retain downloaded files and print the kept path (JSON: mediaPath). Otherwise remove the job download directory after success or failure. The kept transcript directory includes `media.info.json` with the selected language. On a failed kept download, `details.mediaPath` names the directory.
 - `--json`: common envelope with command media.
 - `--cwd`: resolve local input and workspace from this directory.
@@ -687,9 +888,13 @@ YouTube hosts: youtube.com, www.youtube.com, m.youtube.com, music.youtube.com an
 
 Exit 0: completed; 1: validation, download or run failure; 2: cancelled agy run. Parser errors are stderr only. Expected input errors have an invalid_input envelope; failures after job creation use failed. Details: source (local/youtube), mode (video/audio/transcript), quality (or null), mediaPath, mimeType, bytes, videoId and ytDlpVersion (null for local), usage, durationSeconds, and expectations/expectationSummary when requested on a completed run. Provenance adds source, mode (the media mode), quality, videoId, bytes and ytDlpVersion; no secrets.
 
-Errors: media_not_found, media_unsupported_type, media_too_large, youtube_url_invalid, yt_dlp_missing, download_failed, transcript_unavailable, invalid_arguments, plus the existing agy denial, spawn and run errors. yt_dlp_missing names the winget and pip installation commands. A merge failure names ffmpeg and suggests quality 360p or audio. A denied read uses the existing remedy path and explains the directory grant.
+Errors: media_not_found, media_unsupported_type, media_too_large, youtube_url_invalid, yt_dlp_missing, download_failed, transcript_unavailable, invalid_arguments, output_target_unwritable, plus the existing agy denial, spawn and run errors. yt_dlp_missing names the winget and pip installation commands. A merge failure names ffmpeg and suggests quality 360p or audio. A denied read uses the existing remedy path and explains the directory grant.
 
 ## `vision`
+
+- `--preview`: see [Run preview](#run-preview). Foreground only; background and continuation flags remain unsupported.
+
+`--model-alias <alias>` selects an account model. See [Model aliases](#model-aliases).
 
 `agy --print` has no native image input. Its `read_file` tool sends file bytes
 as text, and `@file` does not create image parts. The CLI has no attachment
@@ -702,7 +907,7 @@ named image.
 ```text
 vision <image-path> [<image-path>...]
        [--prompt <text>]
-       [--model <id>]
+       [--model <id> | --model-alias <alias>]
        [--expect <text>]...
        [--json] [--cwd <path>]
 ```
@@ -712,6 +917,7 @@ current directory and must name existing regular files.
 
 - `--prompt` defaults to: “Describe this image in concrete, specific detail:
   layout, elements, colors, text, and anything unusual.”
+- `--model-alias <alias>` resolves an account family and conflicts with `--model`.
 - `--model` defaults to `gemini-3.8-flash-high` and is forwarded to agy.
   Before 3.0.0 the default was `gemini-3.6-flash-high`; pass
   `--model gemini-3.6-flash-high` to keep it.
@@ -845,6 +1051,13 @@ This reads only the cached value; status itself never calls agy. `status
 For queued and running jobs, health is observed from the worker PID, a
 persisted heartbeat written every 15 seconds, and persisted model-output
 progress. Output and heartbeat updates share a five-second write throttle.
+The optional `agyAliveAt` record field is written only by the background
+worker while its agy child has not received exit. It is visible in existing
+job objects in single-job and list `status --json` output, not added to
+`result` or `cancel` envelopes.
+On Windows, a missing worker or an already-gone agy in `cancel` can trigger
+confirmed-tool cleanup. Unconfirmed tools stay running and are named in the
+job log. See the [identity rule, limits and budget](./COMPATIBILITY.md#additive-surface-added-after-100).
 Until an older job has either observation, its `startedAt` value is used, so a
 live worker is `active` for recent activity, `quiet` after two minutes, and
 only `possibly_stalled` after ten minutes without activity. A missing worker
@@ -924,13 +1137,15 @@ distinct from `conversationId` (the same envelope's existing field), which
 is only the id the *caller* passed in via `--conversation`; `null` when agy
 never reported a conversation id, including on a legacy record.
 
-A job's `provenance` record (`pluginVersion`, `agyVersion`, `model`,
-`effort`, `mode`, `addDirCount`, `requestedAt`) is set once when the job is
+A job's `provenance` record (`pluginVersion`, `agyVersion`, `listedFlags`,
+`model`, `effort`, `mode`, `addDirCount`, `requestedAt`) is set once when the job is
 created and carried at `--json`'s `details.job.provenance` for `status <id>`
 and as a per-job `provenance` field in the all-jobs list (it lives on the
 index entry, so a list needs no per-job disk read for it). `status <id>`
 (single job) adds a "## Provenance" markdown section, one line per non-null
-field; a field is omitted, not shown as `null`. The Recent Jobs table adds
+field; a field is omitted, not shown as `null`. `listedFlags` (the forwarded
+flag help listing captured at job creation, or `null`) is carried in `--json`
+only; the markdown section does not print it. The Recent Jobs table adds
 `Model` and `Effort` columns only when at least one listed job's provenance
 names either one; otherwise the table is unchanged. `null`/absent on a
 legacy record written before this field existed.
@@ -950,7 +1165,8 @@ selection (a non-`review` job, or a `no_changes` run).
 ## `result`
 
 ```text
-result [<job-reference>] [--head <n>] [--tail <n>] [--json] [--cwd <path>]
+result [<job-reference>] [--head <n>] [--tail <n>] [--check-locations] [--check-current]
+       [--export <path>] [--json] [--cwd <path>]
 ```
 
 The reference accepts the same exact-id, unique-substring, and 1-based-index
@@ -1046,6 +1262,57 @@ unavailable: this job predates hunk storage.` when it could not. Without the
 flag, `details` carries no `locationCheck` key. See [Heuristic location
 check](./COMPATIBILITY.md#heuristic-location-check).
 
+`result <job-id> --check-current` (additive, 3.2.0) tells whether the review
+input built from the repository now is the same as the input a finished
+`review` job sent. It runs the same two functions `review` ran
+(`collectReviewContext`, then `buildReviewInput`) with the scope, base, focus
+and findings flag stored on the job, so every hash rule of the review (line
+endings, the diff size cap, skipped files, untracked content) applies
+unchanged. It reads git only: no agy call, no probe, no network, no write to
+the job record or any state file, and it works with agy absent. `--json` adds
+`details.checkCurrent: { status, reason?, checkedAt }`. `status` is `match`
+(the new `inputHash` equals the stored one), `changed` (both hashes exist and
+differ) or `unknown` (the check could not run; `reason` is `legacy_record`,
+`base_not_found`, `default_base_not_found` or `collection_failed`). One line,
+`antigravity:result — currentness check (snapshot): <status>.` (with
+` (<reason>)` before the full stop when there is a reason), goes to stderr and
+is appended to the markdown output after the location-check line. The check is
+a snapshot of the moment of the call and not a lock: the repository can change
+the next second. The stored `scope` is the resolved one. A stored `base` of
+`null` on a `branch` review means the review compared against the default
+base, so the check resolves it again today by the same rule (local `main`,
+then `master`); if neither resolves the status is `unknown`. A CRLF-only
+change of a file is a change of the input and gives `changed`. A job of any
+other kind is refused: `invalid_input`, code `check_current_unsupported_kind`,
+exit 1, nothing computed. A job that is still running is refused like
+`result` refuses it. A record that only carries more request fields than
+this version knows (for example `request.pairId`) is checked like any other.
+Without the flag, `details` carries no `checkCurrent` key. This flag has no
+measured demand yet.
+
+`result <job-id> --export <path>` (additive, 3.2.0) writes the job's stored
+record to a NEW local file: exactly the JSON that `result <job-id> --json`
+prints with no other flag (the safe, redacted shape, Google OAuth URLs
+removed, two-space indent, one final newline). `--head`, `--tail`,
+`--check-locations` and `--check-current` change only what the call prints:
+the file is never cut and never carries `truncated`, `locationCheck`,
+`checkCurrent` or `exported`. It works for every job kind, only for a finished
+job (the rule `result` uses to show a job), and never includes the original
+prompt, which the job record does not store. The path resolves against
+`--cwd` or the caller directory. The plugin never overwrites: the target must
+not exist (a file, a directory or a link, none of them followed), its parent
+directory must exist, and the file is created exclusively; a partial file is
+removed if the write fails. Every refusal is `invalid_input` with code
+`export_target_unwritable`, exit 1, nothing written and nothing else printed;
+the message names the case (empty path, control character in the path shown
+escaped, path longer than the platform limit, target exists as a file,
+directory or link, target directory missing or not a directory, target cannot
+be checked, target cannot be written). `--export` without a value is a parser
+error. On success `--json` adds `details.exported: { path, bytes }` (the path
+through the display sanitizer) and text mode ends with one line
+`Exported: <path>`; both are absent without the flag. There is no overwrite
+flag and no launch command in the file. This flag has no measured demand yet.
+
 When the index selects a job whose detail file is missing, malformed, or not a
 valid job record, `result` writes `antigravity:result — stored job <id> is
 unreadable.` to stderr and exits 1. Under `--json` this is the
@@ -1069,6 +1336,12 @@ recorded agy process, then records `cancelled` only when all known targets are
 confirmed killed or already absent. A job with no recorded process id, a
 termination failure, or a state persistence failure remains an error and can
 be retried.
+
+On Windows, when agy was already absent, cancel also attempts the confirmed-tool
+cleanup described in [Compatibility](./COMPATIBILITY.md#additive-surface-added-after-100).
+Its cancellation outcome still describes the recorded worker and agy roots.
+Tool cleanup changes only the job log. An unconfirmed tool or a failed query
+can leave tools running even when cancel reports `cancelled`.
 
 Before it signals a recorded process, cancel checks its start time. At launch
 the plugin stores the OS start time of each worker and agy process in the
@@ -1175,3 +1448,115 @@ always runs from the update's temporary directory. A sibling directory whose
 name only starts like the root's name does not count as inside it.
 
 `ANTIGRAVITY_NO_UPDATE_CHECK=1` skips the registry check.
+
+## Model aliases
+
+The listing deadline is 20 seconds. Output is capped at 65 536 characters;
+larger output is refused with reason "listing too large".
+`details.modelAlias` appears in foreground and awaited `--show-result` output.
+Queued background envelopes and `result <id> --json` carry the alias in
+`details.provenance` (`requestedAlias`, `resolvedModel`).
+
+`task`, `rescue`, `review`, `vision`, and `media` accept `--model-alias <alias>`.
+This flag conflicts with `--model`. Exact `--model <id>` is passed unchanged,
+without a listing or validation. Existing defaults apply when neither flag is given.
+
+| Alias | Case-insensitive token in the listed id |
+|---|---|
+| `flash` | `flash` |
+| `argon` | `argon` |
+| `pro` | `pro` |
+| `sonnet` | `sonnet` |
+| `opus` | `opus` |
+| `gpt-oss` | `gpt-oss` |
+
+Alias names are case-sensitive. Model-id token matching is case-insensitive.
+One `agy models` call fetches the account listing. Each nonblank row must be
+`id<TAB>name`, with exactly two nonempty fields. Duplicate ids keep the first
+name. Row order has no effect. The first numeric version in the id is compared
+component by component (dots and hyphens separate components). The newest
+version wins before effort selection. Explicit `--effort` selects its suffix;
+otherwise `-medium` wins, or the only available row. No arbitrary variant is picked.
+`agy-default` also uses this default selection but sends no effort flag.
+Vision and media do not accept `--effort`.
+
+Refusals return exit 1 before a model call. Family absent prints the alias,
+its token list, and the full listing. An effort mismatch prints the alias and
+the requested effort. An unknown alias is refused. Failed, empty, malformed,
+auth-required, or timed-out listings use "model-alias listing unavailable"
+and the remedy "run setup or pass --model <id>". JSON refusals use
+`details.error.code: model_alias_unavailable`. Conflicting flags use the
+existing argument error. There is no separate agy version floor or ceiling.
+Review preview and empty reviews do not resolve aliases. Transcript-only media
+without a prompt does not resolve an alias because it sends nothing to agy.
+
+Foreground and awaited alias runs add `details.modelAlias` with `requestedAlias`, `resolvedModel`, and
+`listingSource: "agy models"`. Jobs keep `provenance.requestedAlias` and
+`provenance.resolvedModel` separately from `result.reportedModel`.
+The new provenance fields are null on exact-id or default runs.
+Task `--continue`/`--conversation` and rescue `--resume`/`--continue`/`--conversation`
+replay only the matched job's non-empty `provenance.resolvedModel`
+without a listing, and record `provenance.replayedFromJobId`. A missing job or
+stored id keeps the old resume behavior. Plain continuation uses the newest
+same-kind job in the current session. Explicit conversations match the stored
+caller id or agy conversation id. Explicit new model choices override replay.
+Resume copies only the model id. Effort follows the current call's normal rules;
+it is not copied from the older job. Review continuation does not replay a stored model.
+
+For all five verbs, when both a requested model and agy's reported model are
+available, `details.modelMismatch` is true or false after trim and case folding.
+Completed or failed runs with a mismatch print one stderr line:
+`antigravity:<verb> — warning: agy reported model "<reported>", requested "<requested>".`
+The exit code does not change. If either value is missing, the field and
+warning are absent. The reported model comes only from agy's result event
+`model` field. Versions measured before this release did not supply it.
+
+## Run preview
+
+On task, rescue, vision and media, `--preview` validates local input and shows a fresh foreground request without an agy probe, model listing, download or state write. It works without agy. It returns 0 on valid input; validation failures keep their normal exit codes. Alias values stay unresolved until a real run calls `agy models`. `--add-dir` values are redacted; only their count is shown.
+For diff previews, see [review](#review). Vision and media retain their normal default model. Task and rescue retain their normal effort selection.
+
+The JSON envelope has status `preview`, jobId `null`, answer `null`, and these details keys:
+
+- `prompt`: the text sent over stdin. A local vision or media preview includes the file path here because the real prompt names the file. No other field holds a path. For YouTube, downloaded bytes and paths are unavailable, so placeholders mark them.
+- `argv`: the shared runtime builder's ordered argv, including print timeout and the stream-json tail. Each add-dir value is the directory count as a string; an alias model value is `<unresolved alias>`.
+- `model`: an exact id or the normal default, or null for an unresolved alias or no model.
+- `modelAlias`: the requested alias, or null.
+- `modelResolution`: `default` when no model id is sent (task or rescue without a model flag), `exact` when an id is sent (including the built-in default id for vision and media), or `unresolved` for an alias.
+- `modelResolutionNote`: states that the real run resolves an alias through agy models, or null.
+- `addDirCount`: number of additional readable directories. Paths are never listed as argv values.
+- Media `source`: local or youtube.
+- Media `mode`: video, audio or transcript.
+- Media `quality`: selected quality, or null.
+- Media `videoId`: parsed YouTube id, or null.
+- Media `agyCall`: false for transcript-only output, true otherwise. Transcript-only preview has empty argv and null prompt because it has no model call.
+- Media `timestamps` (3.2.0): `true` only when `--timestamps` was given; absent otherwise.
+- Media `output` (3.2.0): the resolved target of `--output`, through the display sanitizer; absent without the flag. The preview checks only the shape of the value (not empty, no control character, not beyond the platform limit) and never touches the file system for it.
+
+Each preview conflict uses the parser's existing `cannot combine --preview and --<flag>` refusal (exit 1). Unsupported flags on vision/media keep their existing refusal (exit 1).
+
+### Rescue prompt files
+
+- `rescue --prompt-file <path>` reads UTF-8 text with the same 512 KiB cap as task. It also accepts --resume, --continue and --conversation to supply a new turn.
+- `rescue --prompt-file -` reads stdin in the standalone CLI only. Host wrappers refuse it with `--prompt-file - (stdin) is available in the standalone CLI only`.
+- A positional prompt is refused with `cannot combine --prompt-file with a positional prompt`.
+- Content failures keep `prompt_file_too_large`, `prompt_file_unreadable` and `prompt_file_empty` (exit 1). The first non-empty line becomes the title, capped at 80 characters.
+
+### Release 3.2.0 implementation references
+
+The model-family selector is `scripts/lib/model-alias.mjs`. The read-only
+review snapshot check is `scripts/lib/review-currentness.mjs`. Two-model
+comparison is `scripts/lib/review-compare.mjs`; new-file output validation
+is `scripts/lib/output-file.mjs`. These are internal modules, not commands.
+The Windows process adapter and worker diagnostics preload change process
+handling only. See Compatibility, sections "Windows console windows" and
+"Additive surface", for the hide rule, signal bridge, retry bounds and
+job-log diagnostics. No runtime dependency was added.
+
+The worker starts with a Node `--import` diagnostics preload. It appends
+bounded runtime diagnostics to the job log before normal worker handling.
+The process adapter uses `spawnInteractive` only for setup sign-in; it keeps
+that run interactive. The Windows bridge handles SIGINT, SIGTERM, SIGHUP
+and SIGBREAK. A cleanup query has a 15000 ms timeout. Remaining candidates
+are logged with `not signalled: cleanup time budget used`; each cleanup
+keeps the 60-second budget described in Compatibility.

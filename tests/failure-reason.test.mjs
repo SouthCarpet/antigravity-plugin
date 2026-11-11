@@ -1,5 +1,5 @@
 /**
- * The real failure reason in JSON errors (3.0.0, "R5").
+ * The real failure reason in JSON errors (3.0.0).
  *
  * A fake agy ends the run with `result.status: ERROR` and a `result.error`
  * line, with no `error:` marker on stderr (the agy 1.3.1 capacity failure).

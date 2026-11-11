@@ -175,7 +175,7 @@ export async function withFileLock(
 
 /**
  * `now`/`sleep` are injectable so a test can drive the wait loop with a
- * deterministic virtual clock instead of a real wall-clock wait (TotT R12):
+ * deterministic virtual clock instead of a real wall-clock wait:
  * production passes no override and gets `Date.now`/a real blocking sleep.
  *
  * @param {string} lockPath

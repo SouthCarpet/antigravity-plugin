@@ -1,5 +1,7 @@
 # Security policy
 
+Windows orphan tools are signalled only when their creator PID and bounded creation time prove job ownership and a fresh identity check confirms the tool.
+
 This plugin is a one-maintainer fork. Security reports are handled on a
 **best-effort** basis. There is no dedicated security team, no SLA, and no
 CVE assignment process beyond what GitHub provides.
@@ -61,6 +63,11 @@ or a local process do something the plugin claims it will not do:
 - the original upstream plugin, except code that this fork still ships.
 
 ## What this plugin actually does on the machine
+
+Every process that the plugin starts goes through one module,
+`scripts/lib/process-adapter.mjs`. A test (`tests/spawn-inventory.test.mjs`)
+fails when another shipped file loads `child_process`. The one other file is
+`scripts/lib/host-bootstrap.cjs` (see the `node -e` section below).
 
 ### `setup` (persistent, user-wide)
 
@@ -147,6 +154,10 @@ Neither the file's path nor the prompt's content ever appears in a stderr
 diagnostic or in the job's stored `provenance`: a refusal names the byte cap
 and the actual size, or a fixed reason, never the path or the content that
 triggered it.
+
+### `result --export` and `media --output` (local file writes)
+
+`result --export <path>` and `media --output <path>` each write one new local file at a path the caller chooses, and never overwrite: the target must not exist (a file, a directory or a link, checked without following a link), its parent directory must exist, the file is created exclusively, and a partial file is removed after a failed write. The export holds the stored record in its safe, redacted shape; `--output` holds the answer text with OAuth URLs removed. A path with a control character or beyond the platform limit is refused, and a message shows the path on one line with control characters escaped. Nothing is sent anywhere.
 
 ### `review` context sent to agy
 
@@ -452,6 +463,14 @@ installed copy is then the published artifact, not the whole working tree.
 The script itself never runs `agy` and never writes under `~/.gemini`; it
 only reads the checkout and writes to a temporary directory.
 
+### Worker diagnostics
+
+Runtime stderr captured before the worker module loads uses the existing
+safe-reason and OAuth filters, plus bypass-flag redaction. Capture is limited
+to 64 KiB per worker in its job log. Both redactors also run after text
+normalization. Fatal recovery uses the same redaction.
+Model output keeps its existing job log handling.
+
 ## Threat boundaries this plugin does **not** close
 
 - agy is a general tool-using agent. `rescue` and `task` can change the
@@ -468,3 +487,5 @@ only reads the checkout and writes to a temporary directory.
   host's environment already has code execution on that machine, so this check
   limits accidental misdirection, for example a stale or half-removed install
   copy in `CLAUDE_PLUGIN_ROOT`. It is not a defence against a hostile host.
+
+`review` and `result --check-current` run git in the workspace with the repository's own configuration, so a configured external diff program or filter can run.

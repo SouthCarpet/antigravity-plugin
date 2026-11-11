@@ -54,12 +54,15 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
   namedExports: {
     runAgyPrint: async (options) => {
       runtime.options = options;
-      await options.onSpawn?.({ pid: 7331 });
+      let alive = true;
+      await options.onSpawn?.({ pid: 7331, child: {}, isAlive: () => alive });
       options.onText?.('first delta');
       options.onText?.('second delta');
+      alive = false;
       return { ...runtime.next };
     },
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },
@@ -130,25 +133,26 @@ describe('_worker.mjs background job completion', () => {
       assert.equal(stored.status, 'completed');
       assert.equal(stored.workerPid, process.pid);
       assert.equal(stored.agyPid, 7331);
-      // R3: observed streamed output records all three activity timestamps.
+      assert.ok(Number.isFinite(Date.parse(stored.agyAliveAt)), 'worker publishes the live-child bound');
+      // Observed streamed output records all three activity timestamps.
       assert.ok(Number.isFinite(Date.parse(stored.lastProgressAt)));
       assert.ok(Number.isFinite(Date.parse(stored.lastModelOutputAt)));
       assert.ok(Number.isFinite(Date.parse(stored.lastHeartbeatAt)));
       assert.deepEqual(stored.result.usage, { total_tokens: 42, input_tokens: 10, output_tokens: 32 });
       assert.equal(stored.result.durationSeconds, 3.5);
       assert.equal(stored.result.agyConversationId, 'conv-123');
-      // 076-T7 R1: stored counts after a worker finish (stdout is 'done', one line).
+      // Stored counts after a worker finish (stdout is 'done', one line).
       assert.equal(stored.answerBytes, 4);
       assert.equal(stored.answerLines, 1);
-      // Oracle: 076-T3 R1, legacy records get the full default budget.
+      // Oracle: legacy records get the full default budget.
       assert.equal(runtime.options.timeoutMs, 1800000);
     });
   }
 });
 
-// 076-T7 R3: a background task/rescue's stored request.model reaches agy the
+// A background task/rescue's stored request.model reaches agy the
 // same way the foreground path does.
-describe('_worker.mjs forwards a stored request.model to runAgyPrint (076-T7 R3)', () => {
+describe('_worker.mjs forwards a stored request.model to runAgyPrint', () => {
   it('passes request.model through to runAgyPrint', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-model-data-'));
@@ -195,10 +199,10 @@ describe('_worker.mjs forwards a stored request.model to runAgyPrint (076-T7 R3)
   });
 });
 
-// Plan 085 T3: a background task/rescue's stored request.effort reaches agy
+// A background task/rescue's stored request.effort reaches agy
 // the same way request.model does; a stored request with no effort behaves
 // exactly as before this field existed.
-describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 T3)', () => {
+describe('_worker.mjs forwards a stored request.effort to runAgyPrint', () => {
   it('passes request.effort through to runAgyPrint', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-effort-data-'));
@@ -292,7 +296,7 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
     assert.equal(stored.status, 'completed');
   });
 
-  // Plan 086 T5i: a stored `agy-default` is accepted by revalidation (the
+  // A stored `agy-default` is accepted by revalidation (the
   // job completes, it is not rejected as an unsupported effort) and is
   // translated to `undefined` for the runAgyPrint call, so agy receives no
   // --effort flag at all.
@@ -346,7 +350,7 @@ describe('_worker.mjs forwards a stored request.effort to runAgyPrint (plan 085 
   });
 });
 
-// Plan 085 T2: the background path persists the same top-level
+// The background path persists the same top-level
 // deniedActions/deniedActionsCount fields the foreground path does
 // (job-helpers.mjs#runForegroundJob), via _worker.mjs's own patchJob call.
 describe('_worker.mjs persists deniedActions and deniedActionsCount', () => {
@@ -407,7 +411,7 @@ describe('_worker.mjs persists deniedActions and deniedActionsCount', () => {
   });
 });
 
-// Plan 086 T1: the background path persists the same top-level
+// The background path persists the same top-level
 // agyPrintTimeout field the foreground path does (job-helpers.mjs's
 // buildTerminalJobPatch), via _worker.mjs's own patchJob call.
 describe('_worker.mjs persists agyPrintTimeout', () => {
@@ -467,7 +471,7 @@ describe('_worker.mjs persists agyPrintTimeout', () => {
   });
 });
 
-describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () => {
+describe('_worker.mjs auth_required stderr preservation', () => {
   it('stores filtered agy stderr as errorMessage and status <id> renders a ## Error section', async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-'));
     const dataDir = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-auth-data-'));
@@ -555,13 +559,13 @@ describe('_worker.mjs auth_required stderr preservation (fix round 1 F3)', () =>
   });
 });
 
-// 085-T4 F1 fix round 2: the worker must key state with the SAME spelling
+// The worker must key state with the SAME spelling
 // its parent used, not re-derive one from its own process.cwd() (already the
 // physical path per POSIX getcwd() after a chdir). Without the argv root, a
 // job the parent created (and addressed) through a logical/symlinked
 // spelling would be written by the worker under a different, realpath-keyed
 // leaf — splitting the job's state in two and leaving it stuck `queued`.
-describe('_worker.mjs uses the parent-supplied workspace root spelling (085-T4 F1 fix round 2)', () => {
+describe('_worker.mjs uses the parent-supplied workspace root spelling', () => {
   it('a logical-spelling caller and a physical-cwd worker reuse the same (logical) leaf', async (t) => {
     const linkTarget = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-target-'));
     const linkParent = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-legacy-parent-'));
@@ -634,7 +638,7 @@ describe('_worker.mjs uses the parent-supplied workspace root spelling (085-T4 F
 });
 
 it('uses the stored 50 ms budget and persists failed after terminating a sleeping fake agy', () => {
-  // Oracle: brief 076-T3 R1; the process seam avoids taskkill and verifies death.
+  // Oracle: the process seam avoids taskkill and verifies death.
   // The helper writes a real job store; its baseline is 5-6 s alone and grows
   // under a loaded full-suite run, so the bound is that order plus a safety
   // factor. Cleanup never throws past the assertions: a killed helper can
@@ -677,10 +681,12 @@ describe('worker persisted-request allowlist', () => {
       const data = path.join(workspace, 'data');
       const script = `
         import { mock } from 'node:test';
+        import { spawnSync } from 'node:child_process';
         const state = await import(${JSON.stringify(new URL('../scripts/lib/state.mjs', import.meta.url).href)});
         let spawns = 0;
         mock.module(${JSON.stringify(new URL('../scripts/lib/process-adapter.mjs', import.meta.url).href)}, {
-          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); } },
+          // Tools such as git reach spawnSync through the same adapter and run for real.
+          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); }, spawnSync },
         });
         const workspace = process.cwd();
         const jobId = 'stored-request';
@@ -711,7 +717,7 @@ describe('worker persisted-request allowlist', () => {
   }
 });
 
-// Plan 085 T3 item 3 (widened by plan 086 T5i): the worker revalidates a
+// The worker revalidates a
 // stored request.effort against EFFORT_CHOICES (agy's three plus the
 // agy-default sentinel) before running — a hand-edited or legacy job file
 // is not guaranteed to carry a value the CLI parser would have accepted.
@@ -719,7 +725,7 @@ describe('worker persisted-request effort revalidation', () => {
   const cases = [
     { effort: 'max', echoed: 'max' },
     { effort: 'LOW', echoed: 'LOW' },
-    // Control characters in the echoed value are neutralised (item 3).
+    // Control characters in the echoed value are neutralised.
     { effort: 'ma\x00x\x1f', echoed: 'max' },
   ];
   for (const { effort, echoed } of cases) {
@@ -728,10 +734,12 @@ describe('worker persisted-request effort revalidation', () => {
       const data = path.join(workspace, 'data');
       const script = `
         import { mock } from 'node:test';
+        import { spawnSync } from 'node:child_process';
         const state = await import(${JSON.stringify(new URL('../scripts/lib/state.mjs', import.meta.url).href)});
         let spawns = 0;
         mock.module(${JSON.stringify(new URL('../scripts/lib/process-adapter.mjs', import.meta.url).href)}, {
-          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); } },
+          // Tools such as git reach spawnSync through the same adapter and run for real.
+          namedExports: { spawn() { spawns++; throw new Error('unexpected agy spawn'); }, spawnSync },
         });
         const workspace = process.cwd();
         const jobId = 'stored-request';
@@ -759,5 +767,62 @@ describe('worker persisted-request effort revalidation', () => {
         assert.equal(stored.errorMessage, 'stored request carries an unsupported effort: ' + echoed);
       } finally { removeTestDir(workspace); }
     });
+  }
+});
+
+// Oracle: publication must sample before a queued microtask.
+it('first agy PID patch samples liveness and clock before any asynchronous gap', () => {
+  const root = fs.mkdtempSync(path.join(TMPROOT, 'antigravity-worker-publication-'));
+  const helpers = new URL('../scripts/lib/job-helpers.mjs', import.meta.url).href;
+  const recorder = new URL('../scripts/lib/job-activity.mjs', import.meta.url).href;
+  const runtimeUrl = new URL('../scripts/lib/agent-runtime.mjs', import.meta.url).href;
+  const worker = new URL('../scripts/commands/_worker.mjs', import.meta.url).href;
+  const script = `
+    import { mock } from 'node:test';
+    import assert from 'node:assert/strict';
+    const h = await import(${JSON.stringify(helpers)});
+    const a = await import(${JSON.stringify(recorder)});
+    const r = await import(${JSON.stringify(runtimeUrl)});
+    const root = ${JSON.stringify(root)};
+    process.env.CLAUDE_PLUGIN_DATA = root;
+    process.argv = [process.execPath, 'worker', 'abcdefabcdef', root];
+    await h.patchJob(root, 'abcdefabcdef', { status: 'queued', request: { prompt: 'test' } });
+    let gap = false, checked = false, published = false;
+    mock.module(${JSON.stringify(recorder)}, { namedExports: { ...a,
+      createJobActivityRecorder: (root, id, options) => a.createJobActivityRecorder(root, id, {
+        ...options, now: () => {
+          assert.equal(checked, true, 'liveness before clock');
+          assert.equal(gap, false, 'no microtask between liveness and clock');
+          return Date.parse('2026-11-10T10:00:15.000Z');
+        },
+      }),
+    } });
+    mock.module(${JSON.stringify(helpers)}, { namedExports: { ...h, patchJob: async (...args) => {
+      if (Object.hasOwn(args[2], 'agyPid')) {
+        assert.equal(published, false, 'first PID publication');
+        assert.equal(args[2].agyAliveAt, '2026-11-10T10:00:15.000Z');
+        published = true;
+      }
+      return h.patchJob(...args);
+    } } });
+    mock.module(${JSON.stringify(runtimeUrl)}, { namedExports: { ...r, runAgyPrint: async options => {
+      queueMicrotask(() => { gap = true; });
+      await options.onSpawn({ pid: 7331, isAlive: () => {
+        assert.equal(gap, false, 'publication must start before the queued microtask');
+        checked = true;
+        return true;
+      } });
+      assert.equal(published, true, 'PID patch carries the live sample');
+      return { status: 'completed', exitCode: 0, stdout: 'done', stderr: '' };
+    } } });
+    await import(${JSON.stringify(worker)});
+  `;
+  try {
+    const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+      { encoding: 'utf8', timeout: 20000, windowsHide: true });
+    const log = fs.existsSync(root) ? fs.readdirSync(root, { recursive: true }).filter(name => String(name).endsWith('.log')).map(name => fs.readFileSync(path.join(root, name), 'utf8').slice(-8000)).join('\n') : '';
+    assert.equal(result.status, 0, [result.stderr, result.stdout, log].join('\n'));
+  } finally {
+    removeTestDir(root);
   }
 });

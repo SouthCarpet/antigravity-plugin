@@ -13,6 +13,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -37,6 +38,9 @@ function makeFakeChild() {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
+    // process.mjs and the other tool callers reach spawnSync through the same
+    // adapter; this fake replaces only the asynchronous agy spawn.
+    spawnSync,
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();
       spawnCalls.push({ bin, args, opts, child });

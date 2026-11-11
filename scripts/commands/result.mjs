@@ -7,10 +7,18 @@
  *                       may be combined with --head)
  *   --check-locations   heuristically check each `path:line` citation the
  *                       stored answer names against the job's own stored
- *                       `request.hunks` (Task 14, "Senate R8", 2026-09);
+ *                       `request.hunks` (added 2026-09);
  *                       works on a job reviewed without the flag, since
  *                       hunks are stored on every review job; `null` on a
  *                       job stored before this feature shipped
+ *   --check-current     compare the review input of a finished `review` job
+ *                       with the input built from the repository now, using
+ *                       the job's own stored scope, base and focus; prints
+ *                       `match`, `changed` or `unknown`. A snapshot, not a
+ *                       lock. Never calls agy, never writes job state.
+ *   --export <path>     write the job's stored record (the safe, redacted
+ *                       JSON `--json` prints, never cut by --head/--tail) to
+ *                       a NEW file. Never overwrites.
  *   --json              emit JSON
  *
  * Exit codes:
@@ -22,17 +30,18 @@
 import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { mergeJobDetail, resolveResultJob } from "../lib/job-control.mjs";
 import { readJobFile, validateJobRecord } from "../lib/state.mjs";
-import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
+import { createErrorEnvelope, createJsonEnvelope, jsonEnvelopeText, outputCommandResult, renderResultOutput, renderDeniedActionLines, renderPrintTimeoutNote, renderProvenanceLines } from "../lib/render.mjs";
 import { classifyStateError, exitCodeForJobStatus, deniedActionsWithRemedy, printMeasuredUsageTrailer } from "../lib/job-helpers.mjs";
 import { buildResultDetails } from "../lib/job-result.mjs";
 import { checkReviewLocations, locationCheckReportLine } from "../lib/review-locations.mjs";
+import { checkReviewCurrentness, currentnessReportLine } from "../lib/review-currentness.mjs";
+import { OutputTargetError, assertNewFileTarget, displayTargetPath, resolveOutputPath, writeNewTextFile } from "../lib/output-file.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 
 /**
  * Run a job-state read (`resolveResultJob`/`readJobFile`) and keep the raw
  * error on failure, so the caller can both print its message and classify
- * it into a `--json` envelope's `error.code` (Task 3, "Senate R1", 2026-09;
- * `classifyStateError`) without reclassifying an already-stringified message.
+ * it into a `--json` envelope's `error.code` (`classifyStateError`, 2026-09) without reclassifying an already-stringified message.
  *
  * @template T
  * @param {() => T} fn
@@ -49,7 +58,7 @@ function readJobState(fn) {
 /**
  * Report a job-state read failure (an unresolved reference, a job not yet in
  * the required terminal state, or lock contention): the existing stderr
- * line, unchanged, plus (Task 3, "Senate R1", 2026-09) one `state_error`
+ * line, unchanged, plus (added 2026-09) one `state_error`
  * `--json` envelope when `json` is true.
  *
  * @param {string | null} jobId the index job's id when already resolved, else `null`
@@ -73,7 +82,7 @@ function reportStateError(jobId, err, json) {
 /**
  * Parse a `--head`/`--tail` value: a positive integer, or `undefined` when
  * the flag was not given. Anything else is the same `ArgsError` shape every
- * other flag uses (076-T7 R1).
+ * other flag uses.
  *
  * @param {string | boolean | undefined} value
  * @param {string} flag
@@ -92,7 +101,7 @@ function parsePositiveIntFlag(value, flag) {
  * the end (both may be given; the two windows never overlap). Lines only —
  * never a byte offset — so a multi-byte UTF-8 character is never split.
  * Without either option, or when nothing is actually cut, `truncated` is
- * `false` and `text` is returned unchanged (076-T7 R1).
+ * `false` and `text` is returned unchanged.
  *
  * @param {string} text
  * @param {{ head?: number, tail?: number }} options
@@ -113,8 +122,7 @@ export function cutAnswerLines(text, { head, tail } = {}) {
 /**
  * Resolve and validate the job this invocation addresses: the index entry,
  * its stored detail record, merged. Every failure path prints the one
- * `antigravity:result — <reason>` line, unchanged, plus (Task 3, "Senate
- * R1", 2026-09) one `state_error` `--json` envelope when `json` is true, and
+ * `antigravity:result — <reason>` line, unchanged, plus (added 2026-09) one `state_error` `--json` envelope when `json` is true, and
  * this returns `null` for the caller to `return 1` on.
  *
  * @param {string} cwd
@@ -198,8 +206,7 @@ function appendSectionLines(text, lines) {
 }
 
 /**
- * The `--check-locations` fields for `buildResultOutput` (Task 14, "Senate
- * R8", 2026-09): the computed check (`null` when the flag was not given, or
+ * The `--check-locations` fields for `buildResultOutput` (added 2026-09): the computed check (`null` when the flag was not given, or
  * when it was given but the job predates hunk storage), plus the one
  * markdown line to append — `[]` without the flag, so `appendSectionLines`
  * is a no-op then. Split out to keep `buildResultOutput` itself under the
@@ -218,24 +225,24 @@ function resultLocationCheckFields(stored, checkLocations) {
 
 /**
  * Build the markdown and `--json` output for a resolved job, applying the
- * `--head`/`--tail` cut when requested (076-T7 R1).
+ * `--head`/`--tail` cut when requested.
  *
  * @param {{ workspaceRoot: string, job: import('../lib/types.mjs').JobRecord,
  *   stored: import('../lib/types.mjs').JobRecord }} resolved
  * @param {{ head?: number, tail?: number, checkLocations?: boolean }} options
  * @returns {{ rendered: string, payload: object }}
  */
-function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLocations }) {
+function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLocations, checkCurrent }) {
   const rendered = renderResultOutput(workspaceRoot, job, stored);
   const { cut, renderedOut } = applyAnswerCut(stored, rendered, { head, tail });
 
-  // Plan 085 T2 item 4: when the stored result carries denials, one markdown
+  // When the stored result carries denials, one markdown
   // line per action with its remedy is appended after the answer text (never
   // folded into the opaque `answer`/`rendered` text above), plus the same
   // `{ action, displayName, remedy }` list under `details.deniedActions`.
   const deniedList = deniedActionsWithRemedy(stored?.result?.deniedActions, job.kind);
   const withDenied = appendSectionLines(renderedOut, renderDeniedActionLines(deniedList));
-  // Plan 086 T1 item 4: when the stored result carries agy's own
+  // When the stored result carries agy's own
   // print-timeout marker, one note line is appended after the denied-action
   // section (never folded into the opaque `answer`/`rendered` text above),
   // plus `details.agyPrintTimeout` on `--json` — distinct from
@@ -243,7 +250,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
   // display cut.
   const agyPrintTimeout = stored?.result?.agyPrintTimeout ?? null;
   const withPrintTimeout = appendSectionLines(withDenied, renderPrintTimeoutNote(agyPrintTimeout));
-  // Senate R7 (2026-09): a completed `review --findings-json` job gets one
+  // A completed `review --findings-json` job gets one
   // `Findings: <status>` line, validated from the stored record; the full
   // fields are in `--json`'s `details`.
   const resultDetails = buildResultDetails(job, stored, cut);
@@ -251,16 +258,19 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
     withPrintTimeout,
     resultDetails.findingsStatus ? [`Findings: ${resultDetails.findingsStatus}`] : [],
   );
-  // Task 14 ("Senate R8", 2026-09): `--check-locations` appends one
+  // `--check-locations` appends one
   // summary/unavailable line after the findings line.
   const { locationCheck, lines: locationLines } = resultLocationCheckFields(stored, checkLocations);
   const withLocationCheck = appendSectionLines(withFindings, locationLines);
-  // Senate R11 (2026-09): the "## Provenance" section is appended last,
+  // 3.2.0: `--check-current` appends one snapshot line after the
+  // location-check line. `checkCurrent` is computed by `run`, read-only.
+  const withCurrentCheck = appendSectionLines(withLocationCheck, checkCurrent ? [currentnessReportLine(checkCurrent)] : []);
+  // The "## Provenance" section is appended last,
   // after the answer text and every other appended section — never folded
   // into the opaque `answer`/`rendered` text above. `job` already carries
   // `stored`'s own `provenance` value (`mergeJobDetail`, job-control.mjs).
   const finalRendered = appendSectionLines(
-    withLocationCheck,
+    withCurrentCheck,
     renderProvenanceLines(job.provenance ?? null, job.request?.inputHash ?? null),
   );
   const payload = createJsonEnvelope("result", {
@@ -273,6 +283,7 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
       ...(deniedList ? { deniedActions: deniedList } : {}),
       ...(agyPrintTimeout ? { agyPrintTimeout } : {}),
       ...(checkLocations ? { locationCheck } : {}),
+      ...(checkCurrent ? { checkCurrent } : {}),
       ...failedJobErrorDetail(job),
     },
   });
@@ -280,11 +291,10 @@ function buildResultOutput({ workspaceRoot, job, stored }, { head, tail, checkLo
 }
 
 /**
- * `{ error: {...} }` when `job.status === "failed"`, else `{}` (Task 3,
- * "Senate R1", 2026-09): the stored job already carries its own answer and
+ * `{ error: {...} }` when `job.status === "failed"`, else `{}` (added 2026-09): the stored job already carries its own answer and
  * `status: "failed"` unchanged — this only names why, using the job's own
  * curated `healthMessage` (set by `job-helpers.mjs#deriveJobStatus`) when
- * present. `job.errorMessage` is redacted too (plan 118 T1b), but this path
+ * present. `job.errorMessage` is redacted too, but this path
  * keeps its own contract and reads `healthMessage` only.
  *
  * @param {import('../lib/types.mjs').JobRecord} job
@@ -302,6 +312,69 @@ function failedJobErrorDetail(job) {
 }
 
 /**
+ * Report a refused flag combination or value (3.2.0): one stderr line plus
+ * one `invalid_input` envelope under `--json`, exit code 1, nothing written.
+ *
+ * @param {string | null} jobId
+ * @param {string} code
+ * @param {string} message
+ * @param {boolean} json
+ * @returns {1}
+ */
+function reportInvalidInput(jobId, code, message, json) {
+  process.stderr.write(`antigravity:result — ${message}\n`);
+  outputCommandResult(
+    createErrorEnvelope("result", { status: "invalid_input", jobId, error: { code, phase: "validate", message } }),
+    "",
+    json,
+  );
+  return 1;
+}
+
+/**
+ * Resolve the `--export` target and refuse a bad one before any output is
+ * built. `null` when the flag was not given.
+ *
+ * @param {string | boolean | string[] | undefined} value
+ * @param {string} cwd
+ * @returns {string | null}
+ */
+function resolveExportTarget(value, cwd) {
+  if (value === undefined) return null;
+  const target = resolveOutputPath(value, cwd, { noun: "Export" });
+  assertNewFileTarget(target, { noun: "Export" });
+  return target;
+}
+
+/**
+ * Write the plain `result --json` envelope of this job to the export target:
+ * the same text `--json` prints with no other flag, never cut by
+ * `--head`/`--tail` and never carrying a check result.
+ *
+ * @param {Parameters<typeof buildResultOutput>[0]} resolved
+ * @param {string} target
+ * @returns {{ path: string, bytes: number }}
+ */
+function exportJobRecord(resolved, target) {
+  const { payload } = buildResultOutput(resolved, {});
+  const { bytes } = writeNewTextFile(target, jsonEnvelopeText(payload), { noun: "Export" });
+  return { path: displayTargetPath(target), bytes };
+}
+
+/**
+ * Refuse flags that cannot apply to this job: `--check-current` needs a
+ * `review` job. `null` when nothing is refused.
+ *
+ * @param {{ id: string, kind?: string }} job
+ * @param {boolean} checkCurrent
+ * @returns {string | null} the refusal message
+ */
+function unsupportedKindMessage(job, checkCurrent) {
+  if (!checkCurrent || job.kind === "review") return null;
+  return `--check-current applies only to review jobs; job ${job.id} is a ${job.kind ?? "unknown"} job.`;
+}
+
+/**
  * @param {string[]} [argv] CLI arguments after the verb (a job reference and flags)
  * @param {{ cwd?: string, resolveResultJob?: typeof resolveResultJob,
  *   readJobFile?: typeof readJobFile }} [ctx] dependency overrides for tests, plus `cwd`
@@ -309,8 +382,8 @@ function failedJobErrorDetail(job) {
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["cwd", "head", "tail"],
-    booleanOptions: ["json", "check-locations"],
+    valueOptions: ["cwd", "head", "tail", "export"],
+    booleanOptions: ["json", "check-locations", "check-current"],
   }, "result");
   if (!parsed) return 1;
   const { options, positionals } = parsed;
@@ -333,11 +406,26 @@ export async function run(argv = [], ctx = {}) {
   const resolved = resolveJobAndStored(cwd, reference, ctx, json);
   if (!resolved) return 1;
 
+  const checkCurrentFlag = Boolean(options["check-current"]);
+  const kindMessage = unsupportedKindMessage(resolved.job, checkCurrentFlag);
+  if (kindMessage) return reportInvalidInput(resolved.job.id, "check_current_unsupported_kind", kindMessage, json);
+  let exported = null;
+  try {
+    const target = resolveExportTarget(options.export, cwd);
+    exported = target ? exportJobRecord(resolved, target) : null;
+  } catch (error) {
+    if (!(error instanceof OutputTargetError)) throw error;
+    return reportInvalidInput(resolved.job.id, "export_target_unwritable", error.message, json);
+  }
+
   printMeasuredUsageTrailer(resolved.stored?.result?.usage ?? null);
   const checkLocations = Boolean(options["check-locations"]);
-  const { rendered, payload } = buildResultOutput(resolved, { head: head.value, tail: tail.value, checkLocations });
+  const checkCurrent = checkCurrentFlag ? checkReviewCurrentness(resolved.workspaceRoot, resolved.stored) : null;
+  const { rendered, payload } = buildResultOutput(resolved, { head: head.value, tail: tail.value, checkLocations, checkCurrent });
   if (checkLocations) process.stderr.write(`${locationCheckReportLine("result", payload.details.locationCheck)}\n`);
-  outputCommandResult(payload, rendered, json);
+  if (checkCurrent) process.stderr.write(`${currentnessReportLine(checkCurrent)}\n`);
+  if (exported) payload.details.exported = exported;
+  outputCommandResult(payload, exported ? `${rendered}Exported: ${exported.path}\n` : rendered, json);
 
   return exitCodeForJobStatus(resolved.job.status);
 }

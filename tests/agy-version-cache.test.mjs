@@ -1,6 +1,5 @@
 /**
- * Integration coverage for `rememberAgyVersion` (scripts/lib/job-helpers.mjs,
- * Senate R2, 2026-09): `review`, `rescue`, `task`, and `vision` write
+ * Integration coverage for `rememberAgyVersion` (scripts/lib/job-helpers.mjs, 2026-09): `review`, `rescue`, `task`, and `vision` write
  * `agyVersionSeen` to the workspace's state config right after their own
  * successful agy-version probe, before the run itself, so it lands even
  * when the run afterward fails. `review --preview` never does, because
@@ -109,7 +108,7 @@ function readAgyVersionSeen(work, data) {
   }
 }
 
-describe('rememberAgyVersion is wired into review, rescue, task, and vision (Senate R2)', () => {
+describe('rememberAgyVersion is wired into review, rescue, task, and vision', () => {
   it('rescue (foreground, failing run) still caches agyVersionSeen from the earlier probe', () => {
     const { work, data } = freshDirs();
     const res = runVerb(['rescue', 'probe'], makeEnv(data), work);

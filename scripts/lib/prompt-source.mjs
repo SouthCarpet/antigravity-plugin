@@ -1,6 +1,6 @@
 /**
  * `task --prompt-file <path>` / `--prompt-file -` (stdin) prompt-source
- * resolution (Senate R13, 2026-09).
+ * resolution (added 2026-09).
  *
  * Reading only ever happens here: `task.mjs#run` asks this module for the
  * resolved prompt text (or a validation failure) and never touches the

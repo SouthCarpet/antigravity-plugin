@@ -2,12 +2,12 @@
  * Process spawning and management utilities.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./process-adapter.mjs";
 import process from "node:process";
 
 export const GIT_TIMEOUT_MS = 120_000;
 const PROCESS_START_CACHE_TTL_MS = 5_000;
-// Fix brief 076-T4-fix2 F3: measured on this machine across 5 freshly
+// Measured on this machine across 5 freshly
 // spawned node processes (one "cold" call each, immediately followed by 2
 // "warm" calls in the same process, 500 ms apart) — 15 samples of the exact
 // PowerShell command below ranged 548.4-631.8 ms, with no measurable
@@ -161,16 +161,46 @@ export function readProcessStartTime(pid, {
 
 /**
  * The start time to store with a PID the plugin has just spawned, as an
- * ISO string, or null when it cannot be read. A job record writes it once,
+ * ISO string, or null after two failed reads (at most two five-second OS queries).
+ * A job record writes it once,
  * next to the PID, and never updates it.
  *
  * @param {number | null | undefined} pid
  * @param {typeof readProcessStartTime} [readStartTime]
  * @returns {string | null}
  */
-export function recordProcessStartTime(pid, readStartTime = readProcessStartTime) {
-  const startedAt = Number.isInteger(pid) && pid > 0 ? readStartTime(pid) : null;
+export function recordProcessStartTime(pid, readStartTime = readProcessStartTime, alive = isProcessAlive) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  // Retry only at launch. Each OS read has the existing five-second bound.
+  const startedAt = readStartTime(pid) ?? (alive(pid) ? readStartTime(pid) : null);
   return startedAt === null ? null : new Date(startedAt).toISOString();
+}
+
+/** One bounded Windows creator query. An unusable answer carries a safe reason. */
+export function queryProcessChildren(pid, { platform = process.platform, spawnSyncImpl = spawnSync } = {}) {
+  const unusable = reason => ({ rows: null, reason });
+  if (platform !== "win32" || !Number.isSafeInteger(pid) || pid <= 0) return unusable("unsupported");
+  let result;
+  try {
+    result = spawnSyncImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      `$ErrorActionPreference='Stop'; $rows=@(Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${pid}' | ForEach-Object { @{pid=[int]$_.ProcessId;parentPid=[int]$_.ParentProcessId;startedAt=$_.CreationDate.ToUniversalTime().ToString('o')} }); ConvertTo-Json -InputObject $rows -Compress`],
+    { encoding: "utf8", windowsHide: true, timeout: 15_000, maxBuffer: 64 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    return unusable("spawn_failed");
+  }
+  if (result.error?.code === "ETIMEDOUT") return unusable("timeout");
+  if (result.error) return unusable("spawn_failed");
+  if (result.status !== 0) return unusable("exit_nonzero");
+  try {
+    const rows = JSON.parse(result.stdout);
+    if (!Array.isArray(rows)) return unusable("malformed");
+    if (rows.length > 64) return unusable("too_many");
+    if (!rows.every(row => row && Number.isSafeInteger(row.pid) && row.pid > 0 &&
+      Number.isSafeInteger(row.parentPid) && typeof row.startedAt === "string")) return unusable("malformed");
+    return { rows, reason: null };
+  } catch {
+    return unusable("malformed");
+  }
 }
 
 /**

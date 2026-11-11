@@ -13,8 +13,10 @@ import { pathToFileURL } from "node:url";
 import { FileLockTimeoutError, withFileLock } from "../scripts/lib/file-lock.mjs";
 import { createTrackedJob, patchJob, startBackgroundJob } from "../scripts/lib/job-helpers.mjs";
 import { canonicalComparePath, expandShortPath } from "../scripts/lib/paths.mjs";
+import { isProcessAlive, readProcessStartTime, terminateProcessTree } from "../scripts/lib/process.mjs";
 import { appendJobLog, ensureStateDir, listJobs, readJobFile, readLogTail, resolveJobFile, resolveJobLogFile, resolveStateDir, resolveStateRoot, saveState } from "../scripts/lib/state.mjs";
 import { writeFakeAgy } from "./helpers/fake-agy.mjs";
+import { writeSlowPowerShell, withPathFirst } from "./helpers/slow-powershell.mjs";
 import { portableTmpRoot, removeTestDir } from "./helpers/tmp.mjs";
 
 const cleanup = [];
@@ -62,7 +64,7 @@ after(() => {
 });
 
 describe("cross-process job lifecycle", { concurrency: false }, () => {
-  // R1 acceptance: retention must leave an old live job reachable by cancel.
+  // Retention must leave an old live job reachable by cancel.
   it("keeps one active job cancellable after 50 terminal jobs and one more completion", async () => {
     const { workspaceRoot, dataRoot } = freshWorkspace();
     const savedData = process.env.CLAUDE_PLUGIN_DATA;
@@ -143,15 +145,53 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
     assert.equal(fs.existsSync(lockPath), false);
   });
 
-  it("cancels during the worker's first locked state update", async () => {
+  // The fake agy of the early-cancel case used
+  // to live 2 000 ms. Under load the Windows start-time query (PowerShell)
+  // took longer than that: the process was gone when the query answered, the
+  // worker correctly stored `agyProcessStartedAt: null`, and the case failed
+  // (7 of 20 runs under load on 2026-11-09). A slow PowerShell on the
+  // worker's PATH gave the same failure 3 of 3 times. The fixture no longer
+  // races the query: the fake lives until the case stops it by its PID. The
+  // lifetime below only bounds a fake that a failed run could not stop.
+  const EARLY_CANCEL_AGY_LIFE_MS = 60_000;
+
+  /**
+   * Stop the processes that a case started, by PID, and wait until they are
+   * gone. A workspace folder cannot be removed on Windows while a process
+   * that runs in it is alive (`EPERM`).
+   *
+   * @param {Array<number | null | undefined>} pids
+   * @returns {Promise<boolean>} true when none of them is running
+   */
+  async function stopStartedProcesses(pids) {
+    const started = pids.filter((pid) => Number.isInteger(pid) && pid > 0);
+    for (const pid of started) {
+      if (isProcessAlive(pid)) await terminateProcessTree(pid);
+    }
+    return Boolean(await waitFor(() => started.every((pid) => !isProcessAlive(pid)), 10_000));
+  }
+
+  /**
+   * The early-cancel case: a cancel during the worker's first locked state
+   * update, with both start times read from the OS at launch.
+   *
+   * @param {{ slowStartTimeQueryMs?: number }} [options] when set, the
+   *   worker's start-time query takes this much longer (Windows only)
+   */
+  async function runEarlyCancelCase({ slowStartTimeQueryMs = 0 } = {}) {
     const { workspaceRoot, dataRoot } = freshWorkspace();
     const originalClaudeData = process.env.CLAUDE_PLUGIN_DATA;
     const originalAgyBin = process.env.AGY_BIN;
     process.env.CLAUDE_PLUGIN_DATA = dataRoot;
     process.env.AGY_BIN = writeFakeAgy(workspaceRoot, "early-cancel-agy", {
-      delayMs: 2000,
+      delayMs: EARLY_CANCEL_AGY_LIFE_MS,
       stdout: "unused",
     });
+    // Only the worker gets the slow query; this process keeps the real one.
+    const workerBaseEnv = slowStartTimeQueryMs > 0
+      ? withPathFirst(process.env, writeSlowPowerShell(dataRoot, slowStartTimeQueryMs))
+      : process.env;
+    const started = { workerPid: null, agyPid: null, jobId: null };
     try {
       const lockPath = stateLockPath(workspaceRoot);
       const holdMarker = path.join(workspaceRoot, "worker-lock-release-held");
@@ -165,7 +205,7 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         title: "early cancel",
         prompt: "stay busy",
         env: {
-          ...process.env,
+          ...workerBaseEnv,
           NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${holdReleasePreload}`]
             .filter(Boolean)
             .join(" "),
@@ -174,8 +214,10 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
           ANTIGRAVITY_TEST_WORKER_START_GATE: startGate,
         },
       });
+      started.workerPid = pid;
+      started.jobId = job.id;
       fs.writeFileSync(startGate, "go", "utf8");
-      // Fix brief 076-T4-fix2 F1: staged timestamps (parent dispatch, spawn
+      // Staged timestamps (parent dispatch, spawn
       // ack, start-gate write, worker's own "[worker] started" log line,
       // hold marker) plus a resolveWorkspaceRoot call counter showed the
       // real cost was not the fake-agy stub or the stale-lock identity
@@ -184,11 +226,11 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
       // every single state read/write. One worker run spawned it 13 times.
       // The cost of one such spawn from the freshly started background
       // worker varies by session on this machine (about 3.4 s in the fix
-      // session, under 0.5 s in the re-review session; the cause of the
+      // session, under 0.5 s in another session; the cause of the
       // per-process gap is not identified, so it is not attributed to
       // antivirus or anything else unmeasured). The count of spawns, not the
       // cost of one, is what made this case take up to 50 s and fail a 30 s
-      // budget; with the cache disabled the re-review measured 29 spawns and
+      // budget; with the cache disabled a second measurement found 29 spawns and
       // 13.3 s. `resolveWorkspaceRoot` now caches
       // per cwd for the process lifetime (workspace.mjs) — a cwd's git
       // identity cannot change within one CLI invocation or worker run —
@@ -203,11 +245,12 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         } catch {
           return null;
         }
-      }, 10_000);
+      }, 10_000 + 2 * slowStartTimeQueryMs);
       assert.ok(owner, "worker should acquire the state lock during startup");
       assert.equal(owner.pid, pid, "the worker itself should own its startup lock");
       const agyPid = readJobFile(workspaceRoot, job.id)?.agyPid;
       assert.ok(Number.isInteger(agyPid) && agyPid > 0, "startup should publish the agy pid");
+      started.agyPid = agyPid;
       // Both start times are real OS reads taken at launch. The real cancel
       // below confirms each against a fresh read before it signals, so this
       // case is the end-to-end positive control for process identity.
@@ -217,11 +260,21 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
         assert.ok(Number.isFinite(Date.parse(launched[field])), `${field} is a timestamp`);
       }
 
+      // Cancel reads the start time of each live target once, and refuses to
+      // signal a target whose read fails (by design; the user retries). On
+      // Windows one read is one PowerShell run capped at 5 s, and under full
+      // CPU load a run can be slower than that. This case is about the lock,
+      // not about the speed of that query, so each read gets one retry here,
+      // the same rule the product uses at launch. Both are real OS reads.
+      const readStartTimeWithRetry = (targetPid) =>
+        readProcessStartTime(targetPid) ?? readProcessStartTime(targetPid);
+      let cancelReport = null;
       const startedCancelAt = Date.now();
       const exitCode = await (await import("../scripts/commands/cancel.mjs")).run(
         [job.id, "--json"],
         {
           cwd: workspaceRoot,
+          readProcessStartTime: readStartTimeWithRetry,
           terminateProcessTree: async (targetPid) => {
             assert.ok(
               targetPid === pid || targetPid === agyPid,
@@ -247,33 +300,53 @@ describe("cross-process job lifecycle", { concurrency: false }, () => {
                 : `Process ${targetPid} is not running.`,
             };
           },
-          outputCommandResult: () => {},
+          outputCommandResult: (payload) => { cancelReport = payload; },
         },
       );
 
       // Cancel now reads the start time of each live target before it
-      // signals it (two queries here; on Windows each starts PowerShell and
-      // is capped at 5 s). The whole case took about 2.2 s alone, but the
-      // cancel took more than 5 s once under the full suite. 15 s stays well
+      // signals it (two targets here; on Windows each read starts PowerShell
+      // and is capped at 5 s, and this case allows one retry per target, so
+      // the worst case is 20 s). The whole case took about 2.2 s alone, but
+      // the cancel took more than 5 s once under the full suite. 25 s stays
       // under the 30 s state-lock timeout this bound guards against.
-      assert.ok(Date.now() - startedCancelAt < 15_000, "cancellation should stay bounded");
-      assert.equal(exitCode, 0);
+      assert.ok(Date.now() - startedCancelAt < 25_000, "cancellation should stay bounded");
+      assert.equal(exitCode, 0, `cancel failed: ${JSON.stringify(cancelReport)}`);
       assert.equal(readJobFile(workspaceRoot, job.id)?.status, "cancelled");
 
-      // The preload exits the worker when cancellation reaps its lock; the
-      // short fake agy exits on its own. Wait for both so cleanup leaks none,
-      // and assert it actually happened — a discarded wait result would let
-      // a real "process never exits" regression pass silently.
-      const bothExited = await waitFor(() => [pid, agyPid].every((targetPid) => {
-        try { process.kill(targetPid, 0); return false; } catch { return true; }
-      }), 6000);
-      assert.ok(bothExited, 'worker and agy processes should both exit after cancellation');
+      // The preload exits the worker when cancellation reaps its lock. Wait
+      // for it and assert it actually happened: a discarded wait result
+      // would let a real "process never exits" regression pass silently.
+      const workerExited = await waitFor(() => !isProcessAlive(pid), 6000);
+      assert.ok(workerExited, 'the worker process should exit after cancellation');
+      // The injected terminator above stops nothing. On Windows the fake agy
+      // ends with the worker (Node puts a child that is not detached into a
+      // job object that ends with its parent). On POSIX agy is detached and
+      // still runs. The case started it, so the case stops it, by its PID.
+      assert.ok(await stopStartedProcesses([agyPid]), 'the agy process should be gone when the case ends');
     } finally {
+      // Also after a failed assertion: nothing that this case started may
+      // still run when the workspace folder is removed.
+      const recordedAgyPid = started.jobId ? readJobFile(workspaceRoot, started.jobId)?.agyPid : null;
+      await stopStartedProcesses([started.workerPid, started.agyPid, recordedAgyPid]);
       if (originalClaudeData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
       else process.env.CLAUDE_PLUGIN_DATA = originalClaudeData;
       if (originalAgyBin === undefined) delete process.env.AGY_BIN;
       else process.env.AGY_BIN = originalAgyBin;
     }
+  }
+
+  it("cancels during the worker's first locked state update", async () => {
+    await runEarlyCancelCase();
+  });
+
+  // The deterministic form of the load failure above: the worker's
+  // start-time query answers 3 000 ms late, which is later than the old
+  // 2 000 ms fixture lived. The start time must still be recorded.
+  it("cancels during the worker's first locked state update when the start-time query is slow", {
+    skip: process.platform === "win32" ? false : "Windows only: the slow query stand-in is a powershell.exe",
+  }, async () => {
+    await runEarlyCancelCase({ slowStartTimeQueryMs: 3000 });
   });
 
   it("cancels a queued worker before it acquires the startup lock", async () => {

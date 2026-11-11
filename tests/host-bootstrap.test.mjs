@@ -1,6 +1,6 @@
 /**
  * Tests for scripts/lib/host-bootstrap.cjs — the shipped CommonJS module the
- * generated `node -e` wrapper snippet require()s (076-T7 R5b).
+ * generated `node -e` wrapper snippet require()s.
  *
  * This module is CommonJS on purpose: it must be require()-able
  * synchronously from a one-line `node -e` snippet. An ESM test file can

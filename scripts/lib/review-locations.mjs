@@ -1,7 +1,6 @@
 /**
  * review-locations: the heuristic citation-location check behind `review
- * --check-locations` and `result --check-locations` (Task 14, "Senate R8",
- * 2026-09).
+ * --check-locations` and `result --check-locations` (added 2026-09).
  *
  * A review answer often cites `<path>:<line>`. This module finds those
  * citations in the answer text and classifies each against the hunks the
@@ -25,7 +24,7 @@
  * scheme. Everything else this pattern matches is treated as a citation
  * candidate; `docs/COMPATIBILITY.md` records the measured false-positive
  * rate against two stored review transcripts (neither carried a real
- * `path:line` citation at all, so the count there is zero) — per the brief,
+ * `path:line` citation at all, so the count there is zero) — per the contract,
  * this is tuned for those two named shapes and does not chase every case
  * (a bare `host:port` with no `http(s)://` prefix, for one, still matches).
  */
@@ -122,7 +121,7 @@ function classifyCitation(citation, hunks) {
 }
 
 /**
- * The heuristic citation-location check (Task 14, "Senate R8", 2026-09):
+ * The heuristic citation-location check (added 2026-09):
  * every citation `answer` names, each classified against `hunks`.
  *
  * `hunks` must be the array `buildReviewInput` stored on the job

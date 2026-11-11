@@ -10,9 +10,11 @@
  * `/antigravity:vision` works unattended. Pass `--skip-vision` to opt out,
  * or `--remove-vision` to remove only plugin-owned persistent entries.
  */
-import { spawn } from '../lib/process-adapter.mjs';
+import { parseModelsListing } from '../lib/model-alias.mjs';
+import { createJsonEnvelope, outputCommandResult } from '../lib/render.mjs';
+import { spawnInteractive } from '../lib/process-adapter.mjs';
 import { readCommandInput } from '../lib/args.mjs';
-import { resolveAgyBin, probeAgy, assertAgyBinSpawnable } from '../lib/agent-runtime.mjs';
+import { resolveAgyBin, probeAgy, assertAgyBinSpawnable, probeAgyModels } from '../lib/agent-runtime.mjs';
 import { ensureVisionConfig, removeVisionConfig, VISION_PERMISSION } from '../lib/vision-config.mjs';
 import { classifyAgyVersion, LAST_MEASURED_AGY_VERSION } from '../lib/compat.mjs';
 import { runIfMain } from '../lib/cli-entry.mjs';
@@ -28,7 +30,7 @@ const VERSION_WARNING_LINES = {
 /**
  * The one warning line `setup` prints after "using <bin> v<version>" when
  * that version falls outside this plugin's measured range: `null` for
- * `verified`, `incompatible`, or `missing` (Senate R2, 2026-09).
+ * `verified`, `incompatible`, or `missing` (added 2026-09).
  *
  * @param {string | null | undefined} version
  * @returns {string | null}
@@ -45,18 +47,22 @@ function setupVersionWarning(version) {
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    booleanOptions: ['skip-vision', 'remove-vision'],
+    booleanOptions: ['skip-vision', 'remove-vision', 'json'],
   }, 'setup');
   if (!parsed) return 1;
   const { options } = parsed;
+  const progress = (text) => { if (!options.json) process.stdout.write(text); };
 
   if (options['remove-vision']) {
-    process.stdout.write(
+    progress(
       'antigravity:setup — removing persistent vision configuration from ~/.gemini.\n' +
       'Only the MCP entry and permission recorded as plugin-owned will be removed; unrelated settings are preserved.\n',
     );
     const result = removeVisionConfig();
-    for (const line of result.summary) process.stdout.write(`  - ${line}\n`);
+    for (const line of result.summary) progress(`  - ${line}\n`);
+    if (options.json) outputCommandResult(createJsonEnvelope('setup', {
+      status: result.ok === false ? 'failed' : 'completed', answer: result.summary.join('\n'),
+    }), '', true);
     return result.ok === false ? 1 : 0;
   }
 
@@ -76,13 +82,15 @@ export async function run(argv = [], ctx = {}) {
     return 2;
   }
 
-  process.stdout.write(`antigravity:setup — using ${bin} v${probe.version}\n`);
+  progress(`antigravity:setup — using ${bin} v${probe.version}\n`);
   const versionWarning = setupVersionWarning(probe.version);
-  if (versionWarning) process.stdout.write(`${versionWarning}\n`);
-  process.stdout.write(`Triggering an authenticated probe. Complete the OAuth flow in your browser if prompted.\n\n`);
+  if (versionWarning) progress(`${versionWarning}\n`);
+  progress(`Triggering an authenticated probe. Complete the OAuth flow in your browser if prompted.\n\n`);
 
-  const child = spawn(bin, ['--print', 'Reply with the word OK and nothing else.'], {
-    stdio: 'inherit',
+  // Interactive sign-in: the one spawn that keeps the caller's console and
+  // window exactly as before (see spawnInteractive in process-adapter.mjs).
+  const child = spawnInteractive(bin, ['--print', 'Reply with the word OK and nothing else.'], {
+    stdio: ['inherit', options.json ? process.stderr : 'inherit', 'inherit'],
     cwd: ctx.cwd ?? process.cwd(),
     env: process.env,
   });
@@ -99,12 +107,14 @@ export async function run(argv = [], ctx = {}) {
     return oauthCode;
   }
 
+  const defaultModelCheck = await checkDefaultModel({ bin });
   if (options['skip-vision']) {
-    process.stdout.write('\nantigravity:setup — --skip-vision passed; leaving vision config untouched.\n');
+    progress('\nantigravity:setup — --skip-vision passed; leaving vision config untouched.\n');
+    reportDefaultModelCheck(options.json, defaultModelCheck);
     return 0;
   }
 
-  process.stdout.write(
+  progress(
     '\nantigravity:setup — enabling persistent vision access under ~/.gemini:\n' +
     `  - registers a user-wide MCP server named "vision" using this exact Node executable: ${process.execPath}\n` +
     `  - adds one user-wide headless allow rule: ${VISION_PERMISSION}\n` +
@@ -115,12 +125,31 @@ export async function run(argv = [], ctx = {}) {
   );
   const { summary, ok } = ensureVisionConfig();
   for (const line of summary) {
-    process.stdout.write(`  - ${line}\n`);
+    progress(`  - ${line}\n`);
   }
 
+  reportDefaultModelCheck(options.json, defaultModelCheck, ok);
   return ok === false ? 1 : 0;
+}
+
+export async function checkDefaultModel(options = {}) {
+  const listing = await (options.probe ?? probeAgyModels)(options);
+  const parsed = listing.ok ? parseModelsListing(listing.text) : listing;
+  if (!parsed.ok) {
+    process.stderr.write('antigravity:setup: could not check whether the default model is still available.\n');
+    return 'unknown';
+  }
+  if (parsed.rows.some(({ id }) => id === 'gemini-3.8-flash-high')) return 'present';
+  process.stderr.write('antigravity:setup: warning: default model "gemini-3.8-flash-high" is absent.\n');
+  return 'absent';
 }
 
 export default run;
 
 runIfMain(import.meta.url, run);
+
+function reportDefaultModelCheck(json, defaultModelCheck, ok = true) {
+  if (json) outputCommandResult(createJsonEnvelope('setup', {
+    status: ok === false ? 'failed' : 'completed', details: { defaultModelCheck },
+  }), '', true);
+}

@@ -37,6 +37,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       return { status: 'completed', exitCode: 0, stdout: 'ok', stderr: '' };
     },
     resolveAgyBin: real.resolveAgyBin,
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => {
       runtime.probeCalls += 1;
       return runtime.probe;
@@ -197,7 +198,7 @@ describe('agy missing: one line, exit 1, nothing started', () => {
     });
   }
 
-  // Task 3 ("Senate R1", 2026-09): --json now also carries one `no_agy`
+  // --json now also carries one `no_agy`
   // error envelope on stdout, with the plugin's own one-line reason
   // (`AGY_LINE` minus the `antigravity:<verb> — ` prefix) as `error.message`.
   it('--json carries one no_agy error envelope, and the message stays on stderr', async () => {

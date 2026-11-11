@@ -124,7 +124,7 @@ describe('removeOAuthUrls', () => {
   });
 
   it('OAuth property names in nested arrays become marker keys and keep the first value on collision', () => {
-    // The security fix brief requires replacement of keys and first-entry retention.
+    // The security fix requires replacement of keys and first-entry retention.
     const input = { usage: [{
       'HTTPS://accounts.google.com/signin/oauth/consent': 1,
       'https://accounts.google.com/o/oauth2/auth': 2,
@@ -139,7 +139,7 @@ describe('removeOAuthUrls', () => {
 
 describe('agy text from a new run', () => {
   it('runtime usage with an OAuth property name prints a marker key through result --json', () => {
-    // The verifier's runtime probe must have no OAuth URL in either output stream.
+    // The runtime probe must have no OAuth URL in either output stream.
     const { work, data } = freshDirs();
     const agy = writeFakeAgy(stubDir, 'agy-usage-oauth-key', {
       stdout: event({ event: 'result', result: {
@@ -301,3 +301,55 @@ describe('a background wait prints a stored record without a URL', () => {
     assert.equal(err, `antigravity:task — sign in at ${OAUTH_URL_MARKER}\n`);
   });
 });
+// Oracle retained verbatim from the pre-fix implementation.
+const LEGACY_OAUTH_URL_PATTERN =
+  /(?:[a-z][a-z0-9+.-]*:)?(?:\/\/)?(?:[^\s/@"'<>`\\]*@)?accounts\.google\.com(?::\d*)?\/+(?:o\/oauth2|signin\/oauth)[^\s"'<>`\\]*/gi;
+function assertLegacyOAuthOutput(text) {
+  assert.equal(removeOAuthUrls(text), text.replace(LEGACY_OAUTH_URL_PATTERN, OAUTH_URL_MARKER), JSON.stringify(text));
+}
+it('OAuth redaction matches the legacy oracle for named URL forms and existing fixtures', () => {
+  for (const scheme of ['', '//', 'https://', 'X+1.-:', 'AbC://']) {
+    for (const user of ['', '@', 'user@', 'user:pass@']) {
+      for (const suffix of ['/o/oauth2/x?q=1#frag', '///signin/oauth/consent', '/O/OAUTH2/x', '/', '.evil.example/o/oauth2/x']) {
+        const url = `${scheme}${user}ACCOUNTS.GOOGLE.COM:443${suffix}`;
+        for (const boundary of [' ', '"', "'", '<', '>', '`', '\\', '\n', '\t']) {
+          assertLegacyOAuthOutput(`${boundary}${url}${boundary}${URL}${boundary}`);
+        }
+      }
+    }
+  }
+  for (const text of [URL, SIGNIN_URL, OTHER_URL, HOST_MENTION,
+    'xaccounts.google.com/o/oauth2/x', 'accounts.google.com.evil.example/o/oauth2/x',
+    'user:pass@accounts.google.com/o/oauth2/x', 'accounts.google.com/o/\noauth2/x',
+    'a'.repeat(1000)+'@accounts.google.com/o/oauth2/x',
+    fs.readFileSync(new globalThis.URL(import.meta.url), 'utf8'),
+    fs.readFileSync(new globalThis.URL('./agent-runtime-stream.test.mjs', import.meta.url), 'utf8')]) assertLegacyOAuthOutput(text);
+});
+it('OAuth redaction matches the legacy oracle for 4000 deterministic generated strings up to 300 characters', () => {
+  // A differential oracle; fixed seed makes failures repeatable.
+  const alphabet = ['a','Z','0','+','.', '-', ':','/','@','"',"'",'<','>','`','\\',' ','\n','\t','?', '#',
+    'accounts.google.com', 'ACCOUNTS.GOOGLE.COM', 'accounts.', 'google.com', '/o/oauth2', '/signin/oauth'];
+  let seed = 153;
+  const next = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
+  for (let i=0;i<4000;i++) {
+    const length=next()%301;let text='';
+    while(text.length<length) text+=alphabet[next()%alphabet.length];
+    assertLegacyOAuthOutput(text.slice(0,length));
+  }
+});
+for (const [label, input] of [
+  ['512 KiB a', 'a'.repeat(512*1024)],
+  ['512 KiB a:', 'a:'.repeat(256*1024)],
+  ['512 KiB a@', 'a@'.repeat(256*1024)],
+  ['512 KiB slash', '/'.repeat(512*1024)],
+  ['100000 hosts', 'accounts.google.com'.repeat(100000)],
+  ['20000 URLs', (URL+' ').repeat(20000)],
+  ['512 KiB user info', 'a'.repeat(512*1024)+'@accounts.google.com/o/oauth2/x'],
+]) {
+  it(`OAuth redaction handles ${label} within two seconds`, () => {
+    const start=performance.now();const result=removeOAuthUrls(input);const elapsed=performance.now()-start;
+    console.log(`${label} ms: ${elapsed}`);
+    assert.ok(elapsed<2000, `${label}: ${elapsed} ms`);
+    assert.equal(result, label==='20000 URLs' ? (OAUTH_URL_MARKER+' ').repeat(20000) : label==='512 KiB user info' ? OAUTH_URL_MARKER : input);
+  });
+}

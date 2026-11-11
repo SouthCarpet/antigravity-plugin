@@ -1,6 +1,5 @@
 /**
- * Tests for scripts/lib/vision-expect.mjs (`vision --expect`, Senate R6,
- * 2026-09).
+ * Tests for scripts/lib/vision-expect.mjs (`vision --expect`, 2026-09).
  *
  * Part 1: unit tests on the parser alone, against three stored answer
  * fixtures. Part 2: end-to-end runs through scripts/commands/vision.mjs with
@@ -159,6 +158,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       return { ...runtime.next };
     },
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },

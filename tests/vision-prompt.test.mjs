@@ -1,12 +1,12 @@
 /**
- * Shape of the vision prompt (plan 068 T2): transcription first,
+ * Shape of the vision prompt: transcription first,
  * `view_image` only, sentinel contract unchanged.
  *
  * Pure function, no spawn. The sentinel line is asserted byte-for-byte
  * because docs/COMPATIBILITY.md promises the `VISION-UNAVAILABLE: <reason>`
  * form as a stable machine-readable signal.
  *
- * T2b adds the agy 1.1.24 offload fallback. agy hands a large tool result to
+ * The agy 1.1.24 offload fallback was added later. agy hands a large tool result to
  * the model as a `[Resource offloaded to file://<X>]` note instead of pixels,
  * so the prompt sends the model to `view_file` on that one path. The cases
  * below pin the three limits that keep the fallback from becoming a general

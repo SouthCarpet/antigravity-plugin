@@ -105,11 +105,11 @@ function spawnAgy(bin, args, opts) {
   return spawn(bin, args, opts);
 }
 
-/** Terminal signals a foreground run has to pass on to a detached child. */
+/** Terminal signals a foreground run has to pass on to its agy child. */
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /**
- * Bridge the terminal's interactive signals to `onSignal` while a detached
+ * Bridge the terminal's interactive signals to `onSignal` while an agy
  * child is alive; the returned function removes the handlers again.
  *
  * agy is spawned `detached` on POSIX so `terminateProcessTree` can signal the
@@ -120,14 +120,19 @@ const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
  * remove the handlers when the child settles, otherwise a later Ctrl+C would
  * no longer terminate the process.
  *
- * Only installed on the detached path — on win32 the child stays in the
- * console's process group and Ctrl+C reaches it as before.
+ * On win32 the child is not detached, but process-adapter.mjs starts it
+ * with `windowsHide: true` and piped stdio, which gives it a console of its
+ * own: a Ctrl+C, a Ctrl+Break (`SIGBREAK`) or a closing terminal window
+ * (`SIGHUP`) in the caller's console does not reach it. The bridge is
+ * therefore installed on every platform.
  *
  * @param {(signal: string) => void} onSignal
+ * @param {string} [platform]
  * @returns {() => void}
  */
-function forwardTerminationSignals(onSignal) {
-  const installed = FORWARDED_SIGNALS.map((name) => {
+function forwardTerminationSignals(onSignal, platform = process.platform) {
+  const signals = platform === 'win32' ? [...FORWARDED_SIGNALS, 'SIGBREAK'] : FORWARDED_SIGNALS;
+  const installed = signals.map((name) => {
     const handler = () => onSignal(name);
     process.on(name, handler);
     return [name, handler];
@@ -135,6 +140,20 @@ function forwardTerminationSignals(onSignal) {
   return () => {
     for (const [name, handler] of installed) process.off(name, handler);
   };
+}
+
+/**
+ * The bridge for the short `--help` and `models` probes. They are not
+ * detached, so on POSIX the terminal's Ctrl+C reaches them directly and no
+ * handler is installed. On win32 the hidden child has a console of its own,
+ * so the bridge is needed there.
+ *
+ * @param {(signal: string) => void} onSignal
+ * @param {string} platform
+ * @returns {(() => void) | null}
+ */
+function forwardHiddenChildSignals(onSignal, platform) {
+  return platform === 'win32' ? forwardTerminationSignals(onSignal, platform) : null;
 }
 
 /**
@@ -221,9 +240,10 @@ export async function probeAgy({
       };
       // The existing total probe deadline also bounds pipes inherited after exit.
       timer = setTimeout(() => abandon('timeout'), timeoutMs);
-      // A detached probe leaves the terminal's process group, so Ctrl+C has to
-      // be passed on explicitly (see forwardTerminationSignals).
-      if (detached) removeSignalHandlers = forwardTerminationSignals(() => abandon('cancelled'));
+      // Ctrl+C does not reach the probe by itself (detached on POSIX, a
+      // console of its own on win32), so it is passed on explicitly (see
+      // forwardTerminationSignals).
+      removeSignalHandlers = forwardTerminationSignals(() => abandon('cancelled'), platform);
       child.stdout.on('data', (c) => {
         // A version needs only its first token; drain the rest without retaining it.
         if (stdout.length < 4096) stdout += c.toString('utf8').slice(0, 4096 - stdout.length);
@@ -257,13 +277,15 @@ const MAX_HELP_BYTES = 65_536;
  * flag the plugin forwards is *listed* in that text, never whether it
  * *works*, which `--help` cannot prove.
  *
- * @param {{ bin?: string, timeoutMs?: number, terminateTree?: typeof terminateProcessTree }} [opts]
+ * @param {{ bin?: string, timeoutMs?: number, terminateTree?: typeof terminateProcessTree,
+ *   platform?: string }} [opts]
  * @returns {Promise<{ ok: boolean, help?: string, reason?: string }>}
  */
 export async function probeAgyHelp({
   bin = resolveAgyBin(),
   timeoutMs = 5000,
   terminateTree = terminateProcessTree,
+  platform = process.platform,
 } = {}) {
   try {
     assertAgyBinSpawnable(bin);
@@ -271,6 +293,7 @@ export async function probeAgyHelp({
     return { ok: false, reason: err?.message ?? String(err) };
   }
   let timer;
+  let removeSignalHandlers = null;
   try {
     return await new Promise((resolve) => {
       const child = spawnAgy(bin, ['--help'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -291,6 +314,7 @@ export async function probeAgyHelp({
         resolve({ ok: false, reason });
       };
       timer = setTimeout(() => abandon('timeout'), timeoutMs);
+      removeSignalHandlers = forwardHiddenChildSignals(() => abandon('cancelled'), platform);
       child.stdout.on('data', appendHelp);
       child.stderr.on('data', appendHelp);
       child.on('error', (e) => {
@@ -305,6 +329,64 @@ export async function probeAgyHelp({
     });
   } finally {
     clearTimeout(timer);
+    removeSignalHandlers?.();
+  }
+}
+
+/** Fetch the model table without starting a model run. */
+export async function probeAgyModels({
+  bin = resolveAgyBin(),
+  timeoutMs = 20000,
+  terminateTree = terminateProcessTree,
+  platform = process.platform,
+} = {}) {
+  try {
+    assertAgyBinSpawnable(bin);
+  } catch (err) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
+  let timer;
+  let removeSignalHandlers = null;
+  try {
+    return await new Promise((resolve) => {
+      const child = spawnAgy(bin, ['models'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      // Parse only stdout. agy 1.5.3 writes its fetch notice to stderr;
+      // an authentication notice there makes the listing unavailable.
+      let text = '';
+      let stderr = '';
+      let overflow = false;
+      const appendListing = (chunk) => {
+        if (text.length + chunk.length > MAX_HELP_BYTES) overflow = true;
+        if (text.length < MAX_HELP_BYTES) text += chunk.toString('utf8').slice(0, MAX_HELP_BYTES - text.length);
+      };
+      const abandon = (reason) => {
+        terminateTree(child.pid).catch(() => {});
+        child.stdout.destroy?.();
+        child.stderr.destroy?.();
+        child.unref?.();
+        resolve({ ok: false, reason });
+      };
+      timer = setTimeout(() => abandon('timeout'), timeoutMs);
+      removeSignalHandlers = forwardHiddenChildSignals(() => abandon('cancelled'), platform);
+      child.stdout.on('data', appendListing);
+      child.stderr.on('data', (c) => { stderr += c.toString('utf8').slice(0, 4096 - stderr.length); });
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        resolve({ ok: false, reason: e.code === 'ENOENT' ? 'not-installed' : e.message });
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) return resolve({ ok: false, reason: `exit ${code}` });
+        if (overflow) return resolve({ ok: false, reason: 'listing too large' });
+        if (/auth.*required|sign.?in|log.?in|oauth/i.test(stderr)) {
+          return resolve({ ok: false, reason: 'authentication required' });
+        }
+        resolve({ ok: true, text });
+      });
+    });
+  } finally {
+    clearTimeout(timer);
+    removeSignalHandlers?.();
   }
 }
 
@@ -366,8 +448,7 @@ function createNdjsonLineFeeder() {
  * event appears, the last one wins — atomically: each `result` event
  * replaces the whole prior snapshot rather than filling in gaps field by
  * field, so a later event that omits a field never keeps an earlier event's
- * value for that field (plan 086 T5e F2; before this fix a `?? out.X` merge
- * let a torn/partial later `result` inherit stale data from an earlier one).
+ * value for that field (before this fix a `?? out.X` merge let a torn/partial later `result` inherit stale data from an earlier one).
  * When no `result` event is found, `sawResult` is `false` and every other
  * field stays `null` — nothing is guessed from `step_update`/`init` events.
  *
@@ -379,8 +460,7 @@ function createNdjsonLineFeeder() {
  * `deniedActions` carries `result.denied_actions` normalized via
  * {@link normalizeDeniedActions}, then joined with the denied target named
  * in a `step_update` event's tool error message via
- * {@link joinDeniedActionTargets}/{@link parseStepUpdateDeniedTargets} (plan
- * 086 T3) — `null` when the field was absent on every `result` event seen,
+ * {@link joinDeniedActionTargets}/{@link parseStepUpdateDeniedTargets} — `null` when the field was absent on every `result` event seen,
  * an array (possibly empty) once one carried it. `target` is `null` on a
  * member no `step_update` matched.
  *
@@ -425,8 +505,8 @@ export function parseAgyStream(text) {
 /**
  * The complete field snapshot for one `result` event, replacing (never
  * merging with) whatever an earlier `result` event in the same stream left
- * behind — see {@link parseAgyStream}'s "last one wins, atomically" contract
- * (plan 086 T5e F2). A field this event does not carry becomes `null`, not
+ * behind — see {@link parseAgyStream}'s "last one wins, atomically" contract.
+ * A field this event does not carry becomes `null`, not
  * "whatever the previous event had".
  *
  * @param {object} r the `result` field of one `result` event
@@ -441,13 +521,14 @@ function resultEventSnapshot(r, stepTargets) {
     response: typeof r.response === 'string' ? r.response : null,
     usage: r.usage ?? null,
     durationSeconds: r.duration_seconds ?? null,
+    reportedModel: typeof r.model === "string" ? r.model : null,
     conversationId: r.conversation_id ?? null,
     resultStatus: r.status ?? null,
     resultError: typeof r.error === 'string' && r.error ? r.error : null,
     deniedActions: Array.isArray(r.denied_actions)
       ? joinDeniedActionTargets(normalizeDeniedActions(r.denied_actions), stepTargets)
       : null,
-    // Senate R7 (2026-09): agy's `--json-schema` answer, measured on agy
+    // agy's `--json-schema` answer, measured on agy
     // 1.2.12 as `structured_output` (probe-json-schema.txt). Kept raw
     // (object or string); `review-findings.mjs` validates it.
     structured: r.structured_output ?? null,
@@ -484,8 +565,8 @@ export const MAX_DENIED_ACTION_STRING_LENGTH = 200;
  * that is not a non-empty string once sanitized, so a caller can treat that
  * as "missing".
  *
- * U+2028/U+2029 and the C1 range survived the original C0/DEL-only filter
- * (plan 086 T5e F5): both can break a single-line stderr echo or a markdown
+ * U+2028/U+2029 and the C1 range survived the original C0/DEL-only filter.
+ * Both can break a single-line stderr echo or a markdown
  * label across lines the same way a raw CR/LF would, and this string is
  * untrusted agy-reported (or, for a `target`, model-chosen) text. Quote
  * characters are left unescaped on purpose: every display site renders this
@@ -523,7 +604,7 @@ function normalizeJsonDeniedAction(member) {
 }
 
 /**
- * Normalize agy's `result.denied_actions` array (T0a: 0..n members, repeats,
+ * Normalize agy's `result.denied_actions` array (0..n members, repeats,
  * and the field on a non-SUCCESS result are all UNVERIFIED beyond the single-
  * member SUCCESS fixture) into a bounded, de-duplicated list: malformed
  * members are skipped, exact repeats (same action + displayName) are
@@ -550,7 +631,7 @@ export function normalizeDeniedActions(rawList) {
 
 /**
  * agy's stable permission-denial message prefix (measured on 1.2.1, both
- * `086-T3` fixtures): `permission check failed for <action> "<target>":`.
+ * captured fixtures): `permission check failed for <action> "<target>":`.
  * The action is the first whitespace-free token; the target is the quoted
  * text up to the first `":` that follows it — non-greedy so a target that
  * happens to contain a bare `"` does not run past the real close.
@@ -583,8 +664,7 @@ function matchPermissionDenialMessage(message) {
  * Scan an agy stream-json blob for `step_update` events reporting a
  * headless permission denial (`state: 'ERROR'`, `step_type: 'tool'`) and
  * extract the denied target from `tool_info.error.message` — the `result`
- * event's `denied_actions` carries the action alone, never the target (plan
- * 086 T3). {@link joinDeniedActionTargets} joins the result **by action
+ * event's `denied_actions` carries the action alone, never the target. {@link joinDeniedActionTargets} joins the result **by action
  * name**, never by `tool_name`: on both measured fixtures the tool name
  * differs from the action (`read_url_content` vs `read_url`, `run_command`
  * vs `command`).
@@ -626,8 +706,7 @@ function parseStepUpdateDeniedTargets(text) {
 
 /**
  * Join `{ target }` onto each normalized `denied_actions` member by action
- * name, occurrence-aware (item 1, plan 086 T3; made occurrence-aware plan
- * 086 T5e F2): `normalizeDeniedActions` keeps two members with the same
+ * name, occurrence-aware: `normalizeDeniedActions` keeps two members with the same
  * `action` distinct when their `displayName` differs (a real shape: two
  * denied calls to the same tool for different reasons), so mapping every
  * same-action member onto the FIRST `stepTargets` entry for that action
@@ -758,10 +837,10 @@ export function extractFatalErrorMarker(stderr) {
  * was present, so older agy (no `denied_actions` field) still surfaces its
  * one known denial, never duplicated once agy 1.1.27's own list also carries
  * it. `null` when neither source has anything (the additive "no
- * information" contract T2 item 2 requires).
+ * information" contract requires).
  *
  * The stderr-sourced `action` runs through {@link sanitizeDeniedActionString}
- * (T3 carry-over item 9) exactly like the JSON path's `action`/`displayName`
+ * exactly like the JSON path's `action`/`displayName`
  * fields — capped at {@link MAX_DENIED_ACTION_STRING_LENGTH} and stripped of
  * control characters — since `sentinelDenial.tool` comes from
  * {@link detectAutoDenial}'s free-text quote capture, not a bounded schema.
@@ -859,7 +938,7 @@ function normalizeRunOptions(options) {
   };
 }
 
-/** Forwarded for `timeoutMs === 0` ("no deadline"). agy before 1.2.6 treated a literal `--print-timeout 0` as an immediate timeout (T0a fixtures item 4); since 1.2.6 `0` means unlimited (`agy --help` 1.2.7: "default 0s", measured in raw-print-timeout-zero.txt). A large fixed duration keeps one behaviour across both. */
+/** Forwarded for `timeoutMs === 0` ("no deadline"). agy before 1.2.6 treated a literal `--print-timeout 0` as an immediate timeout; since 1.2.6 `0` means unlimited (`agy --help` 1.2.7: "default 0s", measured in raw-print-timeout-zero.txt). A large fixed duration keeps one behaviour across both. */
 export const PRINT_TIMEOUT_NO_DEADLINE = '24h';
 
 /** Headroom added on top of the plugin's own outer budget before it is
@@ -894,7 +973,7 @@ export function printTimeoutArg(timeoutMs) {
  * print-mode path (plain print, `--continue`, `--conversation`) the same
  * way; the `--version` probe does not go through this builder.
  *
- * `jsonSchemaPath` (Senate R7, 2026-09) adds `--json-schema <path>` right
+ * `jsonSchemaPath` (added 2026-09) adds `--json-schema <path>` right
  * before `--print-timeout`; `review --findings-json` is its only caller.
  *
  * @param {{ mode: string, conversationId?: string, addDirs: string[],
@@ -902,7 +981,7 @@ export function printTimeoutArg(timeoutMs) {
  *   timeoutMs: number }} options
  * @returns {string[]}
  */
-function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, jsonSchemaPath, timeoutMs }) {
+export function buildAgyArgs({ mode, conversationId, addDirs, model, effort, extraArgs, jsonSchemaPath, timeoutMs }) {
   const args = [];
   if (mode === 'continue') args.push('--continue');
   if (mode === 'conversation') {
@@ -1151,12 +1230,13 @@ function wireAgyStreams(child, session, { maxStdoutBytes, maxStderrBytes, onStdo
  * caller's promise rejects rather than resolving to a result.
  *
  * @param {{ child: import('node:child_process').ChildProcess, session: object,
- *   prompt: string, onSpawn?: (info: { pid: number | null, child: object }) => void | Promise<void> }} args
+ *   prompt: string, onSpawn?: (info: { pid: number | null, child: object, isAlive: () => boolean }) => void | Promise<void> }} args
  * @returns {Promise<number>}
  */
 async function writePromptAndAwaitExit({ child, session, prompt, onSpawn }) {
   try {
-    await onSpawn?.({ pid: child.pid ?? null, child });
+    await onSpawn?.({ pid: child.pid ?? null, child,
+      isAlive: () => Boolean(child.pid) && !session.exited && !session.settled && !session.spawnError });
   } catch (err) {
     session.initiateTermination('failed');
     await session.exitCodePromise;
@@ -1185,7 +1265,7 @@ function describeDeniedActionMember(member) {
 /**
  * The stderr note appended when a SUCCESS result produced no answer text and
  * the only denial evidence is agy's structured `denied_actions` JSON list —
- * no stderr sentinel line (plan 086 T5e F1: `classifyFinalStatus` used to
+ * no stderr sentinel line (`classifyFinalStatus` used to
  * treat only the sentinel as denial evidence, so this exact shape passed as
  * `completed` with nothing in it).
  *
@@ -1201,7 +1281,7 @@ function structuredDenialEmptyNote(deniedActionsList) {
 /**
  * The warning pushed when a SUCCESS result answered despite carrying a
  * structured JSON-only denial (no stderr sentinel) — mirrors the sentinel
- * path's `warnings.push(denial.line)` (plan 086 T5e F1) so a real answer
+ * path's `warnings.push(denial.line)` so a real answer
  * with one denied input is reported the same way regardless of which
  * evidence source (stderr sentinel or JSON list) named the denial.
  *
@@ -1217,7 +1297,7 @@ function structuredDenialAnsweredWarning(deniedActionsList) {
  * Scan an agy stream-json blob for the first `step_update` event whose
  * `step_type` is not `"tool"` — the only value {@link parseStepUpdateDeniedTargets}
  * (and therefore the denial-classification path above) actually recognises
- * (Task 3, "Senate R1", 2026-09). Used only to annotate
+ * (added 2026-09). Used only to annotate
  * {@link emptyAnswerNote}'s generic "unexplained empty response" branch: this
  * never infers an action or a remedy from the value, only names it, so a
  * denial/timeout explanation this module already understands is never
@@ -1250,8 +1330,8 @@ function findUnrecognisedStepType(text) {
  * Stderr note(s) for a SUCCESS result that produced no answer text: one
  * line per explanation actually present (a stderr-sentinel denial, a
  * structured JSON-only denial, agy's own print-timeout marker), or one
- * generic line when none of them explain it (plan 086 T5e F1 — "an
- * unexplained empty response" is a failure like any other, not a silent
+ * generic line when none of them explain it (an
+ * unexplained empty response is a failure like any other, not a silent
  * success).
  *
  * Verbs checked for a legitimately silent answer before this was widened:
@@ -1263,7 +1343,7 @@ function findUnrecognisedStepType(text) {
  * contract. No verb's prompt asks the model to reply with nothing, so this
  * reclassification has no verb to spare at this (verb-agnostic) layer.
  *
- * `rawStdout` (Task 3, "Senate R1", 2026-09) is scanned only on the generic
+ * `rawStdout` (added 2026-09) is scanned only on the generic
  * fallback branch (no denial, no structured denial, no print-timeout marker)
  * for a `step_update` whose `step_type` this module does not recognise
  * ({@link findUnrecognisedStepType}): a denial or timeout already explains
@@ -1307,7 +1387,7 @@ function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncati
  * `deniedActions` ({@link mergeDeniedActions} of `parsed.deniedActions` and
  * the stderr sentinel) is computed and returned on every branch, including
  * the ones that never reach the fail-vs-answered check below; it also feeds
- * that check now (plan 086 T5e F1): a structured JSON-only denial (no
+ * that check now: a structured JSON-only denial (no
  * stderr sentinel) is denial evidence exactly like the sentinel is, so a
  * `SUCCESS` result with an empty response and `denied_actions` present only
  * in the JSON is `failed`, not `completed` with nothing in it. An empty
@@ -1315,8 +1395,7 @@ function emptyAnswerNote({ denial, structuredDenial, deniedActionsList, truncati
  * print-timeout marker) is now also `failed` — see {@link emptyAnswerNote}
  * for the verbs checked before this was widened.
  *
- * `truncation` ({@link detectPrintTimeoutTruncation} of the raw stderr, plan
- * 086 T1) joins `denial`/structured-denial as a reason an otherwise-SUCCESS
+ * `truncation` ({@link detectPrintTimeoutTruncation} of the raw stderr) joins `denial`/structured-denial as a reason an otherwise-SUCCESS
  * result with an empty response is reclassified `failed`: agy's own print
  * timeout can expire before the model produced any text at all, which is
  * the same "no answer was ever produced" shape a starved denial already
@@ -1413,6 +1492,7 @@ function classifyRunResult({ session, exitCode }) {
     rawStdout: session.stdout,
     usage: parsed.usage ?? null,
     durationSeconds: parsed.durationSeconds ?? null,
+    reportedModel: parsed.reportedModel ?? null,
     agyConversationId: parsed.conversationId ?? null,
     warnings: session.warnings,
     denial: finalized.denial,
@@ -1469,10 +1549,11 @@ function classifyRunResult({ session, exitCode }) {
  * land before the always-on `--input-format`/`--output-format`/`--print` tail.
  *
  * Outside win32 the child is spawned `detached` (its own process group, so
- * `terminateProcessTree` can signal the group) and `SIGINT`/`SIGTERM`/`SIGHUP`
- * are forwarded to the same cancellation for as long as the child runs, so
- * Ctrl+C still takes agy and its children down. `platform` overrides the
- * detection for tests.
+ * `terminateProcessTree` can signal the group). On every platform
+ * `SIGINT`/`SIGTERM`/`SIGHUP` (and `SIGBREAK` on win32, where the hidden
+ * child has a console of its own) are forwarded to the same cancellation
+ * for as long as the child runs, so Ctrl+C still takes agy and its children
+ * down. `platform` overrides the detection for tests.
  *
  * `outputFormat` is accepted for backward compat but is now a no-op — agy
  * always runs in stream-json mode, which carries the same envelope fields
@@ -1520,7 +1601,7 @@ function classifyRunResult({ session, exitCode }) {
  *       `agent-runtime:` line naming the tool, the denied action(s), and/or
  *       the expired print timeout. Callers that know the verb add the
  *       per-verb hint. An empty response with NONE of these three present
- *       is also `failed` (plan 086 T5e F1: "unexplained empty" is a failure
+ *       is also `failed` ("unexplained empty" is a failure
  *       like any other), with a generic `agent-runtime:` line — see
  *       {@link emptyAnswerNote} for the verbs checked before this was
  *       widened.
@@ -1534,7 +1615,7 @@ function classifyRunResult({ session, exitCode }) {
  *       is set either way (a) or (c) has it; callers add their own warning
  *       line for case (c) (job-helpers.mjs).
  *
- * `deniedActions` (additive, T2/plan 085) is the structured detail behind
+ * `deniedActions` (additive) is the structured detail behind
  * `denial`: agy 1.1.27's `result.denied_actions` JSON list
  * ({@link normalizeDeniedActions}) merged with the stderr sentinel
  * ({@link mergeDeniedActions}) — the JSON list wins when present, so an
@@ -1543,14 +1624,14 @@ function classifyRunResult({ session, exitCode }) {
  * `status` or the exit code; job-helpers.mjs's `denialRemedy` turns each
  * `action` into the caller-facing remedy sentence.
  *
- * `agyPrintTimeout` (additive, T1/plan 086) is `{ limit: string | null }`
+ * `agyPrintTimeout` (additive) is `{ limit: string | null }`
  * when {@link detectPrintTimeoutTruncation} found the marker on stderr, else
  * `null`. It never changes the exit code by itself; only an empty response
  * alongside it does (case (a) above), the same treatment a starved denial
  * already gets.
  *
  * `errorMessage` also picks up agy's stable `error:` fatal marker
- * ({@link extractFatalErrorMarker}, additive, T1/plan 086) when the run
+ * ({@link extractFatalErrorMarker}, additive) when the run
  * failed for a reason agy itself reported and no plugin-authored termination
  * reason (timeout, output-limit, cancellation) already explains it. When
  * agy sent no such marker, the run's `result.error` (for example `UNAVAILABLE
@@ -1613,12 +1694,13 @@ export async function runAgyPrint(rawOptions = {}) {
     }, timeoutMs)
     : null;
 
-  // A detached agy no longer dies with the terminal's foreground process
-  // group, so the interactive signals are forwarded to the same bounded
-  // cancellation an abort uses (see forwardTerminationSignals).
-  const removeSignalHandlers = detached
-    ? forwardTerminationSignals(() => session.initiateTermination('cancelled'))
-    : null;
+  // agy does not die with the terminal's foreground process group (detached
+  // on POSIX, a console of its own on win32), so the interactive signals are
+  // forwarded to the same bounded cancellation an abort uses (see
+  // forwardTerminationSignals).
+  const removeSignalHandlers = forwardTerminationSignals(
+    () => session.initiateTermination('cancelled'), platform,
+  );
 
   let abortListener;
   if (signal) {

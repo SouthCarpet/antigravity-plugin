@@ -1,5 +1,5 @@
 /**
- * Tests for the vision command's usage propagation (Task 5):
+ * Tests for the vision command's usage propagation:
  * runAgyPrint is invoked with outputFormat: 'json', a successful run with
  * measured usage prints a `usage: total=<N> in=<N> out=<N>` stderr trailer
  * and carries usage/durationSeconds in the --json payload, and a
@@ -32,6 +32,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       return { ...runtime.next };
     },
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },

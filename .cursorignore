@@ -4,7 +4,6 @@ coverage/
 dist/
 .cache/
 .tmp/
-.vault/
 .antigravitycli/
 *.log
 *.tgz

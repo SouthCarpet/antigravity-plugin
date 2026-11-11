@@ -9,7 +9,7 @@ import { readCommandInput, resolveCliCwd } from "../lib/args.mjs";
 import { resolveCancelableJob } from "../lib/job-control.mjs";
 import { appendJobLog, recoverStateLock } from "../lib/state.mjs";
 import { createErrorEnvelope, createJsonEnvelope, outputCommandResult, renderCancelReport } from "../lib/render.mjs";
-import { classifyStateError, patchJob } from "../lib/job-helpers.mjs";
+import { classifyStateError, patchJob, cleanupConfirmedTools } from "../lib/job-helpers.mjs";
 import { isFileLockTimeoutError } from "../lib/file-lock.mjs";
 import { checkProcessIdentity, isProcessAlive, readProcessStartTime, terminateProcessTree } from "../lib/process.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
@@ -88,10 +88,14 @@ async function terminateCancelTargets(workspaceRoot, job, targets, deps) {
   const jobId = job.id;
   const seen = new Set();
   const termination = [];
+  const agyWasGone = !deps.isProcessAlive(Number(job.agyPid));
   for (const [role, pid, recordedStartTime] of targets) {
     if (seen.has(pid)) continue;
     seen.add(pid);
     const result = await terminateIfOwned(role, pid, recordedStartTime, deps);
+    if (role === "agy" && agyWasGone && result.outcome === "not_found") {
+      await cleanupConfirmedTools(workspaceRoot, job, { ...deps, terminateTree: deps.terminate }, "cancel");
+    }
     termination.push({ role, ...result });
     appendJobLog(
       workspaceRoot,
@@ -242,6 +246,9 @@ export async function run(argv = [], ctx = {}) {
     terminate: ctx.terminateProcessTree ?? terminateProcessTree,
     isProcessAlive: ctx.isProcessAlive ?? isProcessAlive,
     readStartTime: ctx.readProcessStartTime ?? readProcessStartTime,
+    queryChildren: ctx.queryChildren,
+    platform: ctx.platform,
+    cleanupNow: ctx.cleanupNow,
   };
   const persist = ctx.patchJob ?? patchJob;
   const output = ctx.outputCommandResult ?? outputCommandResult;
@@ -261,8 +268,7 @@ export async function run(argv = [], ctx = {}) {
 
 /**
  * Report a `resolveCancelableJob` failure (no active job, or none matching
- * `reference`): the existing stderr line, unchanged, plus (Task 3, "Senate
- * R1", 2026-09) one `state_error` `--json` envelope when `json` is true.
+ * `reference`): the existing stderr line, unchanged, plus (added 2026-09) one `state_error` `--json` envelope when `json` is true.
  * `jobId` is always `null` here — the job was never resolved.
  *
  * @param {unknown} err

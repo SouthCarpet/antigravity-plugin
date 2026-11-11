@@ -2,6 +2,8 @@
 // antigravity-plugin — standalone CLI: `npx @southcarpet/antigravity-plugin <command>`.
 // Dispatches to scripts/commands/<name>.mjs so behaviour is identical to
 // the Claude Code and Codex CLI hosts.
+import processExit from '../scripts/lib/process-exit.cjs';
+const { endProcess } = processExit;
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -24,11 +26,14 @@ const KNOWN = ['media', 'setup', 'review', 'rescue', 'task', 'vision', 'status',
 const AGY_REQUIRED = new Set(['setup', 'review', 'rescue', 'task', 'vision']);
 
 /** Help text per command — flag/positional contract. */
+const PREVIEW_HELP = '\n  --preview               show a fresh request; no probe, download or state write.\n' +
+  '                          Aliases stay unresolved. Refuses background, wait,\n' +
+  '                          continuation, request-id and show-result flags.\n';
 const COMMAND_HELP = {
-  media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript] [--keep] [--json] [--cwd <path>]',
+  media: 'Usage: media <file-path | youtube-url> [--prompt <text>] [--model <id> | --model-alias <alias>] [--expect <text>]... [--quality 360p|480p|720p] [--audio] [--transcript [--timestamps]] [--keep] [--output <path>] [--json] [--cwd <path>]',
   setup:
     'antigravity-plugin setup — one-time OAuth wizard.\n\n' +
-    'Usage: antigravity-plugin setup [--skip-vision|--remove-vision]\n\n' +
+    'Usage: antigravity-plugin setup [--skip-vision|--remove-vision] [--json]\n\n' +
     'Runs `agy --print` once so the OAuth URL surfaces. Idempotent.\n' +
     'Also registers the vision MCP server + one exact permission (skip with --skip-vision).\n' +
     '--remove-vision removes only persistent entries this plugin added.\n' +
@@ -43,6 +48,7 @@ const COMMAND_HELP = {
     '  --wait                  block until the job finishes\n' +
     '  --continue              resume the last review conversation\n' +
     '  --conversation <id>     resume a specific conversation\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high|agy-default>  agy reasoning effort for this run\n' +
     "  --focus <text>          narrow the review's attention (max 500 chars)\n" +
@@ -56,6 +62,11 @@ const COMMAND_HELP = {
     '  --check-locations       heuristically check each path:line citation the\n' +
     '                          answer names against the sent diff\'s own hunks;\n' +
     '                          local only, adds nothing to the agy call\n' +
+    '  --models <a,b>          run the same review against two different models\n' +
+    '                          and compare their findings (needs --findings-json;\n' +
+    '                          conflicts with --model, --model-alias, --background,\n' +
+    '                          --wait, --continue, --conversation, --show-result,\n' +
+    '                          --preview)\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory',
   rescue:
@@ -66,6 +77,7 @@ const COMMAND_HELP = {
     '  --conversation <id>     resume a specific conversation\n' +
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --show-result           after --wait, print the finished job instead of\n' +
@@ -83,6 +95,7 @@ const COMMAND_HELP = {
     '  --conversation <id>     resume a specific conversation\n' +
     '  --add-dir <path>        extra workspace dir (repeatable)\n' +
     '  --mode <plan|accept-edits>  agy execution mode for this run\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id for this run\n' +
     '  --effort <low|medium|high>  agy reasoning effort for this run\n' +
     '  --show-result           after a background --wait, print the finished\n' +
@@ -100,6 +113,7 @@ const COMMAND_HELP = {
     'Usage: antigravity-plugin vision <image-path> [<image-path>...] [flags]\n\n' +
     'Flags:\n' +
     '  --prompt <text>         question to ask about the image(s)\n' +
+    '  --model-alias <alias>   resolve a listed family (conflicts with --model)\n' +
     '  --model <id>            agy model id (default gemini-3.8-flash-high)\n' +
     '  --expect <text>         repeatable; check this text against the answer\'s\n' +
     '                          `## Transcription` section after a completed run\n' +
@@ -129,6 +143,11 @@ const COMMAND_HELP = {
     '                         stored answer names against the job\'s own stored\n' +
     '                         request.hunks; works on a job reviewed without\n' +
     '                         the flag\n' +
+    '  --check-current        tell whether a review job\'s input still matches\n' +
+    '                         the repository now (match, changed or unknown);\n' +
+    '                         a snapshot, read-only, git only, review jobs only\n' +
+    '  --export <path>        write the stored record (the plain --json text)\n' +
+    '                         to a NEW file; never overwrites\n' +
     '  --json                 emit JSON instead of markdown\n' +
     '  --cwd <path>           override working directory\n' +
     'Both --head and --tail may be given; markdown output notes a cut.\n' +
@@ -141,6 +160,7 @@ const COMMAND_HELP = {
     'antigravity-plugin doctor: read-only environment and configuration check.\n\n' +
     'Usage: antigravity-plugin doctor [flags]\n\n' +
     'Flags:\n' +
+    '  --receipt               print a redacted compatibility receipt\n' +
     '  --json                  emit JSON instead of markdown\n' +
     '  --cwd <path>            override working directory\n\n' +
     'Checks Node version, the agy binary and version, which forwarded flags\n' +
@@ -158,16 +178,19 @@ const COMMAND_HELP = {
     'changes an installed copy by itself.\n\n' +
     'Flags:\n' +
     "  --apply                 run each present host's update command, printing it first\n" +
-    '  --json                  emit JSON (a convenience; unstable in 1.x)\n' +
+    '  --json                  emit JSON (a convenience; unstable in 3.x)\n' +
     'Env: ANTIGRAVITY_NO_UPDATE_CHECK=1 skips the registry call.',
 };
+
+for (const kind of ['task', 'rescue', 'vision', 'media']) COMMAND_HELP[kind] += PREVIEW_HELP;
+COMMAND_HELP.rescue += '\n  --prompt-file <path>     UTF-8 file, 512 KiB max; - is standalone stdin.\n                          No positional prompt; preview also refuses --resume.\n';
 
 const [, , raw, ...rest] = process.argv;
 const arg0 = (raw || '').toLowerCase();
 
 if (arg0 === '--version' || arg0 === '-v') {
   process.stdout.write(`${readVersion()}\n`);
-  process.exit(0);
+  await endProcess(0);
 }
 
 if (!arg0 || arg0 === '-h' || arg0 === '--help' || arg0 === 'help') {
@@ -175,14 +198,14 @@ if (!arg0 || arg0 === '-h' || arg0 === '--help' || arg0 === 'help') {
   if (arg0 === 'help' && sub) {
     if (COMMAND_HELP[sub]) {
       process.stdout.write(`${COMMAND_HELP[sub]}\n`);
-      process.exit(0);
+      await endProcess(0);
     }
     process.stderr.write(`antigravity-plugin: no help for '${rest[0]}'.\n`);
     suggest(sub);
-    process.exit(2);
+    await endProcess(2);
   }
   printHelp();
-  process.exit(0);
+  await endProcess(0);
 }
 
 // `update` is a dispatcher convenience like `help`/`--version`, not a ninth
@@ -190,47 +213,48 @@ if (!arg0 || arg0 === '-h' || arg0 === '--help' || arg0 === 'help') {
 if (arg0 === 'update') {
   if (rest.includes('--help') || rest.includes('-h')) {
     process.stdout.write(`${COMMAND_HELP.update}\n`);
-    process.exit(0);
+    await endProcess(0);
   }
   try {
     const { runUpdate } = await import('../scripts/lib/update.mjs');
-    process.exit(await runUpdate(rest, { cwd: process.cwd() }));
+    await endProcess(await runUpdate(rest, { cwd: process.cwd() }));
   } catch (err) {
     process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
-    process.exit(1);
+    await endProcess(1);
   }
 }
 
 if (!KNOWN.includes(arg0)) {
   process.stderr.write(`antigravity-plugin: unknown command '${raw}'.\n`);
   suggest(arg0);
-  process.exit(2);
+  await endProcess(2);
 }
 
 if (rest.includes('--help') || rest.includes('-h')) {
   process.stdout.write(`${COMMAND_HELP[arg0]}\n`);
-  process.exit(0);
+  await endProcess(0);
 }
 
 // Friendly preflight: AGY_BIN set but missing → install URL + exit 127.
 const removingVision = arg0 === 'setup' && rest.includes('--remove-vision');
-if (AGY_REQUIRED.has(arg0) && !removingVision && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
+const previewOnly = ['review', 'task', 'rescue', 'vision', 'media'].includes(arg0) && rest.slice(0, rest.indexOf('--') < 0 ? rest.length : rest.indexOf('--')).includes('--preview');
+if (AGY_REQUIRED.has(arg0) && !previewOnly && !removingVision && process.env.AGY_BIN && !existsSync(process.env.AGY_BIN)) {
   process.stderr.write(
     `antigravity-plugin: \`agy\` not found at AGY_BIN=${process.env.AGY_BIN}.\n` +
     `Install Google Antigravity CLI from ${INSTALL_URL} or unset AGY_BIN.\n`,
   );
-  process.exit(127);
+  await endProcess(127);
 }
 
 if (SCRIPT_ROOT_OVERRIDE && !isPluginRoot(SCRIPT_ROOT_OVERRIDE)) {
   process.stderr.write(`${invalidPluginRootMessage(SCRIPT_ROOT_OVERRIDE, arg0)}\n`);
-  process.exit(1);
+  await endProcess(1);
 }
 
 const modPath = resolve(SCRIPT_ROOT, `${arg0}.mjs`);
 if (!existsSync(modPath)) {
   process.stderr.write(`antigravity-plugin: command module not found at ${modPath}.\n`);
-  process.exit(2);
+  await endProcess(2);
 }
 
 let cmd;
@@ -239,24 +263,24 @@ try {
 } catch (err) {
   if (err?.code === 'ERR_MODULE_NOT_FOUND') {
     process.stderr.write(`antigravity-plugin: command '${arg0}' is not implemented yet.\n`);
-    process.exit(2);
+    await endProcess(2);
   }
   process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
-  process.exit(1);
+  await endProcess(1);
 }
 
 const run = cmd.run ?? cmd.default;
 if (typeof run !== 'function') {
   process.stderr.write(`antigravity-plugin: command '${arg0}' has no exported run().\n`);
-  process.exit(2);
+  await endProcess(2);
 }
 
 try {
   const code = await run(rest, { host: 'standalone', cwd: process.cwd() });
-  process.exit(typeof code === 'number' ? code : 0);
+  await endProcess(typeof code === 'number' ? code : 0);
 } catch (err) {
   process.stderr.write(`antigravity-plugin: ${err?.message ?? err}\n`);
-  process.exit(1);
+  await endProcess(1);
 }
 
 function readVersion() {
@@ -324,6 +348,7 @@ function printHelp(stream = process.stdout) {
     '  review     Review uncommitted changes (--base <ref> for a branch diff)',
     '  rescue     Hand a task off to agy (investigate, fix, refactor, ...)',
     '  task       Free-form prompt with state tracking',
+    '  media      Read audio, video or a YouTube transcript',
     '  vision     Ask agy to look at one or more images',
     '  status     List active/recent delegation jobs',
     '  result     Fetch the result of a finished job',
@@ -333,7 +358,7 @@ function printHelp(stream = process.stdout) {
     'Standalone only (not a runtime verb):',
     '  update     Check npm for a newer version; --apply runs each host\'s update command',
     '',
-    'Common flags: --background, --wait, --continue, --conversation <id>, --json',
+    'Common output flag: --json. Other flags vary by command; see help <command>.',
     'Env: AGY_BIN, ANTIGRAVITY_NO_UPDATE_CHECK, ANTIGRAVITY_SCRIPT_ROOT (testing only)',
     '',
     `Install agy: ${INSTALL_URL}`,

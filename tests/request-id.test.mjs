@@ -1,6 +1,6 @@
 /**
  * Opt-in `--request-id <id>` idempotent background dispatch on `task` and
- * `rescue --background` (Senate R12, 2026-09).
+ * `rescue --background` (added 2026-09).
  *
  * Every end-to-end case runs real `bin/antigravity.mjs` child processes
  * against a fake `agy` binary (tests/helpers/fake-agy.mjs), the same pattern

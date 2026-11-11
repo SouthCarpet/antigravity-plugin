@@ -1,6 +1,6 @@
 {
   "name": "@southcarpet/antigravity-plugin",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Multi-host plugin for delegating tasks and code reviews to Google Antigravity CLI (agy). Works inside Claude Code, Codex CLI, agy itself, and as a standalone CLI.",
   "type": "module",
   "bin": {
@@ -31,6 +31,8 @@
   "keywords": [
     "antigravity",
     "antigravity-cli",
+    "google-antigravity",
+    "gemini-cli",
     "agy",
     "claude-code",
     "claude-code-plugin",
@@ -69,5 +71,8 @@
   ],
   "devDependencies": {
     "eslint": "^10.10.0"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }

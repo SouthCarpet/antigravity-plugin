@@ -1,6 +1,6 @@
 /**
  * buildReviewInput — the single selection function for `/antigravity:review`
- * (Task 5, "Senate R5", 2026-09): foreground, background, and `--preview`
+ * (added 2026-09): foreground, background, and `--preview`
  * all call this one function to decide exactly what content reaches agy,
  * what got left out and why, whether the diff was cut, and the hash of the
  * exact prompt string that would be sent.
@@ -88,8 +88,7 @@ function buildDiffEntries(diff, fallbackPaths) {
 const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm;
 
 /**
- * The `{ path, newStart, newEnd }` hunks one file's diff chunk adds (Task
- * 14, "Senate R8", 2026-09): one entry per `@@` header, `newStart`/`newEnd`
+ * The `{ path, newStart, newEnd }` hunks one file's diff chunk adds (added 2026-09): one entry per `@@` header, `newStart`/`newEnd`
  * inclusive off that header's `+c,d` side (`d` defaults to 1 when the diff
  * omits the count). A pure-deletion hunk (`d` is `0`, no line actually
  * added) contributes nothing — there is no new-file line for a citation to
@@ -112,7 +111,7 @@ function diffChunkHunks(path, chunk) {
 
 /**
  * Every hunk the sent diff carries, across every file chunk it contains
- * (Task 14, "Senate R8", 2026-09): the same per-file split
+ * (added 2026-09): the same per-file split
  * {@link buildDiffEntries} uses, so a chunk with no resolvable path
  * ({@link diffChunkPath} returning `null`) contributes no hunks rather than
  * one under an invented name.
@@ -133,8 +132,7 @@ export function parseDiffHunks(diff) {
 }
 
 /**
- * The number of lines in a whole-file string (Task 14, "Senate R8",
- * 2026-09): a trailing newline never counts as one more empty line, so a
+ * The number of lines in a whole-file string (added 2026-09): a trailing newline never counts as one more empty line, so a
  * normally-terminated file's last real line is still `newEnd`.
  *
  * @param {string} text
@@ -148,7 +146,7 @@ function wholeFileLineCount(text) {
 
 /**
  * The one hunk per included untracked file, `{ path, newStart: 1, newEnd:
- * <line count> }` (Task 14, "Senate R8", 2026-09) — a whole untracked file
+ * <line count> }` (added 2026-09) — a whole untracked file
  * is one hunk covering every line it has. Mirrors
  * {@link buildUntrackedEntries}'s own `included` filter (skipped entries
  * carry no content to count), and the same branch scope carries no
@@ -221,12 +219,12 @@ function sha256Of(text) {
  * `envelope` is `collectReviewContext`'s own return value (`git.mjs`):
  * `{ scope, context, base, headSha }`. This function calls
  * {@link buildReviewPrompt}`(envelope, { focus })` itself, so the "## Reviewer
- * focus" section (Task 4) stays exactly where it already is — callers never
+ * focus" section stays exactly where it already is — callers never
  * build the prompt a second time.
  *
  * @param {{ scope: string, context: any, base?: string | null, headSha?: string | null }} envelope
  * @param {{ focus?: string, findingsJson?: boolean }} [options] `findingsJson`
- *   (Senate R7, 2026-09) is passed through to {@link buildReviewPrompt}, so
+ *   (added 2026-09) is passed through to {@link buildReviewPrompt}, so
  *   `--preview` and `inputHash` see the same prompt a run sends.
  * @returns {{
  *   prompt: string,
@@ -258,7 +256,7 @@ export function buildReviewInput(envelope, { focus, findingsJson } = {}) {
     untrackedBytes: sumBytes(untrackedIncluded),
   };
 
-  // Task 14 ("Senate R8", 2026-09): the hunks `review --check-locations`
+  // The hunks `review --check-locations`
   // (and a later `result --check-locations`) classifies citations against.
   // Computed here, unconditionally — stored on every review job, not only
   // under the flag, so a job reviewed without it can still be checked later.

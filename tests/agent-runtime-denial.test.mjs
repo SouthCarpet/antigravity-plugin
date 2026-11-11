@@ -5,7 +5,7 @@
  * and the run still exits 0 with `status: SUCCESS`. The only trace is a
  * stderr line; the `response` is empty when the denial starved the answer,
  * or non-empty when the model answered anyway with one input missing.
- * Probed live on 1.1.24 (plan 068, 2026-09-02).
+ * Probed live on 1.1.24 (2026-09-02).
  *
  * Rules under test:
  *   (a) SUCCESS + empty/whitespace response + denial line  -> failed
@@ -22,8 +22,9 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 
-// Verbatim from agy 1.1.24 stderr (plan 068 probe A). Only `auto-denied`
+// Verbatim from agy 1.1.24 stderr. Only `auto-denied`
 // and the quoted tool name are treated as stable; agy rewords the hints.
 const DENIAL_LINE =
   'jetski: no output produced — a tool required the "read_file" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_file(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
@@ -49,6 +50,9 @@ function makeFakeChild() {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
+    // process.mjs and the other tool callers reach spawnSync through the same
+    // adapter; this fake replaces only the asynchronous agy spawn.
+    spawnSync,
     spawn: (bin, args, opts) => {
       const child = makeFakeChild();
       spawnCalls.push({ bin, args, opts, child });
@@ -72,8 +76,7 @@ const {
 } = await import('../scripts/lib/agent-runtime.mjs');
 
 // Verbatim from agy 1.2.1 stderr, measured through the plugin's own
-// stream-json transport (plan 086 T1, controller correction,
-// t0d-stream-json-print-timeout.txt). Only `[agy] print timeout` and
+// stream-json transport (t0d-stream-json-print-timeout.txt). Only `[agy] print timeout` and
 // `returning partial output` are treated as stable; agy may reword the
 // middle (the duration and the "with turn in progress" clause).
 const PRINT_TIMEOUT_LINE =
@@ -162,7 +165,7 @@ describe('runAgyPrint — auto-denial classification', () => {
     assert.equal(res.denial.tool, 'read_file');
   });
 
-  // Plan 086 T5e F1: an "unexplained" empty response (no stderr sentinel, no
+  // An "unexplained" empty response (no stderr sentinel, no
   // structured denial, no print-timeout marker) used to stay `completed` —
   // "a model may legitimately say nothing". None of the four verbs' prompts
   // ask for a genuinely silent answer (review/vision demand a fixed
@@ -193,7 +196,7 @@ describe('runAgyPrint — auto-denial classification', () => {
     assert.deepEqual(res.warnings, []);
   });
 
-  // Task 3 ("Senate R1", 2026-09): the generic "unexplained empty response"
+  // The generic "unexplained empty response"
   // branch (no denial, no structured denial, no print-timeout marker) also
   // names an unrecognised step_type it saw along the way, without inferring
   // an action or a remedy from it. A fake-agy stream fixture: one
@@ -250,7 +253,7 @@ describe('runAgyPrint — auto-denial classification', () => {
   });
 });
 
-// agy's own `--print-timeout` (probed live on 1.1.24, plan 068 T4): the run
+// agy's own `--print-timeout` (probed live on 1.1.24): the run
 // exits 1 with EMPTY stderr and a result event that carries
 // status: ERROR + error: "timeout waiting for response". Before this, the
 // caller saw only "failed" and the word "timeout" appeared nowhere.
@@ -290,7 +293,7 @@ describe('parseAgyStream — resultError', () => {
   });
 });
 
-// Plan 085 T2: structured `denied_actions` (agy 1.1.27) parsing, merging
+// Structured `denied_actions` (agy 1.1.27) parsing, merging
 // with the stderr sentinel, and the field on `runAgyPrint`'s result.
 const READ_URL_MEMBER = { action: 'read_url', display_name: 'ReadUrlContent' };
 
@@ -355,7 +358,7 @@ describe('normalizeDeniedActions', () => {
     assert.equal(out[1].displayName, 'xy');
   });
 
-  // Plan 086 T5e F5: U+2028 (LINE SEPARATOR), U+2029 (PARAGRAPH SEPARATOR),
+  // U+2028 (LINE SEPARATOR), U+2029 (PARAGRAPH SEPARATOR),
   // and the C1 control range (U+0080-U+009F) survived the original
   // C0/DEL-only filter and could break a single-line stderr echo or a
   // markdown label across lines the same way a raw CR/LF would.
@@ -401,7 +404,7 @@ describe('mergeDeniedActions', () => {
     assert.equal(mergeDeniedActions([], null), null);
   });
 
-  // T3 carry-over item 9: the sentinel-sourced action is free text captured
+  // The sentinel-sourced action is free text captured
   // by detectAutoDenial's quote regex, not a bounded schema field like the
   // JSON path's members — it must go through the same sanitiser.
   it('sanitises a control character in the sentinel tool name', () => {
@@ -423,8 +426,7 @@ describe('mergeDeniedActions', () => {
   });
 });
 
-// T3 carry-over item 8: the exact `result` line from the t0a live fixture
-// (agy 1.1.27, A:\projects-vault\animus\data\agent-runs\085_antigravity-plugin-1.3\t0a-denied-stream-stdout.txt),
+// The exact `result` line from a live agy 1.1.27 run (a denied URL read),
 // copied unchanged, through parseAgyStream.
 describe('parseAgyStream — the t0a live fixture, verbatim', () => {
   const T0A_RESULT_LINE = '{"event":"result","result":{"conversation_id":"55443200-9863-4c41-8c38-709982557509","status":"SUCCESS","response":"","duration_seconds":2.2773574,"num_turns":1,"usage":{"input_tokens":5999,"output_tokens":135,"thinking_tokens":94,"cache_read_tokens":8125,"total_tokens":6134},"denied_actions":[{"action":"read_url","display_name":"ReadUrlContent"}]}}';
@@ -461,7 +463,7 @@ describe('parseAgyStream — deniedActions', () => {
     ]);
   });
 
-  // Plan 086 T5e F2: a second `result` event used to merge field-by-field
+  // A second `result` event used to merge field-by-field
   // (`?? out.X`), so a later event that omits a field silently kept the
   // earlier event's value for that field. A minimal `result` object (only
   // `status`) here has no `response`/`usage`/`denied_actions` at all; the
@@ -481,7 +483,7 @@ describe('parseAgyStream — deniedActions', () => {
   });
 });
 
-// Plan 086 T3: agy's result.denied_actions names only the action; the
+// Agy's result.denied_actions names only the action; the
 // denied target arrives separately, in a step_update event's tool error
 // message (`permission check failed for <action> "<target>":`). These two
 // fixtures are the verbatim step_update + result lines from
@@ -493,7 +495,7 @@ const T0E_RESULT_LINE = '{"event":"result","result":{"conversation_id":"594b90eb
 const T0C_STEP_LINE = '{"event":"step_update","step_update":{"conversation_id":"02358caf-ef58-47b4-8f58-2ef2c92a48cf","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"echo hello"},"error":{"type":"TOOL_ERROR","message":"permission check failed for command \\"echo hello\\": user denied permission to run command:\\necho hello"}}}}';
 const T0C_RESULT_LINE = '{"event":"result","result":{"conversation_id":"02358caf-ef58-47b4-8f58-2ef2c92a48cf","status":"SUCCESS","response":"","duration_seconds":3.5404118,"num_turns":1,"usage":{"input_tokens":5790,"output_tokens":648,"thinking_tokens":581,"cache_read_tokens":8124,"total_tokens":6438},"denied_actions":[{"action":"command","display_name":"RunCommand"}]}}';
 
-describe('parseAgyStream — denied-action target join, verbatim fixtures (plan 086 T3)', () => {
+describe('parseAgyStream — denied-action target join, verbatim fixtures', () => {
   it('t0e (read_url): joins the target parsed from the step_update error message', () => {
     const out = parseAgyStream(`${T0E_STEP_LINE}\n${T0E_RESULT_LINE}\n`);
     assert.deepEqual(out.deniedActions, [
@@ -510,7 +512,7 @@ describe('parseAgyStream — denied-action target join, verbatim fixtures (plan 
     ]);
   });
 
-  // Plan 086 T5e F2: `normalizeDeniedActions` keeps two members with the
+  // `normalizeDeniedActions` keeps two members with the
   // same action but a different displayName distinct (a real shape — two
   // denied calls to the same tool for different reasons), so mapping every
   // same-action member onto the FIRST step_update target would give two
@@ -653,7 +655,7 @@ describe('parseAgyStream — denied-action target join, verbatim fixtures (plan 
 });
 
 describe('runAgyPrint — deniedActions on the result', () => {
-  // Plan 086 T5e F1: "a JSON denial with a real answer still completes and
+  // "a JSON denial with a real answer still completes and
   // keeps the warning" — a structured JSON-only denial (no stderr sentinel)
   // is reported as a warning the same way a sentinel-detected denial is, so
   // an answered run is never silently missing that context.
@@ -705,10 +707,10 @@ describe('runAgyPrint — deniedActions on the result', () => {
     ]);
   });
 
-  // Plan 086 T5e F1: a structured JSON-only denial (no stderr sentinel) is
+  // A structured JSON-only denial (no stderr sentinel) is
   // now denial evidence exactly like the sentinel is, so an empty response
   // is `failed`, not `completed` with nothing in it (the bug the 1.1.0 work
-  // existed to close). Before this fix the item 1 comment here read "the new
+  // existed to close). Before this fix the comment here read "the new
   // data is detail, never a second way to fail a run" — that was the bug.
   it('a JSON-only denial with an empty response now fails (was: stayed completed)', async () => {
     arm({ response: '', deniedActions: [READ_URL_MEMBER] });
@@ -723,7 +725,7 @@ describe('runAgyPrint — deniedActions on the result', () => {
   });
 });
 
-// Plan 086 T1: agy's print-timeout truncation marker (>= 1.1.28) and its
+// Agy's print-timeout truncation marker (>= 1.1.28) and its
 // stable `error:` fatal marker.
 describe('detectPrintTimeoutTruncation', () => {
   it('matches the verbatim measured line and captures the duration', () => {
@@ -817,7 +819,7 @@ describe('extractFatalErrorMarker', () => {
   });
 });
 
-describe('runAgyPrint — agy print-timeout marker (plan 086 T1)', () => {
+describe('runAgyPrint — agy print-timeout marker', () => {
   it('non-empty response + marker -> completed, agyPrintTimeout set, a partial answer is still an answer', async () => {
     arm({ response: 'partial essay text...', stderr: PRINT_TIMEOUT_LINE });
     const res = await runAgyPrint({ prompt: 'p', bin: 'agy' });

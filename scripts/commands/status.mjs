@@ -101,7 +101,7 @@ export async function run(argv = [], ctx = {}) {
 
 /**
  * Report a job-lookup/state-read failure from the `try` block above: the
- * existing stderr line, unchanged, plus (Task 3, "Senate R1", 2026-09) one
+ * existing stderr line, unchanged, plus (added 2026-09) one
  * `state_error` `--json` envelope when `json` is true. `jobId` is always
  * `null` here — every throw site this catches fails before it resolves a
  * job.
@@ -122,8 +122,8 @@ function reportStatusStateError(err, json) {
 }
 
 /**
- * Attach denial remedies to a single-job snapshot's `job.deniedActions`
- * (plan 085 T2 item 4): the raw `{ action, displayName, source }` list
+ * Attach denial remedies to a single-job snapshot's `job.deniedActions`:
+ * the raw `{ action, displayName, source }` list
  * job-control.mjs carries through becomes `{ action, displayName, remedy }`
  * here, using the job's own `kind` — computed fresh (not persisted) so a
  * remedy wording change never rewrites a stored record. A no-op when the
@@ -140,8 +140,7 @@ function withDenialRemedies(snapshot) {
 }
 
 /**
- * Map `--exit-status`'s post-wait outcome onto the process exit code (Task
- * 8, "Senate R10", 2026-09): a terminal job's status feeds the same
+ * Map `--exit-status`'s post-wait outcome onto the process exit code (added 2026-09): a terminal job's status feeds the same
  * {@link exitCodeForJobStatus} every other verb uses (0 completed, 1
  * failed, 2 cancelled); a job still `queued`/`running` once the wait
  * deadline passed prints one stderr line and exits 3. The snapshot's own
@@ -219,8 +218,7 @@ const AGY_VERSION_WARNING_CLASSIFICATIONS = new Set(["beyond_measured", "unmeasu
  * One stderr line when the cached `agyVersionSeen` (written by `review`,
  * `rescue`, `task`, or `vision` after their own probe, see
  * `job-helpers.mjs#rememberAgyVersion`) falls outside this plugin's measured
- * range. Reads only the state config; never calls agy itself (Senate R2,
- * 2026-09). A no-reference `status` call only, never printed for
+ * range. Reads only the state config; never calls agy itself (added 2026-09). A no-reference `status` call only, never printed for
  * `status <id>`.
  *
  * @param {string} cwd

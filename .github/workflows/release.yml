@@ -35,7 +35,7 @@ jobs:
           # satisfies the floor with its bundled npm.
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          # A lockfile exists (076-T6b, one devDependency: eslint); this job
+          # A lockfile exists (one devDependency: eslint); this job
           # now runs `npm ci` to run the lint gate, but caching one small
           # lockfile buys nothing on a job that runs once per release.
           package-manager-cache: false

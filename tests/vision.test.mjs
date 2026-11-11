@@ -34,6 +34,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       return { ...runtime.next };
     },
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },
@@ -88,7 +89,7 @@ after(() => {
 });
 
 /**
- * Task 3 ("Senate R1", 2026-09): parse the single stdout envelope, assert
+ * Parse the single stdout envelope, assert
  * the stable shape, and check the caller's own `details.error` fields.
  *
  * @param {string[]} out captured stdout chunks
@@ -121,7 +122,7 @@ describe('/antigravity:vision', () => {
     assert.match(cap.err.join(''), /no image path provided/);
   });
 
-  // Task 3 ("Senate R1", 2026-09): the same validation failure emits one
+  // The same validation failure emits one
   // invalid_input error envelope under --json.
   it('errors when no image path is given: one invalid_input envelope under --json', async () => {
     const cap = captureStdio();
@@ -277,7 +278,7 @@ describe('/antigravity:vision', () => {
     assert.match(cap.out.join(''), /red square/);
     assert.equal(runtime.calls.length, 1);
     assert.equal(runtime.calls[0].model, 'gemini-3.8-flash-high');
-    // vision has no --effort flag (plan 086 T2 D1 item 3), so it must never
+    // vision has no --effort flag, so it must never
     // pick up task/rescue's default effort.
     assert.equal(runtime.calls[0].effort, undefined);
     assert.match(runtime.calls[0].prompt, /view_image/);

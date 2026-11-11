@@ -6,6 +6,64 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [3.2.0] — 2026-11-10
+
+### Added
+
+- Add the optional worker-only `agyAliveAt` job record field for safe orphan-tool cleanup.
+- Measure standalone agy 1.5.3; retain per-verb coverage limits in the matrix.
+- Add `doctor --receipt` for a redacted compatibility receipt.
+- Store the forwarded flag help listing in job provenance; a failed probe stores null, and a job that does not use agy runs no probe.
+
+- Add `--preview` to task, rescue, vision and media, with local checks and no probes, downloads or state writes.
+- Add preview details fields documented in [Run preview](docs/COMMANDS.md#run-preview), with shared runtime argv, redacted add-dir values and unresolved aliases.
+- Add fresh-call preview refusals for background, wait, continuation, request-id and show-result flags, plus rescue resume.
+- Add `rescue --prompt-file` with the existing file/stdin limits, title rules and refusal codes.
+
+- Add `media --transcript --timestamps` (`[HH:MM:SS]` before each caption line) and `details.timestamped`.
+- Add `media --output <path>`: save the answer text of a finished run to a new file. It never overwrites, converts nothing, adds the `Saved:` line and `details.output` (`path`, `bytes`), and uses the error code `output_target_unwritable`. A write failure after a completed run keeps stdout and the job and exits 1.
+- Add `result --check-current` for `review` jobs: `details.checkCurrent` (`match`, `changed` or `unknown`, with a reason), one stderr line, and the error code `check_current_unsupported_kind`. It is a snapshot, not a lock. It reads git only.
+- Add `result --export <path>`: write the stored record (the plain `--json` text) to a new file. It never overwrites, adds `details.exported` (`path`, `bytes`) and uses the error code `export_target_unwritable`.
+- These four flags have no measured demand yet.
+- Add `--model-alias` on task, rescue, review, vision, and media.
+- Add literal flash, argon, pro, sonnet, opus, and gpt-oss account-family selection.
+- Add `details.modelAlias` (requestedAlias, resolvedModel, listingSource).
+- Add job provenance fields requestedAlias, resolvedModel, and replayedFromJobId.
+- A resumed task/rescue job started with `--model-alias` keeps its resolved id without a model listing.
+- Add alias refusal lines for absent families, unavailable listings, and effort mismatches (exit 1).
+- Add `model_alias_unavailable` JSON error code and unknown-alias refusal.
+- Add setup `--json` and `details.defaultModelCheck` (present, absent, unknown).
+- Add setup warnings for an absent default and for an unavailable default check.
+- Add `details.modelMismatch` when requested and reported models can be compared.
+- Add a stderr warning for a reported model mismatch. Exit codes stay unchanged.
+- Add `review --models <a,b>` to run the same review against two agy models and compare their structured findings (needs `--findings-json`).
+- Add the `status: "paired"` review envelope (`details.pairId`, `details.jobs`, `details.comparison`).
+- Add `request.pairId` linking the two job records of a `--models` run.
+- Add a stderr notice before dispatch for the two agy calls a `--models` run makes.
+- Add a stderr refusal for `--models` without `--findings-json`, and for a malformed `--models` value. Both are checked before the diff is read.
+- Add `details.jobs[].deniedActions` and one stderr line per denied action for a `--models` leg, as single-model review reports them.
+- Add refusals for `--models` tokens that resolve to one model, hold a control character or exceed 200 characters.
+
+### Changed
+
+- `review --preview` with a missing `AGY_BIN` now shows the preview and exits 0 (before: exit 127).
+- The release check now also blocks internal planning references in code comments, test names and workflows, not only in documents.
+- Windows: Ctrl+C, Ctrl+Break or a closed terminal window during a foreground run now stops agy through the plugin, as on Linux and macOS, and the run ends with exit code 2 and a `cancelled` record. Before, the foreground CLI ended with the Windows Ctrl+C exit code (-1073741510, or 0xC000013A) and no result output.
+
+### Fixed
+
+- Top-level help now lists media and names `--json` as the common output flag.
+- Prevent stdout and stderr output from being cut before CLI exit. In 3.1.0, output larger than the pipe buffer could be cut on Linux and macOS.
+- Host wrappers now print their refusal line whole before they end. The generated command text and the permission rule text in each command file changed with it.
+- On Linux and macOS, a file used as the parent folder of a `media --output` or `result --export` target is now reported as "target parent is not a directory" instead of "target cannot be checked".
+- On Windows, a missing worker or agy no longer leaves tools running when their job identity can be confirmed. Cleanup has a time budget and logs what remains; a tool started in the last seconds before the worker died is not confirmed.
+- Background worker crashes now leave a safe reason in the job log and record failure when storage is available.
+- State saves retry brief Windows file locks instead of failing on the first rename.
+- A waiter no longer replaces a finished job with a missing-worker failure.
+- Process start-time reads retry once so cancellation can confirm the process under load.
+- A failed job-file read stops a patch instead of dropping existing fields.
+- Windows: a background job no longer opens a console window for each program that it starts. Before, a terminal window opened for each of these programs, and on some machines the windows and their console processes stayed after the job ended.
+
 ## [3.1.0] — 2026-11-06
 
 - Allow 20 seconds for the agy version probe and retry a timed-out verb probe once under load.
@@ -344,7 +402,8 @@ Initial release. Replaces [`gemini-plugin-cc`](https://github.com/sakibsadmansha
 
 - All ACP code, since agy does not support ACP, and live token streaming.
 
-[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/SouthCarpet/antigravity-plugin/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/SouthCarpet/antigravity-plugin/compare/v2.1.0...v3.0.0

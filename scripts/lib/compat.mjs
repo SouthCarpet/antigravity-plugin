@@ -8,8 +8,6 @@
  * place that data lives, so `docs/COMPATIBILITY.md`'s matrix table and
  * `README.md`'s "newest measured" phrase can be checked against it instead
  * of against each other (`tests/compat.test.mjs`).
- *
- * Senate R2 (2026-09).
  */
 
 import { compareVersions } from "./update.mjs";
@@ -18,7 +16,7 @@ import { compareVersions } from "./update.mjs";
 export const MIN_AGY_VERSION = "1.1.15";
 
 /** The newest agy version anyone has run this plugin against live. */
-export const LAST_MEASURED_AGY_VERSION = "1.5.1";
+export const LAST_MEASURED_AGY_VERSION = "1.5.3";
 
 /**
  * Every agy version that has an actual live-run row in the
@@ -39,6 +37,7 @@ export const MEASURED_AGY_VERSIONS = Object.freeze([
   "1.4.0",
   "1.5.0",
   "1.5.1",
+  "1.5.3",
 ]);
 
 /**
@@ -73,4 +72,30 @@ export function classifyAgyVersion(version) {
     if (rule.test(version)) return rule.name;
   }
   return "unmeasured";
+}
+
+/**
+ * Every flag the plugin forwards to agy across `review`, `rescue`, `task`,
+ * and `vision`. `doctor` only checks whether each one is *listed* in
+ * `agy --help`'s text, never whether it works. That distinction is in the
+ * header line every text/JSON report carries.
+ */
+export const FORWARDED_FLAGS = Object.freeze([
+  "--add-dir",
+  "--model",
+  "--effort",
+  "--mode",
+  "--continue",
+  "--conversation",
+  "--print-timeout",
+  "--disable-slash-commands",
+  "--input-format",
+  "--output-format",
+  "--print",
+  "--json-schema",
+]);
+
+/** Map only the forwarded flag names to help-listing states. */
+export function listedFlagsFromHelp(help) {
+  return Object.fromEntries(FORWARDED_FLAGS.map(flag => [flag, help.includes(flag) ? "listed" : "not_listed"]));
 }

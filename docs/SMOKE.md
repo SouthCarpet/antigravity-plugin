@@ -14,7 +14,7 @@ treat an older number in a leftover note as the target.
 ## Prerequisites (do once)
 
 - [ ] `node --version` → ≥ 22.3.0
-- [ ] `agy --version` -> 1.1.15 to 1.4.0; newest measured 1.4.0. See
+- [ ] `agy --version` -> 1.1.15 to 1.5.3; newest measured 1.5.3. See
       [COMPATIBILITY.md](./COMPATIBILITY.md) for per-version coverage and
       limits. The 1.4.0 probes did not run `setup`.
 - [ ] Logged into a Google account that can use `agy` (run `agy --print 'hi'`
@@ -178,10 +178,11 @@ agy plugin install <the printed prepared antigravity directory>
 #   Uninstall, then install again after every upgrade — agy keeps its own copy.
 
 agy plugin list --json
-#   skills must list antigravity:<verb> for setup, review, rescue, task, vision, status, result, cancel, doctor
+#   skills must list antigravity:<verb> for setup, review, rescue, task, media, vision, status, result, cancel, doctor
 
 agy plugin validate <the printed prepared antigravity directory>
-#   agy 1.4.0: skills 9; Validation passed
+#   Current expected result: skills 10; Validation passed
+#   Historical measurement on agy 1.4.0: skills 9; Validation passed
 
 npx @southcarpet/antigravity-plugin status
 npx @southcarpet/antigravity-plugin review

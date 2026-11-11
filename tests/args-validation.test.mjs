@@ -30,6 +30,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
     },
     resolveAgyBin: () => 'agy',
     assertAgyBinSpawnable: () => {},
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },
@@ -165,7 +166,7 @@ describe('parseArgs valueChoices', () => {
   });
 });
 
-// Plan 085 T3: AGY_EFFORTS choices, the same valueChoices mechanism --mode uses.
+// AGY_EFFORTS choices, the same valueChoices mechanism --mode uses.
 describe('parseArgs valueChoices — AGY_EFFORTS', () => {
   const schema = { valueOptions: ['effort'], valueChoices: { effort: ['low', 'medium', 'high'] } };
 
@@ -479,12 +480,12 @@ describe('unknown flags fail before command side effects', () => {
   }
 });
 
-// Plan 086 T2 D1 item 3: vision exposes no --effort flag. A value the CLI
+// Vision exposes no --effort flag. A value the CLI
 // parser does not know rejects before any spawn, exactly as --verbose does
-// above. `review` gained `--effort` in Task 4 ("Senate R4", 2026-09) — see
+// above. `review` gained `--effort` in 2026-09 — see
 // tests/passthrough-argv.test.mjs and tests/commands.test.mjs for its
 // accepted-flag coverage.
-describe('vision rejects --effort as an unknown flag (plan 086 T2)', () => {
+describe('vision rejects --effort as an unknown flag', () => {
   it('vision --effort medium prints one unknown-flag line and exits 1', async () => {
     const { run } = await import('../scripts/commands/vision.mjs');
     const cap = captureStdio();

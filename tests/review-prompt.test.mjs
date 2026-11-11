@@ -1,6 +1,5 @@
 /**
- * Shape of the review prompt's optional focus block (Task 4, "Senate R4",
- * 2026-09): `buildReviewPrompt(envelope, { focus })` inserts a "## Reviewer
+ * Shape of the review prompt's optional focus block (added 2026-09): `buildReviewPrompt(envelope, { focus })` inserts a "## Reviewer
  * focus (caller instruction)" section immediately before "## Output" when
  * `focus` is given, and inserts nothing when it is not.
  *
@@ -22,7 +21,7 @@ const ENVELOPE = {
   },
 };
 
-describe('buildReviewPrompt — focus block (Task 4, "Senate R4")', () => {
+describe('buildReviewPrompt — focus block', () => {
   it('omits the Reviewer focus section when no focus is given', () => {
     const p = buildReviewPrompt(ENVELOPE);
     assert.doesNotMatch(p, /## Reviewer focus/);

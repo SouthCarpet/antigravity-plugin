@@ -41,6 +41,7 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
       return { ...runtime.next };
     },
     resolveAgyBin: () => 'agy',
+    probeAgyModels: async () => ({ ok: false, reason: 'not scripted' }),
     probeAgy: async () => ({ ok: true, version: 'test' }),
     DEFAULT_AGY_BIN: 'agy',
   },
@@ -48,6 +49,14 @@ mock.module('../scripts/lib/agent-runtime.mjs', {
 
 mock.module('../scripts/lib/process-adapter.mjs', {
   namedExports: {
+    // The new help probe is unavailable in this unit fixture.
+    // Other callers of the adapter (git, the start-time query) run for real,
+    // as they did when process.mjs imported node:child_process itself.
+    spawnSync: (bin, args, options) => (
+      args?.length === 1 && args[0] === '--help'
+        ? { error: new Error('help unavailable') }
+        : spawnSync(bin, args, options)
+    ),
     spawn: () => {
       const child = Object.assign(new EventEmitter(), { pid: runtime.spawnPid, unref() {} });
       setImmediate(() => child.emit('spawn'));
@@ -128,7 +137,7 @@ describe('runForegroundJob — terminal status mapping', () => {
     assert.equal(stored.summary, null);
   });
 
-  // 076-T7 R1: answerBytes/answerLines are stored on the job (and therefore
+  // AnswerBytes/answerLines are stored on the job (and therefore
   // its index projection) at foreground finish.
   it('completed → stores answerBytes and answerLines from a five-line answer', async () => {
     freshWorkspace();
@@ -154,7 +163,7 @@ describe('runForegroundJob — terminal status mapping', () => {
     assert.equal(storedB.answerLines, 0);
   });
 
-  // 076-T6 R1: one stored-result projection for both paths — the drifted
+  // One stored-result projection for both paths — the drifted
   // foreground copy never stored this field before (worker.test.mjs already
   // covers the background path).
   it('completed → a foreground run stores agyConversationId', async () => {
@@ -216,7 +225,7 @@ describe('runForegroundJob — terminal status mapping', () => {
     assert.equal(readJobFile(workspaceRoot, job.id).status, 'cancelled');
   });
 
-  // Fix round 1 F7: the documented exit status 2 for a cancelled foreground
+  // The documented exit status 2 for a cancelled foreground
   // verb now lives in this one shared line inside `finishForeground`
   // (`return result.status === "cancelled" ? 2 : 1;`) and was untested —
   // replacing it with `return 1;` left the full suite green. Pin it directly
@@ -373,7 +382,7 @@ describe('startBackgroundJob + patchJob + waitForJob + newJobId', () => {
     assert.match(finalJob.errorMessage, /no longer running/);
   });
 
-  // Plan 086 T5e F4: on POSIX agy is spawned detached in its own process
+  // On POSIX agy is spawned detached in its own process
   // group, so a dead worker does not take it with it, and once the job is
   // no longer running/queued `resolveCancelableJob` can never find it again
   // — terminating the recorded agyPid here is the only remaining chance.
@@ -499,7 +508,7 @@ describe('observed job activity', () => {
 describe('resolveWorkerPath', () => {
   it('resolves to an absolute OS path that exists on disk (fileURLToPath, not URL.pathname)', () => {
     // Regression: `new URL(...).pathname` on Windows yields a POSIX-shaped
-    // path (`/A:/projects-vault/...`) that fs.existsSync reports as false —
+    // path (`/C:/path/to/...`) that fs.existsSync reports as false —
     // the worker would die MODULE_NOT_FOUND under stdio:'ignore', silently
     // stuck `queued` forever. This assertion is red on Windows against the
     // old `.pathname`-based implementation.
@@ -510,7 +519,7 @@ describe('resolveWorkerPath', () => {
   });
 });
 
-// Oracle: 076-T3 R1. Decimal safe millisecond integers up to the Node timer
+// Oracle: Decimal safe millisecond integers up to the Node timer
 // ceiling are accepted; invalid values warn once and retain the 30-minute default.
 describe('agy execution budget environment', () => {
   const cases = [
@@ -539,7 +548,7 @@ describe('agy execution budget environment', () => {
   }
 });
 
-// Oracle: 076-T3 R3. Failure paths use owned child fakes or a real spawn
+// Oracle: Failure paths use owned child fakes or a real spawn
 // with a deleted temporary cwd; none launches the actual worker.
 describe('background worker acknowledgement', () => {
   it('waits for spawn before returning queued and persists the enqueue budget', async () => {
@@ -564,7 +573,7 @@ describe('background worker acknowledgement', () => {
     assert.doesNotThrow(() => child.emit('error', new Error('late handle error')));
   });
 
-  it('spawns the worker with jobId and workspaceRoot as argv, cwd unchanged (085-T4 F1 fix round 2)', async () => {
+  it('spawns the worker with jobId and workspaceRoot as argv, cwd unchanged', async () => {
     freshWorkspace();
     const child = Object.assign(new EventEmitter(), { pid: 9911, unref() {} });
     let capturedArgs;
@@ -578,8 +587,12 @@ describe('background worker acknowledgement', () => {
         return child;
       },
     });
-    assert.deepEqual(capturedArgs, [resolveWorkerPath(), job.id, workspaceRoot]);
-    assert.equal(capturedOptions.cwd, workspaceRoot);
+    assert.deepEqual(capturedArgs, ["--import", new URL("../scripts/lib/worker-diagnostics.mjs", import.meta.url).href, resolveWorkerPath(), job.id, workspaceRoot]);
+    // The complete launch options are the contract. The
+    // worker stays detached with every stream ignored, so the parent can exit.
+    const { env: workerEnv, ...launchOptions } = capturedOptions;
+    assert.deepEqual(launchOptions, { cwd: workspaceRoot, detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
+    assert.deepEqual(workerEnv, { ...process.env, ANTIGRAVITY_PLUGIN_SESSION_ID: process.env.ANTIGRAVITY_PLUGIN_SESSION_ID ?? '' });
   });
 
   it('persists failed when an owned child emits error asynchronously', async () => {
@@ -640,7 +653,7 @@ describe('background worker acknowledgement', () => {
 const HELPER_TIMEOUT_MS = 30000;
 
 describe('foreground runtime bounds integration', () => {
-  // Oracle: 076-T3 R1. The helper uses a real sleeping Node child through the
+  // Oracle: the helper uses a real sleeping Node child through the
   // owned adapter and verifies its PID is gone, without invoking taskkill.
   for (const mode of ['foreground', 'output-cap']) {
     it(`${mode} persists failed and leaves no fake agy process`, () => {
@@ -656,7 +669,7 @@ describe('foreground runtime bounds integration', () => {
   }
 });
 
-// Plan 085 T2: the remedy table, its projection with remedy attached, the
+// The remedy table, its projection with remedy attached, the
 // starved-run stderr fold, the stored-result field, and the persisted
 // top-level job fields.
 describe('denialRemedy — remedy table per action class', () => {
@@ -743,7 +756,7 @@ describe('applyDenialHint — one line per denied action', () => {
     assert.equal(completed.stderr, '');
   });
 
-  // Plan 086 T3 item 2: names the target when known, on the shared
+  // Names the target when known, on the shared
   // starved-run stderr fold this exercises via t0-plugin-task-denied-url.txt.
   it('names the target before the remedy sentence when known', () => {
     const result = {
@@ -756,7 +769,7 @@ describe('applyDenialHint — one line per denied action', () => {
     assert.match(result.stderr, /read_url \(ReadUrlContent\) for "example\.com": Headless runs cannot grant "read_url"/);
   });
 
-  it('keeps the exact 1.3.0 text when target is unknown (item 6)', () => {
+  it('keeps the exact 1.3.0 text when target is unknown', () => {
     const result = {
       status: 'failed',
       denial: { tool: 'read_url', line: 'sentinel' },
@@ -826,10 +839,10 @@ describe('finishForeground — details.deniedActions and warning-text hints', ()
   });
 });
 
-// Plan 086 T3 item 2: target carried through deniedActionsWithRemedy, and
+// Target carried through deniedActionsWithRemedy, and
 // shown by the stderr hint when known — the exact 1.3.0 text otherwise
-// (item 6: "1.3.0 behaviour with no target present is unchanged").
-describe('deniedActionsWithRemedy — target (plan 086 T3)', () => {
+// ("1.3.0 behaviour with no target present is unchanged").
+describe('deniedActionsWithRemedy — target', () => {
   it('passes a known target through as an additive field', () => {
     const out = deniedActionsWithRemedy(
       [{ action: 'read_url', displayName: 'ReadUrlContent', target: 'example.com' }], 'task',
@@ -843,7 +856,7 @@ describe('deniedActionsWithRemedy — target (plan 086 T3)', () => {
   });
 });
 
-describe('reportDeniedActionHints — target (plan 086 T3)', () => {
+describe('reportDeniedActionHints — target', () => {
   it('names the target in the shape "action (displayName) for \\"target\\"" when known', () => {
     const chunks = [];
     const errMock = mock.method(process.stderr, 'write', (s) => { chunks.push(s); return true; });
@@ -869,7 +882,7 @@ describe('reportDeniedActionHints — target (plan 086 T3)', () => {
     assert.doesNotMatch(chunks.join(''), /ReadUrlContent/);
   });
 
-  // Plan 086 T5e F3: the target is model-chosen tool-parameter text. A
+  // The target is model-chosen tool-parameter text. A
   // denied target whose text IS the bypass flag must not reach the
   // plugin's own stderr, even though this echo never carries agy's own
   // "Alternatively, ..." advisory sentence stripBypassAdvice is built for.
@@ -888,7 +901,7 @@ describe('reportDeniedActionHints — target (plan 086 T3)', () => {
   });
 });
 
-// Plan 086 T3 item 4: finishForeground's console echo of a failed run's
+// FinishForeground's console echo of a failed run's
 // stderr drops the bypass sentence; the RuntimeResult object it was given
 // (and therefore whatever a caller stores from it) is never mutated.
 describe('finishForeground — failed run stderr echo drops the bypass sentence', () => {
@@ -908,7 +921,7 @@ describe('finishForeground — failed run stderr echo drops the bypass sentence'
     assert.match(result.stderr, /--dangerously-skip-permissions/);
   });
 
-  // Plan 086 T5e F3: a plugin-authored denial label (applyDenialHint, in the
+  // A plugin-authored denial label (applyDenialHint, in the
   // stderr this failure branch echoes) can itself contain the flag when the
   // denied target IS that exact string — no "Alternatively," suffix is
   // present, so stripBypassAdvice alone would not have caught it.
@@ -955,7 +968,7 @@ describe('runForegroundJob — persists deniedActions and deniedActionsCount', (
   });
 });
 
-describe('buildStoredResult — agyPrintTimeout field (plan 086 T1)', () => {
+describe('buildStoredResult — agyPrintTimeout field', () => {
   it('carries the marker through', () => {
     const stored = buildStoredResult({
       stdout: 'partial', stderr: '', status: 'completed', exitCode: 0, warnings: [],
@@ -970,7 +983,7 @@ describe('buildStoredResult — agyPrintTimeout field (plan 086 T1)', () => {
   });
 });
 
-describe('finishForeground — details.agyPrintTimeout and the stderr warning (plan 086 T1)', () => {
+describe('finishForeground — details.agyPrintTimeout and the stderr warning', () => {
   it('a completed run with the marker gets details.agyPrintTimeout and a stderr warning', () => {
     const chunks = [];
     const errChunks = [];
@@ -1013,7 +1026,7 @@ describe('finishForeground — details.agyPrintTimeout and the stderr warning (p
   });
 });
 
-describe('runForegroundJob — persists agyPrintTimeout (plan 086 T1)', () => {
+describe('runForegroundJob — persists agyPrintTimeout', () => {
   it('a completed run with the marker persists it on the job and the stored result', async () => {
     freshWorkspace();
     runtime.next = {
@@ -1037,7 +1050,7 @@ describe('runForegroundJob — persists agyPrintTimeout (plan 086 T1)', () => {
   });
 });
 
-describe('an old job record without agyPrintTimeout still renders (plan 086 T1)', () => {
+describe('an old job record without agyPrintTimeout still renders', () => {
   it('renderSingleJobStatus and the status table render it as absent, not throw', async () => {
     const { renderSingleJobStatus } = await import('../scripts/lib/render.mjs');
     const legacy = { id: 'legacy1', status: 'completed' };
@@ -1046,7 +1059,7 @@ describe('an old job record without agyPrintTimeout still renders (plan 086 T1)'
   });
 });
 
-// ───────────────────── plan 086 T5k F1: resumeHintLine ─────────────────────
+// ───────────────────── ResumeHintLine ─────────────────────
 
 describe('resumeHintLine — the exact resume command for a resumable denial', () => {
   it('a resumable kind with a denial and an agy conversation id prints the exact command', () => {
@@ -1082,7 +1095,7 @@ describe('resumeHintLine — the exact resume command for a resumable denial', (
   });
 });
 
-describe('finishForeground — prints the resume line beside the denial line (plan 086 T5k F1)', () => {
+describe('finishForeground — prints the resume line beside the denial line', () => {
   it('a denied task run prints the resume command on stderr', () => {
     const errChunks = [];
     const errMock = mock.method(process.stderr, 'write', (s) => { errChunks.push(s); return true; });
@@ -1120,7 +1133,7 @@ describe('finishForeground — prints the resume line beside the denial line (pl
   });
 });
 
-// ─────────────────── plan 086 T5k F2: the interactive prompt ───────────────
+// ─────────────────── The interactive prompt ───────────────
 
 describe('canPromptOnDenial — every negative condition wins over an interactive terminal', () => {
   const interactive = { stdin: { isTTY: true }, stdout: { isTTY: true }, env: {} };
@@ -1190,7 +1203,7 @@ describe('askRetryOrStop — exactly two outcomes, never a third', () => {
   });
 });
 
-describe('runForegroundWithRetryPrompt — asks at most once, retries at most once (plan 086 T5k F2)', () => {
+describe('runForegroundWithRetryPrompt — asks at most once, retries at most once', () => {
   function silence() {
     const outMock = mock.method(process.stdout, 'write', () => true);
     const errMock = mock.method(process.stderr, 'write', () => true);
@@ -1331,7 +1344,7 @@ describe('resolveRequestEffort', () => {
   });
 });
 
-// ───────────── Task 3 ("Senate R1", 2026-09): one JSON error envelope ─────────────
+// ───────────── One JSON error envelope ─────────────
 
 /** Capture process.stdout/stderr writes for the duration of `fn`. */
 function captureStdio(fn) {
@@ -1347,7 +1360,7 @@ function captureStdio(fn) {
   }
 }
 
-describe('finishForeground — one error envelope per non-completed status (Task 3)', () => {
+describe('finishForeground — one error envelope per non-completed status', () => {
   it('failed (generic, no denial, no spawnError): run_failed, exit 1, one envelope under --json', () => {
     const { result: exit, out, err } = captureStdio(() =>
       finishForeground('task', { id: 'j-failed' }, { status: 'failed', exitCode: 1, stdout: '', stderr: 'boom' }, { json: true }));
@@ -1463,7 +1476,7 @@ describe('finishForeground — one error envelope per non-completed status (Task
   });
 });
 
-describe('reportQueuedJob — worker_start_failed envelope (Task 3)', () => {
+describe('reportQueuedJob — worker_start_failed envelope', () => {
   it('a failed-to-start job reports one failed/worker_start_failed envelope under --json', () => {
     const job = { id: 'j-worker', status: 'failed', errorMessage: 'Worker launch failed: boom' };
     const { result: exit, out, err } = captureStdio(() => reportQueuedJob('task', job, { json: true }));
@@ -1486,7 +1499,7 @@ describe('reportQueuedJob — worker_start_failed envelope (Task 3)', () => {
   });
 });
 
-describe('reportAgyUnavailable — no_agy envelope (Task 3)', () => {
+describe('reportAgyUnavailable — no_agy envelope', () => {
   const LINE = 'antigravity:task — `agy` is not on PATH (not-installed). Run /antigravity:setup.';
 
   it('strips the prefix into error.message and emits one envelope under --json', () => {
@@ -1508,7 +1521,7 @@ describe('reportAgyUnavailable — no_agy envelope (Task 3)', () => {
   });
 });
 
-describe('reportMissingTaskText — invalid_input envelope (Task 3)', () => {
+describe('reportMissingTaskText — invalid_input envelope', () => {
   it('emits one missing_task_text envelope under --json', () => {
     const { result: exit, out, err } = captureStdio(() => reportMissingTaskText('rescue', true));
     assert.equal(exit, 1);
@@ -1526,7 +1539,7 @@ describe('reportMissingTaskText — invalid_input envelope (Task 3)', () => {
   });
 });
 
-describe('resolveReviewEffort — no plugin default, but every given value is stored verbatim (Task 4, "Senate R4")', () => {
+describe('resolveReviewEffort — no plugin default, but every given value is stored verbatim', () => {
   it('returns undefined when --effort was not given', () => {
     assert.equal(resolveReviewEffort(undefined), undefined);
   });
@@ -1542,7 +1555,7 @@ describe('resolveReviewEffort — no plugin default, but every given value is st
   });
 });
 
-describe('resolveReviewFocus — trim, empty rejection, and the 500-char cap (Task 4, "Senate R4")', () => {
+describe('resolveReviewFocus — trim, empty rejection, and the 500-char cap', () => {
   it('returns undefined and no error when --focus was not given', () => {
     const { focus, error } = resolveReviewFocus(undefined);
     assert.equal(focus, undefined);
@@ -1583,7 +1596,7 @@ describe('resolveReviewFocus — trim, empty rejection, and the 500-char cap (Ta
   });
 });
 
-describe('reportInvalidFocus — invalid_input envelope (Task 4, "Senate R4")', () => {
+describe('reportInvalidFocus — invalid_input envelope', () => {
   it('emits one invalid_focus envelope under --json', () => {
     const { result: exit, out, err } = captureStdio(() =>
       reportInvalidFocus('invalid value for --focus: longer than 500 characters', true));
@@ -1602,7 +1615,7 @@ describe('reportInvalidFocus — invalid_input envelope (Task 4, "Senate R4")', 
   });
 });
 
-describe('classifyStateError (Task 3)', () => {
+describe('classifyStateError', () => {
   it('a job-not-found message classifies as job_not_found', () => {
     const out = classifyStateError(new Error('No job found for "xyz". Run /antigravity:status to inspect known jobs.'));
     assert.equal(out.code, 'job_not_found');
@@ -1623,7 +1636,7 @@ describe('classifyStateError (Task 3)', () => {
   });
 });
 
-describe('rememberAgyVersion: throttled agyVersionSeen cache (Senate R2)', () => {
+describe('rememberAgyVersion: throttled agyVersionSeen cache', () => {
   it('writes agyVersionSeen on the first call for a workspace', async () => {
     const dir = freshWorkspace();
     const now = () => new Date('2026-09-27T10:00:00.000Z');

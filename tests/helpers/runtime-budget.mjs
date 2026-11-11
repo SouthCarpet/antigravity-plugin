@@ -1,8 +1,8 @@
-// Integration fixture for brief 076-T3 R1: real runtime and persistence,
+// Integration fixture for the runtime budget: real runtime and persistence,
 // with a two-second Node child behind the owned spawn adapter.
 import { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import * as processes from '../../scripts/lib/process.mjs';
 
@@ -11,6 +11,7 @@ let child;
 let treeTerminated = false;
 mock.module('../../scripts/lib/process-adapter.mjs', {
   namedExports: {
+    spawnSync,
     spawn: (_command, _args, options) => {
       const script = mode === 'output-cap'
         ? "process.stdout.write('12345'); setTimeout(() => {}, 2000)"

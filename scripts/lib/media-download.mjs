@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn } from './process-adapter.mjs';
 import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { safeFailureReason } from './safe-reason.mjs';
@@ -28,7 +28,7 @@ async function runDownloader(bin, args, directory, deadline) {
   return stdout;
 }
 
-export async function downloadMedia({ bin, videoId, mode, quality, directory, budgetMs = 600_000 }) {
+export async function downloadMedia({ bin, videoId, mode, quality, directory, timestamps = false, budgetMs = 600_000 }) {
   youtubeId(`https://www.youtube.com/watch?v=${videoId}`);
   const deadline = Date.now() + budgetMs;
   let subtitleLanguage = 'en';
@@ -42,7 +42,7 @@ export async function downloadMedia({ bin, videoId, mode, quality, directory, bu
     writeFileSync(join(directory, 'media.info.json'), JSON.stringify({ language: subtitleLanguage }));
   }
   await runDownloader(bin, ytDlpArgs({ videoId, mode, quality, directory, subtitleLanguage }), directory, deadline);
-  if (mode === 'transcript') return findTranscript(directory);
+  if (mode === 'transcript') return findTranscript(directory, { timestamps });
   const name = readdirSync(directory).find((name) => /\.(mp4|m4a)$/.test(name));
   if (!name) throw mediaError('download_failed', 'No media file downloaded. It may exceed the size cap.');
   return localMedia(join(directory, name));

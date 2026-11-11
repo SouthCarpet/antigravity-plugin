@@ -32,7 +32,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { readCommandInput } from "../lib/args.mjs";
 import { buildVisionPrompt } from "../lib/prompt-templates.mjs";
 import { resolveWorkspaceRoot } from "../lib/workspace.mjs";
-import { probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
+import { reportRunPreview, resolveRequestModel, reportModelResolutionFailure, probeAgyForVerb, rememberAgyVersion, reportAgyUnavailable, finishForeground, runForegroundJob } from "../lib/job-helpers.mjs";
 import { createErrorEnvelope, outputCommandResult } from "../lib/render.mjs";
 import { runIfMain } from "../lib/cli-entry.mjs";
 import {
@@ -55,7 +55,7 @@ const DEFAULT_PROMPT =
  * only after agy has started and spent tokens, and its refusal comes back as
  * an answer-shaped reply. Checking here fails before any spawn.
  *
- * `code` (Task 3, "Senate R1", 2026-09) feeds the `invalid_input` envelope's
+ * `code` (added 2026-09) feeds the `invalid_input` envelope's
  * `error.code`; `message` is the same text this function has always
  * returned, printed verbatim on stderr.
  *
@@ -87,7 +87,7 @@ function imageProblem(imagePath) {
 /**
  * Report a `vision` input-validation failure (no image path at all, or the
  * first path {@link imageProblem} rejects): the existing stderr line,
- * unchanged, plus (Task 3, "Senate R1", 2026-09) one `invalid_input`
+ * unchanged, plus (added 2026-09) one `invalid_input`
  * `--json` envelope when `json` is true.
  *
  * @param {string} code
@@ -153,8 +153,9 @@ function writeExpectationsBlock(json, answer, expectationResult) {
  */
 export async function run(argv = [], ctx = {}) {
   const parsed = readCommandInput(argv, {
-    valueOptions: ["prompt", "model", "cwd"],
-    booleanOptions: ["json"],
+    valueOptions: ["prompt", "model", "model-alias", "cwd"],
+    conflicts: [["model", "model-alias"]],
+    booleanOptions: ["json", "preview"],
     repeatableOptions: ["expect"],
     validate: validateExpectOption,
   }, "vision");
@@ -162,7 +163,7 @@ export async function run(argv = [], ctx = {}) {
   const { options, positionals } = parsed;
 
   const cwd = options.cwd ? String(options.cwd) : ctx.cwd ?? process.cwd();
-  const workspaceRoot = resolveWorkspaceRoot(cwd);
+  const workspaceRoot = options.preview ? cwd : resolveWorkspaceRoot(cwd);
 
   if (positionals.length === 0) {
     return reportVisionValidationFailure(
@@ -181,13 +182,16 @@ export async function run(argv = [], ctx = {}) {
     if (problem) return reportVisionValidationFailure(problem.code, problem.message, Boolean(options.json));
   }
 
+  const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
+  const prompt = buildVisionPrompt({ imagePaths, userPrompt });
+  if (options.preview) return reportRunPreview({ kind: "vision", prompt, options, defaultModel: DEFAULT_MODEL });
+  const selection = await resolveRequestModel({ modelOption: options.model, aliasOption: options["model-alias"] });
+  if (!selection.ok) return reportModelResolutionFailure("vision", selection, options.json);
+  const model = selection.model ?? DEFAULT_MODEL;
   const probed = await probeAgyForVerb("vision");
   if (probed.line) return reportAgyUnavailable("vision", probed.line, options.json);
   await rememberAgyVersion(workspaceRoot, probed.version);
 
-  const userPrompt = options.prompt ? String(options.prompt) : DEFAULT_PROMPT;
-  const model = options.model ? String(options.model) : DEFAULT_MODEL;
-  const prompt = buildVisionPrompt({ imagePaths, userPrompt });
   const title = `vision: ${imagePaths.map((p) => basename(p)).join(", ")}`;
   // Record each image twice: in the lexical absolute form the prompt names
   // (the MCP server authorizes a request by that form before it touches the
@@ -219,7 +223,7 @@ export async function run(argv = [], ctx = {}) {
     cwd: workspaceRoot,
     env,
     agyVersion: probed.version,
-    request: { imagePaths, model, userPrompt },
+    request: { imagePaths, model, ...selection.request, userPrompt },
     onText: (delta) => process.stderr.write(delta),
   });
 

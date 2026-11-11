@@ -1,11 +1,10 @@
 /**
- * Tests for scripts/lib/plugin-root.mjs's own exports (076-T7 R5b, fix
- * round 1 F1/F2).
+ * Tests for scripts/lib/plugin-root.mjs's own exports.
  *
  * `tests/command-wrappers.test.mjs` covers `hostBootstrapSource`/`hostBangLine`
  * against the real commands/*.md wrapper files and against a live
  * `require()`-able plugin tree end to end, including the fixture attacks
- * (foreign module, empty/missing root) that motivated F1/F2. This file
+ * (foreign module, empty/missing root) that motivated the checks. This file
  * covers the module's exports directly: the generated one-line snippet's
  * shape — it checks the manifest itself before requiring anything from the
  * root — and the message builders whose wording it reuses.
@@ -26,7 +25,7 @@ import {
   AGY_PLUGIN_INSTALL_SEGMENTS,
 } from '../scripts/lib/plugin-root.mjs';
 
-describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)', () => {
+describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff', () => {
   it('resolves the root the same way as before and requires host-bootstrap.cjs with the verb', () => {
     const source = hostBootstrapSource('status');
     assert.match(source, /process\.env\.CLAUDE_PLUGIN_ROOT\|\|/);
@@ -35,7 +34,7 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
     assert.match(source, /process\.exit\(/);
   });
 
-  it('checks the manifest and module presence inline before requiring from the root (F1/F2)', () => {
+  it('checks the manifest and module presence inline before requiring from the root', () => {
     const source = hostBootstrapSource('status');
     assert.equal(source.includes('plugin.json'), true, source);
     assert.equal(source.includes('JSON.parse'), true, source);
@@ -66,9 +65,9 @@ describe('plugin-root.mjs: hostBootstrapSource is a thin one-line handoff (R5b)'
     assert.throws(() => hostBootstrapSource("review';process.exit(0)//"), /invalid verb/);
   });
 
-  // 076-T7 fix round 1 (F1/F2): the manifest check the snippet now carries
+  // The manifest check the snippet now carries
   // inline pushed every wrapper's bang line past the pre-fix 400-character
-  // bar. The controller's guidance is explicit that correctness wins here
+  // bar. Correctness wins here
   // ("the 400-character bar for the bang line yields to this check") — this
   // test keeps a sane upper bound so a future regression (e.g. duplicated
   // logic, verbose identifiers) still gets caught, without reintroducing a
@@ -102,7 +101,7 @@ describe('plugin-root.mjs: message builders (still ESM, used by tests and docs)'
   });
 });
 
-describe('plugin-root.mjs: root resolution (unchanged by R5b)', () => {
+describe('plugin-root.mjs: root resolution', () => {
   it('CLAUDE_PLUGIN_ROOT wins when set and non-empty', () => {
     assert.equal(
       resolvePluginRoot({ env: { CLAUDE_PLUGIN_ROOT: '/opt/claude-plugin' }, homedir: '/home/nobody' }),
@@ -119,4 +118,20 @@ describe('plugin-root.mjs: root resolution (unchanged by R5b)', () => {
     const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     assert.equal(isPluginRoot(ROOT), true);
   });
+});
+
+// Oracle: the wrapper refusal is one complete line, exit 1, with no pending stderr.
+import fs from 'node:fs';
+import os from 'node:os';
+import { runOutput, assertDrained } from './helpers/slow-output.mjs';
+it('generated wrapper flushes the whole refusal line through slow stderr', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrapper-flush-'));
+  try {
+    const wrong = path.join(dir, 'foreign');
+    const result = await runOutput(['-e', hostBootstrapSource('status')], dir, { CLAUDE_PLUGIN_ROOT: wrong });
+    assertDrained(result, 'hostBootstrapSource(status) refusal');
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, `antigravity-plugin: ${wrong} is not an antigravity plugin tree (plugin.json missing or name mismatch). Run: npx @southcarpet/antigravity-plugin status\n`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

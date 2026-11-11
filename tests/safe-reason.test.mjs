@@ -1,4 +1,4 @@
-/** Exact expectations come from the binding allow-list specification and the verifier's bypass inputs. */
+/** Exact expectations come from the allow-list specification and known bypass inputs. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_SAFE_REASON_LENGTH, safeFailureReason } from '../scripts/lib/safe-reason.mjs';
@@ -17,7 +17,7 @@ const CASES = [
   ['keeps a token-shaped string that fits the grammar', 'ya29.SYNTHETIC-token-0123456789', 'ya29.SYNTHETIC-token-0123456789'],
   ['redacts the Basic-auth bypass', 'request failed: Authorization: Basic dXNlcjpwYXNz', 'request failed: Authorization: [redacted]', 'dXNlcjpwYXNz'],
   ['redacts the underscore URL bypass', 'request failed error_https://alice:secret@example.test/path', 'request failed [redacted-url]', 'alice:secret'],
-  ['V2 row 3 redacts the whole token with a zero-width separator', 'request failed: Bearer\u200bshortSecret', 'request failed: [redacted]', 'shortSecret', '\u200b', '\ue000'],
+  ['redacts the whole token with a zero-width separator', 'request failed: Bearer\u200bshortSecret', 'request failed: [redacted]', 'shortSecret', '\u200b', '\ue000'],
   ['removes ANSI from the Bearer bypass', 'request failed: Be\u001b[31marer shortSecret', 'request failed: Bearer [redacted]', 'shortSecret'],
   ['redacts the 40-letter bypass', 'request failed with AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'request failed with [redacted]', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'],
   ['redacts a percent-encoded token', 'request failed access%5Ftoken%3Dabc123', 'request failed [redacted]', 'abc123'],
@@ -53,28 +53,28 @@ const CASES = [
   ['returns null when only numbers and short words remain', '12 ab xy [redacted] [redacted-url]', null],
   ['ignores readable letters in markers', 'a=secret https://one.test', null, 'secret', 'one.test'],
   ['keeps a three-letter ASCII run', 'abc 12', 'abc 12'],
-  // Oracle: T4b items 1 to 5 and the numbered V2 verifier probes.
-  ['V2 row 9 redacts a glued header and its value', 'failed Authorization:Basic dXNlcjpwYXNz retry', 'failed [redacted] retry', 'Authorization:Basic', 'dXNlcjpwYXNz'],
-  ['V2 row 10 redacts a glued password and next token', 'failed password:hunter2 retry', 'failed [redacted]', 'hunter2'],
-  ['V2 row 11 redacts a glued API key and next token', 'failed api_key:abcd1234ef retry', 'failed [redacted]', 'abcd1234ef'],
-  ['V2 row 12 redacts glued Basic credentials', 'failed Basic:dXNlcjpwYXNz retry', 'failed [redacted]', 'dXNlcjpwYXNz'],
-  ['V2 row 13 redacts a glued token', 'failed token:ya29.shortValue retry', 'failed [redacted]', 'ya29.shortValue'],
-  ['V2 row 14 redacts a glued Bearer value', 'failed Bearer:hunter2please retry', 'failed [redacted]', 'hunter2please'],
-  ['V2 row 15 redacts pwd with 20 letters', `failed pwd:${'p'.repeat(20)} retry`, 'failed [redacted]', 'p'.repeat(20)],
-  ['V2 row 16 also masks the word after an oversized glued pwd', `failed pwd:${'p'.repeat(21)} now`, 'failed [redacted]', 'p'.repeat(21), 'now'],
-  ['V2 row 18 redacts an AWS key mixed run', 'failed AKIAIOSFODNN7EXAMPLE retry', 'failed [redacted] retry', 'AKIAIOSFODNN7EXAMPLE'],
-  ['V2 row 20 redacts 16 digits', 'failed 4111111111111111 retry', 'failed [redacted] retry', '4111111111111111'],
-  ['V2 row 23 rejoins a zero-width split long run and redacts it', `failed ${'A'.repeat(20)}\u200b${'A'.repeat(20)} retry`, 'failed [redacted] retry', 'A'.repeat(20)],
-  ['V2 row 25 rejoins a soft-hyphen split long run and redacts it', `failed ${'A'.repeat(20)}\u00ad${'A'.repeat(20)} retry`, 'failed [redacted] retry', 'A'.repeat(20)],
-  ['V2 row 27 rejoins and redacts a split ghp token', `failed ghp_${'a'.repeat(16)}\u200b${'b'.repeat(20)} retry`, 'failed [redacted] retry', 'ghp_', 'a'.repeat(16), 'b'.repeat(20)],
-  ['V2 row 28 redacts a long run with a generic ESC pair', `failed ${'A'.repeat(20)}\u001bA retry`, 'failed [redacted] retry', 'A'.repeat(20)],
-  ['V2 row 29 rejoins Bearer and masks both values', 'failed Be\u200barer hunter2 retry', 'failed Bearer [redacted]', 'hunter2', 'retry'],
-  ['V2 row 30 rejoins password and masks both values', 'failed pass\u00adword hunter2 retry', 'failed password [redacted]', 'hunter2', 'retry'],
-  ['V2 row 32 normalizes and redacts a fullwidth glued colon', 'failed password：hunter2 retry', 'failed [redacted]', 'hunter2'],
-  ['V2 row 45 applies the digit cap to a numeric status slot', 'failed (code 12345678901234567890): text', 'failed (code [redacted] text', '12345678901234567890'],
-  ['V2 row 67 returns null after the cut removes the only word', `${'12 '.repeat(100)}abc`, null, '12', 'abc'],
-  ['V2 row 68 returns null after the cut removes an oversized keyword', `${'('.repeat(295)}bearer`, null, 'bearer'],
-  ['V2 row 69 redacts an unterminated OSC token', 'failed \u001b]0;hunter2 still visible', 'failed [redacted] still visible', 'hunter2', '0;hunter2'],
+  // Oracle: five filter rules and the numbered probes.
+  ['redacts a glued header and its value', 'failed Authorization:Basic dXNlcjpwYXNz retry', 'failed [redacted] retry', 'Authorization:Basic', 'dXNlcjpwYXNz'],
+  ['redacts a glued password and next token', 'failed password:hunter2 retry', 'failed [redacted]', 'hunter2'],
+  ['redacts a glued API key and next token', 'failed api_key:abcd1234ef retry', 'failed [redacted]', 'abcd1234ef'],
+  ['redacts glued Basic credentials', 'failed Basic:dXNlcjpwYXNz retry', 'failed [redacted]', 'dXNlcjpwYXNz'],
+  ['redacts a glued token', 'failed token:ya29.shortValue retry', 'failed [redacted]', 'ya29.shortValue'],
+  ['redacts a glued Bearer value', 'failed Bearer:hunter2please retry', 'failed [redacted]', 'hunter2please'],
+  ['redacts pwd with 20 letters', `failed pwd:${'p'.repeat(20)} retry`, 'failed [redacted]', 'p'.repeat(20)],
+  ['also masks the word after an oversized glued pwd', `failed pwd:${'p'.repeat(21)} now`, 'failed [redacted]', 'p'.repeat(21), 'now'],
+  ['redacts an AWS key mixed run', 'failed AKIAIOSFODNN7EXAMPLE retry', 'failed [redacted] retry', 'AKIAIOSFODNN7EXAMPLE'],
+  ['redacts 16 digits', 'failed 4111111111111111 retry', 'failed [redacted] retry', '4111111111111111'],
+  ['rejoins a zero-width split long run and redacts it', `failed ${'A'.repeat(20)}\u200b${'A'.repeat(20)} retry`, 'failed [redacted] retry', 'A'.repeat(20)],
+  ['rejoins a soft-hyphen split long run and redacts it', `failed ${'A'.repeat(20)}\u00ad${'A'.repeat(20)} retry`, 'failed [redacted] retry', 'A'.repeat(20)],
+  ['rejoins and redacts a split ghp token', `failed ghp_${'a'.repeat(16)}\u200b${'b'.repeat(20)} retry`, 'failed [redacted] retry', 'ghp_', 'a'.repeat(16), 'b'.repeat(20)],
+  ['redacts a long run with a generic ESC pair', `failed ${'A'.repeat(20)}\u001bA retry`, 'failed [redacted] retry', 'A'.repeat(20)],
+  ['rejoins Bearer and masks both values', 'failed Be\u200barer hunter2 retry', 'failed Bearer [redacted]', 'hunter2', 'retry'],
+  ['rejoins password and masks both values', 'failed pass\u00adword hunter2 retry', 'failed password [redacted]', 'hunter2', 'retry'],
+  ['normalizes and redacts a fullwidth glued colon', 'failed password：hunter2 retry', 'failed [redacted]', 'hunter2'],
+  ['applies the digit cap to a numeric status slot', 'failed (code 12345678901234567890): text', 'failed (code [redacted] text', '12345678901234567890'],
+  ['returns null after the cut removes the only word', `${'12 '.repeat(100)}abc`, null, '12', 'abc'],
+  ['returns null after the cut removes an oversized keyword', `${'('.repeat(295)}bearer`, null, 'bearer'],
+  ['redacts an unterminated OSC token', 'failed \u001b]0;hunter2 still visible', 'failed [redacted] still visible', 'hunter2', '0;hunter2'],
   ['redacts a source path with a colon before a line number', 'failed src/index.mjs:12 retry', 'failed [redacted] retry', 'src/index.mjs:12'],
   ['redacts a letter-colon-digit sequence', 'failed trace:1 retry', 'failed [redacted] retry', 'trace:1'],
   ['masks the next value after a glued keyword with a nonletter suffix', 'failed token:123 value retry', 'failed [redacted] retry', '123', 'value'],
@@ -87,21 +87,21 @@ const CASES = [
   ['keeps the documented NBSP split limit', `failed ${'A'.repeat(20)}\u00a0${'A'.repeat(20)} retry`, `failed ${'A'.repeat(20)} ${'A'.repeat(20)} retry`],
   ['keeps a short value after an unlisted word', 'failed authToken hunter2 retry', 'failed authToken hunter2 retry'],
   ['checks the word after a numeric status as an ordinary token', 'UNAVAILABLE (code 503): hunter2 remains today', 'UNAVAILABLE (code 503): hunter2 remains today'],
-  ['V2 row 50 redacts a slash-separated base64 mixed run', 'failed YWJjZGVm/YWJjZGVmMTIzNDU2Nzg5 retry', 'failed [redacted] retry', 'YWJjZGVm', 'YWJjZGVmMTIzNDU2Nzg5'],
-  // Oracle: T4c keeps a joined keyword; it replaces any other token with a format sentinel.
-  ['T4c redacts a format-glued Bearer value and keeps retry', 'Bearer\u200bshortSecret retry', '[redacted] retry', 'shortSecret', '\ue000'],
-  ['T4c rejoins Bearer and masks its next two tokens', 'Be\u200barer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c rejoins password and masks its next two tokens', 'pass\u00adword hunter2 retry', 'password [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c returns null for a format-split long run alone', `${'A'.repeat(20)}\u200b${'A'.repeat(20)}`, null, 'A'.repeat(20), '\ue000'],
-  ['T4c redacts a nonkeyword with a raw sentinel', 'failed short\ue000Secret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
-  ['T4c recognizes a keyword with a raw sentinel', 'Be\ue000arer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c rejoins a keyword with two format characters', 'Be\u200ba\u00adrer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
-  ['T4c redacts a nonkeyword with two format characters', 'failed short\u200bSe\u00adcret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
-  ['T4c rejoins a keyword with surrounding punctuation', 'failed ("Be\u200barer"), hunter2 retry later', 'failed ("Bearer"), [redacted] later', 'hunter2', 'retry', '\ue000'],
-  ['T4c rejoins a colon keyword and masks its next token', 'failed Auth\u200borization:Basic dXNlcjpwYXNz retry', 'failed [redacted] retry', 'dXNlcjpwYXNz', '\ue000'],
-  ['T4c recognizes surrounding punctuation before the first colon', 'failed ("pass\u00adword"):hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
-  ['T4c strips leading punctuation before a colon keyword check', 'failed :\u200bBearer:hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
-  ['T4c redacts a token made only of raw sentinels', 'failed \ue000\ue000 retry', 'failed [redacted] retry', '\ue000'],
+  ['redacts a slash-separated base64 mixed run', 'failed YWJjZGVm/YWJjZGVmMTIzNDU2Nzg5 retry', 'failed [redacted] retry', 'YWJjZGVm', 'YWJjZGVmMTIzNDU2Nzg5'],
+  // Oracle: the filter keeps a joined keyword; it replaces any other token with a format sentinel.
+  ['redacts a format-glued Bearer value and keeps retry', 'Bearer\u200bshortSecret retry', '[redacted] retry', 'shortSecret', '\ue000'],
+  ['rejoins Bearer and masks its next two tokens', 'Be\u200barer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['rejoins password and masks its next two tokens', 'pass\u00adword hunter2 retry', 'password [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['returns null for a format-split long run alone', `${'A'.repeat(20)}\u200b${'A'.repeat(20)}`, null, 'A'.repeat(20), '\ue000'],
+  ['redacts a nonkeyword with a raw sentinel', 'failed short\ue000Secret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
+  ['recognizes a keyword with a raw sentinel', 'Be\ue000arer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['rejoins a keyword with two format characters', 'Be\u200ba\u00adrer hunter2 retry', 'Bearer [redacted]', 'hunter2', 'retry', '\ue000'],
+  ['redacts a nonkeyword with two format characters', 'failed short\u200bSe\u00adcret retry', 'failed [redacted] retry', 'short', 'Secret', '\ue000'],
+  ['rejoins a keyword with surrounding punctuation', 'failed ("Be\u200barer"), hunter2 retry later', 'failed ("Bearer"), [redacted] later', 'hunter2', 'retry', '\ue000'],
+  ['rejoins a colon keyword and masks its next token', 'failed Auth\u200borization:Basic dXNlcjpwYXNz retry', 'failed [redacted] retry', 'dXNlcjpwYXNz', '\ue000'],
+  ['recognizes surrounding punctuation before the first colon', 'failed ("pass\u00adword"):hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
+  ['strips leading punctuation before a colon keyword check', 'failed :\u200bBearer:hunter2 value retry', 'failed [redacted] retry', 'hunter2', 'value', '\ue000'],
+  ['redacts a token made only of raw sentinels', 'failed \ue000\ue000 retry', 'failed [redacted] retry', '\ue000'],
 ];
 
 describe('safeFailureReason: exact allow-list outputs', () => {
@@ -115,8 +115,8 @@ describe('safeFailureReason: exact allow-list outputs', () => {
   }
 });
 
-// Oracle: T4b requires an unchanged diagnostic for each of the five filter changes.
-describe('safeFailureReason: each T4b fix preserves diagnostics', () => {
+// Oracle: an unchanged diagnostic is required for each of the five filter changes.
+describe('safeFailureReason: each filter fix preserves diagnostics', () => {
   for (const item of [1, 2, 3, 4, 5]) {
     it(`item ${item} keeps the capacity line, ERROR status and model id`, () => {
       assert.equal(safeFailureReason(CAPACITY), CAPACITY);

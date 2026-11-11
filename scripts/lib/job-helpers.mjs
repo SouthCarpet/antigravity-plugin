@@ -9,30 +9,37 @@
  * the `onText` callback) rather than as one final blob.
  */
 
+import { listedFlagsFromHelp } from "./compat.mjs";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
-import { runAgyPrint, resolveAgyBin, probeAgy } from "./agent-runtime.mjs";
+import * as agentRuntime from "./agent-runtime.mjs";
+import { runAgyPrint, resolveAgyBin, probeAgy, probeAgyModels } from "./agent-runtime.mjs";
 import { createOAuthUrlFilter, removeOAuthUrlsDeep, safeFailureReason } from "./safe-reason.mjs";
 import { spawn } from "./process-adapter.mjs";
+import * as processAdapter from "./process-adapter.mjs";
 import {
   appendJobLog,
   claimRequestId,
   resolveJobLogFile,
+  resolveStateDir,
   patchJobState,
   patchJobStateUnlocked,
   readJobFile,
   getConfig,
   setConfig,
 } from "./state.mjs";
+import { withWorkspaceMutex } from "./atomic-state.mjs";
 import { requestFingerprint } from "./request-id.mjs";
-import { SESSION_ID_ENV } from "./job-control.mjs";
+import { parseModelsListing, selectAliasModel } from "./model-alias.mjs";
+import { SESSION_ID_ENV, findResumedJob } from "./job-control.mjs";
 import {
   checkProcessIdentity,
   isProcessAlive as processIsAlive,
   readProcessStartTime,
   recordProcessStartTime,
+  queryProcessChildren,
   terminateProcessTree,
 } from "./process.mjs";
 import { createJobActivityRecorder } from "./job-activity.mjs";
@@ -94,14 +101,13 @@ export const AGY_MODES = ["plan", "accept-edits"];
  * plugin-side default of its own.
  *
  * agy 1.3.1 `--help` lists `xhigh`, but every model refused `xhigh` and
- * `max` when probed on 2026-10-08 (plan 118 probes D1 to D6), so `xhigh`
+ * `max` when probed on 2026-10-08, so `xhigh`
  * stays out of this list. */
 export const AGY_EFFORTS = ["low", "medium", "high"];
 
 /**
  * The `--effort` value `task` and `rescue` apply when neither `--effort`
- * nor `--model` is given (plan 086 T2, disclosed 1.x default; the model
- * case is `resolveRequestEffort`). Measured basis: a run without `--effort`
+ * nor `--model` is given (disclosed 1.x default, the model case is `resolveRequestEffort`). Measured basis: a run without `--effort`
  * sends no effort field at all, so the value agy uses comes from whatever
  * that machine has saved — a delegated run is not reproducible across
  * machines without a plugin default. `vision` does not read this constant:
@@ -113,7 +119,7 @@ export const DEFAULT_AGY_EFFORT = "medium";
 
 /**
  * The `--effort` value that means "send no `--effort` flag at all; let agy
- * use whatever default the user configured on that machine" (plan 086 T5i).
+ * use whatever default the user configured on that machine".
  * It is the fourth accepted `--effort` value on `task` and `rescue`, and the
  * caller's way to reach the pre-1.4.0 behaviour `DEFAULT_AGY_EFFORT`
  * replaced. Since agy 1.2.11 it is also the value `resolveRequestEffort`
@@ -173,8 +179,7 @@ export function resolveRequestEffort(effortOption, model) {
 }
 
 /**
- * Resolve the `--effort` value `review` stores on the job request (Task 4,
- * "Senate R4", 2026-09). Unlike {@link resolveRequestEffort} (`task`/
+ * Resolve the `--effort` value `review` stores on the job request (added 2026-09). Unlike {@link resolveRequestEffort} (`task`/
  * `rescue`), `review` has no plugin-side default: an absent `--effort`
  * resolves to `undefined`, with no fallback to {@link DEFAULT_AGY_EFFORT} or
  * to the `agy-default` sentinel. An explicit value, including the
@@ -195,14 +200,12 @@ export function resolveReviewEffort(effortOption) {
 }
 
 /**
- * The maximum length, after trimming, `review`'s `--focus` accepts (Task 4,
- * "Senate R4", 2026-09).
+ * The maximum length, after trimming, `review`'s `--focus` accepts (added 2026-09).
  */
 export const MAX_REVIEW_FOCUS_CHARS = 500;
 
 /**
- * Validate and trim a `review` `--focus` value (Task 4, "Senate R4",
- * 2026-09): trimmed of surrounding whitespace; empty or whitespace-only, or
+ * Validate and trim a `review` `--focus` value (added 2026-09): trimmed of surrounding whitespace; empty or whitespace-only, or
  * longer than {@link MAX_REVIEW_FOCUS_CHARS} after trimming, is a validation
  * error the caller reports via {@link reportInvalidFocus}. `--focus` is
  * never required and never derived from repository content — an absent
@@ -228,8 +231,7 @@ export function resolveReviewFocus(focusOption) {
 
 /**
  * Report `review`'s `--focus` validation failure ({@link resolveReviewFocus}):
- * the plugin's own one-line reason on stderr, plus (Task 4, "Senate R4",
- * 2026-09, following the Task 3 pattern) one `invalid_input` `--json`
+ * the plugin's own one-line reason on stderr, plus (added 2026-09) one `invalid_input` `--json`
  * envelope when `json` is true.
  *
  * @param {string} message
@@ -266,8 +268,7 @@ export function agyModeArgs(mode) {
  * record or starts anything, returning both the one stderr line a verb
  * prints before it exits 1 (or `null` when agy can be spawned) and the
  * version agy itself reported (`null` only when the probe failed). The one
- * probe every delegating verb needs: a job's `provenance.agyVersion` (plan
- * 103 T2, "Senate R11", 2026-09) comes from this same probe, never a second
+ * probe every delegating verb needs: a job's `provenance.agyVersion` (added 2026-09) comes from this same probe, never a second
  * `agy --version` call. `setup` keeps its own wording and exit 2; this is
  * for the four verbs that run agy.
  *
@@ -291,8 +292,7 @@ export const AGY_VERSION_REMEMBER_INTERVAL_MS = 60 * 60 * 1000;
 /**
  * Cache the agy version a successful {@link probeAgyForVerb} call just saw,
  * so `status` (with no job id) and `setup` can warn about a version outside
- * this plugin's measured range without probing agy themselves (Senate R2,
- * 2026-09). Called by `review`, `rescue`, `task`, and `vision` right after
+ * this plugin's measured range without probing agy themselves (added 2026-09). Called by `review`, `rescue`, `task`, and `vision` right after
  * their own probe succeeds. Never on `review --preview` (which returns
  * before probing at all), and never by `doctor` or `status`, which only read
  * this cache.
@@ -322,7 +322,7 @@ export async function rememberAgyVersion(workspaceRoot, version, { now = () => n
 
 /**
  * Report a probe failure from {@link probeAgyForVerb}: the existing stderr
- * line, unchanged, plus (Task 3, "Senate R1", 2026-09) one `no_agy`
+ * line, unchanged, plus (added 2026-09) one `no_agy`
  * `--json` envelope when `json` is true. `line` already carries the
  * `antigravity:<kind> — ` prefix; `details.error.message` is that same line
  * with the prefix stripped, so it stays the plugin's own one-line reason.
@@ -351,14 +351,14 @@ export function reportAgyUnavailable(kind, line, json) {
  * state the caller needs (`resolveResultJob`, job-control.mjs: "Job <id> is
  * still running/queued..."). Matched by shape, not owned by this module — the
  * one place every `status`/`result`/`cancel` job-lookup failure is classified
- * into a `state_error` envelope's `error.code` (Task 3, "Senate R1", 2026-09). */
+ * into a `state_error` envelope's `error.code` (added 2026-09). */
 const JOB_NOT_READY_RE = / is still (running|queued)\./;
 
 /**
  * Classify a job-state lookup failure (job-control.mjs's `resolveResultJob`,
  * `resolveCancelableJob`, `buildSingleJobSnapshot`, or a `state.mjs` read)
  * into the `state_error` envelope's `error.code` and a safe one-line message
- * (Task 3, "Senate R1", 2026-09): a lock-contention timeout, a job that
+ * (added 2026-09): a lock-contention timeout, a job that
  * exists but has not reached the caller's required state yet, or no matching
  * job at all. Table-driven on the message shape every throw site already
  * uses, never a new message format of its own.
@@ -377,7 +377,7 @@ export function classifyStateError(err) {
 
 /**
  * Report `task`/`rescue`'s "no task text provided" validation failure: the
- * existing stderr line, unchanged, plus (Task 3, "Senate R1", 2026-09) one
+ * existing stderr line, unchanged, plus (added 2026-09) one
  * `invalid_input` `--json` envelope when `json` is true. The one message
  * both verbs print identically.
  *
@@ -404,7 +404,7 @@ export function reportMissingTaskText(kind, json) {
  * exact shape `readCommandInput` already uses for a parser-level failure
  * (`args.mjs`'s `schema.conflicts`, e.g. "cannot combine --foreground and
  * --background"): one stderr line, prefixed, exit 1, no `--json` envelope on
- * any path (Task 7, "Senate R9", 2026-09). Split out for a dependency
+ * any path (added 2026-09). Split out for a dependency
  * `schema.conflicts` itself cannot express: two flags that must appear
  * together, not two flags that must never coexist.
  *
@@ -418,8 +418,7 @@ export function reportArgsValidationError(kind, message) {
 }
 
 /**
- * Validate `--show-result`'s dependency on `--wait` (Task 7, "Senate R9",
- * 2026-09; all three verbs it applies to: `task`, `review`, `rescue`) and,
+ * Validate `--show-result`'s dependency on `--wait` (all three verbs it applies to: `task`, `review`, `rescue`, 2026-09) and,
  * for `review`/`rescue` only, on `--background` too. `task` has no separate
  * "opt into background" flag of its own; its default already IS background,
  * so the equivalent failure there is `--foreground`: that mode
@@ -461,7 +460,7 @@ export function foregroundFailureLine(kind, result) {
  * Verbs whose foreground `--conversation <id>` flag actually resumes a run
  * (`commands/task.md`, `commands/rescue.md`, `commands/review.md`,
  * `SKILL.md` all document it). `vision` has no `--conversation` flag at all,
- * so it is deliberately absent here (plan 086 T5k F1 item 3) — table-driven,
+ * so it is deliberately absent here — table-driven,
  * like the denial-remedy tables below (`READ_GRANTABLE_ACTIONS` and
  * friends), rather than derived from `kind` by pattern.
  */
@@ -470,8 +469,7 @@ const RESUMABLE_KINDS = new Set(["task", "rescue", "review"]);
 /**
  * The one stderr line a denied foreground run of a resumable verb prints
  * beside its own denial line: the exact command a host can run to resume the
- * same agy conversation, with the id agy itself reported (plan 086 T5k F1
- * item 3 — closes the gap where a host was told to pass `--conversation
+ * same agy conversation, with the id agy itself reported (this closes the gap where a host was told to pass `--conversation
  * <id>` but never given one). `null` when the verb has no `--conversation`
  * flag, the run was not a denial, or agy never reported a conversation id
  * for it — never prints a line naming an id that does not exist.
@@ -521,9 +519,9 @@ export function exitCodeForJobStatus(status) {
  * Report a background job's start: the failure line and exit code 1 when it
  * never started, else the stable `--json`/markdown "queued" envelope. The
  * one background-start report `task.mjs`, `rescue.mjs` and `review.mjs`
- * each hand-wrote (item 19).
+ * each hand-wrote.
  *
- * Under `--show-result` (Task 7, "Senate R9", 2026-09) a successful dispatch
+ * Under `--show-result` (added 2026-09) a successful dispatch
  * prints no envelope at all on stdout, in either mode: the caller is about
  * to wait for and print the completed job itself, so the dispatch-time
  * stdout stays empty and the one-line notice moves to stderr instead. A
@@ -576,7 +574,7 @@ export function reportQueuedJob(kind, job, options) {
 
 /**
  * Report a `--request-id` dispatch that found the id already claimed with
- * the same request (Senate R12, 2026-09): the existing job's queued-style
+ * the same request (added 2026-09): the existing job's queued-style
  * envelope, carrying that job's current status and
  * `details.deduplicated: true`. Under `--show-result` the notice goes to
  * stderr instead, as {@link reportQueuedJob} does for a new job.
@@ -604,7 +602,7 @@ function reportDeduplicatedJob(kind, job, options) {
 
 /**
  * Report a `--request-id` dispatch that found the id already claimed by a
- * different request (Senate R12, 2026-09): one stderr line plus the
+ * different request (added 2026-09): one stderr line plus the
  * `invalid_input` / `request_id_conflict` envelope under `--json`. No job
  * was created and nothing is retried.
  *
@@ -632,7 +630,7 @@ function reportRequestIdConflict(kind, existingJobId, options) {
  * Report what {@link startBackgroundJob} returned, for `task` and
  * `rescue --background`: a new job goes through {@link reportQueuedJob}
  * unchanged; a `--request-id` claim that found an existing job reports it
- * as deduplicated or as a conflict (Senate R12, 2026-09).
+ * as deduplicated or as a conflict (added 2026-09).
  *
  * @param {string} kind verb name
  * @param {Awaited<ReturnType<typeof startBackgroundJob>>} started
@@ -651,7 +649,7 @@ export function reportBackgroundStart(kind, started, options) {
 /**
  * Print the finished job's raw output on stdout when a text-mode `--wait`
  * completed: `task --wait`'s own behaviour since before `--show-result`
- * existed, and (Task 7, "Senate R9", 2026-09) also `review`/`rescue --wait
+ * existed, and (added 2026-09) also `review`/`rescue --wait
  * --show-result`'s completed-text-mode behaviour. A no-op under `--json`, for
  * any status but `completed`, or when the stored result carries no
  * `rawOutput`. `final` may be `null` (the job record vanished while
@@ -671,8 +669,7 @@ export function printCompletedRawOutput(final, json) {
  * The `details` for a `--show-result` completion envelope: the same
  * projection `result <id> --json` builds (`buildResultDetails`, shared via
  * `job-result.mjs`), plus the same `deniedActions` (with remedy) and
- * `agyPrintTimeout` keys that envelope adds on top (Task 7, "Senate R9",
- * 2026-09). `final` (the terminal `JobRecord` `waitForJob` returns) plays
+ * `agyPrintTimeout` keys that envelope adds on top (added 2026-09). `final` (the terminal `JobRecord` `waitForJob` returns) plays
  * both the `job` and `stored` role `buildResultDetails` expects: unlike
  * `result.mjs`'s index-entry-plus-detail-file split, a background wait's
  * `waitForJob` already reads the one complete per-job file, so there is no
@@ -714,8 +711,8 @@ function showResultTimeoutMessage(kind, final) {
 
 /**
  * Build the one `--show-result --json` envelope for an awaited background
- * job (Task 7, "Senate R9", 2026-09): `completed` reuses `result <id>
- * --json`'s own details shape; `failed`/`cancelled` are the Task 3 error
+ * job (added 2026-09): `completed` reuses `result <id>
+ * --json`'s own details shape; `failed`/`cancelled` are the JSON error
  * envelope with `error.code: "job_failed"`/`"job_cancelled"`; a job still
  * `queued`/`running` (the wait's own deadline passed, not the job) is
  * `error.code: "wait_timeout"` and never reports completion. A vanished job
@@ -744,13 +741,14 @@ function buildShowResultEnvelope(kind, jobId, final) {
       status: "completed",
       jobId: final.id,
       answer: typeof final.result?.rawOutput === "string" ? final.result.rawOutput : null,
-      details: buildShowResultCompletedDetails(final),
+      details: { ...buildShowResultCompletedDetails(final), ...modelSelectionDetails(final, final.result ?? {}) },
     });
   }
   if (final.status === "failed" || final.status === "cancelled") {
     return createErrorEnvelope(kind, {
       status: final.status,
       jobId: final.id,
+      details: modelSelectionDetails(final, final.result ?? {}),
       error: {
         code: final.status === "cancelled" ? "job_cancelled" : "job_failed",
         phase: "run",
@@ -766,7 +764,7 @@ function buildShowResultEnvelope(kind, jobId, final) {
 }
 
 /**
- * The `--show-result` text-mode tail (Task 7, "Senate R9", 2026-09): a
+ * The `--show-result` text-mode tail (added 2026-09): a
  * `completed` job prints its stored `rawOutput` on stdout (the usage
  * trailer, when measured, is printed by the caller, see
  * {@link reportShowResultOutcome}, the same way it always precedes a
@@ -800,7 +798,7 @@ function reportShowResultText(kind, final) {
 }
 
 /**
- * `--show-result`'s own background-wait tail (Task 7, "Senate R9", 2026-09):
+ * `--show-result`'s own background-wait tail (added 2026-09):
  * the usage trailer on a completed job (unconditional on `--json`, matching
  * every other completed path in this module), then exactly one `--json`
  * envelope on stdout via {@link buildShowResultEnvelope}, or the text-mode
@@ -817,6 +815,10 @@ function reportShowResultText(kind, final) {
  * @returns {number}
  */
 function reportShowResultOutcome(kind, jobId, final, json) {
+  if (final && ["completed", "failed"].includes(final.status)) {
+    const line = reportedModelMismatchLine(kind, final.result ?? {}, final.provenance);
+    if (line) process.stderr.write(`${line}\n`);
+  }
   if (final?.status === "completed") {
     printMeasuredUsageTrailer(final.result?.usage ?? null);
     reportFindingsWarning(kind, storedFindingsDetails(final));
@@ -832,9 +834,9 @@ function reportShowResultOutcome(kind, jobId, final, json) {
 /**
  * Await a background job's terminal state and report it: the one
  * background-wait tail `task.mjs`, `rescue.mjs` and `review.mjs` share
- * (item 19; extended for `--show-result` in Task 7, "Senate R9", 2026-09).
+ * (extended for `--show-result` in 2026-09).
  *
- * Without `showResult` this is byte-identical to the pre-Task-7 behaviour:
+ * Without `showResult` this is byte-identical to the behaviour before `--show-result`:
  * print the wait-timeout line (if any), map the outcome to an exit code,
  * and, `task` only, print the completed job's raw output on stdout in
  * text mode (`printCompletedRawOutput`; `review`/`rescue` never have,
@@ -876,7 +878,7 @@ export function currentSessionId(env = process.env) {
 /**
  * agy tool ids where `--add-dir <dir>` grants read access, bounded to that
  * directory, read-only, for the run (agy 1.1.24, measured: `read_file` and
- * similar). Table-driven (item 3): a remedy is never derived by matching an
+ * similar). Table-driven: a remedy is never derived by matching an
  * action id against a naming pattern.
  */
 const READ_GRANTABLE_ACTIONS = new Set([
@@ -897,7 +899,7 @@ const VISION_DENIAL_REMEDY =
 
 /**
  * One short sentence naming the remedy for a headless denial of `action` on
- * a `verb` job (item 3: table-driven, no regex on free text).
+ * a `verb` job (table-driven, no regex on free text).
  *
  * This lives here, not in agent-runtime, because the runtime is the
  * verb-agnostic spawn chokepoint and this module is already the one place
@@ -935,7 +937,7 @@ export function denialRemedy(action, verb) {
  * Project a raw `deniedActions` list (`{ action, displayName, target,
  * source }`, see agent-runtime.mjs#mergeDeniedActions) into the
  * `{ action, displayName, target, remedy }` shape every output path renders
- * (item 4; `target` added plan 086 T3 item 2), using {@link denialRemedy}
+ * (with `target`), using {@link denialRemedy}
  * with the job's own `kind`. `null` when there is nothing to project, so a
  * caller can skip an empty `details` key the same way `warningDetails` does.
  *
@@ -961,11 +963,11 @@ export function deniedActionsWithRemedy(deniedActions, kind) {
  * double, or a `RuntimeResult` built before this field existed). Returns
  * the same object.
  *
- * When an entry's `target` is known (plan 086 T3 item 2) the line names it
+ * When an entry's `target` is known the line names it
  * via {@link formatDeniedActionLabel} before the remedy sentence
  * (`agent-runtime: read_url (ReadUrlContent) for "example.com": <remedy>`);
  * when it is not, the line stays the exact 1.3.0 text
- * (`agent-runtime: <remedy>`) — item 6's "1.3.0 behaviour with no target
+ * (`agent-runtime: <remedy>`): the "1.3.0 behaviour with no target
  * present is unchanged".
  *
  * @param {import('./types.mjs').RuntimeResult} result
@@ -987,17 +989,17 @@ export function applyDenialHint(result, kind) {
 
 /**
  * Echo one remedy line per denied action to stderr on a completed run that
- * still carries denials (item 4's foreground "warning text"):
+ * still carries denials (the foreground "warning text"):
  * `reportWarnings` already echoes agy's own denial line(s) verbatim; this
  * adds the plugin's own remedy underneath, one per action.
  *
- * When `target` is known (plan 086 T3 item 2) the line names it via
+ * When `target` is known the line names it via
  * {@link formatDeniedActionLabel} (`read_url (ReadUrlContent) for
  * "example.com"`); when it is not, the line stays the exact 1.3.0 text
- * (`"<action>"`) — item 6's "1.3.0 behaviour with no target present is
+ * (`"<action>"`): the "1.3.0 behaviour with no target present is
  * unchanged". `target` is model-chosen tool-parameter text, so the whole
  * line runs through {@link redactBypassFlag} before it reaches this
- * function's own stderr (plan 086 T5e F3): a denied target that IS the
+ * function's own stderr: a denied target that IS the
  * bypass flag must not print that flag on the plugin's own stderr, even
  * though this line never carries agy's "Alternatively, ..." suggestion
  * `stripBypassAdvice` is built to catch.
@@ -1021,8 +1023,8 @@ export function reportDeniedActionHints(kind, result) {
  * `auth_required` and `timeout` are surfaced as `failed` with a diagnostic
  * `healthStatus` set so the status command can render the OAuth URL. The
  * one mapping used by both the foreground path (below) and the background
- * worker (`_worker.mjs`) — before 076-T6 the worker had its own simpler
- * copy that skipped the `timeout` case's retry hint (item 16).
+ * worker (`_worker.mjs`) — before this the worker had its own simpler
+ * copy that skipped the `timeout` case's retry hint.
  *
  * @param {import('./types.mjs').RuntimeResult} result
  * @param {string} kind
@@ -1071,28 +1073,52 @@ export function deriveJobStatus(result, kind) {
   }
 }
 
+/** A synchronous probe also covers creation inside the request-id mutex.
+ * Kill the exact child after 1000 ms; never fail a job for missing help. */
+function probeListedFlags(env) {
+  const bin = resolveAgyBin(env);
+  try {
+    agentRuntime.assertAgyBinSpawnable(bin);
+    const result = processAdapter.spawnSync(bin, ["--help"], {
+      env, encoding: "utf8", timeout: 1000, killSignal: "SIGKILL",
+      maxBuffer: 65536, stdio: ["ignore", "pipe", "pipe"],
+    });
+    const help = (result.stdout ?? "") + (result.stderr ?? "");
+    if (result.error || result.status !== 0 || !help.trim()) return null;
+    return listedFlagsFromHelp(help);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build the `provenance` object every job record carries from creation
- * (plan 103 T2, "Senate R11", 2026-09): enough for a later reader to
+ * (added 2026-09): enough for a later reader to
  * reproduce the run's settings, and nothing the caller gave the model — no
  * prompt, workspace path, image path, `extraArgs` content, or tool list.
  * `pluginVersion` is this plugin's own running version
- * (`scripts/lib/update.mjs#readRunningVersion`); every other field is a
- * plain projection off the caller's already-built `request` (itself already
- * scrubbed of free text by the verb) or the `agyVersion` the caller's own
+ * (`scripts/lib/update.mjs#readRunningVersion`); `listedFlags` comes from
+ * the bounded help probe. Other fields are plain projections off the caller's
+ * already-built `request` (itself already scrubbed of free text by the verb) or the `agyVersion` the caller's own
  * {@link probeAgyForVerb} call already ran. `model`/`effort` are `null` for
- * a verb that has none (`review`); `mode` defaults to `"print"` and
+ * a request that has none; `mode` defaults to `"print"` and
  * `addDirCount` to `0` when the request carries neither.
  *
  * @param {{ agyVersion: string | null, request: import('./types.mjs').JobRequest | null,
- *   requestedAt: string }} args
+ *   requestedAt: string, env: NodeJS.ProcessEnv }} args
  * @returns {import('./types.mjs').JobProvenance}
  */
-function buildJobProvenance({ agyVersion, request, requestedAt }) {
+function buildJobProvenance({ agyVersion, request, requestedAt, env }) {
   return {
     pluginVersion: readRunningVersion(),
+    // A job whose verb did not probe agy (a transcript-only media job) does
+    // not use agy, so it starts no agy process at all.
+    listedFlags: agyVersion ? probeListedFlags(env) : null,
     agyVersion: agyVersion ?? null,
     model: request?.model ?? null,
+    requestedAlias: request?.requestedAlias ?? null,
+    resolvedModel: request?.resolvedModel ?? null,
+    ...(request?.replayedFromJobId ? { replayedFromJobId: request.replayedFromJobId } : {}),
     effort: request?.effort ?? null,
     mode: request?.mode ?? "print",
     addDirCount: Array.isArray(request?.addDirs) ? request.addDirs.length : 0,
@@ -1128,7 +1154,7 @@ export async function createTrackedJob(options) {
  * {@link createTrackedJob} for a caller that already holds the workspace
  * mutex: `state.mjs#claimRequestId` runs this as its `createJob` callback,
  * so the `--request-id` claim and the job it creates share one locked
- * critical section (Senate R12, 2026-09). Same record, same log line.
+ * critical section (added 2026-09). Same record, same log line.
  *
  * @param {TrackedJobOptions} options
  * @returns {import('./types.mjs').JobIndexEntry}
@@ -1175,7 +1201,7 @@ function buildTrackedJob({
     startedAt: null,
     completedAt: null,
     logFile: resolveJobLogFile(workspaceRoot, id),
-    provenance: buildJobProvenance({ agyVersion, request, requestedAt: now }),
+    provenance: buildJobProvenance({ agyVersion, request, requestedAt: now, env }),
   };
   return { job, detail: { ...job, request, result: null } };
 }
@@ -1346,7 +1372,7 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
     deniedActions: result.deniedActions ?? null,
     deniedActionsCount: Array.isArray(result.deniedActions) ? result.deniedActions.length : 0,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
-    // Top-level, not only nested under `result` (plan 086 T5k F1 item 1):
+    // Top-level, not only nested under `result`:
     // agy's own conversation id, present whenever agy reported one, including
     // a failed or denied run — distinct from the top-level `conversationId`
     // field, which is the id the *caller* passed in via `--conversation`.
@@ -1362,10 +1388,10 @@ function buildTerminalJobPatch({ result, derived, completedAt, answerBytes, answ
  * The `result` field persisted on a job record once a run reaches a
  * terminal state — the one stored-result projection used by both the
  * foreground path above and the background worker (`_worker.mjs`); before
- * 076-T6 each hand-wrote its own copy and only the worker's stored
- * `agyConversationId` (item 16).
+ * this each hand-wrote its own copy and only the worker's stored
+ * `agyConversationId`.
  *
- * `reportedModel` (plan 103 T2, "Senate R11", 2026-09) is taken from agy's
+ * `reportedModel` (added 2026-09) is taken from agy's
  * own `result` event when that event carries a model field. Measured against
  * agy 1.2.11 and 1.2.12 (`agy-1.2.11-20260925/`, `agy-1.2.12-20260927/`
  * transcript directories, including `probe-json-schema.txt` and
@@ -1393,15 +1419,14 @@ export function buildStoredResult(result) {
     deniedActions: result.deniedActions ?? null,
     agyPrintTimeout: result.agyPrintTimeout ?? null,
     reportedModel: result.reportedModel ?? null,
-    // Senate R7 (2026-09): agy's `--json-schema` answer as JSON text, `null`
+    // agy's `--json-schema` answer as JSON text, `null`
     // when agy sent none. Validated at read time (review-findings.mjs).
     structuredRaw: structuredRawText(result.structured),
   };
 }
 
 /**
- * Print the one findings warning line (`review --findings-json`, Senate R7,
- * 2026-09) when `details` carries a `findingsStatus` other than `valid`. A
+ * Print the one findings warning line (`review --findings-json`, 2026-09) when `details` carries a `findingsStatus` other than `valid`. A
  * no-op for every other run, which has no such key.
  *
  * @param {string} kind
@@ -1420,8 +1445,8 @@ function reportFindingsWarning(kind, details) {
  * and never emits the line when a measured total is absent. The one helper
  * for `finishForeground`'s foreground tail (all four verbs) and the shared
  * background-wait tail (`waitAndReport` below); `result.mjs` and
- * `vision.mjs` each hand-wrote a copy of this exact line before plan 103 T2
- * ("Senate R11", 2026-09).
+ * `vision.mjs` each hand-wrote a copy of this exact line before
+ * 2026-09.
  *
  * @param {import('./types.mjs').AgyUsage | null | undefined} usage
  * @returns {void}
@@ -1439,7 +1464,7 @@ export function printMeasuredUsageTrailer(usage) {
  * the stable `--json` envelope, and the exit code. `review.mjs`,
  * `rescue.mjs`, `task.mjs` and `vision.mjs` each hand-wrote this same
  * sequence after `runForegroundJob` resolves, differing only in their
- * `details`/top-level envelope fields (item 16).
+ * `details`/top-level envelope fields.
  *
  * `extraDetails` is merged before `warningDetails(result)` so a caller's
  * own keys keep their original position and a warning can never shadow
@@ -1447,16 +1472,16 @@ export function printMeasuredUsageTrailer(usage) {
  * (only `vision`'s `imagePaths`/`model`, docs/COMPATIBILITY.md); a
  * `beforeAnswer` callback runs right after `reportWarnings` and before the
  * envelope is built, for a caller-specific stderr line with no shared home.
- * The measured-usage trailer itself (plan 103 T2, "Senate R11", 2026-09) is
+ * The measured-usage trailer itself (added 2026-09) is
  * no longer one of those callbacks: {@link printMeasuredUsageTrailer} runs
  * here for every kind whenever `result.usage.total_tokens` is a number —
  * `vision.mjs` used to pass its own copy of that line as `beforeAnswer`.
- * `resultDetails` (Senate R7, 2026-09) derives more `details` keys from the
+ * `resultDetails` (added 2026-09) derives more `details` keys from the
  * completed `result` itself (`review --findings-json`'s findings fields);
  * they sit next to `extraDetails`, and a non-valid `findingsStatus` among
  * them prints one warning line on stderr.
  *
- * `extraStderrLines`/`renderedSuffix` (Task 14, "Senate R8", 2026-09) are
+ * `extraStderrLines`/`renderedSuffix` (added 2026-09) are
  * the same optional-line pattern for a caller whose extra line depends on
  * `ownDetails` (the merged `extraDetails`/`resultDetails` — `review
  * --check-locations`'s summary line needs the `locationCheck` counts
@@ -1476,8 +1501,7 @@ export function printMeasuredUsageTrailer(usage) {
  * @returns {number} the verb's exit code
  */
 /**
- * The `error.code` for a non-completed `finishForeground` result (Task 3,
- * "Senate R1", 2026-09): `cancelled`/`auth_required`/`timeout` mirror
+ * The `error.code` for a non-completed `finishForeground` result (added 2026-09): `cancelled`/`auth_required`/`timeout` mirror
  * `result.status` verbatim (there is only one reason for each); a `failed`
  * result is split into the three distinct reasons `foregroundFailureLine`
  * already distinguishes in its own text — a headless auto-denial that
@@ -1538,9 +1562,9 @@ function foregroundErrorDetails(kind, result) {
 
 /**
  * Emit the one `--json` error envelope for a non-completed `finishForeground`
- * result (Task 3, "Senate R1", 2026-09), or nothing when `json` is false —
+ * result (added 2026-09), or nothing when `json` is false —
  * `outputCommandResult` already no-ops on an empty `rendered` string, so this
- * never prints to stdout on the markdown path, matching the pre-Task-3
+ * never prints to stdout on the markdown path, matching the earlier
  * contract for every status it now covers.
  *
  * @param {string} kind
@@ -1559,7 +1583,7 @@ function emitForegroundErrorEnvelope(kind, job, result, json) {
         phase: "run",
         message: foregroundErrorMessage(kind, result),
       },
-      details: foregroundErrorDetails(kind, result),
+      details: { ...foregroundErrorDetails(kind, result), ...modelSelectionDetails(job, result) },
     }),
     "",
     Boolean(json),
@@ -1568,7 +1592,7 @@ function emitForegroundErrorEnvelope(kind, job, result, json) {
 
 /**
  * `finishForeground`'s `auth_required` branch, split out to keep that
- * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
+ * function under the complexity ceiling (added 2026-09):
  * stderr output names the setup remedy and never an OAuth URL; it also
  * emits the `--json` error envelope.
  *
@@ -1590,7 +1614,7 @@ function finishForegroundAuthRequired(kind, job, result, json) {
 /**
  * `finishForeground`'s non-completed, non-`auth_required` branch (`failed`
  * including denial-starved, `cancelled`, `timeout`), split out to keep that
- * function under the complexity ceiling (Task 3, "Senate R1", 2026-09):
+ * function under the complexity ceiling (added 2026-09):
  * stderr output is byte-for-byte unchanged; the only addition is the
  * `--json` error envelope.
  *
@@ -1606,7 +1630,7 @@ function finishForegroundFailure(kind, job, result, json) {
   // agy's own "Alternatively, ..." suggestion; redactBypassFlag then
   // catches the flag string wherever else it appears on this echo, such
   // as inside a plugin-authored denial label naming a model-chosen
-  // `target` that IS the flag (plan 086 T5e F3). Neither call mutates
+  // `target` that IS the flag. Neither call mutates
   // `result.stderr` itself, so the stored record keeps the complete text.
   const echoed = result.stderr ? redactBypassFlag(stripBypassAdvice(result.stderr)) : "";
   if (echoed) process.stderr.write(echoed);
@@ -1625,6 +1649,9 @@ function finishForegroundFailure(kind, job, result, json) {
 export function finishForeground(kind, job, result, {
   json, extraDetails = {}, extraFields = {}, beforeAnswer, resultDetails, extraStderrLines, renderedSuffix,
 } = {}) {
+  const mismatchLine = reportedModelMismatchLine(kind, result, job.provenance);
+  if (mismatchLine && ["completed", "failed"].includes(result.status)) process.stderr.write(`${mismatchLine}\n`);
+  extraDetails = { ...extraDetails, ...modelSelectionDetails(job, result) };
   if (result.status === "auth_required") return finishForegroundAuthRequired(kind, job, result, json);
   if (result.status !== "completed") return finishForegroundFailure(kind, job, result, json);
 
@@ -1661,8 +1688,7 @@ export function finishForeground(kind, job, result, {
  * TUI both reach every verb through it, per `commands/*.md`'s `node -e`
  * snippet) so the runtime can tell a host-driven invocation apart from a
  * human typing directly into the standalone CLI or an already-interactive
- * shell, even when both happen to inherit a real TTY on stdio (plan 086
- * T5k F2). Duplicated as a string literal in `host-bootstrap.cjs` — that
+ * shell, even when both happen to inherit a real TTY on stdio. Duplicated as a string literal in `host-bootstrap.cjs` — that
  * module is CommonJS and must stay `require()`-able synchronously from a
  * one-line snippet, the same reason it already duplicates
  * `isPluginRoot`/message wording instead of importing this ES module.
@@ -1671,7 +1697,7 @@ export const HOST_WRAPPER_ENV = "ANTIGRAVITY_HOST_WRAPPER";
 
 /**
  * True when a denied foreground run may ask the user what to do next on the
- * terminal itself (plan 086 T5k F2). All four conditions must hold:
+ * terminal itself. All four conditions must hold:
  *   - the caller did not pass `--json` (a prompt on a machine-readable
  *     stream has nowhere safe to go);
  *   - this process was not spawned by a host wrapper ({@link HOST_WRAPPER_ENV});
@@ -1734,8 +1760,8 @@ function isRetryEligible(result) {
 }
 
 /**
- * The foreground tail shared by `review`/`rescue`/`task`'s resumable path
- * (plan 086 T5k F2): report the run exactly as {@link finishForeground}
+ * The foreground tail shared by `review`/`rescue`/`task`'s resumable path:
+ * report the run exactly as {@link finishForeground}
  * always has, then — only when the result is a resumable denial AND
  * {@link canPromptOnDenial} allows it — ask once whether to retry the same
  * conversation. Choosing "stop" (or any non-eligible/non-interactive path)
@@ -1770,7 +1796,7 @@ export async function runForegroundWithRetryPrompt(kind, runOnce, finishOptions,
  * `{ deniedActions: [...] }` when `result` carries any, else `{}` — the same
  * "absent key on a clean run" shape `warningDetails` uses, for the
  * `{ action, displayName, remedy }` projection under `--json`'s
- * `details.deniedActions` (item 4).
+ * `details.deniedActions`.
  *
  * @param {import('./types.mjs').RuntimeResult} result
  * @param {string} kind
@@ -1786,7 +1812,7 @@ function deniedActionsDetails(result, kind) {
  * own print timeout ({@link runAgyPrint}, `agent-runtime.mjs#detectPrintTimeoutTruncation`),
  * else `{}` — the same "absent key on a clean run" shape `warningDetails`/
  * `deniedActionsDetails` use, for `details.agyPrintTimeout` on a completed
- * foreground envelope (plan 086 T1). `result.mjs` and `status.mjs` project
+ * foreground envelope. `result.mjs` and `status.mjs` project
  * the same field for their own envelopes.
  *
  * @param {import('./types.mjs').RuntimeResult} result
@@ -1799,7 +1825,7 @@ function agyPrintTimeoutDetails(result) {
 /**
  * Echo one warning line to stderr when a completed run's answer was cut
  * short by agy's own print timeout — printed next to the existing warning
- * and denied-action lines (item 4, plan 086 T1). A no-op on a clean run or a
+ * and denied-action lines. A no-op on a clean run or a
  * run that failed outright (the failure line already covers that case).
  *
  * @param {string} kind
@@ -1821,7 +1847,7 @@ export function reportPrintTimeoutHint(kind, result) {
  * `node <path> <jobId> <workspaceRoot>`.
  *
  * Uses `fileURLToPath`, NOT `URL.pathname` — on Windows, `.pathname` yields
- * a POSIX-shaped path (`/A:/projects-vault/...`) that does not exist on
+ * a POSIX-shaped path (`/C:/path/to/...`) that does not exist on
  * disk. `spawn` would then launch `node` against a nonexistent file; Node
  * exits `MODULE_NOT_FOUND`, but with `stdio: ['ignore','ignore','ignore']`
  * (see `startBackgroundJob` below) that failure was invisible — the job
@@ -1861,7 +1887,7 @@ function buildBackgroundRequest({ prompt, mode, conversationId, addDirs, extraAr
 
 /**
  * Create the background job, claiming `requestId` first when one is given
- * (Senate R12, 2026-09). Without an id this is exactly
+ * (added 2026-09). Without an id this is exactly
  * {@link createTrackedJob}. With one, the stored request gains
  * `requestId` and `requestFingerprint`, and the claim plus the job creation
  * run in one locked critical section (`state.mjs#claimRequestId`).
@@ -1883,7 +1909,7 @@ async function createBackgroundJob(jobOptions, requestId) {
  * Fire-and-forget a background worker that will run the prompt with the
  * given mode. Returns the queued job index entry.
  *
- * With `requestId` (`--request-id`, Senate R12, 2026-09) an id this
+ * With `requestId` (`--request-id`, 2026-09) an id this
  * workspace already claimed spawns nothing and returns `{ job: null, pid:
  * null, requestClaim }`, where `requestClaim` is `claimRequestId`'s
  * `deduplicated` or `conflict` outcome. No automatic retry happens on any
@@ -1952,7 +1978,7 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
   let child;
   let spawned = false;
   try {
-    child = spawnWorker(process.execPath, [workerPath, job.id, workspaceRoot], {
+    child = spawnWorker(process.execPath, ["--import", new URL("./worker-diagnostics.mjs", import.meta.url).href, workerPath, job.id, workspaceRoot], {
       cwd: workspaceRoot,
       detached: true,
       stdio: ["ignore", "ignore", "ignore"],
@@ -1973,14 +1999,21 @@ async function launchWorker(workspaceRoot, job, { env, spawnWorker, persistWorke
   } catch (error) {
     if (spawned) await terminateTree(child.pid);
     child?.unref?.();
-    const failed = await patchJob(workspaceRoot, job.id, {
-      status: "failed",
-      phase: "failed",
-      completedAt: new Date().toISOString(),
-      errorMessage: `Worker launch failed: ${error.message}`,
-      healthStatus: "failed",
+    const failed = await withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+      const fresh = readJobFile(workspaceRoot, job.id, { strict: true });
+      const freshPid = Number(fresh?.workerPid ?? fresh?.pid);
+      if (!fresh || !['running', 'queued'].includes(fresh.status) ||
+          (freshPid > 0 && freshPid !== child?.pid)) return fresh;
+      return patchJobStateUnlocked(workspaceRoot, job.id, {
+        status: "failed",
+        phase: "failed",
+        completedAt: new Date().toISOString(),
+        errorMessage: `Worker launch failed: ${error.message}`,
+        healthStatus: "failed",
+      });
     });
-    return { job: failed, pid: null };
+    // The file may have been removed during launch. Report the failure without recreating it.
+    return { job: failed ?? { ...job, status: "failed", errorMessage: `Worker launch failed: ${error.message}` }, pid: null };
   }
   appendJobLog(workspaceRoot, job.id, `[job] dispatched worker pid=${child.pid}`);
   return { job, pid: child.pid ?? null };
@@ -2015,6 +2048,83 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
   );
 }
 
+function toolCreatedInBound(candidate, job, lower, upper) {
+  const time = typeof candidate?.startedAt === "string" ? Date.parse(candidate.startedAt) : NaN;
+  return Number.isSafeInteger(candidate?.pid) && candidate.pid > 0 &&
+    candidate.parentPid === Number(job.agyPid) && time >= lower && time <= upper;
+}
+
+function toolTime(value) {
+  return typeof value === "string" ? Date.parse(value) : NaN;
+}
+
+function toolPid(candidate) { return candidate?.pid ?? "unknown"; }
+
+function queryToolRows(pid, queryChildren, log) {
+  let answer;
+  try { answer = queryChildren(pid); } catch { answer = { rows: null, reason: "spawn_failed" }; }
+  const rows = answer?.rows;
+  if (Array.isArray(rows) && rows.length <= 64) return rows;
+  const reason = rows?.length > 64 ? "too_many" : answer?.reason;
+  const safeReason = ["timeout", "spawn_failed", "exit_nonzero", "malformed", "too_many", "unsupported"].includes(reason) ? reason : "malformed";
+  log(`tools not signalled: creator query ${safeReason}`);
+  return null;
+}
+
+// The one creator query cannot reveal a longer ancestry chain. The caller's
+// immediate parent is known without another query; never terminate its tree.
+function isReservedToolPid(pid, job) {
+  return pid <= 4 || [process.pid, process.ppid, Number(job.workerPid), Number(job.agyPid)].includes(pid);
+}
+
+/**
+ * Stop bounded, identity-confirmed direct tools after the caller proved agy
+ * gone. Call outside the workspace mutex. Outcomes go only to the job log.
+ * @param {string} workspaceRoot
+ * @param {import('./types.mjs').JobRecord} job
+ * @param {{ platform?: string, queryChildren?: typeof queryProcessChildren,
+ *   terminateTree?: typeof terminateProcessTree, isProcessAlive?: typeof processIsAlive,
+ *   readStartTime?: typeof readProcessStartTime, cleanupNow?: () => number }} [deps]
+ * @param {string} [prefix]
+ * @returns {Promise<void>}
+ */
+export async function cleanupConfirmedTools(workspaceRoot, job, {
+  platform = process.platform, queryChildren = queryProcessChildren,
+  terminateTree = terminateProcessTree, isProcessAlive = processIsAlive,
+  readStartTime = readProcessStartTime, cleanupNow = () => performance.now(),
+} = {}, prefix = "wait") {
+  const lower = toolTime(job.agyProcessStartedAt);
+  const upper = toolTime(job.agyAliveAt);
+  if (platform !== "win32" || !Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) return;
+  const log = message => appendJobLog(workspaceRoot, job.id, `[${prefix}] ${message}`);
+  const deadline = cleanupNow() + 60_000;
+  const rows = queryToolRows(Number(job.agyPid), queryChildren, log);
+  if (rows === null) return;
+  // The worker sampled upper while its own child retained its Windows PID.
+  // No tolerance widens this interval. A backwards clock change can invalidate
+  // comparison of the OS creation time and the worker clock (documented limit).
+  const candidates = rows.filter(candidate => {
+    if (!isReservedToolPid(candidate?.pid, job)) return true;
+    log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: reserved process id`);
+    return false;
+  });
+  for (const candidate of candidates) {
+    // Reserve the existing maximum termination time (two 10s calls + 1s grace)
+    // and 5s for a complete identity read. Never shorten an identity check.
+    const budgetUsed = () => log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: cleanup time budget used`);
+    if (cleanupNow() + 26_000 > deadline) { budgetUsed(); continue; }
+    const confirmed = toolCreatedInBound(candidate, job, lower, upper);
+    if (!confirmed || checkProcessIdentity(candidate.pid, candidate.startedAt, { isProcessAlive, readStartTime }) !== "match") {
+      log(`tool pid=${toolPid(candidate)} of agy pid=${job.agyPid} not signalled: not confirmed as this job's process`);
+      continue;
+    }
+    if (cleanupNow() + 21_000 > deadline) { budgetUsed(); continue; }
+    let outcome;
+    try { outcome = (await terminateTree(candidate.pid)).outcome; } catch { outcome = "failed"; }
+    log(`tool pid=${candidate.pid} of agy pid=${job.agyPid} outcome=${outcome}`);
+  }
+}
+
 /**
  * Persist and log the terminal state for a job whose worker vanished
  * without recording a result. Terminates the recorded `agyPid` FIRST, before
@@ -2023,8 +2133,7 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
  * take it with it, and `resolveCancelableJob` (job-control.mjs) only matches
  * `running`/`queued` jobs — once this function's own `patchJob` call below
  * lands, a later `/antigravity:cancel` can no longer find the job at all, so
- * a live `agyPid` would be orphaned with no reachable way to stop it (plan
- * 086 T5e F4). The PID is signalled only when `checkProcessIdentity` says it
+ * a live `agyPid` would be orphaned with no reachable way to stop it. The PID is signalled only when `checkProcessIdentity` says it
  * is still the agy process this job started; any other answer (a PID the OS
  * gave to another process, an unreadable start time, a job record with no
  * start time) only logs that it was not signalled. Termination failures are
@@ -2040,27 +2149,43 @@ function isWorkerVanished(job, workerPid, isProcessAlive) {
  *   readStartTime: typeof readProcessStartTime }} deps
  * @returns {Promise<import('./types.mjs').JobRecord>}
  */
-async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime }) {
+async function markWorkerVanished(workspaceRoot, jobId, workerPid, job, deps) {
+  const { terminateTree, isProcessAlive, readStartTime } = deps;
+  const decision = await withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+    const fresh = readJobFile(workspaceRoot, jobId, { strict: true });
+    const vanished = Boolean(fresh && Number(fresh.workerPid ?? fresh.pid) === workerPid &&
+      isWorkerVanished(fresh, workerPid, isProcessAlive));
+    return { fresh, vanished };
+  });
+  if (!decision.vanished) return decision.fresh;
+  job = decision.fresh;
   const agyPid = Number(job.agyPid);
   if (Number.isInteger(agyPid) && agyPid > 0) {
     const identity = checkProcessIdentity(agyPid, job.agyProcessStartedAt, { isProcessAlive, readStartTime });
     if (identity === "match") {
       await terminateTree(agyPid).catch(() => {});
-    } else if (identity !== "gone") {
+    } else if (identity === "gone") {
+      await cleanupConfirmedTools(workspaceRoot, job, deps);
+    } else {
       appendJobLog(workspaceRoot, jobId, `[wait] agy pid=${agyPid} not signalled: not confirmed as this job's process`);
     }
   }
-  const failed = await patchJob(workspaceRoot, jobId, {
-    status: "failed",
-    phase: "worker_missing",
-    completedAt: new Date().toISOString(),
-    healthStatus: "worker_missing",
-    healthMessage: `Worker process ${workerPid} vanished before recording a terminal result.`,
-    recommendedAction: "Inspect the job log, then retry the task.",
-    errorMessage: `Background worker process ${workerPid} is no longer running.`,
+  return withWorkspaceMutex(resolveStateDir(workspaceRoot), () => {
+    const fresh = readJobFile(workspaceRoot, jobId, { strict: true });
+    if (!fresh || !['running', 'queued'].includes(fresh.status) ||
+        Number(fresh.workerPid ?? fresh.pid) !== workerPid) return fresh;
+    const failed = patchJobStateUnlocked(workspaceRoot, jobId, {
+      status: "failed",
+      phase: "worker_missing",
+      completedAt: new Date().toISOString(),
+      healthStatus: "worker_missing",
+      healthMessage: `Worker process ${workerPid} vanished before recording a terminal result.`,
+      recommendedAction: "Inspect the job log, then retry the task.",
+      errorMessage: `Background worker process ${workerPid} is no longer running.`,
+    });
+    appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
+    return failed;
   });
-  appendJobLog(workspaceRoot, jobId, `[wait] worker pid=${workerPid} vanished; marked failed`);
-  return failed;
 }
 
 export async function waitForJob(
@@ -2074,16 +2199,20 @@ export async function waitForJob(
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
     terminateTree = terminateProcessTree,
     readStartTime = readProcessStartTime,
+    queryChildren = queryProcessChildren,
+    platform,
+    cleanupNow,
   } = {},
 ) {
   const deadline = timeoutMs > 0 ? now() + timeoutMs : null;
   const TERMINAL = new Set(["completed", "failed", "cancelled"]);
   while (true) {
-    const job = readJobFile(workspaceRoot, jobId);
+    let job = readJobFile(workspaceRoot, jobId);
     if (!job || TERMINAL.has(job.status)) return job;
-    const workerPid = Number(job?.workerPid ?? job?.pid);
+    const workerPid = Number(job.workerPid ?? job.pid);
     if (isWorkerVanished(job, workerPid, isProcessAlive)) {
-      return markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime });
+      job = await markWorkerVanished(workspaceRoot, jobId, workerPid, job, { terminateTree, isProcessAlive, readStartTime, queryChildren, platform, cleanupNow });
+      if (!job || TERMINAL.has(job.status)) return job;
     }
     if (deadline !== null && now() >= deadline) return job;
     await sleep(pollMs);
@@ -2095,8 +2224,7 @@ export async function waitForJob(
  * trailing newline does not add a line) for a stored answer text — computed
  * at job finish from the same `result.stdout` `buildStoredResult` projects,
  * for both the foreground path (below) and the background worker
- * (`_worker.mjs`). `null` for both fields when there is no answer text
- * (076-T7 R1).
+ * (`_worker.mjs`). `null` for both fields when there is no answer text.
  *
  * @param {unknown} answer
  * @returns {{ answerBytes: number | null, answerLines: number | null }}
@@ -2114,7 +2242,7 @@ export function deriveAnswerSize(answer) {
 /**
  * First non-blank line of a run's stdout, truncated to 120 chars — the one
  * summary derivation used by both the foreground path and the background
- * worker (item 16).
+ * worker.
  *
  * @param {{ stdout?: string | null }} result
  * @returns {string | null}
@@ -2145,3 +2273,84 @@ export function storedErrorMessage(result, failed) {
 
 /** Re-export so command modules can pull everything from one place. */
 export { runAgyPrint, resolveAgyBin };
+
+/** Resolve explicit choices before replaying any stored choice. Exact ids never probe. */
+export async function resolveRequestModel({ modelOption, aliasOption, effort, probe = probeAgyModels,
+  workspaceRoot, kind, mode, conversationId, env }) {
+  if (modelOption && aliasOption) return { ok: false, reason: "cannot combine --model and --model-alias" };
+  if (modelOption) return { ok: true, model: String(modelOption), request: {} };
+  if (aliasOption) {
+    const alias = String(aliasOption);
+    const listing = await probe();
+    const parsed = listing.ok ? parseModelsListing(listing.text) : listing;
+    if (!parsed.ok) return { ok: false, reason: `model-alias listing unavailable (${parsed.reason}); ` +
+      "run setup or pass --model <id>" };
+    const selected = selectAliasModel(parsed.rows, alias, effort);
+    if (!selected.ok) return selected;
+    return { ok: true, model: selected.model,
+      request: { requestedAlias: alias, resolvedModel: selected.model } };
+  }
+  if (workspaceRoot && ["task", "rescue"].includes(kind) && ["continue", "conversation"].includes(mode)) {
+    const job = findResumedJob(workspaceRoot, { kind, conversationId, env });
+    // Old jobs need no lock or listing; replay only a stored, non-empty id.
+    const stored = job?.provenance?.resolvedModel;
+    if (typeof stored === "string" && stored.trim()) {
+      return { ok: true, model: stored, request: { resolvedModel: stored, replayedFromJobId: job.id } };
+    }
+  }
+  return { ok: true, model: undefined, request: {} };
+}
+
+export function reportModelResolutionFailure(kind, resolution, json) {
+  process.stderr.write(`antigravity:${kind}: ${resolution.reason}\n`);
+  outputCommandResult(createErrorEnvelope(kind, { status: "invalid_input",
+    error: { code: "model_alias_unavailable", phase: "validate", message: resolution.reason } }), "", Boolean(json));
+  return 1;
+}
+
+export function modelSelectionDetails(job, result) {
+  const provenance = job.provenance ?? {};
+  const details = provenance.requestedAlias ? { modelAlias: {
+    requestedAlias: provenance.requestedAlias, resolvedModel: provenance.resolvedModel, listingSource: "agy models",
+  } } : {};
+  const requested = provenance.resolvedModel ?? provenance.model;
+  if (typeof requested === "string" && typeof result.reportedModel === "string") {
+    details.modelMismatch = requested.trim().toLowerCase() !== result.reportedModel.trim().toLowerCase();
+  }
+  return details;
+}
+
+export function reportedModelMismatchLine(kind, result, provenance) {
+  if (!modelSelectionDetails({ provenance }, result).modelMismatch) return null;
+  const requested = provenance.resolvedModel ?? provenance.model;
+  return `antigravity:${kind} — warning: agy reported model ${JSON.stringify(result.reportedModel)}, ` +
+    `requested ${JSON.stringify(requested)}.`;
+}
+
+/** Build a display copy of the runtime argv, without resolving aliases or writing state. */
+export function buildRunPreview({ kind, prompt, options, addDirs = [], extraArgs = [], defaultModel, details = {} }) {
+  const alias = options['model-alias'] ?? null;
+  const model = alias ? '<unresolved alias>' : options.model ?? defaultModel ?? null;
+  const effort = kind === 'task' || kind === 'rescue'
+    ? agyEffortArg(resolveRequestEffort(options.effort, model)) : undefined;
+  const argv = agentRuntime.buildAgyArgs({ mode: 'print', addDirs, model, effort, extraArgs, timeoutMs: agyTimeoutMs() });
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--add-dir') argv[++i] = String(addDirs.length);
+  }
+  return { prompt, argv, model: alias ? null : model, modelAlias: alias,
+    modelResolution: alias ? 'unresolved' : model ? 'exact' : 'default',
+    modelResolutionNote: alias ? 'The real run resolves this alias through agy models.' : null,
+    addDirCount: addDirs.length, ...details };
+}
+
+export function reportRunPreview(input) {
+  const { kind, options } = input;
+  const details = buildRunPreview(input);
+  outputCommandResult(createJsonEnvelope(kind, { status: 'preview', jobId: null, answer: null, details }),
+    JSON.stringify(details, null, 2).replace(/[\u007f-\u009f]/g, (char) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')) + '\n', options.json);
+  return 0;
+}
+
+export function previewConflicts(flags) {
+  return flags.map((flag) => ['preview', flag]);
+}

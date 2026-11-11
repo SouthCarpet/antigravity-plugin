@@ -13,6 +13,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -104,7 +105,7 @@ function verbsFromSkillMd(source) {
 /**
  * The Codex install recipe's own verb sentence in docs/INSTALL.md ("Verbs:
  * `setup`, ..., `doctor`."), the exact line the review found stale (missing
- * `doctor`) because Task 15's sweep only matched the literal strings "eight
+ * `doctor`) because an earlier sweep only matched the literal strings "eight
  * verb"/"eight commands"/etc., which this sentence never contained.
  */
 function verbsFromInstallMd(source) {
@@ -124,7 +125,19 @@ function uniqueSorted(list) {
  * below. A ninth verb added in one place and forgotten in another names the
  * exact neglected surface instead of a single "some surface failed" case.
  */
+const help = spawnSync(process.execPath, ['bin/antigravity.mjs', '--help'], {
+  cwd: ROOT, encoding: 'utf8', windowsHide: true,
+  env: { ...process.env, AGY_BIN: path.join(ROOT, 'missing-agy'), ANTIGRAVITY_NO_UPDATE_CHECK: '1' },
+});
+assert.equal(help.status, 0, help.stderr);
+const helpCommands = help.stdout.split('Commands:\n')[1]?.split('Standalone only')[0];
+assert.ok(helpCommands, 'top-level help has a Commands section');
+
 const SURFACES = [
+  {
+    name: 'standalone --help command list',
+    verbs: [...helpCommands.matchAll(/^  ([a-z]+) +/gm)].map(match => match[1]),
+  },
   {
     name: 'bin/antigravity.mjs dispatcher',
     verbs: verbsFromKnownDispatcher(read('bin/antigravity.mjs')),
@@ -154,7 +167,7 @@ const SURFACES = [
 /**
  * The approved 3.x public command surface, copied verbatim from
  * docs/COMPATIBILITY.md ("The public verbs are exactly: ..."). This is the
- * independent oracle (TotT R19): it comes from the contract document, never
+ * independent oracle: it comes from the contract document, never
  * from reading any of the surfaces under test.
  */
 const EXPECTED_VERBS = uniqueSorted([

@@ -38,14 +38,18 @@ import path from "node:path";
 const CSHARP_SOURCE = `using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
 class Program {
+    [DllImport("kernel32.dll")] static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+
     static int Main(string[] args) {
         string exePath = Process.GetCurrentProcess().MainModule.FileName;
         string controlPath = exePath + ".control.txt";
-        string stdout = "", stderr = "", touchFile = "", helpText = "";
+        string stdout = "", stderr = "", touchFile = "", helpText = "", modelsText = "", consoleReportFile = "";
         int exitCode = 0, delayMs = 0;
         bool echoArgs = false, echoArgsStderr = false, versionOk = false, readStdin = false;
         if (File.Exists(controlPath)) {
@@ -64,20 +68,33 @@ class Program {
                     case "STDOUT_B64": stdout = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "STDERR_B64": stderr = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "TOUCH_FILE": touchFile = val; break;
+                    case "CONSOLE_REPORT_FILE": consoleReportFile = val; break;
+                    case "MODELSTEXT_B64": modelsText = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                     case "HELPTEXT_B64": helpText = Encoding.UTF8.GetString(Convert.FromBase64String(val)); break;
                 }
             }
         }
         // Written on every invocation, before anything else: a test proves
         // "agy was never spawned" by pointing this at a scratch path and
-        // asserting the file is absent (Task 5, "Senate R5", 2026-09).
+        // asserting the file is absent (added 2026-09).
         if (touchFile.Length > 0) File.WriteAllText(touchFile, "");
+        // Report the console this process got, so a test
+        // can prove that a child of the console-less worker has no window.
+        if (consoleReportFile.Length > 0) {
+            IntPtr window = GetConsoleWindow();
+            bool visible = window != IntPtr.Zero && IsWindowVisible(window);
+            File.WriteAllText(consoleReportFile, "window=" + (window != IntPtr.Zero ? "1" : "0") + " visible=" + (visible ? "1" : "0"));
+        }
         if (versionOk && args.Length == 1 && args[0] == "--version") {
             Console.Out.WriteLine("0.0.0-fake");
             return 0;
         }
         if (helpText.Length > 0 && args.Length == 1 && args[0] == "--help") {
             Console.Out.Write(helpText);
+            return 0;
+        }
+        if (modelsText.Length > 0 && args.Length == 1 && args[0] == "models") {
+            Console.Out.Write(modelsText);
             return 0;
         }
         if (echoArgs) {
@@ -109,14 +126,14 @@ function resolveCsc() {
   return "csc"; // last resort: hope it's on PATH
 }
 
-let cachedTemplatePath = null;
+const cachedTemplatePaths = new Map();
 
 /**
  * Compile (or reuse a cached compile of) the fake-agy template exe.
  *
  * `node --test` runs each test file in its own process, so the four test
  * files that call `writeFakeAgy` each load a fresh copy of this module: the
- * `cachedTemplatePath` variable above is not shared between them. Without
+ * `cachedTemplatePaths` map above is not shared between them. Without
  * care, several of those processes race to compile the SAME content-hashed
  * output path at once, and `csc.exe` refuses a concurrent writer with
  * `error CS0016: Could not write to output file '...' -- 'The process
@@ -129,15 +146,22 @@ let cachedTemplatePath = null;
  * the shared cache name with an atomic rename. If another process already
  * won that promotion, this process's compile is simply discarded. The
  * shared cache still ends up with one valid, complete exe either way.
+ *
+ * Exported so that another Windows stand-in (tests/helpers/slow-powershell.mjs)
+ * compiles its own C# source through the same cache.
+ *
+ * @param {string} source C# source of one console program
+ * @returns {string} path of the compiled, cached exe
  */
-function ensureTemplateExe() {
+export function compileCsharpExe(source) {
+  const cachedTemplatePath = cachedTemplatePaths.get(source);
   if (cachedTemplatePath && fs.existsSync(cachedTemplatePath)) return cachedTemplatePath;
 
-  const hash = createHash("sha256").update(CSHARP_SOURCE).digest("hex").slice(0, 16);
+  const hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
   const cacheDir = path.join(os.tmpdir(), "antigravity-fake-agy-template");
   const exePath = path.join(cacheDir, `template-${hash}.exe`);
   if (fs.existsSync(exePath)) {
-    cachedTemplatePath = exePath;
+    cachedTemplatePaths.set(source, exePath);
     return exePath;
   }
 
@@ -145,7 +169,7 @@ function ensureTemplateExe() {
   const unique = `${process.pid}-${randomBytes(4).toString("hex")}`;
   const srcPath = path.join(cacheDir, `template-${hash}-${unique}.cs`);
   const tmpExePath = path.join(cacheDir, `template-${hash}-${unique}.exe`);
-  fs.writeFileSync(srcPath, CSHARP_SOURCE, "utf8");
+  fs.writeFileSync(srcPath, source, "utf8");
   execFileSync(resolveCsc(), ["/nologo", `/out:${tmpExePath}`, srcPath], { stdio: "pipe" });
 
   if (!fs.existsSync(exePath)) {
@@ -158,12 +182,12 @@ function ensureTemplateExe() {
   fs.rmSync(srcPath, { force: true });
   fs.rmSync(tmpExePath, { force: true });
 
-  cachedTemplatePath = exePath;
+  cachedTemplatePaths.set(source, exePath);
   return exePath;
 }
 
-function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin }) {
-  const template = ensureTemplateExe();
+function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, modelsText, readStdin, consoleReportFile }) {
+  const template = compileCsharpExe(CSHARP_SOURCE);
   const exePath = path.join(dir, `${name}.exe`);
   fs.copyFileSync(template, exePath);
   const lines = [
@@ -176,6 +200,8 @@ function writeWindowsStub(dir, name, { stdout, stderr, exitCode, delayMs, echoAr
     `STDOUT_B64=${Buffer.from(stdout, "utf8").toString("base64")}`,
     `STDERR_B64=${Buffer.from(stderr, "utf8").toString("base64")}`,
     `TOUCH_FILE=${touchFile}`,
+    `CONSOLE_REPORT_FILE=${consoleReportFile}`,
+    `MODELSTEXT_B64=${Buffer.from(modelsText, "utf8").toString("base64")}`,
     `HELPTEXT_B64=${Buffer.from(helpText, "utf8").toString("base64")}`,
   ];
   fs.writeFileSync(`${exePath}.control.txt`, `${lines.join("\n")}\n`, "utf8");
@@ -187,17 +213,20 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin }) {
+function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, modelsText, readStdin }) {
   const lines = ["#!/bin/sh"];
   // Written on every invocation, before anything else: a test proves "agy
   // was never spawned" by pointing this at a scratch path and asserting the
-  // file is absent (Task 5, "Senate R5", 2026-09).
+  // file is absent (added 2026-09).
   if (touchFile) lines.push(`: > ${shQuote(touchFile)}`);
   if (versionOk) {
     lines.push('if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then echo 0.0.0-fake; exit 0; fi');
   }
   if (helpText) {
     lines.push(`if [ "$#" -eq 1 ] && [ "$1" = "--help" ]; then printf '%s' ${shQuote(helpText)}; exit 0; fi`);
+  }
+  if (modelsText) {
+    lines.push(`if [ "$#" -eq 1 ] && [ "$1" = "models" ]; then printf '%s' ${shQuote(modelsText)}; exit 0; fi`);
   }
   if (echoArgs) {
     lines.push('for a in "$@"; do echo arg=$a; done');
@@ -230,6 +259,7 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
  *   versionOk?: boolean,
  *   readStdin?: boolean,
  *   touchFile?: string,
+ *   consoleReportFile?: string,
  * }} [opts] `echoArgs` prints one `arg=<value>` line per argv entry to
  *   stdout; `echoArgsStderr` does the same to stderr (useful when a verb
  *   only surfaces the child's stderr, i.e. on failure). `versionOk` answers
@@ -237,10 +267,13 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
  *   settings, so a fake that fails the run still passes the verbs' probe.
  *   `readStdin` consumes stdin until EOF before exit, so a print-mode fake
  *   waits for the prompt write without a timing delay.
- *   `touchFile` (Task 5, "Senate R5", 2026-09), when given, writes an empty
+ *   `touchFile` (added 2026-09), when given, writes an empty
  *   file at that path on every invocation, before anything else runs — the
  *   proof a test needs that this binary was never spawned at all.
- *   `helpText` (Senate R2, 2026-09), when given, answers a lone `--help`
+ *   `consoleReportFile` (win32 only, the POSIX stub ignores it), when given, writes `window=<0|1> visible=<0|1>` to that
+ *   path on every invocation: whether this process has a console window and
+ *   whether that window is visible.
+ *   `helpText` (added 2026-09), when given, answers a lone `--help`
  *   with that exact text and exit 0, distinct from `versionOk`'s `--version`
  *   answer and from the generic `stdout` option: `doctor`'s flag-listing
  *   check needs `--help` output that differs from a `--version` probe.
@@ -249,9 +282,10 @@ function writePosixStub(dir, name, { stdout, stderr, exitCode, delayMs, echoArgs
 export function writeFakeAgy(dir, name, opts = {}) {
   const {
     stdout = "", stderr = "", exitCode = 0, delayMs = 0, echoArgs = false, echoArgsStderr = false,
-    versionOk = false, touchFile = "", helpText = "", readStdin = false,
+    versionOk = false, touchFile = "", helpText = "", modelsText = "", readStdin = false,
+    consoleReportFile = "",
   } = opts;
-  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, readStdin };
+  const normalized = { stdout, stderr, exitCode, delayMs, echoArgs, echoArgsStderr, versionOk, touchFile, helpText, modelsText, readStdin, consoleReportFile };
   return process.platform === "win32"
     ? writeWindowsStub(dir, name, normalized)
     : writePosixStub(dir, name, normalized);
