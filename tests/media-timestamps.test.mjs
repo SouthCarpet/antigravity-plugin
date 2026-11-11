@@ -112,7 +112,8 @@ for (const [name, cue] of [
   test(`a malformed cue time (${name}) gives an unknown time, drops the cue line and never prints NaN`, () => {
     const output = transcriptTextWithTimestamps(`${cue}\nSpoken`);
     assert.equal(output, '[--:--:--] Spoken');
-    assert.doesNotMatch(output, /NaN|Infinity|undefined|null|-->/);
+    assert.doesNotMatch(output, /NaN|Infinity|undefined|null/);
+    assert.equal(output.includes('-->'), false, 'the cue arrow must not reach the output');
   });
 }
 
